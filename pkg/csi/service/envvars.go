@@ -14,31 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provider
+package service
 
-import (
-	"github.com/rexray/gocsi"
-
-	"k8s.io/cloud-provider-vsphere/pkg/csi/service"
+const (
+	// EnvAPI is the name of the API to use with vSphere
+	EnvAPI = "X_CSI_VSPHERE_APINAME"
 )
-
-// New returns a new CSI Storage Plug-in Provider.
-func New() gocsi.StoragePluginProvider {
-	svc := service.New()
-	ctrl := svc.GetController()
-
-	return &gocsi.StoragePlugin{
-		Controller:  ctrl,
-		Identity:    svc,
-		Node:        svc,
-		BeforeServe: svc.BeforeServe,
-
-		EnvVars: []string{
-			// Enable request validation.
-			gocsi.EnvVarSpecReqValidation + "=true",
-
-			// Enable serial volume access.
-			gocsi.EnvVarSerialVolAccess + "=true",
-		},
-	}
-}

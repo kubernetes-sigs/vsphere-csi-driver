@@ -30,7 +30,13 @@ func main() {
 	gocsi.Run(
 		context.Background(),
 		service.Name,
-		"A description of the SP",
-		"",
+		"A CSI plugin for VMware vSphere storage",
+		usage,
 		provider.New())
 }
+
+const usage = `    X_CSI_VSPHERE_APINAME
+        Specifies the name of the API to use when talking to vCenter
+
+				The default value is "FCD" (First Class Disk)
+`

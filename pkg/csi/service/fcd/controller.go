@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package service
+package fcd
 
 import (
 	"golang.org/x/net/context"
@@ -22,7 +22,17 @@ import (
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
 )
 
-func (s *service) CreateVolume(
+type Controller interface {
+	csi.ControllerServer
+}
+
+type controller struct{}
+
+func New() Controller {
+	return &controller{}
+}
+
+func (c *controller) CreateVolume(
 	ctx context.Context,
 	req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
@@ -30,7 +40,7 @@ func (s *service) CreateVolume(
 	return nil, nil
 }
 
-func (s *service) DeleteVolume(
+func (c *controller) DeleteVolume(
 	ctx context.Context,
 	req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
@@ -38,7 +48,7 @@ func (s *service) DeleteVolume(
 	return nil, nil
 }
 
-func (s *service) ControllerPublishVolume(
+func (c *controller) ControllerPublishVolume(
 	ctx context.Context,
 	req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
@@ -46,7 +56,7 @@ func (s *service) ControllerPublishVolume(
 	return nil, nil
 }
 
-func (s *service) ControllerUnpublishVolume(
+func (c *controller) ControllerUnpublishVolume(
 	ctx context.Context,
 	req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
@@ -54,7 +64,7 @@ func (s *service) ControllerUnpublishVolume(
 	return nil, nil
 }
 
-func (s *service) ValidateVolumeCapabilities(
+func (c *controller) ValidateVolumeCapabilities(
 	ctx context.Context,
 	req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
@@ -62,7 +72,7 @@ func (s *service) ValidateVolumeCapabilities(
 	return nil, nil
 }
 
-func (s *service) ListVolumes(
+func (c *controller) ListVolumes(
 	ctx context.Context,
 	req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
@@ -70,7 +80,7 @@ func (s *service) ListVolumes(
 	return nil, nil
 }
 
-func (s *service) GetCapacity(
+func (c *controller) GetCapacity(
 	ctx context.Context,
 	req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
@@ -78,7 +88,7 @@ func (s *service) GetCapacity(
 	return nil, nil
 }
 
-func (s *service) ControllerGetCapabilities(
+func (c *controller) ControllerGetCapabilities(
 	ctx context.Context,
 	req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
@@ -86,7 +96,7 @@ func (s *service) ControllerGetCapabilities(
 	return nil, nil
 }
 
-func (s *service) CreateSnapshot(
+func (c *controller) CreateSnapshot(
 	ctx context.Context,
 	req *csi.CreateSnapshotRequest) (
 	*csi.CreateSnapshotResponse, error) {
@@ -94,7 +104,7 @@ func (s *service) CreateSnapshot(
 	return nil, nil
 }
 
-func (s *service) DeleteSnapshot(
+func (c *controller) DeleteSnapshot(
 	ctx context.Context,
 	req *csi.DeleteSnapshotRequest) (
 	*csi.DeleteSnapshotResponse, error) {
@@ -102,7 +112,7 @@ func (s *service) DeleteSnapshot(
 	return nil, nil
 }
 
-func (s *service) ListSnapshots(
+func (c *controller) ListSnapshots(
 	ctx context.Context,
 	req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
