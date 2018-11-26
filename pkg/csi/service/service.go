@@ -27,6 +27,7 @@ import (
 	"github.com/rexray/gocsi"
 	log "github.com/sirupsen/logrus"
 
+	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	"k8s.io/cloud-provider-vsphere/pkg/csi/service/fcd"
 )
 
@@ -34,14 +35,15 @@ const (
 	// Name is the name of this CSI SP.
 	Name = "io.k8s.cloud-provider-vsphere.vsphere"
 
-	// Name of FCD API
+	// APIFCD is the FCD API
 	APIFCD = "FCD"
 
 	defaultAPI = APIFCD
 )
 
 var (
-	api = defaultAPI
+	api     = defaultAPI
+	cfgPath = DefaultCloudConfigPath
 )
 
 // Service is a CSI SP and idempotency.Provider.
@@ -64,9 +66,24 @@ func New() Service {
 	if api == "" {
 		api = defaultAPI
 	}
+	cfgPath = os.Getenv(EnvCloudConfig)
+	if cfgPath == "" {
+		cfgPath = DefaultCloudConfigPath
+	}
+
+	//Read in the vsphere.conf
+	config, err := os.Open(cfgPath)
+	if err != nil {
+		log.Fatalln("Failed to open", cfgPath, ". Err:", err)
+	}
+	cfg, err := vcfg.ReadConfig(config)
+	if err != nil {
+		log.Fatalln("Failed to parse config. Err:", err)
+	}
+
 	if strings.EqualFold(APIFCD, api) {
 		return &service{
-			cs: fcd.New(),
+			cs: fcd.New(&cfg),
 		}
 	}
 	return &service{}

@@ -17,19 +17,61 @@ limitations under the License.
 package fcd
 
 import (
+	"time"
+
 	"golang.org/x/net/context"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
+	log "github.com/sirupsen/logrus"
+	clientset "k8s.io/client-go/kubernetes"
+
+	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
+	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
+	k8s "k8s.io/cloud-provider-vsphere/pkg/common/kubernetes"
 )
 
 type Controller interface {
 	csi.ControllerServer
 }
 
-type controller struct{}
+type controller struct {
+	client    *clientset.Interface
+	cfg       *vcfg.Config
+	connMgr   *cm.ConnectionManager
+	informMgr *k8s.InformerManager
+}
 
-func New() Controller {
-	return &controller{}
+func noResyncPeriodFunc() time.Duration {
+	return 0
+}
+
+// New creates a FCD controller
+func New(config *vcfg.Config) Controller {
+	client, err := k8s.NewClient(config.Global.ServiceAccount)
+	if err != nil {
+		log.Fatalln("Creating Kubernetes client failed. Err:", err)
+	}
+
+	informMgr := k8s.NewInformer(&client)
+	connMgr := cm.NewConnectionManager(config, informMgr.GetSecretListener())
+	informMgr.Listen()
+
+	//TODO: uncomment below to test connections. please remove after building out functionality.
+	/*
+		err = connMgr.Verify()
+		if err == nil {
+			log.Infoln("connMgr.Verify() Succeeded")
+		} else {
+			log.Errorln("connMgr.Verify() Failed. Err:", err)
+		}
+	*/
+
+	return &controller{
+		client:    &client,
+		cfg:       config,
+		connMgr:   connMgr,
+		informMgr: informMgr,
+	}
 }
 
 func (c *controller) CreateVolume(

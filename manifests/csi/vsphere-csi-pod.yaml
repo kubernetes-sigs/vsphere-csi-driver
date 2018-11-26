@@ -1,0 +1,82 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-controller
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    scheduler.alpha.kubernetes.io/critical-pod: ""
+  labels:
+    component: csi-controller
+    tier: control-plane
+  name: vsphere-csi-controller
+  namespace: kube-system
+spec:
+  containers:
+    - name: vsphere-csi
+      image: gcr.io/cloud-provider-vsphere/vsphere-csi:latest
+      env:
+        - name: VSPHERE_KUBE_CONFIG
+          value: "*"
+      volumeMounts:
+        - mountPath: /etc/kubernetes/pki
+          name: k8s-certs
+          readOnly: true
+        - mountPath: /etc/ssl/certs
+          name: ca-certs
+          readOnly: true
+        - mountPath: /etc/kubernetes/controller-manager.conf
+          name: kubeconfig
+          readOnly: true
+        - mountPath: /usr/libexec/kubernetes/kubelet-plugins/volume/exec
+          name: flexvolume-dir
+        - mountPath: /etc/cloud
+          name: cloud-config-volume
+          readOnly: true
+      resources:
+        requests:
+          cpu: 200m
+  hostNetwork: true
+  securityContext:
+    runAsUser: 1001
+  serviceAccountName: csi-controller
+  volumes:
+  - hostPath:
+      path: /usr/libexec/kubernetes/kubelet-plugins/volume/exec
+      type: DirectoryOrCreate
+    name: flexvolume-dir
+  - hostPath:
+      path: /etc/kubernetes/pki
+      type: DirectoryOrCreate
+    name: k8s-certs
+  - hostPath:
+      path: /etc/ssl/certs
+      type: DirectoryOrCreate
+    name: ca-certs
+  - hostPath:
+      path: /etc/kubernetes/controller-manager.conf
+      type: FileOrCreate
+    name: kubeconfig
+  - name: cloud-config-volume
+    configMap:
+      name: cloud-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    component: csi-controller
+  name: vsphere-csi-controller
+  namespace: kube-system
+spec:
+  type: NodePort
+  ports:
+    - port: 43001
+      protocol: TCP
+      targetPort: 43001
+  selector:
+    component: csi-controller
