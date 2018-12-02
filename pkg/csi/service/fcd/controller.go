@@ -17,17 +17,20 @@ limitations under the License.
 package fcd
 
 import (
+	"strconv"
 	"time"
 
 	"golang.org/x/net/context"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
 	log "github.com/sirupsen/logrus"
+	"github.com/vmware/govmomi/units"
 	clientset "k8s.io/client-go/kubernetes"
 
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
 	k8s "k8s.io/cloud-provider-vsphere/pkg/common/kubernetes"
+	"k8s.io/cloud-provider-vsphere/pkg/common/vclib"
 )
 
 type Controller interface {
@@ -55,16 +58,6 @@ func New(config *vcfg.Config) Controller {
 	informMgr := k8s.NewInformer(&client)
 	connMgr := cm.NewConnectionManager(config, informMgr.GetSecretListener())
 	informMgr.Listen()
-
-	//TODO: uncomment below to test connections. please remove after building out functionality.
-	/*
-		err = connMgr.Verify()
-		if err == nil {
-			log.Infoln("connMgr.Verify() Succeeded")
-		} else {
-			log.Errorln("connMgr.Verify() Failed. Err:", err)
-		}
-	*/
 
 	return &controller{
 		client:    &client,
@@ -119,7 +112,76 @@ func (c *controller) ListVolumes(
 	req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
-	return nil, nil
+	//TODO: zones are currently unimplemented. supports single VC/DC only.
+	zone := "TODO"
+	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(zone)
+	if err != nil {
+		log.Errorf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
+		return nil, err
+	}
+
+	firstClassDisks, err := discoveryInfo.DataCenter.GetAllFirstClassDisks(ctx)
+	if err != nil {
+		log.Errorf("GetAllFirstClassDisks failed. Err: %v", err)
+		return nil, err
+	}
+
+	total := len(firstClassDisks)
+
+	start := 0
+	if req.StartingToken != "" {
+		start, err = strconv.Atoi(req.StartingToken)
+		if err != nil {
+			log.Errorf("Invalid starting token %s. Err: %v", req.StartingToken, err)
+			return nil, ErrListInvalidNextToken
+		}
+	}
+
+	stop := total
+	if req.MaxEntries != 0 && stop > int(req.MaxEntries) {
+		stop = start + int(req.MaxEntries)
+	}
+
+	log.Infof("Start: %d, End: %d, Total: %d", start, stop, total)
+
+	resp := &csi.ListVolumesResponse{}
+
+	subsetFirstClassDisks := firstClassDisks
+	if stop >= total {
+		subsetFirstClassDisks = firstClassDisks[start:]
+	} else if stop < total {
+		subsetFirstClassDisks = firstClassDisks[start:(stop - 1)]
+	}
+
+	for _, firstClassDisk := range subsetFirstClassDisks {
+		attributes := make(map[string]string)
+		attributes[AttributeFirstClassDiskType] = FirstClassDiskTypeString
+		attributes[AttributeFirstClassDiskName] = firstClassDisk.Config.Name
+		attributes[AttributeFirstClassDiskParentType] = string(firstClassDisk.ParentType)
+		if firstClassDisk.ParentType == vclib.TypeDatastoreCluster {
+			attributes[AttributeFirstClassDiskParentName] = firstClassDisk.StoragePodInfo.Summary.Name
+			attributes[AttributeFirstClassDiskOwningDatastore] = firstClassDisk.DatastoreInfo.Info.Name
+		} else {
+			attributes[AttributeFirstClassDiskParentName] = firstClassDisk.DatastoreInfo.Info.Name
+		}
+
+		resp.Entries = append(resp.Entries, &csi.ListVolumesResponse_Entry{
+			Volume: &csi.Volume{
+				Id:            firstClassDisk.Config.Id.Id,
+				CapacityBytes: int64(units.FileSize(firstClassDisk.Config.CapacityInMB * MbInBytes)),
+				Attributes:    attributes,
+				//TODO: ContentSource?
+				//TODO: AccessibleTopology, needed when we support multiple VC/DC combos
+			},
+		})
+	}
+
+	if stop < total {
+		resp.NextToken = strconv.Itoa(stop)
+		log.Infoln("Next token is", resp.NextToken)
+	}
+
+	return resp, nil
 }
 
 func (c *controller) GetCapacity(
@@ -135,7 +197,17 @@ func (c *controller) ControllerGetCapabilities(
 	req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
 
-	return nil, nil
+	return &csi.ControllerGetCapabilitiesResponse{
+		Capabilities: []*csi.ControllerServiceCapability{
+			&csi.ControllerServiceCapability{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+					},
+				},
+			},
+		},
+	}, nil
 }
 
 func (c *controller) CreateSnapshot(
