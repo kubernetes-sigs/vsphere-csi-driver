@@ -17,6 +17,7 @@ limitations under the License.
 package fcd
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -25,7 +26,10 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi/units"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	clientset "k8s.io/client-go/kubernetes"
+	volumeutil "k8s.io/kubernetes/pkg/volume/util"
 
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
@@ -72,7 +76,106 @@ func (c *controller) CreateVolume(
 	req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 
-	return nil, nil
+	// Get create params
+	params := req.GetParameters()
+
+	// Volume Name
+	volName := req.GetName()
+
+	//check for required parameters
+	if params == nil {
+		msg := fmt.Sprintf("Create parameters is a required parameter.")
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if len(volName) == 0 {
+		msg := fmt.Sprintf("Volume name is a required parameter.")
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if len(params[AttributeFirstClassDiskParentType]) == 0 {
+		msg := fmt.Sprintf("Volume parameter %s is a required parameter.", AttributeFirstClassDiskParentType)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if len(params[AttributeFirstClassDiskParentName]) == 0 {
+		msg := fmt.Sprintf("Volume parameter %s is a required parameter.", AttributeFirstClassDiskParentName)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(DefaultGbDiskSize * GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
+	volSizeMB := int64(volumeutil.RoundUpSize(volSizeBytes, GbInBytes)) * 1024
+
+	// Volume Type
+	datastoreType := vclib.TypeDatastoreCluster
+	volType := params[AttributeFirstClassDiskParentType]
+	if volType == string(vclib.TypeDatastore) {
+		datastoreType = vclib.TypeDatastore
+	}
+
+	datastoreName := params[AttributeFirstClassDiskParentName]
+
+	//TODO: zones are currently unimplemented. supports single VC/DC only.
+	// Please see function for more details
+	zone := "TODO"
+	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(ctx, zone)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	firstClassDisk, err := discoveryInfo.DataCenter.GetFirstClassDisk(
+		ctx, datastoreName, datastoreType, volName, vclib.FindFCDByName)
+	if err == nil {
+		log.Warningf("Volume with name %s already exists. Checking for similar parameters.", volName)
+
+		if firstClassDisk.Config.CapacityInMB != volSizeMB {
+			msg := fmt.Sprintf("Volume already exists but requesting different size. Existing %d != Requested %d",
+				firstClassDisk.Config.CapacityInMB, volSizeMB)
+			log.Errorf(msg)
+			return nil, status.Errorf(codes.AlreadyExists, msg)
+		}
+	} else {
+		err = discoveryInfo.DataCenter.CreateFirstClassDisk(ctx, datastoreName, datastoreType, volName, volSizeMB)
+		if err != nil {
+			msg := fmt.Sprintf("CreateFirstClassDisk failed. Err: %v", err)
+			log.Errorf(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+
+		firstClassDisk, err = discoveryInfo.DataCenter.GetFirstClassDisk(
+			ctx, datastoreName, datastoreType, volName, vclib.FindFCDByName)
+		if err != nil {
+			msg := fmt.Sprintf("GetFirstClassDiskByName(%s) failed. Err: %v", volName, err)
+			log.Errorf(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+
+	attributes := make(map[string]string)
+	attributes[AttributeFirstClassDiskType] = FirstClassDiskTypeString
+	attributes[AttributeFirstClassDiskName] = firstClassDisk.Config.Name
+	attributes[AttributeFirstClassDiskParentType] = string(firstClassDisk.ParentType)
+	if firstClassDisk.ParentType == vclib.TypeDatastoreCluster {
+		attributes[AttributeFirstClassDiskParentName] = firstClassDisk.StoragePodInfo.Summary.Name
+		attributes[AttributeFirstClassDiskOwningDatastore] = firstClassDisk.DatastoreInfo.Info.Name
+	} else {
+		attributes[AttributeFirstClassDiskParentName] = firstClassDisk.DatastoreInfo.Info.Name
+	}
+
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      firstClassDisk.Config.Id.Id,
+			CapacityBytes: int64(units.FileSize(firstClassDisk.Config.CapacityInMB * MbInBytes)),
+			VolumeContext: attributes,
+			//TODO: ContentSource?
+		},
+	}
+
+	return resp, nil
 }
 
 func (c *controller) DeleteVolume(
@@ -80,7 +183,40 @@ func (c *controller) DeleteVolume(
 	req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 
-	return nil, nil
+	//check for required parameters
+	if len(req.VolumeId) == 0 {
+		msg := fmt.Sprintf("Volume ID is a required parameter.")
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	discoveryInfo, err := c.connMgr.WhichVCandDCByFCDId(ctx, req.VolumeId)
+	if err == vclib.ErrNoDiskIDFound {
+		log.Warningf("Failed to retrieve VC/DC based on FCDID %s. Err: %v", req.VolumeId, err)
+		return &csi.DeleteVolumeResponse{}, nil
+	} else if err != nil {
+		msg := fmt.Sprintf("WhichVCandDCByFCDId(%s) failed. Err: %v", req.VolumeId, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	// Volume Type
+	var datastoreName string
+	datastoreType := discoveryInfo.FCDInfo.ParentType
+	if datastoreType == vclib.TypeDatastore {
+		datastoreName = discoveryInfo.FCDInfo.DatastoreInfo.Info.Name
+	} else {
+		datastoreName = discoveryInfo.FCDInfo.StoragePodInfo.Summary.Name
+	}
+
+	err = discoveryInfo.DataCenter.DeleteFirstClassDisk(ctx, datastoreName, datastoreType, req.VolumeId)
+	if err != nil {
+		msg := fmt.Sprintf("DeleteFirstClassDisk(%s) failed. Err: %v", req.VolumeId, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 func (c *controller) ControllerPublishVolume(
@@ -113,17 +249,20 @@ func (c *controller) ListVolumes(
 	*csi.ListVolumesResponse, error) {
 
 	//TODO: zones are currently unimplemented. supports single VC/DC only.
+	// Please see function for more details
 	zone := "TODO"
-	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(zone)
+	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(ctx, zone)
 	if err != nil {
-		log.Errorf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
-		return nil, err
+		msg := fmt.Sprintf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	firstClassDisks, err := discoveryInfo.DataCenter.GetAllFirstClassDisks(ctx)
 	if err != nil {
-		log.Errorf("GetAllFirstClassDisks failed. Err: %v", err)
-		return nil, err
+		msg := fmt.Sprintf("GetAllFirstClassDisks failed. Err: %v", err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	total := len(firstClassDisks)
@@ -132,8 +271,9 @@ func (c *controller) ListVolumes(
 	if req.StartingToken != "" {
 		start, err = strconv.Atoi(req.StartingToken)
 		if err != nil {
-			log.Errorf("Invalid starting token %s. Err: %v", req.StartingToken, err)
-			return nil, ErrListInvalidNextToken
+			msg := fmt.Sprintf("Invalid starting token %s. Err: %v", req.StartingToken, err)
+			log.Errorf(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
 
@@ -171,7 +311,6 @@ func (c *controller) ListVolumes(
 				CapacityBytes: int64(units.FileSize(firstClassDisk.Config.CapacityInMB * MbInBytes)),
 				VolumeContext: attributes,
 				//TODO: ContentSource?
-				//TODO: AccessibleTopology, needed when we support multiple VC/DC combos
 			},
 		})
 	}
@@ -203,6 +342,13 @@ func (c *controller) ControllerGetCapabilities(
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+					},
+				},
+			},
+			&csi.ControllerServiceCapability{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 					},
 				},
 			},
