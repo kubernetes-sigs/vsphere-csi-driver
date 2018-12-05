@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi/units"
 	clientset "k8s.io/client-go/kubernetes"
@@ -167,9 +167,9 @@ func (c *controller) ListVolumes(
 
 		resp.Entries = append(resp.Entries, &csi.ListVolumesResponse_Entry{
 			Volume: &csi.Volume{
-				Id:            firstClassDisk.Config.Id.Id,
+				VolumeId:      firstClassDisk.Config.Id.Id,
 				CapacityBytes: int64(units.FileSize(firstClassDisk.Config.CapacityInMB * MbInBytes)),
-				Attributes:    attributes,
+				VolumeContext: attributes,
 				//TODO: ContentSource?
 				//TODO: AccessibleTopology, needed when we support multiple VC/DC combos
 			},

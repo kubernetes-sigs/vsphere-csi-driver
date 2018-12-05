@@ -23,7 +23,7 @@ import (
 	"os"
 	"strings"
 
-	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	log "github.com/sirupsen/logrus"
 
