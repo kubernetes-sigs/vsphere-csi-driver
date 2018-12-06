@@ -25,6 +25,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
+	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
 
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
@@ -55,37 +56,12 @@ type Service interface {
 }
 
 type service struct {
-	cs csi.ControllerServer
+	mode string
+	cs   csi.ControllerServer
 }
 
 // New returns a new Service.
 func New() Service {
-	// check which API to use
-
-	api = os.Getenv(EnvAPI)
-	if api == "" {
-		api = defaultAPI
-	}
-	cfgPath = os.Getenv(EnvCloudConfig)
-	if cfgPath == "" {
-		cfgPath = DefaultCloudConfigPath
-	}
-
-	//Read in the vsphere.conf
-	config, err := os.Open(cfgPath)
-	if err != nil {
-		log.Fatalln("Failed to open", cfgPath, ". Err:", err)
-	}
-	cfg, err := vcfg.ReadConfig(config)
-	if err != nil {
-		log.Fatalln("Failed to parse config. Err:", err)
-	}
-
-	if strings.EqualFold(APIFCD, api) {
-		return &service{
-			cs: fcd.New(&cfg),
-		}
-	}
 	return &service{}
 }
 
@@ -98,14 +74,48 @@ func (s *service) BeforeServe(
 
 	defer func() {
 		fields := map[string]interface{}{
-			"api": api,
+			"api":  api,
+			"mode": s.mode,
 		}
 
 		log.WithFields(fields).Infof("configured: %s", Name)
 	}()
 
-	if s.cs == nil {
-		return fmt.Errorf("Invalid API: %s", api)
+	// Get the SP's operating mode.
+	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
+
+	if !strings.EqualFold(s.mode, "node") {
+		// Controller service is needed
+
+		// check which API to use
+		api = csictx.Getenv(ctx, EnvAPI)
+		if api == "" {
+			api = defaultAPI
+		}
+		cfgPath = csictx.Getenv(ctx, EnvCloudConfig)
+		if cfgPath == "" {
+			cfgPath = DefaultCloudConfigPath
+		}
+
+		//Read in the vsphere.conf
+		config, err := os.Open(cfgPath)
+		if err != nil {
+			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			return err
+		}
+		cfg, err := vcfg.ReadConfig(config)
+		if err != nil {
+			log.Errorf("Failed to parse config. Err: %v", err)
+			return err
+		}
+
+		if strings.EqualFold(APIFCD, api) {
+			s.cs = fcd.New(&cfg)
+		}
+
+		if s.cs == nil {
+			return fmt.Errorf("Invalid API: %s", api)
+		}
 	}
 
 	return nil
