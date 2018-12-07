@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -33,6 +35,7 @@ import (
 const (
 	devDiskID   = "/dev/disk/by-id"
 	blockPrefix = "wwn-0x"
+	dmiDir      = "/sys/class/dmi"
 )
 
 func (s *service) NodeStageVolume(
@@ -375,7 +378,15 @@ func (s *service) NodeGetInfo(
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
 
-	return nil, nil
+	id, err := getSystemUUID()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to retrieve Node ID, err: %s", err)
+	}
+
+	return &csi.NodeGetInfoResponse{
+		NodeId: id,
+	}, nil
 }
 
 // Device is a struct for holding details about a block device
@@ -551,4 +562,26 @@ func getDevMounts(
 		}
 	}
 	return devMnts, nil
+}
+
+func getSystemUUID() (string, error) {
+	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	if err != nil {
+		return "", err
+	}
+
+	id := strings.TrimSpace(string(idb))
+
+	return convertUUID(id), nil
+}
+
+func convertUUID(id string) string {
+	// convert UUID to vSphere format
+	uuid := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
+		id[6:8], id[4:6], id[2:4], id[0:2],
+		id[11:13], id[9:11],
+		id[16:18], id[14:16],
+		id[19:23],
+		id[24:36])
+	return strings.ToLower(uuid)
 }

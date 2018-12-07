@@ -97,3 +97,26 @@ func (fi *FakeFileInfo) IsDir() bool {
 func (fi *FakeFileInfo) Sys() interface{} {
 	return nil
 }
+
+func TestConvertUUID(t *testing.T) {
+	tests := []struct {
+		pre  string
+		post string
+	}{
+		{
+			pre:  "242A3042-6F0D-9058-1606-52FDB7E5E0AC",
+			post: "42302a24-0d6f-5890-1606-52fdb7e5e0ac",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run("", func(st *testing.T) {
+			st.Parallel()
+			result := convertUUID(tt.pre)
+			if result != tt.post {
+				t.Errorf("Expected: %s, got %s", tt.post, result)
+			}
+		})
+	}
+}
