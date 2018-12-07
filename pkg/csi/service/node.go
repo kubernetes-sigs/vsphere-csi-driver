@@ -24,6 +24,7 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,20 +41,9 @@ func (s *service) NodeStageVolume(
 	*csi.NodeStageVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	if volID == "" {
-		return nil, status.Error(codes.InvalidArgument,
-			"Volume ID required")
-	}
-
-	// Check that volume exists and is accessible
-	volPath, err := getDiskPath(volID, nil)
+	volPath, err := verifyVolumeAttached(volID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Error trying to read attached disks: %v", err)
-	}
-	if volPath == "" {
-		return nil, status.Errorf(codes.NotFound,
-			"Volume ID: %s not attached to node", volID)
+		return nil, err
 	}
 
 	// Check that block device looks good
@@ -66,38 +56,16 @@ func (s *service) NodeStageVolume(
 
 	// Check that target_path is created by CO and is a directory
 	target := req.GetStagingTargetPath()
-	if target == "" {
-		return nil, status.Error(codes.InvalidArgument,
-			"target path required")
-	}
-
-	tgtStat, err := os.Stat(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, status.Errorf(codes.FailedPrecondition,
-				"stage volume, target: %s not pre-created", target)
-		}
-		return nil, status.Errorf(codes.Internal,
-			"failed to stat target, err: %s", err.Error())
-	}
-
-	// This check is mandated by the spec, but this would/should faile if the
-	// volume has a block accessType. Mayvbe staging isn't intended to be used
-	// with block? That would make sense you can share the volume for block.
-	if !tgtStat.IsDir() {
-		return nil, status.Errorf(codes.FailedPrecondition,
-			"existing path: %s is not a directory", target)
+	if err = verifyTargetDir(target); err != nil {
+		return nil, err
 	}
 
 	//Mount if the device if needed, and if already mounted, verify compatibility
 	volCap := req.GetVolumeCapability()
-	mountVol := volCap.GetMount()
-	if mountVol == nil {
-		return nil, status.Error(codes.InvalidArgument,
-			"Only Mount access type supported")
+	fs, mntFlags, err := ensureMountVol(volCap)
+	if err != nil {
+		return nil, err
 	}
-	fs := mountVol.GetFsType()
-	mntFlags := mountVol.GetMountFlags()
 
 	accMode := volCap.GetAccessMode().GetMode()
 	ro := false
@@ -172,26 +140,14 @@ func (s *service) NodeUnstageVolume(
 	*csi.NodeUnstageVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	if volID == "" {
-		return nil, status.Error(codes.InvalidArgument,
-			"Volume ID required")
-	}
-
-	// Check that volume is attached
-	volPath, err := getDiskPath(volID, nil)
+	volPath, err := verifyVolumeAttached(volID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Error trying to read attached disks: %v", err)
-	}
-	if volPath == "" {
-		return nil, status.Errorf(codes.NotFound,
-			"Volume ID: %s not attached to node", volID)
+		return nil, err
 	}
 
 	target := req.GetStagingTargetPath()
-	if target == "" {
-		return nil, status.Error(codes.InvalidArgument,
-			"target path required")
+	if err = verifyTargetDir(target); err != nil {
+		return nil, err
 	}
 
 	// Check that block device looks good
@@ -241,7 +197,96 @@ func (s *service) NodePublishVolume(
 	req *csi.NodePublishVolumeRequest) (
 	*csi.NodePublishVolumeResponse, error) {
 
-	return nil, nil
+	volID := req.GetVolumeId()
+	volPath, err := verifyVolumeAttached(volID)
+	if err != nil {
+		return nil, err
+	}
+
+	target := req.GetTargetPath()
+	// We are responsible for creating target dir, per spec
+	_, err = mkdir(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to create target dir: %s, err: %v", target, err)
+	}
+
+	stagingTarget := req.GetStagingTargetPath()
+	if err := verifyTargetDir(stagingTarget); err != nil {
+		return nil, err
+	}
+
+	ro := req.GetReadonly()
+	volCap := req.GetVolumeCapability()
+	_, mntFlags, err := ensureMountVol(volCap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get underlying block device
+	dev, err := getDevice(volPath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"error getting block device for volume: %s, err: %s",
+			volID, err.Error())
+	}
+
+	f := log.Fields{
+		"volID":         volID,
+		"volumePath":    dev.FullPath,
+		"device":        dev.RealDev,
+		"target":        target,
+		"stagingTarget": stagingTarget,
+	}
+
+	// get block device mounts
+	// Check if device is already mounted
+	devMnts, err := getDevMounts(dev)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not reliably determine existing mount status: %s",
+			err.Error())
+	}
+
+	// We expect that block device already staged, so there should be at least 1
+	// mount already. if it's > 1, it may already be published
+	if len(devMnts) > 1 {
+		// check if publish is already there
+		for _, m := range devMnts {
+			if m.Path == target {
+				// volume already published to target
+				// if mount options look good, do nothing
+				rwo := "rw"
+				if ro {
+					rwo = "ro"
+				}
+				if !contains(m.Opts, rwo) {
+					return nil, status.Error(codes.AlreadyExists,
+						"volume previously published with different options")
+				}
+
+				// Existing mount satisfies request
+				log.WithFields(f).Debug("volume already published to target")
+				return &csi.NodePublishVolumeResponse{}, nil
+			}
+		}
+	} else if len(devMnts) == 0 {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"Volume ID: %s does not appear staged to %s", volID, stagingTarget)
+	}
+
+	// Do the bind mount to publish the volume
+	if ro {
+		mntFlags = append(mntFlags, "ro")
+	}
+
+	if err := gofsutil.BindMount(ctx, stagingTarget, target, mntFlags...); err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"error publish volume to target path: %s",
+			err.Error())
+	}
+
+	return &csi.NodePublishVolumeResponse{}, nil
 }
 
 func (s *service) NodeUnpublishVolume(
@@ -249,7 +294,54 @@ func (s *service) NodeUnpublishVolume(
 	req *csi.NodeUnpublishVolumeRequest) (
 	*csi.NodeUnpublishVolumeResponse, error) {
 
-	return nil, nil
+	volID := req.GetVolumeId()
+	volPath, err := verifyVolumeAttached(volID)
+	if err != nil {
+		return nil, err
+	}
+
+	target := req.GetTargetPath()
+	if err := verifyTargetDir(target); err != nil {
+		return nil, err
+	}
+
+	// Get underlying block device
+	dev, err := getDevice(volPath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"error getting block device for volume: %s, err: %s",
+			volID, err.Error())
+	}
+
+	// get mounts
+	// Check if device is already unmounted
+	mnts, err := gofsutil.GetMounts(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not reliably determine existing mount status: %s",
+			err.Error())
+	}
+
+	for _, m := range mnts {
+		if m.Source == dev.RealDev || m.Device == dev.RealDev {
+			if m.Path == target {
+				err = gofsutil.Unmount(ctx, target)
+				if err != nil {
+					return nil, status.Errorf(codes.Internal,
+						"Error unmounting target: %s", err.Error())
+				} else {
+					// directory should be empty
+					log.WithField("path", target).Debug("removing directory")
+					if err := os.Remove(target); err != nil {
+						return nil, status.Errorf(codes.Internal,
+							"Unable to remove target dir: %s, err: %v", target, err)
+					}
+				}
+			}
+		}
+	}
+
+	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
 func (s *service) NodeGetVolumeStats(
@@ -359,4 +451,104 @@ func contains(list []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func verifyVolumeAttached(volID string) (string, error) {
+	if volID == "" {
+		return "", status.Error(codes.InvalidArgument,
+			"Volume ID required")
+	}
+
+	// Check that volume is attached
+	volPath, err := getDiskPath(volID, nil)
+	if err != nil {
+		return "", status.Errorf(codes.Internal,
+			"Error trying to read attached disks: %v", err)
+	}
+	if volPath == "" {
+		return "", status.Errorf(codes.NotFound,
+			"Volume ID: %s not attached to node", volID)
+	}
+
+	return volPath, nil
+}
+
+func verifyTargetDir(target string) error {
+	if target == "" {
+		return status.Error(codes.InvalidArgument,
+			"target path required")
+	}
+
+	tgtStat, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return status.Errorf(codes.FailedPrecondition,
+				"target: %s not pre-created", target)
+		}
+		return status.Errorf(codes.Internal,
+			"failed to stat target, err: %s", err.Error())
+	}
+
+	// This check is mandated by the spec, but this would/should fail if the
+	// volume has a block accessType. Maybe staging isn't intended to be used
+	// with block? That would make sense you cannot share the volume for block.
+	if !tgtStat.IsDir() {
+		return status.Errorf(codes.FailedPrecondition,
+			"existing path: %s is not a directory", target)
+	}
+
+	return nil
+}
+
+// mkdir creates the directory specified by path if needed.
+// return pair is a bool flag of whether dir was created, and an error
+func mkdir(path string) (bool, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(path, 0750); err != nil {
+				log.WithField("dir", path).WithError(
+					err).Error("Unable to create dir")
+				return false, err
+			}
+			log.WithField("path", path).Debug("created directory")
+			return true, nil
+		}
+		return false, err
+	}
+	if !st.IsDir() {
+		return false, fmt.Errorf("existing path is not a directory")
+	}
+	return false, nil
+}
+
+func ensureMountVol(volCap *csi.VolumeCapability) (string, []string, error) {
+	mountVol := volCap.GetMount()
+	if mountVol == nil {
+		return "", nil, status.Error(codes.InvalidArgument,
+			"Only Mount access type supported")
+	}
+	fs := mountVol.GetFsType()
+	mntFlags := mountVol.GetMountFlags()
+
+	return fs, mntFlags, nil
+}
+
+// a wrapper around gofsutil.GetMounts that handles bind mounts
+func getDevMounts(
+	sysDevice *Device) ([]gofsutil.Info, error) {
+
+	ctx := context.Background()
+	devMnts := make([]gofsutil.Info, 0)
+
+	mnts, err := gofsutil.GetMounts(ctx)
+	if err != nil {
+		return devMnts, err
+	}
+	for _, m := range mnts {
+		if m.Device == sysDevice.RealDev || (m.Device == "devtmpfs" && m.Source == sysDevice.RealDev) {
+			devMnts = append(devMnts, m)
+		}
+	}
+	return devMnts, nil
 }
