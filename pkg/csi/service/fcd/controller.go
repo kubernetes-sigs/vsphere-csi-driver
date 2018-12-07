@@ -26,6 +26,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi/units"
+	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	clientset "k8s.io/client-go/kubernetes"
@@ -84,12 +85,12 @@ func (c *controller) CreateVolume(
 
 	//check for required parameters
 	if params == nil {
-		msg := fmt.Sprintf("Create parameters is a required parameter.")
-		log.Errorf(msg)
+		msg := "Create parameters is a required parameter."
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	} else if len(volName) == 0 {
-		msg := fmt.Sprintf("Volume name is a required parameter.")
-		log.Errorf(msg)
+		msg := "Volume name is a required parameter."
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	} else if len(params[AttributeFirstClassDiskParentType]) == 0 {
 		msg := fmt.Sprintf("Volume parameter %s is a required parameter.", AttributeFirstClassDiskParentType)
@@ -157,6 +158,8 @@ func (c *controller) CreateVolume(
 
 	attributes := make(map[string]string)
 	attributes[AttributeFirstClassDiskType] = FirstClassDiskTypeString
+	attributes[AttributeFirstClassDiskVcenter] = discoveryInfo.VcServer
+	attributes[AttributeFirstClassDiskDatacenter] = discoveryInfo.DataCenter.Name()
 	attributes[AttributeFirstClassDiskName] = firstClassDisk.Config.Name
 	attributes[AttributeFirstClassDiskParentType] = string(firstClassDisk.ParentType)
 	if firstClassDisk.ParentType == vclib.TypeDatastoreCluster {
@@ -185,8 +188,8 @@ func (c *controller) DeleteVolume(
 
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
-		msg := fmt.Sprintf("Volume ID is a required parameter.")
-		log.Errorf(msg)
+		msg := "Volume ID is a required parameter."
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -224,7 +227,60 @@ func (c *controller) ControllerPublishVolume(
 	req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 
-	return nil, nil
+	//check for required parameters
+	if len(req.VolumeId) == 0 {
+		msg := "Volume ID is a required parameter."
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if len(req.NodeId) == 0 {
+		msg := "Node ID is a required parameter."
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	discoveryInfo, err := c.connMgr.WhichVCandDCByFCDId(ctx, req.VolumeId)
+	if err != nil {
+		msg := fmt.Sprintf("WhichVCandDCByFCDId(%s) failed. Err: %v", req.VolumeId, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	fcd := discoveryInfo.FCDInfo
+
+	vm, err := discoveryInfo.DataCenter.GetVMByDNSName(ctx, req.NodeId)
+	if err != nil {
+		log.Errorf("GetVMByDNSName(%s) failed. Err: %v", req.NodeId, err)
+		return nil, err
+	}
+
+	filePath := fcd.Config.Backing.(*types.BaseConfigInfoDiskFileBackingInfo).FilePath
+	options := &vclib.VolumeOptions{SCSIControllerType: vclib.PVSCSIControllerType}
+	diskUUID, err := vm.AttachDisk(ctx, filePath, options)
+	if err != nil {
+		log.Errorf("AttachDisk(%s = %s) failed. Err: %v", fcd.Config.Name, filePath, err)
+		return nil, err
+	}
+
+	log.Infof("AttachDisk(%s) succeeded with UUID: %s", filePath, diskUUID)
+
+	publishInfo := make(map[string]string, 0)
+	publishInfo[AttributeFirstClassDiskType] = FirstClassDiskTypeString
+	publishInfo[AttributeFirstClassDiskVcenter] = discoveryInfo.VcServer
+	publishInfo[AttributeFirstClassDiskDatacenter] = discoveryInfo.DataCenter.Name()
+	publishInfo[AttributeFirstClassDiskName] = fcd.Config.Name
+	publishInfo[AttributeFirstClassDiskParentType] = string(fcd.ParentType)
+	if fcd.ParentType == vclib.TypeDatastoreCluster {
+		publishInfo[AttributeFirstClassDiskParentName] = fcd.StoragePodInfo.Summary.Name
+		publishInfo[AttributeFirstClassDiskOwningDatastore] = fcd.DatastoreInfo.Info.Name
+	} else {
+		publishInfo[AttributeFirstClassDiskParentName] = fcd.DatastoreInfo.Info.Name
+	}
+
+	resp := &csi.ControllerPublishVolumeResponse{
+		PublishContext: publishInfo,
+	}
+
+	return resp, nil
 }
 
 func (c *controller) ControllerUnpublishVolume(
@@ -232,7 +288,42 @@ func (c *controller) ControllerUnpublishVolume(
 	req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
 
-	return nil, nil
+	//check for required parameters
+	if len(req.VolumeId) == 0 {
+		msg := "Volume ID is a required parameter."
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if len(req.NodeId) == 0 {
+		msg := "Node ID is a required parameter."
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	discoveryInfo, err := c.connMgr.WhichVCandDCByFCDId(ctx, req.VolumeId)
+	if err != nil {
+		msg := fmt.Sprintf("WhichVCandDCByFCDId(%s) failed. Err: %v", req.VolumeId, err)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	fcd := discoveryInfo.FCDInfo
+
+	vm, err := discoveryInfo.DataCenter.GetVMByDNSName(ctx, req.NodeId)
+	if err != nil {
+		log.Errorf("GetVMByDNSName(%s) failed. Err: %v", req.NodeId, err)
+		return nil, err
+	}
+
+	filePath := fcd.Config.Backing.(*types.BaseConfigInfoDiskFileBackingInfo).FilePath
+	err = vm.DetachDisk(ctx, filePath)
+	if err != nil {
+		log.Errorf("DetachDisk(%s = %s) failed. Err: %v", fcd.Config.Name, filePath, err)
+		return nil, err
+	}
+
+	resp := &csi.ControllerUnpublishVolumeResponse{}
+
+	return resp, nil
 }
 
 func (c *controller) ValidateVolumeCapabilities(
@@ -287,7 +378,11 @@ func (c *controller) ListVolumes(
 	resp := &csi.ListVolumesResponse{}
 
 	subsetFirstClassDisks := firstClassDisks
-	if stop >= total {
+	if start > total {
+		msg := fmt.Sprintf("Invalid start token %d. Greater than total items %d.", start, total)
+		log.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	} else if stop >= total {
 		subsetFirstClassDisks = firstClassDisks[start:]
 	} else if stop < total {
 		subsetFirstClassDisks = firstClassDisks[start:(stop - 1)]
@@ -296,6 +391,8 @@ func (c *controller) ListVolumes(
 	for _, firstClassDisk := range subsetFirstClassDisks {
 		attributes := make(map[string]string)
 		attributes[AttributeFirstClassDiskType] = FirstClassDiskTypeString
+		attributes[AttributeFirstClassDiskVcenter] = discoveryInfo.VcServer
+		attributes[AttributeFirstClassDiskDatacenter] = discoveryInfo.DataCenter.Name()
 		attributes[AttributeFirstClassDiskName] = firstClassDisk.Config.Name
 		attributes[AttributeFirstClassDiskParentType] = string(firstClassDisk.ParentType)
 		if firstClassDisk.ParentType == vclib.TypeDatastoreCluster {
@@ -349,6 +446,13 @@ func (c *controller) ControllerGetCapabilities(
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+					},
+				},
+			},
+			&csi.ControllerServiceCapability{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 					},
 				},
 			},

@@ -35,4 +35,6 @@ const (
 	AttributeFirstClassDiskParentType      = "parent_type"
 	AttributeFirstClassDiskParentName      = "parent_name"
 	AttributeFirstClassDiskOwningDatastore = "owning_datastore"
+	AttributeFirstClassDiskVcenter         = "vcenter"
+	AttributeFirstClassDiskDatacenter      = "datacenter"
 )
