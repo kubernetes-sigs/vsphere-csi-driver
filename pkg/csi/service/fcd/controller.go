@@ -331,7 +331,7 @@ func (c *controller) ValidateVolumeCapabilities(
 	req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
 
-	return nil, nil
+	return &csi.ValidateVolumeCapabilitiesResponse{}, nil
 }
 
 func (c *controller) ListVolumes(
