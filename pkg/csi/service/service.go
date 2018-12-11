@@ -30,6 +30,7 @@ import (
 
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	"k8s.io/cloud-provider-vsphere/pkg/csi/service/fcd"
+	vTypes "k8s.io/cloud-provider-vsphere/pkg/csi/types"
 )
 
 const (
@@ -57,7 +58,7 @@ type Service interface {
 
 type service struct {
 	mode string
-	cs   csi.ControllerServer
+	cs   vTypes.Controller
 }
 
 // New returns a new Service.
@@ -66,6 +67,16 @@ func New() Service {
 }
 
 func (s *service) GetController() csi.ControllerServer {
+	// check which API to use
+	api = os.Getenv(EnvAPI)
+	if api == "" {
+		api = defaultAPI
+	}
+
+	if strings.EqualFold(APIFCD, api) {
+		s.cs = fcd.New()
+	}
+
 	return s.cs
 }
 
@@ -87,11 +98,10 @@ func (s *service) BeforeServe(
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 
-		// check which API to use
-		api = csictx.Getenv(ctx, EnvAPI)
-		if api == "" {
-			api = defaultAPI
+		if s.cs == nil {
+			return fmt.Errorf("Invalid API: %s", api)
 		}
+
 		cfgPath = csictx.Getenv(ctx, EnvCloudConfig)
 		if cfgPath == "" {
 			cfgPath = DefaultCloudConfigPath
@@ -109,13 +119,11 @@ func (s *service) BeforeServe(
 			return err
 		}
 
-		if strings.EqualFold(APIFCD, api) {
-			s.cs = fcd.New(&cfg)
+		if err := s.cs.Init(&cfg); err != nil {
+			log.WithError(err).Error("Failed to init controller")
+			return err
 		}
 
-		if s.cs == nil {
-			return fmt.Errorf("Invalid API: %s", api)
-		}
 	}
 
 	return nil

@@ -36,11 +36,8 @@ import (
 	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
 	k8s "k8s.io/cloud-provider-vsphere/pkg/common/kubernetes"
 	"k8s.io/cloud-provider-vsphere/pkg/common/vclib"
+	vTypes "k8s.io/cloud-provider-vsphere/pkg/csi/types"
 )
-
-type Controller interface {
-	csi.ControllerServer
-}
 
 type controller struct {
 	client    *clientset.Interface
@@ -54,22 +51,26 @@ func noResyncPeriodFunc() time.Duration {
 }
 
 // New creates a FCD controller
-func New(config *vcfg.Config) Controller {
+func New() vTypes.Controller {
+	return &controller{}
+}
+
+func (c *controller) Init(config *vcfg.Config) error {
 	client, err := k8s.NewClient(config.Global.ServiceAccount)
 	if err != nil {
-		log.Fatalln("Creating Kubernetes client failed. Err:", err)
+		return fmt.Errorf("Creating Kubernetes client failed. Err: %v", err)
 	}
 
 	informMgr := k8s.NewInformer(&client)
 	connMgr := cm.NewConnectionManager(config, informMgr.GetSecretListener())
 	informMgr.Listen()
 
-	return &controller{
-		client:    &client,
-		cfg:       config,
-		connMgr:   connMgr,
-		informMgr: informMgr,
-	}
+	c.client = &client
+	c.cfg = config
+	c.connMgr = connMgr
+	c.informMgr = informMgr
+
+	return nil
 }
 
 func (c *controller) CreateVolume(
