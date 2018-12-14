@@ -37,4 +37,5 @@ const (
 	AttributeFirstClassDiskOwningDatastore = "owning_datastore"
 	AttributeFirstClassDiskVcenter         = "vcenter"
 	AttributeFirstClassDiskDatacenter      = "datacenter"
+	AttributeFirstClassDiskPage83Data      = "page83data"
 )

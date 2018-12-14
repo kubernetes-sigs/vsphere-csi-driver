@@ -1,4 +1,4 @@
-# Deploying `csi-vsphere` with RBAC (!!!!IMPORTANT WORK IN PROGRESS!!!!!)
+# Deploying `csi-vsphere` with RBAC
 
 This document is designed to quickly get you up and running with the `csi-vsphere`.
 
@@ -8,9 +8,12 @@ Steps that will be covered in deploying `csi-vsphere`:
 
 1. Configure your vsphere.conf file and create a `configmap` of your settings.
 2. (Optional, but highly recommended) Storing vCenter creds in a Kubernetes Secret
-3. Create the RBAC roles for `csi-vsphere`.
-4. Create the RBAC role bindings for `csi-vsphere`.
-5. Deploy `csi-vsphere` using either the Pod or DaemonSet YAML.
+3. Create the RBAC roles and bindings for the CSI controller
+4. Create the RBAC roles and bindings for the CSI node
+5. Deploy `csi-vsphere-controller`
+6. Deploy `csi-vsphere-node`
+7. Create CRDs for CSI driver registration
+8. Create your StorageClass and PersistentVolumeClaim by Example
 
 ## Deploying `csi-vsphere`
 
@@ -117,52 +120,114 @@ Create the secret by running the following command:
 [k8suser@k8master ~]$ kubectl create -f vcsi-secret.yaml
 ```
 
-#### 3. Create the RBAC roles
+#### 3. Create the RBAC roles and bindings for the CSI controller
 
-You can find the RBAC roles required by the provider in [csi-roles.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/csi-roles.yaml).
-
-To apply them to your Kubernetes cluster, run the following command:
-
-```bash
-[k8suser@k8master ~]$ kubectl create -f csi-roles.yaml
-```
-
-#### 4. Create the RBAC role bindings
-
-You can find the RBAC role bindings required by the provider in [csi-role-bindings.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/csi-role-bindings.yaml).
+You can find the RBAC roles and bindings required by the CSI controller in [vsphere-csi-controller-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-controller-rbac.yaml).
 
 To apply them to your Kubernetes cluster, run the following command:
 
 ```bash
-[k8suser@k8master ~]$ kubectl create -f csi-role-bindings.yaml
+[k8suser@k8master ~]$ kubectl create -f vsphere-csi-controller-rbac.yaml
 ```
 
-#### 5. Deploy `csi-vsphere`
+#### 4. Create the RBAC roles and bindings for the CSI node
 
-You have two options for deploying `csi-vsphere`. It can be deployed either as a simple Pod or in a DaemonSet. There really isn't much difference between the two other than the DaemonSet will do leader election and the Pod will just assume to be the leader.
+You can find the RBAC roles and bindings required by the CSI node manager in [vsphere-csi-node-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-rbac.yaml).
+
+To apply them to your Kubernetes cluster, run the following command:
+
+```bash
+[k8suser@k8master ~]$ kubectl create -f vsphere-csi-node-rbac.yaml
+```
+
+#### 5. Deploy `csi-vsphere-controller`
 
 **IMPORTANT NOTES:**
-- Deploy either as a Pod or in a DaemonSet, but *DO NOT* deploy both.
-- The YAML to deploy as a Pod or a DaemonSet assume that your Kubernetes cluster was deployed using [kubeadm](https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/). If you deployed your cluster using alternate means, you will need to modify the either of the YAML files in order to provided necessary files or paths based on your deployment.
+- The YAML to deploy CSI controller assumes that your Kubernetes cluster was deployed using [kubeadm](https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/). If you deployed your cluster using alternate means, you will need to modify the YAML files in order to provide necessary files or paths based on your deployment.
 
-##### Deploy `csi-vsphere` as a Pod
-
-The YAML to deploy `csi-vsphere` as a Pod can be found in [vsphere-csi-pod.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-pod.yaml).
+The YAML to deploy `csi-vsphere-controller` can be found in [vsphere-csi-controller-ss.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-controller-ss.yaml).
 
 Run the following command:
 
 ```bash
-[k8suser@k8master ~]$ kubectl create -f vsphere-csi-pod.yaml
+[k8suser@k8master ~]$ kubectl create -f vsphere-csi-controller-ss.yaml
 ```
 
-##### Deploy `csi-vsphere` as a DaemonSet
+#### 6. Deploy `csi-vsphere-node`
 
-The YAML to deploy `csi-vsphere` as a DaemonSet can be found in [vsphere-csi-ds.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-ds.yaml).
+The YAML to deploy `csi-vsphere-node` can be found in [vsphere-csi-node-ds.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-ds.yaml).
 
 Run the following command:
 
 ```bash
-[k8suser@k8master ~]$ kubectl create -f vsphere-csi-ds.yaml
+[k8suser@k8master ~]$ kubectl create -f vsphere-csi-node-ds.yaml
+```
+
+#### 7. Create CRDs for CSI driver registration
+
+You can find the CRDs to register the CSI nodes in [vsphere-csi-crd.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-crd.yaml).
+
+To apply them to your Kubernetes cluster, run the following command:
+
+```bash
+[k8suser@k8master ~]$ kubectl create -f vsphere-csi-crd.yaml
+```
+
+#### 8. Create your StorageClass and PersistentVolumeClaim by Example
+
+Each StorageClass (SC) is going to be unique to each user as it depends on the vSphere configuration you have. The PersistentVolumeClaim (PVC) is also therefore unique since the PVC depends on the SC. You can find examples of each in the [manifests/csi](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi) directory for reference. The important thing to note in the [StorageClass](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi/example-vsphere-sc.yaml) as seen below is that you need to provide as paramters the type of datastore you will be using (`DatastoreCluster` or `Datastore`) and it's corresponding name.
+
+```
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: my-vsphere-fcd-class
+  namespace: kube-system
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: io.k8s.cloud-provider-vsphere.vsphere
+parameters:
+  parent_type: "ONLY_ACCEPTABLE_VALUES_ARE: DatastoreCluster OR Datastore"
+  parent_name: "REPLACE_WITH_YOUR_DATATORECLUSTER_OR_DATASTORE_NAME"
+```
+
+Then create a [PersistentVolumeClaim](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi/example-vsphere-pvc.yaml) to link to your SC. Example is below.
+
+*NOTE:* Since the PVC references the SC, if you want to have multiple disks from various DatastoreClusters or Datastores, you need to have different SCs and PVCs.
+
+```
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-vsphere-csi-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: my-vsphere-fcd-class
+```
+
+To test, you can try running the following test pod:
+
+```
+kind: Pod
+apiVersion: v1
+metadata:
+  name: my-csi-app
+spec:
+  containers:
+    - name: my-frontend
+      image: busybox
+      volumeMounts:
+      - mountPath: "/data"
+        name: my-fcd-volume
+      command: [ "sleep", "1000000" ]
+  volumes:
+    - name: my-fcd-volume
+      persistentVolumeClaim:
+        claimName: my-vsphere-csi-pvc
 ```
 
 ## Wrapping Up

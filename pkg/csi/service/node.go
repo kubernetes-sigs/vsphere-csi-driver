@@ -378,7 +378,7 @@ func (s *service) NodeGetInfo(
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
 
-	id, err := getSystemUUID()
+	id, err := os.Hostname()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
 			"Unable to retrieve Node ID, err: %s", err)

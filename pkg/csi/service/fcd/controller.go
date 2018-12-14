@@ -276,6 +276,7 @@ func (c *controller) ControllerPublishVolume(
 	} else {
 		publishInfo[AttributeFirstClassDiskParentName] = fcd.DatastoreInfo.Info.Name
 	}
+	publishInfo[AttributeFirstClassDiskPage83Data] = diskUUID
 
 	resp := &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
