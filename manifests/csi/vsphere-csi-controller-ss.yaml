@@ -49,6 +49,8 @@ spec:
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: X_CSI_MODE
               value: "controller"
+            - name: X_CSI_SPEC_REQ_VALIDATION
+              value: "false"
           imagePullPolicy: "Always"
           volumeMounts:
             - mountPath: /etc/kubernetes/pki

@@ -43,6 +43,8 @@ spec:
             value: unix:///csi/csi.sock
           - name: X_CSI_MODE
             value: "node"
+          - name: X_CSI_SPEC_REQ_VALIDATION
+            value: "false"
           imagePullPolicy: "Always"
           securityContext:
             privileged: true
