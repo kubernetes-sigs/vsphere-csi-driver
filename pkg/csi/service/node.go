@@ -30,6 +30,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"k8s.io/cloud-provider-vsphere/pkg/csi/service/fcd"
 )
 
 const (
@@ -44,7 +46,20 @@ func (s *service) NodeStageVolume(
 	*csi.NodeStageVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	volPath, err := verifyVolumeAttached(volID)
+	pubCtx := req.GetPublishContext()
+
+	diskID, err := getDiskID(volID, pubCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	f := log.Fields{
+		"volID":  volID,
+		"diskID": diskID,
+	}
+
+	log.WithFields(f).Debug("checking if volume is attached")
+	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,23 +158,33 @@ func (s *service) NodeUnstageVolume(
 	*csi.NodeUnstageVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	volPath, err := verifyVolumeAttached(volID)
-	if err != nil {
-		return nil, err
-	}
 
 	target := req.GetStagingTargetPath()
-	if err = verifyTargetDir(target); err != nil {
+	if err := verifyTargetDir(target); err != nil {
 		return nil, err
 	}
 
-	// Check that block device looks good
-	dev, err := getDevice(volPath)
+	// Look up block device mounted to target
+	dev, err := getDevFromMount(target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
+
+	if dev == nil {
+		// Nothing is mounted, so unstaging is already done
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	f := log.Fields{
+		"volID":  volID,
+		"path":   dev.FullPath,
+		"block":  dev.RealDev,
+		"target": target,
+	}
+
+	log.WithFields(f).Debug("found device")
 
 	// Get mounts for device
 	mnts, err := gofsutil.GetDevMounts(context.Background(), dev.RealDev)
@@ -169,27 +194,19 @@ func (s *service) NodeUnstageVolume(
 			err.Error())
 	}
 
-	if len(mnts) == 0 {
-		// device isn't mounted, so this has been unstaged already
-		return &csi.NodeUnstageVolumeResponse{}, nil
-	}
-
 	// device is mounted. Should only be mounted to target
 	if len(mnts) > 1 {
 		return nil, status.Errorf(codes.Internal,
 			"volume: %s appears mounted in multiple places", volID)
 	}
 
-	if mnts[0].Source == dev.RealDev && mnts[0].Path == target {
-		// perfect, unstage this
-		if err := gofsutil.Unmount(context.Background(), target); err != nil {
-			return nil, status.Errorf(codes.Internal,
-				"Error unmounting target: %s", err.Error())
-		}
-	} else {
+	// Since we looked up the block volume from the target path, we assume that
+	// the one existing mount is from the block to the target
+
+	// unstage this
+	if err := gofsutil.Unmount(context.Background(), target); err != nil {
 		return nil, status.Errorf(codes.Internal,
-			"volume %s is mounted someplace other than target: %s, mounted to: %s",
-			volID, target, mnts[0].Path)
+			"Error unmounting target: %s", err.Error())
 	}
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
@@ -201,7 +218,20 @@ func (s *service) NodePublishVolume(
 	*csi.NodePublishVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	volPath, err := verifyVolumeAttached(volID)
+	pubCtx := req.GetPublishContext()
+
+	diskID, err := getDiskID(volID, pubCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	f := log.Fields{
+		"volID":  volID,
+		"diskID": diskID,
+	}
+
+	log.WithFields(f).Debug("checking if volume is attached")
+	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
 		return nil, err
 	}
@@ -234,13 +264,10 @@ func (s *service) NodePublishVolume(
 			volID, err.Error())
 	}
 
-	f := log.Fields{
-		"volID":         volID,
-		"volumePath":    dev.FullPath,
-		"device":        dev.RealDev,
-		"target":        target,
-		"stagingTarget": stagingTarget,
-	}
+	f["volumePath"] = dev.FullPath
+	f["device"] = dev.RealDev
+	f["target"] = target
+	f["stagingTarget"] = stagingTarget
 
 	// get block device mounts
 	// Check if device is already mounted
@@ -298,22 +325,29 @@ func (s *service) NodeUnpublishVolume(
 	*csi.NodeUnpublishVolumeResponse, error) {
 
 	volID := req.GetVolumeId()
-	volPath, err := verifyVolumeAttached(volID)
-	if err != nil {
-		return nil, err
-	}
 
 	target := req.GetTargetPath()
-	if err := verifyTargetDir(target); err != nil {
-		return nil, err
+	_, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// target path does not exist, so we must be Unpublished
+			return &csi.NodeUnpublishVolumeResponse{}, nil
+		}
+		return nil, status.Errorf(codes.Internal,
+			"failed to stat target, err: %s", err.Error())
 	}
 
-	// Get underlying block device
-	dev, err := getDevice(volPath)
+	// Look up block device mounted to target
+	dev, err := getDevFromMount(target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
+	}
+
+	if dev == nil {
+		// Nothing is mounted, so unpublish is already done
+		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
 	// get mounts
@@ -464,21 +498,17 @@ func contains(list []string, item string) bool {
 	return false
 }
 
-func verifyVolumeAttached(volID string) (string, error) {
-	if volID == "" {
-		return "", status.Error(codes.InvalidArgument,
-			"Volume ID required")
-	}
+func verifyVolumeAttached(diskID string) (string, error) {
 
 	// Check that volume is attached
-	volPath, err := getDiskPath(volID, nil)
+	volPath, err := getDiskPath(diskID, nil)
 	if err != nil {
 		return "", status.Errorf(codes.Internal,
 			"Error trying to read attached disks: %v", err)
 	}
 	if volPath == "" {
 		return "", status.Errorf(codes.NotFound,
-			"Volume ID: %s not attached to node", volID)
+			"disk: %s not attached to node", diskID)
 	}
 
 	return volPath, nil
@@ -575,6 +605,29 @@ func getSystemUUID() (string, error) {
 	return convertUUID(id), nil
 }
 
+func getDiskID(volID string, pubCtx map[string]string) (string, error) {
+
+	if volID == "" {
+		return "", status.Error(codes.InvalidArgument,
+			"Volume ID required")
+	}
+
+	var diskID string
+
+	if api == APIFCD {
+		if _, ok := pubCtx[fcd.AttributeFirstClassDiskPage83Data]; !ok {
+			return "", status.Errorf(codes.InvalidArgument,
+				"Attribute: %s required in publish context",
+				fcd.AttributeFirstClassDiskPage83Data)
+		}
+		diskID = pubCtx[fcd.AttributeFirstClassDiskPage83Data]
+	} else {
+		diskID = volID
+	}
+
+	return diskID, nil
+}
+
 func convertUUID(id string) string {
 	// convert UUID to vSphere format
 	uuid := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
@@ -584,4 +637,27 @@ func convertUUID(id string) string {
 		id[19:23],
 		id[24:36])
 	return strings.ToLower(uuid)
+}
+
+func getDevFromMount(target string) (*Device, error) {
+
+	// Get list of all mounts on system
+	mnts, err := gofsutil.GetMounts(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range mnts {
+		if m.Path == target {
+			// something is mounted to target, get underlying disk
+			dev, err := getDevice(m.Device)
+			if err != nil {
+				return nil, err
+			}
+			return dev, nil
+		}
+	}
+
+	// Did not identify a device mounted to target
+	return nil, nil
 }
