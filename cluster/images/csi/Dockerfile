@@ -12,6 +12,16 @@
 
 FROM photon:2.0
 
+RUN tdnf -y remove toybox
+
+RUN tdnf -y install \
+  util-linux \
+  e2fsprogs \
+  xfsprogs \
+  btrfs-progs
+
+RUN tdnf clean all
+
 ADD vsphere-csi /bin/
 
 CMD ["/bin/vsphere-csi"]
