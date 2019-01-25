@@ -25,12 +25,13 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware/govmomi/units"
-	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	clientset "k8s.io/client-go/kubernetes"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
+
+	"github.com/vmware/govmomi/units"
+	"github.com/vmware/govmomi/vim25/types"
 
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
@@ -81,6 +82,9 @@ func (c *controller) CreateVolume(
 	// Get create params
 	params := req.GetParameters()
 
+	// Get accessibility
+	accessibility := req.GetAccessibilityRequirements()
+
 	// Volume Name
 	volName := req.GetName()
 
@@ -118,11 +122,46 @@ func (c *controller) CreateVolume(
 	}
 
 	datastoreName := params[AttributeFirstClassDiskParentName]
+	zone := params[AttributeFirstClassDiskZone]
+	region := params[AttributeFirstClassDiskRegion]
 
-	//TODO: zones are currently unimplemented. supports single VC/DC only.
 	// Please see function for more details
-	zone := "TODO"
-	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(ctx, zone)
+	var err error
+	var discoveryInfo *cm.ZoneDiscoveryInfo
+
+	if accessibility != nil && (accessibility.GetRequisite() != nil || accessibility.GetPreferred() != nil) {
+		log.Infoln("WhichVCandDCByZone with Topology Support")
+		if accessibility.GetRequisite() != nil {
+			log.Infoln("Requisite Topology Exists")
+			requisites := accessibility.GetRequisite()
+			for _, requisite := range requisites {
+				segments := requisite.GetSegments()
+				reqRegion := segments[LabelZoneRegion]
+				reqZone := segments[LabelZoneFailureDomain]
+				discoveryInfo, err = c.connMgr.WhichVCandDCByZone(ctx, c.cfg.Labels.Zone, c.cfg.Labels.Region, reqZone, reqRegion)
+				if err == nil {
+					log.Infof("WhichVCandDCByZone Succeeded in region=%s zone=%s", reqRegion, reqZone)
+					break
+				}
+			}
+		} else {
+			log.Infoln("Using Perferred Topology")
+			for _, preferred := range accessibility.GetPreferred() {
+				segments := preferred.GetSegments()
+				reqRegion := segments[LabelZoneRegion]
+				reqZone := segments[LabelZoneFailureDomain]
+				discoveryInfo, err = c.connMgr.WhichVCandDCByZone(ctx, c.cfg.Labels.Zone, c.cfg.Labels.Region, reqZone, reqRegion)
+				if err == nil {
+					log.Infof("WhichVCandDCByZone Succeeded in region=%s zone=%s", reqRegion, reqZone)
+					break
+				}
+			}
+		}
+	} else {
+		log.Infoln("WhichVCandDCByZone with Legacy region/zone")
+		discoveryInfo, err = c.connMgr.WhichVCandDCByZone(ctx, c.cfg.Labels.Zone, c.cfg.Labels.Region, zone, region)
+	}
+
 	if err != nil {
 		msg := fmt.Sprintf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
 		log.Errorf(msg)
@@ -341,22 +380,8 @@ func (c *controller) ListVolumes(
 	req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
-	//TODO: zones are currently unimplemented. supports single VC/DC only.
-	// Please see function for more details
-	zone := "TODO"
-	discoveryInfo, err := c.connMgr.WhichVCandDCByZone(ctx, zone)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to retrieve VC/DC based on zone %s. Err: %v", zone, err)
-		log.Errorf(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-
-	firstClassDisks, err := discoveryInfo.DataCenter.GetAllFirstClassDisks(ctx)
-	if err != nil {
-		msg := fmt.Sprintf("GetAllFirstClassDisks failed. Err: %v", err)
-		log.Errorf(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
+	var err error
+	firstClassDisks := getAllFCDs(ctx, c.connMgr)
 
 	total := len(firstClassDisks)
 
@@ -384,17 +409,19 @@ func (c *controller) ListVolumes(
 		msg := fmt.Sprintf("Invalid start token %d. Greater than total items %d.", start, total)
 		log.Errorf(msg)
 		return nil, status.Errorf(codes.Internal, msg)
+	} else if start == stop {
+		subsetFirstClassDisks = firstClassDisks[(start - 1):]
 	} else if stop >= total {
 		subsetFirstClassDisks = firstClassDisks[start:]
 	} else if stop < total {
-		subsetFirstClassDisks = firstClassDisks[start:(stop - 1)]
+		subsetFirstClassDisks = firstClassDisks[start:stop]
 	}
 
 	for _, firstClassDisk := range subsetFirstClassDisks {
 		attributes := make(map[string]string)
 		attributes[AttributeFirstClassDiskType] = FirstClassDiskTypeString
-		attributes[AttributeFirstClassDiskVcenter] = discoveryInfo.VcServer
-		attributes[AttributeFirstClassDiskDatacenter] = discoveryInfo.DataCenter.Name()
+		attributes[AttributeFirstClassDiskVcenter] = removePortFromHost(firstClassDisk.Datacenter.Client().URL().Host)
+		attributes[AttributeFirstClassDiskDatacenter] = firstClassDisk.Datacenter.Name()
 		attributes[AttributeFirstClassDiskName] = firstClassDisk.Config.Name
 		attributes[AttributeFirstClassDiskParentType] = string(firstClassDisk.ParentType)
 		if firstClassDisk.ParentType == vclib.TypeDatastoreCluster {
@@ -415,7 +442,7 @@ func (c *controller) ListVolumes(
 	}
 
 	if stop < total {
-		resp.NextToken = strconv.Itoa(stop)
+		resp.NextToken = strconv.Itoa(stop + 1)
 		log.Infoln("Next token is", resp.NextToken)
 	}
 

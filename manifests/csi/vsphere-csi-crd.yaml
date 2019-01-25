@@ -28,6 +28,25 @@ spec:
                   type: string
                 type: array
           type: array
+        status:
+          description: Status of CSINodeInfo
+          properties:
+            drivers:
+              description: List of CSI drivers running on the node and their statuses.
+              type: array
+              items:
+                properties:
+                  name:
+                    description: The CSI driver that this object refers to.
+                    type: string
+                  available:
+                    description: Whether the CSI driver is installed.
+                    type: boolean
+                  volumePluginMechanism:
+                    description: Indicates to external components the required mechanism
+                      to use for any in-tree plugins replaced by this driver.
+                    pattern: in-tree|csi
+                    type: string
   version: v1alpha1
 status:
   acceptedNames:
@@ -41,6 +60,8 @@ kind: CustomResourceDefinition
 metadata:
   creationTimestamp: null
   name: csidrivers.csi.storage.k8s.io
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
 spec:
   group: csi.storage.k8s.io
   names:

@@ -21,6 +21,7 @@ spec:
             - "--provisioner=io.k8s.cloud-provider-vsphere.vsphere"
             - "--csi-address=$(ADDRESS)"
             - "--v=5"
+            - "--feature-gates=Topology=true"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -43,45 +44,24 @@ spec:
         - name: vsphere-csi-controller
           image: gcr.io/cloud-provider-vsphere/vsphere-csi:v0.1.1
           env:
-            - name: VSPHERE_KUBE_CONFIG
-              value: "*"
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: X_CSI_MODE
               value: "controller"
             - name: X_CSI_SPEC_REQ_VALIDATION
               value: "false"
+#            - name: X_CSI_DEBUG
+#              value: "true"
           imagePullPolicy: "Always"
           volumeMounts:
-            - mountPath: /etc/kubernetes/pki
-              name: k8s-certs
-              readOnly: true
-            - mountPath: /etc/ssl/certs
-              name: ca-certs
-              readOnly: true
-            - mountPath: /etc/kubernetes/controller-manager.conf
-              name: kubeconfig
-              readOnly: true
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
       volumes:
-        - hostPath:
-            path: /etc/kubernetes/pki
-            type: DirectoryOrCreate
-          name: k8s-certs
-        - hostPath:
-            path: /etc/ssl/certs
-            type: DirectoryOrCreate
-          name: ca-certs
-        - hostPath:
-            path: /etc/kubernetes/controller-manager.conf
-            type: FileOrCreate
-          name: kubeconfig
         - name: vsphere-config-volume
           configMap:
-            name: cloud-config
+            name: csi-config
         - name: socket-dir
           emptyDir: {}

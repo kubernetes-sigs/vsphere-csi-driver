@@ -45,6 +45,8 @@ spec:
             value: "node"
           - name: X_CSI_SPEC_REQ_VALIDATION
             value: "false"
+#          - name: X_CSI_DEBUG
+#           value: "true"
           imagePullPolicy: "Always"
           securityContext:
             privileged: true

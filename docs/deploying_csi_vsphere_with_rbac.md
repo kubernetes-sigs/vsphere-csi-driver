@@ -2,6 +2,19 @@
 
 This document is designed to quickly get you up and running with the `csi-vsphere`.
 
+## Requirements
+
+The vSphere Container Storage Interface (CSI) driver depends on First Class Disks (FCDs) and as such, has the following requirements:
+
+1. All vSphere versions prior to 6.5 are unsupported. Please use the in-tree cloud provider for these versions.
+2. vSphere 6.5
+  - Limitation: vSphere 6.5 does not support FCD on VSAN datastores
+  - Limitation: vSphere 6.5 does not support snapshot functionality on FCD
+3. vSphere 6.7
+  - Limitation: vSphere 6.7 does not support FCD on VSAN datastores
+4. vSphere 6.7u1
+  - No known limitations
+
 ## Deployment Overview
 
 Steps that will be covered in deploying `csi-vsphere`:
@@ -86,9 +99,6 @@ datacenters = "list of datacenters where Kubernetes node VMs are present"
         port = "448"
         insecure-flag = "0"
         # user, password, datacenters will be used from Global section.
-
-[Network]
-        public-network = "Network Name to be used"
 ```
 
 Configure your vsphere.conf file and create a `configmap` of your settings using the following command:

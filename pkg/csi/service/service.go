@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -95,9 +96,20 @@ func (s *service) BeforeServe(
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 
+	// Set glog level based on CSI debug being enabled
+	glogLevel := "2"
+	lvl := log.GetLevel()
+	if lvl == log.DebugLevel {
+		glogLevel = "4"
+	}
+
+	flag.Set("logtostderr", "true")
+	flag.Set("stderrthreshold", "INFO")
+	flag.Set("v", glogLevel)
+	flag.Parse()
+
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-
 		if s.cs == nil {
 			return fmt.Errorf("Invalid API: %s", api)
 		}

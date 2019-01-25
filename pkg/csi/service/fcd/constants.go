@@ -38,4 +38,10 @@ const (
 	AttributeFirstClassDiskVcenter         = "vcenter"
 	AttributeFirstClassDiskDatacenter      = "datacenter"
 	AttributeFirstClassDiskPage83Data      = "page83data"
+	AttributeFirstClassDiskZone            = "zone"
+	AttributeFirstClassDiskRegion          = "region"
+
+	// Constants pulled from k/k
+	LabelZoneFailureDomain = "failure-domain.beta.kubernetes.io/zone"
+	LabelZoneRegion        = "failure-domain.beta.kubernetes.io/region"
 )
