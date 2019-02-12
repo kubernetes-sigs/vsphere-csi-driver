@@ -17,7 +17,9 @@ limitations under the License.
 package fcd
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +33,34 @@ import (
 const (
 	NUM_OF_CONNECTION_ATTEMPTS     int = 3
 	RETRY_ATTEMPT_DELAY_IN_SECONDS int = 1
+
+	MINIMUM_SUPPORTED_VCENTER_MAJOR int = 6
+	MINIMUM_SUPPORTED_VCENTER_MINOR int = 5
 )
+
+func checkAPI(version string) error {
+	items := strings.Split(version, ".")
+	if len(items) <= 1 {
+		return fmt.Errorf("Invalid API Version format")
+	}
+
+	major, err := strconv.Atoi(items[0])
+	if err != nil {
+		return fmt.Errorf("Invalid Major Version value invalid")
+	}
+	minor, err := strconv.Atoi(items[1])
+	if err != nil {
+		return fmt.Errorf("Invalid Minor Version value invalid")
+	}
+
+	if major < MINIMUM_SUPPORTED_VCENTER_MAJOR {
+		return fmt.Errorf("The minimum supported vCenter is 6.5")
+	}
+	if major == MINIMUM_SUPPORTED_VCENTER_MAJOR && minor < MINIMUM_SUPPORTED_VCENTER_MINOR {
+		return fmt.Errorf("The minimum supported vCenter is 6.5")
+	}
+	return nil
+}
 
 func removePortFromHost(host string) string {
 	result := host

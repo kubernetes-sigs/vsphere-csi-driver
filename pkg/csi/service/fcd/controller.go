@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/klog"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
 
 	"github.com/vmware/govmomi/units"
@@ -70,6 +71,20 @@ func (c *controller) Init(config *vcfg.Config) error {
 	c.cfg = config
 	c.connMgr = connMgr
 	c.informMgr = informMgr
+
+	//VC check... FCD is only supported in 6.5+
+	for vc := range connMgr.VsphereInstanceMap {
+		api, err := connMgr.APIVersion(vc)
+		if err != nil {
+			klog.Errorf("APIVersion failed err=%v", err)
+			return err
+		}
+
+		if err = checkAPI(api); err != nil {
+			klog.Errorf("checkAPI failed err=%v", err)
+			return err
+		}
+	}
 
 	return nil
 }
