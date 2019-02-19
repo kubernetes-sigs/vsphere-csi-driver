@@ -19,18 +19,43 @@ The vSphere Container Storage Interface (CSI) driver depends on First Class Disk
 
 Steps that will be covered in deploying `csi-vsphere`:
 
-1. Configure your vsphere.conf file and create a `configmap` of your settings.
-2. (Optional, but highly recommended) Storing vCenter creds in a Kubernetes Secret
-3. Create the RBAC roles and bindings for the CSI controller
-4. Create the RBAC roles and bindings for the CSI node
-5. Deploy `csi-vsphere-controller`
-6. Deploy `csi-vsphere-node`
-7. Create CRDs for CSI driver registration
-8. Create your StorageClass and PersistentVolumeClaim by Example
+1. Setting up Kubernetes to enable CSI drivers
+2. Configure your vsphere.conf file and create a `configmap` of your settings.
+3. (Optional, but highly recommended) Storing vCenter creds in a Kubernetes Secret
+4. Create the RBAC roles and bindings for the CSI controller
+5. Create the RBAC roles and bindings for the CSI node
+6. Deploy `csi-vsphere-controller`
+7. Deploy `csi-vsphere-node`
+8. Create CRDs for CSI driver registration
+9. Create your StorageClass and PersistentVolumeClaim by Example
 
 ## Deploying `csi-vsphere`
 
-#### 1. Creating a `configmap` of your vSphere configuration
+#### 1. Setting up Kubernetes to enable CSI drivers
+
+Depending on the version of Kubernetes you are running, you may need to enable certain options and [feature gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) on both the `api-server` and all `kubelets` in your cluster. This is in part because CSI may be at a certain release level (alpha, beta, GA) in which those options need to be explicitly enabled in order for CSI to function correctly. Please take a look at and also understand all the configuration options presented in the documentation located [here](https://kubernetes-csi.github.io/docs/deploying.html). You may need to apply all or only a subset of these options and feature gates depending on the version of Kubernetes being used, how the Kubernetes cluster was setup, the Kubernetes distribution being used, and etc. Please read through and understand which options are relevant to your particular version of your Kubernetes cluster.
+
+For most installations, it should be sufficient set the following on Kubernetes:
+- *api-server* (configuration file typically located at: /etc/kubernetes/manifests/kube-apiserver.yaml)
+  - `--allow-privileged=true`
+  - `--feature-gates=VolumeSnapshotDataSource=true,KubeletPluginsWatcher=true,CSINodeInfo=true,CSIDriverRegistry=true`
+- *kubelet* (configuration file typically located at: /etc/sysconfig/kubelet)
+  - `--allow-privileged=true`
+  - `--feature-gates=VolumeSnapshotDataSource=true,KubeletPluginsWatcher=true,CSINodeInfo=true,CSIDriverRegistry=true`
+
+For all Kubernetes nodes in your vSphere environment, you need to EnableUUID set to TRUE. To do that, please perform the following on all nodes:
+1. Power off the guest.
+2. Select the guest and select Edit Settings.
+3. Select the Options tab on top.
+4. Select General under the Advanced section.
+5. Select the Configuration Parameters... on right hand side.
+6. Check to see if the parameter disk.EnableUUID is set, if it is there then make sure it is set to TRUE.
+7. If the parameter is not there, select Add Row and add it.
+8. Power on the guest.
+
+Again, please consult the CSI documentation if it's unclear how to setup the `csi-vsphere` for use in your Kubernetes cluster.
+
+#### 2. Creating a `configmap` of your vSphere configuration
 
 There are 2 methods for configuring the `csi-vsphere`:
 - Using a Kubernetes Secret
@@ -107,7 +132,7 @@ Configure your vsphere.conf file and create a `configmap` of your settings using
 [k8suser@k8master ~]$ kubectl create configmap cloud-config --from-file=vsphere.conf --namespace=kube-system
 ```
 
-#### 2. (Optional, but recommended) Storing vCenter credentials in a Kubernetes Secret
+#### 3. (Optional, but recommended) Storing vCenter credentials in a Kubernetes Secret
 
 If you choose to store your vCenter credentials within a Kubernetes Secret (method 1 above), an example [Secrets YAML](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vcsi-secret.yaml) is provided for reference. Both the vCenter username and password is base64 encoded within the secret. If you have multiple vCenters (as in the example vsphere.conf file), your Kubernetes Secret YAML will look like the following:
 
@@ -130,7 +155,7 @@ Create the secret by running the following command:
 [k8suser@k8master ~]$ kubectl create -f vcsi-secret.yaml
 ```
 
-#### 3. Create the RBAC roles and bindings for the CSI controller
+#### 4. Create the RBAC roles and bindings for the CSI controller
 
 You can find the RBAC roles and bindings required by the CSI controller in [vsphere-csi-controller-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-controller-rbac.yaml).
 
@@ -140,7 +165,7 @@ To apply them to your Kubernetes cluster, run the following command:
 [k8suser@k8master ~]$ kubectl create -f vsphere-csi-controller-rbac.yaml
 ```
 
-#### 4. Create the RBAC roles and bindings for the CSI node
+#### 5. Create the RBAC roles and bindings for the CSI node
 
 You can find the RBAC roles and bindings required by the CSI node manager in [vsphere-csi-node-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-rbac.yaml).
 
@@ -150,7 +175,7 @@ To apply them to your Kubernetes cluster, run the following command:
 [k8suser@k8master ~]$ kubectl create -f vsphere-csi-node-rbac.yaml
 ```
 
-#### 5. Deploy `csi-vsphere-controller`
+#### 6. Deploy `csi-vsphere-controller`
 
 **IMPORTANT NOTES:**
 - The YAML to deploy CSI controller assumes that your Kubernetes cluster was deployed using [kubeadm](https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/). If you deployed your cluster using alternate means, you will need to modify the YAML files in order to provide necessary files or paths based on your deployment.
@@ -163,7 +188,7 @@ Run the following command:
 [k8suser@k8master ~]$ kubectl create -f vsphere-csi-controller-ss.yaml
 ```
 
-#### 6. Deploy `csi-vsphere-node`
+#### 7. Deploy `csi-vsphere-node`
 
 The YAML to deploy `csi-vsphere-node` can be found in [vsphere-csi-node-ds.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-ds.yaml).
 
@@ -173,7 +198,7 @@ Run the following command:
 [k8suser@k8master ~]$ kubectl create -f vsphere-csi-node-ds.yaml
 ```
 
-#### 7. Create CRDs for CSI driver registration
+#### 8. Create CRDs for CSI driver registration
 
 You can find the CRDs to register the CSI nodes in [vsphere-csi-crd.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-crd.yaml).
 
@@ -183,7 +208,7 @@ To apply them to your Kubernetes cluster, run the following command:
 [k8suser@k8master ~]$ kubectl create -f vsphere-csi-crd.yaml
 ```
 
-#### 8. Create your StorageClass and PersistentVolumeClaim by Example
+#### 9. Create your StorageClass and PersistentVolumeClaim by Example
 
 Each StorageClass (SC) is going to be unique to each user as it depends on the vSphere configuration you have. The PersistentVolumeClaim (PVC) is also therefore unique since the PVC depends on the SC. You can find examples of each in the [manifests/csi](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi) directory for reference. The important thing to note in the [StorageClass](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi/example-vsphere-sc.yaml) as seen below is that you need to provide as paramters the type of datastore you will be using (`DatastoreCluster` or `Datastore`) and it's corresponding name.
 
