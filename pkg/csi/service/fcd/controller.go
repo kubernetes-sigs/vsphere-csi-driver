@@ -412,7 +412,7 @@ func (c *controller) ListVolumes(
 
 	stop := total
 	if req.MaxEntries != 0 && stop > int(req.MaxEntries) {
-		stop = start + int(req.MaxEntries)
+		stop = start + int(req.MaxEntries) - 1
 	}
 
 	log.Infof("Start: %d, End: %d, Total: %d", start, stop, total)
@@ -424,12 +424,10 @@ func (c *controller) ListVolumes(
 		msg := fmt.Sprintf("Invalid start token %d. Greater than total items %d.", start, total)
 		log.Errorf(msg)
 		return nil, status.Errorf(codes.Internal, msg)
-	} else if start == stop {
-		subsetFirstClassDisks = firstClassDisks[(start - 1):]
 	} else if stop >= total {
 		subsetFirstClassDisks = firstClassDisks[start:]
 	} else if stop < total {
-		subsetFirstClassDisks = firstClassDisks[start:stop]
+		subsetFirstClassDisks = firstClassDisks[start:(stop + 1)]
 	}
 
 	for _, firstClassDisk := range subsetFirstClassDisks {

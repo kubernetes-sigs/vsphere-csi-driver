@@ -41,9 +41,22 @@ func TestDoesntMeetMinMinorVersion(t *testing.T) {
 	}
 }
 
-func TestSupportedVersion(t *testing.T) {
+func TestMinSupportedVersion(t *testing.T) {
 	err := checkAPI("6.5.0")
 	if err != nil {
-		t.Errorf("This is a supported vCenter version err=%v", err)
+		t.Errorf("This is the minimum supported vCenter version err=%v", err)
+	}
+}
+func TestSupportedVersionMinor(t *testing.T) {
+	err := checkAPI("6.7.0")
+	if err != nil {
+		t.Errorf("This is a supported vCenter version (minor+) err=%v", err)
+	}
+}
+
+func TestSupportedVersionMajor(t *testing.T) {
+	err := checkAPI("7.0.0")
+	if err != nil {
+		t.Errorf("This is a supported vCenter version (major+) err=%v", err)
 	}
 }
