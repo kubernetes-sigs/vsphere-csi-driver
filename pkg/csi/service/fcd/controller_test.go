@@ -447,6 +447,55 @@ func TestListOrder(t *testing.T) {
 			t.Errorf("FirstName(%s) != SecondName(%s)", firstName, secondName)
 		}
 	}
+
+	// Add one more... thus changing the order
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: "test12",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: int64(12) * GbInBytes,
+		},
+		Parameters: params,
+	}
+
+	respCreate, err := c.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("CreateVolume failed: %v", err)
+	}
+	volNameRet := respCreate.Volume.VolumeContext[AttributeFirstClassDiskName]
+	if !strings.EqualFold("test12", volNameRet) {
+		t.Errorf("[CREATE] Name of FCD does not match test12 != %s", volNameRet)
+	}
+
+	// Now retest the list order so that it's repeatable
+	// first call
+	respFirst, err = c.ListVolumes(ctx, &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Errorf("[FIRST] ListVolumes failed: %v", err)
+	}
+	countFirst = len(respFirst.Entries)
+	if countFirst != 12 {
+		t.Errorf("There should 12 FCD present count=%d", countFirst)
+	}
+
+	// second call
+	respSecond, err = c.ListVolumes(ctx, &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Errorf("[SECOND] ListVolumes failed: %v", err)
+	}
+	countSecond = len(respSecond.Entries)
+	if countFirst != 12 {
+		t.Errorf("There should 12 FCD present count=%d", countSecond)
+	}
+
+	for i := 0; i < 12; i++ {
+		firstName := respFirst.Entries[i].Volume.VolumeContext[AttributeFirstClassDiskName]
+		secondName := respSecond.Entries[i].Volume.VolumeContext[AttributeFirstClassDiskName]
+
+		if !strings.EqualFold(firstName, secondName) {
+			t.Errorf("FirstName(%s) != SecondName(%s)", firstName, secondName)
+		}
+	}
+
 }
 
 func TestZoneSupport(t *testing.T) {
