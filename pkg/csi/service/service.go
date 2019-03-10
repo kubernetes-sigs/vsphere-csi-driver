@@ -119,19 +119,27 @@ func (s *service) BeforeServe(
 			cfgPath = DefaultCloudConfigPath
 		}
 
-		//Read in the vsphere.conf
-		config, err := os.Open(cfgPath)
-		if err != nil {
-			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
-			return err
-		}
-		cfg, err := vcfg.ReadConfig(config)
-		if err != nil {
-			log.Errorf("Failed to parse config. Err: %v", err)
-			return err
+		var cfg *vcfg.Config
+
+		//Read in the vsphere.conf if it exists
+		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+			// config from Env var only
+			cfg = &vcfg.Config{}
+			vcfg.ConfigFromEnv(cfg)
+		} else {
+			config, err := os.Open(cfgPath)
+			if err != nil {
+				log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+				return err
+			}
+			cfg, err = vcfg.ReadConfig(config)
+			if err != nil {
+				log.Errorf("Failed to parse config. Err: %v", err)
+				return err
+			}
 		}
 
-		if err := s.cs.Init(&cfg); err != nil {
+		if err := s.cs.Init(cfg); err != nil {
 			log.WithError(err).Error("Failed to init controller")
 			return err
 		}
