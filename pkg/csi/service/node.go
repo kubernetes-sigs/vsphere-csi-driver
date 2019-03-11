@@ -396,7 +396,7 @@ func (s *service) NodeGetCapabilities(
 
 	return &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
-			&csi.NodeServiceCapability{
+			{
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
 						Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,

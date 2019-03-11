@@ -477,21 +477,21 @@ func (c *controller) ControllerGetCapabilities(
 
 	return &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: []*csi.ControllerServiceCapability{
-			&csi.ControllerServiceCapability{
+			{
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 					},
 				},
 			},
-			&csi.ControllerServiceCapability{
+			{
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 					},
 				},
 			},
-			&csi.ControllerServiceCapability{
+			{
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
