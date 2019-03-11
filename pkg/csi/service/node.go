@@ -362,17 +362,15 @@ func (s *service) NodeUnpublishVolume(
 	for _, m := range mnts {
 		if m.Source == dev.RealDev || m.Device == dev.RealDev {
 			if m.Path == target {
-				err = gofsutil.Unmount(ctx, target)
-				if err != nil {
+				if err := gofsutil.Unmount(ctx, target); err != nil {
 					return nil, status.Errorf(codes.Internal,
 						"Error unmounting target: %s", err.Error())
-				} else {
-					// directory should be empty
-					log.WithField("path", target).Debug("removing directory")
-					if err := os.Remove(target); err != nil {
-						return nil, status.Errorf(codes.Internal,
-							"Unable to remove target dir: %s, err: %v", target, err)
-					}
+				}
+				// directory should be empty
+				log.WithField("path", target).Debug("removing directory")
+				if err := os.Remove(target); err != nil {
+					return nil, status.Errorf(codes.Internal,
+						"Unable to remove target dir: %s, err: %v", target, err)
 				}
 			}
 		}

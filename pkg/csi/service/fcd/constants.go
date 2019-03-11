@@ -17,31 +17,59 @@ limitations under the License.
 package fcd
 
 const (
-	// MbInBytes... just like it sounds but as int64
+	// MbInBytes is the number of bytes in one mebibyte.
+	// TODO(codenrhoden) Should this be MiBInBytes?
 	MbInBytes = int64(1024 * 1024)
 
-	// GbInBytes... just like it sounds but as int64
+	// GbInBytes is the number of bytes in one gibibyte.
+	// TODO(codenrhoden) Should this be GiBInBytes?
 	GbInBytes = int64(1024 * 1024 * 1024)
 
-	// DefaultGbDiskSize... just like it sounds but as int64
+	// DefaultGbDiskSize is the default disk size in gibibytes.
+	// TODO(codenrhoden) Should this be DefaultGiBDiskSize?
 	DefaultGbDiskSize = int64(10)
 
 	// FirstClassDiskTypeString in string form
 	FirstClassDiskTypeString = "First Class Disk"
 
-	// FCD attribute labels
-	AttributeFirstClassDiskType            = "type"
-	AttributeFirstClassDiskName            = "name"
-	AttributeFirstClassDiskParentType      = "parent_type"
-	AttributeFirstClassDiskParentName      = "parent_name"
-	AttributeFirstClassDiskOwningDatastore = "owning_datastore"
-	AttributeFirstClassDiskVcenter         = "vcenter"
-	AttributeFirstClassDiskDatacenter      = "datacenter"
-	AttributeFirstClassDiskPage83Data      = "page83data"
-	AttributeFirstClassDiskZone            = "zone"
-	AttributeFirstClassDiskRegion          = "region"
+	//
+	// Kubernetes volume labels
+	//
 
-	// Constants pulled from k/k
+	// Please see https://github.com/kubernetes/cloud-provider-vsphere/issues/134
+	// for an example of the following volume labels.
+
+	// AttributeFirstClassDiskType is a Kubernetes volume label.
+	AttributeFirstClassDiskType = "type"
+	// AttributeFirstClassDiskName is a Kubernetes volume label.
+	AttributeFirstClassDiskName = "name"
+	// AttributeFirstClassDiskParentType is a Kubernetes volume label.
+	AttributeFirstClassDiskParentType = "parent_type"
+	// AttributeFirstClassDiskParentName is a Kubernetes volume label.
+	AttributeFirstClassDiskParentName = "parent_name"
+	// AttributeFirstClassDiskOwningDatastore is a Kubernetes volume label.
+	AttributeFirstClassDiskOwningDatastore = "owning_datastore"
+	// AttributeFirstClassDiskVcenter is a Kubernetes volume label.
+	AttributeFirstClassDiskVcenter = "vcenter"
+	// AttributeFirstClassDiskDatacenter is a Kubernetes volume label.
+	AttributeFirstClassDiskDatacenter = "datacenter"
+	// AttributeFirstClassDiskPage83Data is a Kubernetes volume label.
+	AttributeFirstClassDiskPage83Data = "page83data"
+	// AttributeFirstClassDiskZone is a Kubernetes volume label.
+	AttributeFirstClassDiskZone = "zone"
+	// AttributeFirstClassDiskRegion is a Kubernetes volume label.
+	AttributeFirstClassDiskRegion = "region"
+
+	//
+	// Kubernetes node/persistent volume labels
+	//
+
+	// LabelZoneFailureDomain is a label placed on nodes and persistent
+	// volumes by the Kubelet with information obtained from the cloud
+	// provider. For more information please see
+	// https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domain-beta-kubernetes-io-region.
 	LabelZoneFailureDomain = "failure-domain.beta.kubernetes.io/zone"
-	LabelZoneRegion        = "failure-domain.beta.kubernetes.io/region"
+
+	// LabelZoneRegion is documented with LabelZoneFailureDomain.
+	LabelZoneRegion = "failure-domain.beta.kubernetes.io/region"
 )

@@ -31,11 +31,21 @@ import (
 )
 
 const (
-	NUM_OF_CONNECTION_ATTEMPTS     int = 3
-	RETRY_ATTEMPT_DELAY_IN_SECONDS int = 1
+	// NumConnectionAttempts is the number of allowed connection attempts
+	// before an error is returned.
+	NumConnectionAttempts int = 3
 
-	MINIMUM_SUPPORTED_VCENTER_MAJOR int = 6
-	MINIMUM_SUPPORTED_VCENTER_MINOR int = 5
+	// RetryAttemptDelaySecs is the number of seconds waited between
+	// each connection attempt.
+	RetryAttemptDelaySecs int = 1
+
+	// MinSupportedVCenterMajor is the minimum, major version of vCenter
+	// on which FCD is supported.
+	MinSupportedVCenterMajor int = 6
+
+	// MinSupportedVCenterMinor is the minimum, minor version of vCenter
+	// on which FCD is supported.
+	MinSupportedVCenterMinor int = 5
 )
 
 func checkAPI(version string) error {
@@ -53,10 +63,10 @@ func checkAPI(version string) error {
 		return fmt.Errorf("Invalid Minor Version value invalid")
 	}
 
-	if major < MINIMUM_SUPPORTED_VCENTER_MAJOR {
+	if major < MinSupportedVCenterMajor {
 		return fmt.Errorf("The minimum supported vCenter is 6.5")
 	}
-	if major == MINIMUM_SUPPORTED_VCENTER_MAJOR && minor < MINIMUM_SUPPORTED_VCENTER_MINOR {
+	if major == MinSupportedVCenterMajor && minor < MinSupportedVCenterMinor {
 		return fmt.Errorf("The minimum supported vCenter is 6.5")
 	}
 	return nil
@@ -79,12 +89,12 @@ func getAllFCDs(ctx context.Context, cm *cm.ConnectionManager) []*vclib.FirstCla
 	for vc, vsi := range cm.VsphereInstanceMap {
 
 		var err error
-		for i := 0; i < NUM_OF_CONNECTION_ATTEMPTS; i++ {
+		for i := 0; i < NumConnectionAttempts; i++ {
 			err = cm.ConnectByInstance(ctx, vsi)
 			if err == nil {
 				break
 			}
-			time.Sleep(time.Duration(RETRY_ATTEMPT_DELAY_IN_SECONDS) * time.Second)
+			time.Sleep(time.Duration(RetryAttemptDelaySecs) * time.Second)
 		}
 		if err != nil {
 			log.Errorf("Failed to connection to vCenter: %s with err: %v", vc, err)

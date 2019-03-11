@@ -125,7 +125,7 @@ func (s *service) BeforeServe(
 		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 			// config from Env var only
 			cfg = &vcfg.Config{}
-			vcfg.ConfigFromEnv(cfg)
+			vcfg.FromEnv(cfg)
 		} else {
 			config, err := os.Open(cfgPath)
 			if err != nil {

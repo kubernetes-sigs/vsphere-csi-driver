@@ -113,7 +113,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool, multiDc b
 
 func configFromEnvOrSim(multiDc bool) (*vcfg.Config, func()) {
 	cfg := &vcfg.Config{}
-	if err := vcfg.ConfigFromEnv(cfg); err != nil {
+	if err := vcfg.FromEnv(cfg); err != nil {
 		return configFromSim(multiDc)
 	}
 	return cfg, func() {}
