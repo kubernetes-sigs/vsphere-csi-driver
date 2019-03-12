@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package service
+package types
 
 const (
 	// DefaultCloudConfigPath is /etc/cloud/vsphere.conf
@@ -27,4 +27,8 @@ const (
 
 	// EnvCloudConfig contains the path to the vSphere Cloud Config
 	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
+
+	// EnvK8s is a boolean flag to indicate whether or not the CSI plugin should
+	// use a Kubernetes API client to get secrets
+	EnvDisableK8sClient = "X_CSI_DISABLE_K8S_CLIENT"
 )

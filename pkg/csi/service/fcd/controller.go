@@ -18,6 +18,7 @@ package fcd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -27,7 +28,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
 
@@ -42,10 +42,8 @@ import (
 )
 
 type controller struct {
-	client    *clientset.Interface
-	cfg       *vcfg.Config
-	connMgr   *cm.ConnectionManager
-	informMgr *k8s.InformerManager
+	cfg     *vcfg.Config
+	connMgr *cm.ConnectionManager
 }
 
 func noResyncPeriodFunc() time.Duration {
@@ -58,19 +56,41 @@ func New() vTypes.Controller {
 }
 
 func (c *controller) Init(config *vcfg.Config) error {
-	client, err := k8s.NewClient(config.Global.ServiceAccount)
-	if err != nil {
-		return fmt.Errorf("Creating Kubernetes client failed. Err: %v", err)
+
+	var (
+		connMgr   *cm.ConnectionManager
+		informMgr *k8s.InformerManager
+		useK      bool = true
+	)
+
+	// Check if we should disable Kubernetes client
+	if k := os.Getenv(vTypes.EnvDisableK8sClient); k != "" {
+		b, err := strconv.ParseBool(k)
+		if err != nil {
+			log.WithError(err).Errorf("failed to parse: %s:%s", vTypes.EnvDisableK8sClient, k)
+		} else if b {
+			useK = false
+		}
+	}
+	if useK {
+		log.Info("Initializing CSI for Kubernetes")
+		client, err := k8s.NewClient(config.Global.ServiceAccount)
+		if err != nil {
+			return fmt.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		} else {
+			informMgr = k8s.NewInformer(client)
+		}
 	}
 
-	informMgr := k8s.NewInformer(&client)
-	connMgr := cm.NewConnectionManager(config, informMgr.GetSecretListener())
-	informMgr.Listen()
+	if informMgr != nil {
+		connMgr = cm.NewConnectionManager(config, informMgr.GetSecretListener())
+		informMgr.Listen()
+	} else {
+		connMgr = cm.NewConnectionManager(config, nil)
+	}
 
-	c.client = &client
 	c.cfg = config
 	c.connMgr = connMgr
-	c.informMgr = informMgr
 
 	//VC check... FCD is only supported in 6.5+
 	for vc := range connMgr.VsphereInstanceMap {

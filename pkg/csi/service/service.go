@@ -46,7 +46,7 @@ const (
 
 var (
 	api     = defaultAPI
-	cfgPath = DefaultCloudConfigPath
+	cfgPath = vTypes.DefaultCloudConfigPath
 )
 
 // Service is a CSI SP and idempotency.Provider.
@@ -69,7 +69,7 @@ func New() Service {
 
 func (s *service) GetController() csi.ControllerServer {
 	// check which API to use
-	api = os.Getenv(EnvAPI)
+	api = os.Getenv(vTypes.EnvAPI)
 	if api == "" {
 		api = defaultAPI
 	}
@@ -114,9 +114,9 @@ func (s *service) BeforeServe(
 			return fmt.Errorf("Invalid API: %s", api)
 		}
 
-		cfgPath = csictx.Getenv(ctx, EnvCloudConfig)
+		cfgPath = csictx.Getenv(ctx, vTypes.EnvCloudConfig)
 		if cfgPath == "" {
-			cfgPath = DefaultCloudConfigPath
+			cfgPath = vTypes.DefaultCloudConfigPath
 		}
 
 		var cfg *vcfg.Config
@@ -125,7 +125,9 @@ func (s *service) BeforeServe(
 		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 			// config from Env var only
 			cfg = &vcfg.Config{}
-			vcfg.FromEnv(cfg)
+			if err := vcfg.FromEnv(cfg); err != nil {
+				return err
+			}
 		} else {
 			config, err := os.Open(cfgPath)
 			if err != nil {
@@ -143,7 +145,6 @@ func (s *service) BeforeServe(
 			log.WithError(err).Error("Failed to init controller")
 			return err
 		}
-
 	}
 
 	return nil
