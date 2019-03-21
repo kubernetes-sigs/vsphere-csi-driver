@@ -72,16 +72,25 @@ func (s *service) NodeStageVolume(
 			volID, err.Error())
 	}
 
-	// Check that target_path is created by CO and is a directory
-	target := req.GetStagingTargetPath()
-	if err = verifyTargetDir(target); err != nil {
+	f["device"] = dev.RealDev
+
+	// Check if this is a MountvVolume or BlockVolume
+	volCap := req.GetVolumeCapability()
+	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		// Volume is a block volume, so skip all the rest
+		log.WithFields(f).Info("skipping staging for block access type")
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
+
+	// Extract fs details
+	fs, mntFlags, err := ensureMountVol(volCap)
+	if err != nil {
 		return nil, err
 	}
 
-	//Mount if the device if needed, and if already mounted, verify compatibility
-	volCap := req.GetVolumeCapability()
-	fs, mntFlags, err := ensureMountVol(volCap)
-	if err != nil {
+	// Check that target_path is created by CO and is a directory
+	target := req.GetStagingTargetPath()
+	if err = verifyTargetDir(target); err != nil {
 		return nil, err
 	}
 
@@ -165,6 +174,10 @@ func (s *service) NodeUnstageVolume(
 	}
 
 	// Look up block device mounted to target
+	// BlockVolume: Here we are relying on the fact that the CO is required to
+	// have created the staging path per the spec, even for BlockVolumes. Even
+	// though we don't use the staging path for block, the fact nothing will be
+	// mounted still indicates that unstaging is done.
 	dev, err := getDevFromMount(target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
@@ -236,26 +249,6 @@ func (s *service) NodePublishVolume(
 		return nil, err
 	}
 
-	target := req.GetTargetPath()
-	// We are responsible for creating target dir, per spec
-	_, err = mkdir(target)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Unable to create target dir: %s, err: %v", target, err)
-	}
-
-	stagingTarget := req.GetStagingTargetPath()
-	if err := verifyTargetDir(stagingTarget); err != nil {
-		return nil, err
-	}
-
-	ro := req.GetReadonly()
-	volCap := req.GetVolumeCapability()
-	_, mntFlags, err := ensureMountVol(volCap)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get underlying block device
 	dev, err := getDevice(volPath)
 	if err != nil {
@@ -266,57 +259,17 @@ func (s *service) NodePublishVolume(
 
 	f["volumePath"] = dev.FullPath
 	f["device"] = dev.RealDev
-	f["target"] = target
-	f["stagingTarget"] = stagingTarget
+	f["target"] = req.GetTargetPath()
 
-	// get block device mounts
-	// Check if device is already mounted
-	devMnts, err := getDevMounts(dev)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %s",
-			err.Error())
+	// check for Block vs Mount
+	volCap := req.GetVolumeCapability()
+	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		// bind mount device to target
+		return publishBlockVol(ctx, req, dev, f)
 	}
 
-	// We expect that block device already staged, so there should be at least 1
-	// mount already. if it's > 1, it may already be published
-	if len(devMnts) > 1 {
-		// check if publish is already there
-		for _, m := range devMnts {
-			if m.Path == target {
-				// volume already published to target
-				// if mount options look good, do nothing
-				rwo := "rw"
-				if ro {
-					rwo = "ro"
-				}
-				if !contains(m.Opts, rwo) {
-					return nil, status.Error(codes.AlreadyExists,
-						"volume previously published with different options")
-				}
-
-				// Existing mount satisfies request
-				log.WithFields(f).Debug("volume already published to target")
-				return &csi.NodePublishVolumeResponse{}, nil
-			}
-		}
-	} else if len(devMnts) == 0 {
-		return nil, status.Errorf(codes.FailedPrecondition,
-			"Volume ID: %s does not appear staged to %s", volID, stagingTarget)
-	}
-
-	// Do the bind mount to publish the volume
-	if ro {
-		mntFlags = append(mntFlags, "ro")
-	}
-
-	if err := gofsutil.BindMount(ctx, stagingTarget, target, mntFlags...); err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"error publish volume to target path: %s",
-			err.Error())
-	}
-
-	return &csi.NodePublishVolumeResponse{}, nil
+	// Volume must be a mount volume
+	return publishMountVol(ctx, req, dev, f)
 }
 
 func (s *service) NodeUnpublishVolume(
@@ -346,7 +299,11 @@ func (s *service) NodeUnpublishVolume(
 	}
 
 	if dev == nil {
-		// Nothing is mounted, so unpublish is already done
+		// Nothing is mounted, so unpublish is already done. However, we also know
+		// that the target path exists, and it is our job to remove it.
+		if err := rmpath(target); err != nil {
+			return nil, err
+		}
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
@@ -366,11 +323,8 @@ func (s *service) NodeUnpublishVolume(
 					return nil, status.Errorf(codes.Internal,
 						"Error unmounting target: %s", err.Error())
 				}
-				// directory should be empty
-				log.WithField("path", target).Debug("removing directory")
-				if err := os.Remove(target); err != nil {
-					return nil, status.Errorf(codes.Internal,
-						"Unable to remove target dir: %s, err: %v", target, err)
+				if err := rmpath(target); err != nil {
+					return nil, err
 				}
 			}
 		}
@@ -419,6 +373,145 @@ func (s *service) NodeGetInfo(
 	return &csi.NodeGetInfoResponse{
 		NodeId: id,
 	}, nil
+}
+
+func publishMountVol(
+	ctx context.Context,
+	req *csi.NodePublishVolumeRequest,
+	dev *Device,
+	f log.Fields) (
+	*csi.NodePublishVolumeResponse, error) {
+
+	volCap := req.GetVolumeCapability()
+	// Extract fs details
+	_, mntFlags, err := ensureMountVol(volCap)
+	if err != nil {
+		return nil, err
+	}
+
+	// We are responsible for creating target dir, per spec
+	target := req.GetTargetPath()
+	_, err = mkdir(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to create target dir: %s, err: %v", target, err)
+	}
+
+	stagingTarget := req.GetStagingTargetPath()
+	if err := verifyTargetDir(stagingTarget); err != nil {
+		return nil, err
+	}
+	f["stagingTarget"] = stagingTarget
+
+	ro := req.GetReadonly()
+	f["readonly"] = ro
+
+	// get block device mounts
+	// Check if device is already mounted
+	devMnts, err := getDevMounts(dev)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not reliably determine existing mount status: %s",
+			err.Error())
+	}
+
+	// We expect that block device already staged, so there should be at least 1
+	// mount already. if it's > 1, it may already be published
+	if len(devMnts) > 1 {
+		// check if publish is already there
+		for _, m := range devMnts {
+			if m.Path == target {
+				// volume already published to target
+				// if mount options look good, do nothing
+				rwo := "rw"
+				if ro {
+					rwo = "ro"
+				}
+				if !contains(m.Opts, rwo) {
+					return nil, status.Error(codes.AlreadyExists,
+						"volume previously published with different options")
+				}
+
+				// Existing mount satisfies request
+				log.WithFields(f).Debug("volume already published to target")
+				return &csi.NodePublishVolumeResponse{}, nil
+			}
+		}
+	} else if len(devMnts) == 0 {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"Volume ID: %s does not appear staged to %s", req.GetVolumeId(), stagingTarget)
+	}
+
+	// Do the bind mount to publish the volume
+	if ro {
+		mntFlags = append(mntFlags, "ro")
+	}
+
+	if err := gofsutil.BindMount(ctx, stagingTarget, target, mntFlags...); err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"error publish volume to target path: %s",
+			err.Error())
+	}
+
+	return &csi.NodePublishVolumeResponse{}, nil
+}
+
+func publishBlockVol(
+	ctx context.Context,
+	req *csi.NodePublishVolumeRequest,
+	dev *Device,
+	f log.Fields) (
+	*csi.NodePublishVolumeResponse, error) {
+
+	// We are responsible for creating target file, per spec
+	target := req.GetTargetPath()
+	_, err := mkfile(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to create target file: %s, err: %v", target, err)
+	}
+
+	ro := req.GetReadonly()
+	// Read-only is not supported for BlockVolume. Doing a read-only
+	// bind mount of the device to the target path does not prevent
+	// the underlying block device from being modified, so don't
+	// advertise a false sense of security
+	if ro {
+		return nil, status.Error(codes.InvalidArgument,
+			"read only not supported for Block Volume")
+	}
+
+	// get block device mounts
+	devMnts, err := getDevMounts(dev)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not reliably determine existing mount status: %s",
+			err.Error())
+	}
+
+	// check if device is already mounted
+	if len(devMnts) == 0 {
+		// do the bind mount
+		mntFlags := make([]string, 0)
+		if err := gofsutil.BindMount(ctx, dev.FullPath, target, mntFlags...); err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"error publish volume to target path: %s",
+				err.Error())
+		}
+	} else if len(devMnts) == 1 {
+		// already mounted, make sure it's what we want
+		if devMnts[0].Path != target {
+			return nil, status.Error(codes.Internal,
+				"device already in use and mounted elsewhere")
+		}
+		log.WithFields(f).Debug("volume already published to target")
+	} else {
+		return nil, status.Error(codes.Internal,
+			"block volume already mounted in more than one place")
+	}
+
+	// existing or new mount satisfies request
+	return &csi.NodePublishVolumeResponse{}, nil
 }
 
 // Device is a struct for holding details about a block device
@@ -509,6 +602,8 @@ func verifyVolumeAttached(diskID string) (string, error) {
 			"disk: %s not attached to node", diskID)
 	}
 
+	log.WithField("diskID", diskID).WithField("path", volPath).Debug("found disk")
+
 	return volPath, nil
 }
 
@@ -561,11 +656,44 @@ func mkdir(path string) (bool, error) {
 	return false, nil
 }
 
+// mkfile creates a file specified by the path if needed.
+// return pair is a bool flag of whether file was created, and an error
+func mkfile(path string) (bool, error) {
+	st, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		file, err := os.OpenFile(path, os.O_CREATE, 0755)
+		if err != nil {
+			log.WithField("dir", path).WithError(
+				err).Error("Unable to create dir")
+			return false, err
+		}
+		file.Close()
+		log.WithField("path", path).Debug("created file")
+		return true, nil
+	}
+	if st.IsDir() {
+		return false, fmt.Errorf("existing path is a directory")
+	}
+	return false, nil
+}
+
+// rmpath removes the given target path, whether it is a file or a directory
+// for directories, an error is returned if the dir is not empty
+func rmpath(target string) error {
+	// target should be empty
+	log.WithField("path", target).Debug("removing target path")
+	if err := os.Remove(target); err != nil {
+		return status.Errorf(codes.Internal,
+			"Unable to remove target path: %s, err: %v", target, err)
+	}
+	return nil
+}
+
 func ensureMountVol(volCap *csi.VolumeCapability) (string, []string, error) {
 	mountVol := volCap.GetMount()
 	if mountVol == nil {
 		return "", nil, status.Error(codes.InvalidArgument,
-			"Only Mount access type supported")
+			"access type missing")
 	}
 	fs := mountVol.GetFsType()
 	mntFlags := mountVol.GetMountFlags()
@@ -648,7 +776,11 @@ func getDevFromMount(target string) (*Device, error) {
 	for _, m := range mnts {
 		if m.Path == target {
 			// something is mounted to target, get underlying disk
-			dev, err := getDevice(m.Device)
+			d := m.Device
+			if m.Device == "devtmpfs" {
+				d = m.Source
+			}
+			dev, err := getDevice(d)
 			if err != nil {
 				return nil, err
 			}
