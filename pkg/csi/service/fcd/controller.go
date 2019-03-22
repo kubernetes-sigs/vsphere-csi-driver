@@ -60,7 +60,7 @@ func (c *controller) Init(config *vcfg.Config) error {
 	var (
 		connMgr   *cm.ConnectionManager
 		informMgr *k8s.InformerManager
-		useK      bool = true
+		useK      = true
 	)
 
 	// Check if we should disable Kubernetes client
@@ -77,9 +77,8 @@ func (c *controller) Init(config *vcfg.Config) error {
 		client, err := k8s.NewClient(config.Global.ServiceAccount)
 		if err != nil {
 			return fmt.Errorf("Creating Kubernetes client failed. Err: %v", err)
-		} else {
-			informMgr = k8s.NewInformer(client)
 		}
+		informMgr = k8s.NewInformer(client)
 	}
 
 	if informMgr != nil {
