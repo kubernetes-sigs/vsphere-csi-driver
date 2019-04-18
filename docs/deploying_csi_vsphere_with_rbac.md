@@ -134,7 +134,7 @@ Configure your vsphere.conf file and create a `configmap` of your settings using
 
 #### 3. (Optional, but recommended) Storing vCenter credentials in a Kubernetes Secret
 
-If you choose to store your vCenter credentials within a Kubernetes Secret (method 1 above), an example [Secrets YAML](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vcsi-secret.yaml) is provided for reference. Both the vCenter username and password is base64 encoded within the secret. If you have multiple vCenters (as in the example vsphere.conf file), your Kubernetes Secret YAML will look like the following:
+If you choose to store your vCenter credentials within a Kubernetes Secret (method 1 above), an example [Secrets YAML](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vcsi-secret.yaml) is provided for reference. Both the vCenter username and password is base64 encoded within the secret. If you have multiple vCenters (as in the example vsphere.conf file), your Kubernetes Secret YAML will look like the following:
 
 ```
 apiVersion: v1
@@ -157,7 +157,7 @@ Create the secret by running the following command:
 
 #### 4. Create the RBAC roles and bindings for the CSI controller
 
-You can find the RBAC roles and bindings required by the CSI controller in [vsphere-csi-controller-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-controller-rbac.yaml).
+You can find the RBAC roles and bindings required by the CSI controller in [vsphere-csi-controller-rbac.yaml](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vsphere-csi-controller-rbac.yaml).
 
 To apply them to your Kubernetes cluster, run the following command:
 
@@ -167,7 +167,7 @@ To apply them to your Kubernetes cluster, run the following command:
 
 #### 5. Create the RBAC roles and bindings for the CSI node
 
-You can find the RBAC roles and bindings required by the CSI node manager in [vsphere-csi-node-rbac.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-rbac.yaml).
+You can find the RBAC roles and bindings required by the CSI node manager in [vsphere-csi-node-rbac.yaml](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vsphere-csi-node-rbac.yaml).
 
 To apply them to your Kubernetes cluster, run the following command:
 
@@ -180,7 +180,7 @@ To apply them to your Kubernetes cluster, run the following command:
 **IMPORTANT NOTES:**
 - The YAML to deploy CSI controller assumes that your Kubernetes cluster was deployed using [kubeadm](https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/). If you deployed your cluster using alternate means, you will need to modify the YAML files in order to provide necessary files or paths based on your deployment.
 
-The YAML to deploy `csi-vsphere-controller` can be found in [vsphere-csi-controller-ss.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-controller-ss.yaml).
+The YAML to deploy `csi-vsphere-controller` can be found in [vsphere-csi-controller-ss.yaml](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vsphere-csi-controller-ss.yaml).
 
 Run the following command:
 
@@ -190,7 +190,7 @@ Run the following command:
 
 #### 7. Deploy `csi-vsphere-node`
 
-The YAML to deploy `csi-vsphere-node` can be found in [vsphere-csi-node-ds.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-node-ds.yaml).
+The YAML to deploy `csi-vsphere-node` can be found in [vsphere-csi-node-ds.yaml](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vsphere-csi-node-ds.yaml).
 
 Run the following command:
 
@@ -200,7 +200,7 @@ Run the following command:
 
 #### 8. Create CRDs for CSI driver registration
 
-You can find the CRDs to register the CSI nodes in [vsphere-csi-crd.yaml](https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/csi/vsphere-csi-crd.yaml).
+You can find the CRDs to register the CSI nodes in [vsphere-csi-crd.yaml](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/manifests/csi/vsphere-csi-crd.yaml).
 
 To apply them to your Kubernetes cluster, run the following command:
 
@@ -210,7 +210,7 @@ To apply them to your Kubernetes cluster, run the following command:
 
 #### 9. Create your StorageClass and PersistentVolumeClaim by Example
 
-Each StorageClass (SC) is going to be unique to each user as it depends on the vSphere configuration you have. The PersistentVolumeClaim (PVC) is also therefore unique since the PVC depends on the SC. You can find examples of each in the [manifests/csi](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi) directory for reference. The important thing to note in the [StorageClass](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi/example-vsphere-sc.yaml) as seen below is that you need to provide as paramters the type of datastore you will be using (`DatastoreCluster` or `Datastore`) and it's corresponding name.
+Each StorageClass (SC) is going to be unique to each user as it depends on the vSphere configuration you have. The PersistentVolumeClaim (PVC) is also therefore unique since the PVC depends on the SC. You can find examples of each in the [manifests/csi](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/csi) directory for reference. The important thing to note in the [StorageClass](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/csi/example-vsphere-sc.yaml) as seen below is that you need to provide as paramters the type of datastore you will be using (`DatastoreCluster` or `Datastore`) and it's corresponding name.
 
 ```
 kind: StorageClass
@@ -220,13 +220,13 @@ metadata:
   namespace: kube-system
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
-provisioner: io.k8s.cloud-provider-vsphere.vsphere
+provisioner: vsphere.csi.vmware.com
 parameters:
   parent_type: "ONLY_ACCEPTABLE_VALUES_ARE: DatastoreCluster OR Datastore"
   parent_name: "REPLACE_WITH_YOUR_DATATORECLUSTER_OR_DATASTORE_NAME"
 ```
 
-Then create a [PersistentVolumeClaim](https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/csi/example-vsphere-pvc.yaml) to link to your SC. Example is below.
+Then create a [PersistentVolumeClaim](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/csi/example-vsphere-pvc.yaml) to link to your SC. Example is below.
 
 *NOTE:* Since the PVC references the SC, if you want to have multiple disks from various DatastoreClusters or Datastores, you need to have different SCs and PVCs.
 

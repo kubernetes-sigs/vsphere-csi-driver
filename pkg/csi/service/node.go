@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"k8s.io/cloud-provider-vsphere/pkg/csi/service/fcd"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/fcd"
 )
 
 const (

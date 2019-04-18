@@ -29,8 +29,8 @@ import (
 	"github.com/rexray/gocsi"
 	"google.golang.org/grpc"
 
-	"k8s.io/cloud-provider-vsphere/pkg/csi/provider"
-	"k8s.io/cloud-provider-vsphere/pkg/csi/service"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 )
 
 var _ = Describe("CSI plugin", func() {

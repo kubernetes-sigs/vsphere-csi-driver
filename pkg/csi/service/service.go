@@ -28,15 +28,15 @@ import (
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
-
 	vcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
-	"k8s.io/cloud-provider-vsphere/pkg/csi/service/fcd"
-	vTypes "k8s.io/cloud-provider-vsphere/pkg/csi/types"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/fcd"
+	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
 	// Name is the name of this CSI SP.
-	Name = "io.k8s.cloud-provider-vsphere.vsphere"
+	Name = "vsphere.csi.vmware.com"
 
 	// APIFCD is the FCD API
 	APIFCD = "FCD"

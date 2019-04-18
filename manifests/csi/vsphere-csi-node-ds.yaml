@@ -26,7 +26,7 @@ spec:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: /var/lib/kubelet/plugins_registry/io.k8s.cloud-provider-vsphere.vsphere/csi.sock
+              value: /var/lib/kubelet/plugins_registry/vsphere.csi.vmware.com/csi.sock
             - name: KUBE_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -70,7 +70,7 @@ spec:
             type: DirectoryOrCreate
         - name: plugin-dir
           hostPath:
-            path: /var/lib/kubelet/plugins_registry/io.k8s.cloud-provider-vsphere.vsphere
+            path: /var/lib/kubelet/plugins_registry/vsphere.csi.vmware.com
             type: DirectoryOrCreate
         - name: pods-mount-dir
           hostPath:

@@ -38,7 +38,8 @@ import (
 	cm "k8s.io/cloud-provider-vsphere/pkg/common/connectionmanager"
 	k8s "k8s.io/cloud-provider-vsphere/pkg/common/kubernetes"
 	"k8s.io/cloud-provider-vsphere/pkg/common/vclib"
-	vTypes "k8s.io/cloud-provider-vsphere/pkg/csi/types"
+
+	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 type controller struct {

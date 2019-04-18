@@ -19,7 +19,7 @@ package provider
 import (
 	"github.com/rexray/gocsi"
 
-	"k8s.io/cloud-provider-vsphere/pkg/csi/service"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 )
 
 // New returns a new CSI Storage Plug-in Provider.
