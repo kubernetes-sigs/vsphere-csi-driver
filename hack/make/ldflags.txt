@@ -1,0 +1,1 @@
+-extldflags "-static" -w -s

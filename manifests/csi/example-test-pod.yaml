@@ -1,0 +1,29 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: my-csi-app
+spec:
+  containers:
+    - name: my-frontend
+      image: busybox
+      volumeMounts:
+      - mountPath: "/data"
+        name: my-fcd-volume
+      command: [ "sleep", "1000000" ]
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: failure-domain.beta.kubernetes.io/zone
+            operator: In
+            values:
+            - IF_USING_ZONES_REPLACE_WITH_TARGETED_ZONE_VALUE
+          - key: failure-domain.beta.kubernetes.io/region
+            operator: In
+            values:
+            - IF_USING_ZONES_REPLACE_WITH_TARGETED_REGION_VALUE
+  volumes:
+    - name: my-fcd-volume
+      persistentVolumeClaim:
+        claimName: vsphere-csi-pvc
