@@ -1,0 +1,31 @@
+# Ignore the generated kind-config yaml.
+/test/integration/kind-config.yaml
+
+# Ignore the build output.
+/.build
+
+# Ignore the environment variable and Prow configuration files at
+# the root of the project.
+/config.env
+/prow-config-env.yaml
+
+# Ignore marker files.
+**/*.d
+
+# Ignore any Dockerfiles at the root of the project.
+/Dockerfile*
+
+# Ignore the binaries copied into the staging areas.
+/cluster/images/csi/vsphere-csi*
+
+# Ignore vendor at the root of the project.
+/vendor
+
+# OSX trash
+.DS_Store
+
+# Go test binaries
+*.test
+
+# binaries
+/vsphere-csi
