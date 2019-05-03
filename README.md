@@ -1,10 +1,14 @@
 # Container Storage Interface (CSI) driver for vSphere
 
-This repository provides tools and scripts for building and testing `CSI` for vSphere.
-The project is under development and should not be used in production.
+This repository provides tools and scripts for building and testing `csi-vsphere`.
+The driver is an **alpha** state and should not be used in production.
 
 On Kubernetes, the CSI driver is for use in conjunction with the out of tree vSphere
 [CCM](https://github.com/kubernetes/cloud-provider-vsphere).
+
+The driver has been tested with Kubernetes 1.13 and 1.14, but due to internal K8s API
+changes during that cycle, an upgrade path for using `csi-vsphere` while moving from
+1.13 to 1.14 has not been documented.
 
 ## Building the CSI driver
 
