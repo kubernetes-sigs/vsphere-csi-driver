@@ -31,6 +31,7 @@ spec:
           args:
             - -v=5
             - "--csi-address=$(ADDRESS)"
+            - "--feature-gates=Topology=true"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
