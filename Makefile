@@ -4,10 +4,6 @@ all: build
 PWD := $(abspath .)
 BASE_DIR := $(notdir $(PWD))
 
-# PROJECT_ROOT is used when host access is required when running
-# Docker-in-Docker (DinD).
-export PROJECT_ROOT ?= $(PWD)
-
 # BUILD_OUT is the root directory containing the build output.
 export BUILD_OUT ?= .build
 
@@ -221,7 +217,7 @@ endif
 TEST_FLAGS ?= -v
 .PHONY: unit build-unit-tests
 unit unit-test:
-	env -u VSPHERE_SERVER -u VSPHERE_PASSWORD -u VSPHERE_USER go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
+	go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
 build-unit-tests:
 	$(foreach pkg,$(PKGS_WITH_TESTS),go test $(TEST_FLAGS) -c $(pkg); )
 
@@ -297,6 +293,18 @@ push-$(IMAGE_CSI) upload-$(IMAGE_CSI): $(IMAGE_CSI_D) login-to-image-registry | 
 
 .PHONY: push-images upload-images
 push-images upload-images: upload-csi-image
+
+################################################################################
+##                                  CI IMAGE                                  ##
+################################################################################
+build-ci-image:
+	$(MAKE) -C hack/images/ci build
+
+push-ci-image:
+	$(MAKE) -C hack/images/ci push
+
+print-ci-image:
+	@$(MAKE) --no-print-directory -C hack/images/ci print
 
 ################################################################################
 ##                               PRINT VERISON                                ##
