@@ -27,5 +27,9 @@
 # Go test binaries
 *.test
 
+# Test reports
+junit_check.xml
+
 # binaries
 /vsphere-csi
+/vsphere-csi.linux_amd64
