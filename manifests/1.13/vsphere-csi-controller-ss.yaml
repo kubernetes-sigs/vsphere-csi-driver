@@ -14,6 +14,14 @@ spec:
         role: vsphere-csi
     spec:
       serviceAccount: vsphere-csi-controller
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
       containers:
         - name: csi-provisioner
           image: quay.io/k8scsi/csi-provisioner:v1.0.1
