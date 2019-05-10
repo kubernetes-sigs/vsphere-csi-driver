@@ -336,7 +336,7 @@ func (c *controller) ControllerPublishVolume(
 		return nil, err
 	}
 
-	log.Infof("AttachDisk(%s) succeeded with UUID: %s", filePath, diskUUID)
+	log.Infof("AttachDisk(%s) succeeded with: VolID=%s UUID=%s", filePath, req.VolumeId, diskUUID)
 
 	publishInfo := make(map[string]string, 0)
 	publishInfo[AttributeFirstClassDiskType] = FirstClassDiskTypeString
@@ -396,6 +396,8 @@ func (c *controller) ControllerUnpublishVolume(
 		log.Errorf("DetachDisk(%s = %s) failed. Err: %v", fcd.Config.Name, filePath, err)
 		return nil, err
 	}
+
+	log.Infof("DetachDisk(%s) succeeded with: VolID=%s", filePath, req.VolumeId)
 
 	resp := &csi.ControllerUnpublishVolumeResponse{}
 
