@@ -38,6 +38,9 @@ const (
 	// Name is the name of this CSI SP.
 	Name = "vsphere.csi.vmware.com"
 
+	// UnixSocketPrefix is the prefix before the path on disk
+	UnixSocketPrefix = "unix://"
+
 	// APIFCD is the FCD API
 	APIFCD = "FCD"
 
@@ -62,6 +65,16 @@ type service struct {
 	cs   vTypes.Controller
 }
 
+// This works around a bug that if k8s node dies, this will clean up the sock file
+// left behind. This can't be done in BeforeServe because gocsi will already try to
+// bind and fail because the sock file already exists.
+func init() {
+	sockPath := getSocketPath(gocsi.EnvVarEndpoint)
+	if len(sockPath) > 1 { //minimal valid path
+		os.Remove(sockPath)
+	}
+}
+
 // New returns a new Service.
 func New() Service {
 	return &service{}
@@ -79,6 +92,10 @@ func (s *service) GetController() csi.ControllerServer {
 	}
 
 	return s.cs
+}
+
+func getSocketPath(socketPath string) string {
+	return strings.TrimPrefix(socketPath, UnixSocketPrefix)
 }
 
 func (s *service) BeforeServe(
