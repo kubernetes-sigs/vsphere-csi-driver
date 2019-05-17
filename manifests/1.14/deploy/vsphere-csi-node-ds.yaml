@@ -38,7 +38,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/vsphere-csi:latest
+          image: gcr.io/cloud-provider-vsphere/vsphere-csi:v0.2.0
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
