@@ -50,7 +50,7 @@ spec:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/vsphere-csi:v0.1.1
+          image: gcr.io/cloud-provider-vsphere/vsphere-csi:v0.2.0
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
