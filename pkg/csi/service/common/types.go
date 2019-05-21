@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package block
 
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -48,6 +47,6 @@ type CreateVolumeSpec struct {
 	Name              string
 	StoragePolicyName string
 	StoragePolicyID   string
-	DatastoreURL      string
+	Datastore         string
 	CapacityMB        int64
 }

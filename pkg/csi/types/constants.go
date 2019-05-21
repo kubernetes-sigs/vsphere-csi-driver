@@ -17,8 +17,14 @@ limitations under the License.
 package types
 
 const (
-	// LabelRegionFailureDomain is label placed on nodes and PV containing region detail
-	LabelRegionFailureDomain = "failure-domain.beta.kubernetes.io/region"
-	// LabelZoneFailureDomain is label placed on nodes and PV containing zone detail
-	LabelZoneFailureDomain = "failure-domain.beta.kubernetes.io/zone"
+	// DefaultCloudConfigPath is /etc/cloud/vsphere.conf
+	DefaultCloudConfigPath = "/etc/cloud/vsphere.conf"
+)
+
+const (
+	// EnvAPI is the name of the API to use with vSphere
+	EnvControllerType = "X_CSI_CONTROLLER_TYPE"
+
+	// EnvCloudConfig contains the path to the vSphere Cloud Config
+	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
 )

@@ -18,30 +18,40 @@ package service
 
 import (
 	"context"
+	"flag"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/wcp"
+
 	"net"
 	"os"
 	"strings"
 
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
-	"k8s.io/klog"
-
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/vanilla"
+	log "github.com/sirupsen/logrus"
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
 	// Name is the name of this CSI SP.
-	Name = "csi.vsphere.vmware.com"
+	Name = "vsphere.csi.vmware.com"
 
-	// UnixSocketPrefix is the prefix before the path on disk
-	UnixSocketPrefix = "unix://"
+	// VanillaK8SControllerType indicated Vanilla K8S CSI Controller
+	VanillaK8SControllerType = "VANILLA"
+
+	// WcpControllerType indicated WCP CSI Controller
+	WcpControllerType = "WCP"
+
+	defaultController = VanillaK8SControllerType
 )
 
 var (
-	cfgPath = cnsconfig.DefaultCloudConfigPath
+	controllerType = defaultController
+	cfgPath        = vTypes.DefaultCloudConfigPath
 )
 
 // Service is a CSI SP and idempotency.Provider.
@@ -53,19 +63,8 @@ type Service interface {
 }
 
 type service struct {
-	mode string
-	cs   vTypes.Controller
-}
-
-// This works around a bug that if k8s node dies, this will clean up the sock file
-// left behind. This can't be done in BeforeServe because gocsi will already try to
-// bind and fail because the sock file already exists.
-func init() {
-	sockPath := os.Getenv(gocsi.EnvVarEndpoint)
-	sockPath = strings.TrimPrefix(sockPath, UnixSocketPrefix)
-	if len(sockPath) > 1 { // minimal valid path length
-		os.Remove(sockPath)
-	}
+	mode  string
+	cnscs vTypes.CnsController
 }
 
 // New returns a new Service.
@@ -74,8 +73,15 @@ func New() Service {
 }
 
 func (s *service) GetController() csi.ControllerServer {
-	s.cs = vanilla.New()
-	return s.cs
+	// check which controller type to use
+	controllerType = os.Getenv(vTypes.EnvControllerType)
+	if controllerType == WcpControllerType {
+		s.cnscs = wcp.New()
+		return s.cnscs
+	}
+	controllerType = defaultController
+	s.cnscs = vanilla.New()
+	return s.cnscs
 }
 
 func (s *service) BeforeServe(
@@ -83,28 +89,58 @@ func (s *service) BeforeServe(
 
 	defer func() {
 		fields := map[string]interface{}{
-			"mode": s.mode,
+			"controllerType": controllerType,
+			"mode":           s.mode,
 		}
-		klog.V(2).Infof("configured: %s with %+v", Name, fields)
+
+		log.WithFields(fields).Infof("configured: %s", Name)
 	}()
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 
+	// Set klog level based on CSI debug being enabled
+	klogLevel := "2"
+	lvl := log.GetLevel()
+	if lvl == log.DebugLevel {
+		klogLevel = "4"
+	}
+
+	flag.Set("logtostderr", "true")
+	flag.Set("stderrthreshold", "INFO")
+	flag.Set("v", klogLevel)
+	flag.Parse()
+
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-		var cfg *cnsconfig.Config
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+
+		cfgPath = csictx.Getenv(ctx, vTypes.EnvCloudConfig)
 		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
+			cfgPath = vTypes.DefaultCloudConfigPath
 		}
-		cfg, err := cnsconfig.GetCnsconfig(cfgPath)
-		if err != nil {
-			klog.Errorf("Failed to read cnsconfig. Error: %v", err)
-			return err
+
+		var cfg *cnsconfig.Config
+		//Read in the vsphere.conf if it exists
+		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+			// config from Env var only
+			cfg = &cnsconfig.Config{}
+			if err := cnsconfig.FromEnv(cfg); err != nil {
+				return err
+			}
+		} else {
+			config, err := os.Open(cfgPath)
+			if err != nil {
+				log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+				return err
+			}
+			cfg, err = cnsconfig.ReadConfig(config)
+			if err != nil {
+				log.Errorf("Failed to parse config. Err: %v", err)
+				return err
+			}
 		}
-		if err := s.cs.Init(cfg); err != nil {
-			klog.Errorf("Failed to init controller. Error: %v", err)
+		if err := s.cnscs.Init(cfg); err != nil {
+			log.WithError(err).Error("Failed to init controller")
 			return err
 		}
 	}
