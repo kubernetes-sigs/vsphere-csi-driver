@@ -14,13 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vanilla
+package wcp
 
 import (
-	"fmt"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,19 +34,11 @@ var (
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 	}
 )
 
-type NodeManagerInterface interface {
-	Initialize(serviceAccount string) error
-	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
-	GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, error)
-}
-
 type controller struct {
 	manager *block.Manager
-	nodeMgr NodeManagerInterface
 }
 
 // New creates a CNS controller
@@ -59,7 +48,7 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
-	klog.Infof("Initializing CNS controller")
+	klog.Infof("Initializing WCP CSI controller")
 	// Get VirtualCenterManager instance and validate version
 	var err error
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
@@ -92,11 +81,6 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("checkAPI failed err=%v", err)
 		return err
 	}
-	c.nodeMgr = &Nodes{}
-	err = c.nodeMgr.Initialize(config.Global.ServiceAccount)
-	if err != nil {
-		klog.Errorf("Failed to initialize nodeMgr. err=%v", err)
-	}
 	return nil
 }
 
@@ -104,66 +88,14 @@ func (c *controller) Init(config *config.Config) error {
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-
 	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	err := validateCreateVolumeRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	// Volume Size - Default is 10 GiB
-	volSizeBytes := int64(block.DefaultGbDiskSize * block.GbInBytes)
-	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
-		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
-	}
-	volSizeMB := int64(block.RoundUpSize(volSizeBytes, block.GbInBytes)) * 1024
-
-	var datastoreName string
-	datastoreName = req.Parameters[block.AttributeDatastoreName]
-
-	var storagePolicyName string
-	storagePolicyName = req.Parameters[block.AttributeStoragePolicyName]
-
-	var createVolumeSpec = block.CreateVolumeSpec{
-		CapacityMB:        volSizeMB,
-		Name:              req.Name,
-		Datastore:         datastoreName,
-		StoragePolicyName: storagePolicyName,
-	}
-	// Get shared datastores for the Kubernetes cluster
-	sharedDatastores, err := c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
-	volumeID, err := block.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
-		klog.Errorf(msg)
-		return nil, err
-	}
-	attributes := make(map[string]string)
-	attributes[block.AttributeDiskType] = block.DiskTypeString
-	resp := &csi.CreateVolumeResponse{
-		Volume: &csi.Volume{
-			VolumeId:      volumeID,
-			CapacityBytes: int64(units.FileSize(volSizeMB * block.MbInBytes)),
-			VolumeContext: attributes,
-		},
-	}
-	return resp, nil
+	return &csi.CreateVolumeResponse{}, nil
 }
 
 // CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	klog.V(4).Infof("DeleteVolume: called with args: %+v", *req)
-	var err error
-	err = validateDeleteVolumeRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	err = block.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-		klog.Error(msg)
-		return nil, err
-	}
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -173,29 +105,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	*csi.ControllerPublishVolumeResponse, error) {
 
 	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateControllerPublishVolumeRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	node, err := c.nodeMgr.GetNodeByName(req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	diskUUID, err := block.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	publishInfo := make(map[string]string, 0)
-	publishInfo[block.AttributeDiskType] = block.DiskTypeString
-	publishInfo[block.AttributeFirstClassDiskPage83Data] = block.FormatDiskUUID(diskUUID)
-	resp := &csi.ControllerPublishVolumeResponse{
-		PublishContext: publishInfo,
-	}
-	return resp, nil
+	return &csi.ControllerPublishVolumeResponse{}, nil
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
@@ -204,26 +114,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	*csi.ControllerUnpublishVolumeResponse, error) {
 
 	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateControllerUnpublishVolumeRequest(req)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to connect to virtual center. Error: %v", err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	node, err := c.nodeMgr.GetNodeByName(req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	err = block.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	resp := &csi.ControllerUnpublishVolumeResponse{}
-	return resp, nil
+	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
