@@ -17,8 +17,6 @@ limitations under the License.
 package service
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -28,20 +26,10 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	csictx "github.com/rexray/gocsi/context"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
-
-	csipbv1 "github.com/container-storage-interface/spec/lib/go/csi"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8svol "k8s.io/kubernetes/pkg/volume"
-	"k8s.io/kubernetes/pkg/volume/util/fs"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
@@ -60,13 +48,17 @@ func (s *service) NodeStageVolume(
 
 	diskID, err := getDiskID(volID, pubCtx)
 	if err != nil {
-		klog.Errorf("Failed to get diskID. Error: %v", err)
 		return nil, err
 	}
-	klog.V(2).Infof("Checking if volume: %s with diskID: %s is attached", volID, diskID)
+
+	f := log.Fields{
+		"volID":  volID,
+		"diskID": diskID,
+	}
+
+	log.WithFields(f).Debug("checking if volume is attached")
 	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
-		klog.Errorf("Failed to verify volume attachment. Error: %v", err)
 		return nil, err
 	}
 
@@ -77,11 +69,14 @@ func (s *service) NodeStageVolume(
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
+
+	f["device"] = dev.RealDev
+
 	// Check if this is a MountvVolume or BlockVolume
 	volCap := req.GetVolumeCapability()
 	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
 		// Volume is a block volume, so skip all the rest
-		klog.V(2).Infof("skipping staging for block access type for volume: %s, diskID: %s, device :%s", volID, diskID, dev.RealDev)
+		log.WithFields(f).Info("skipping staging for block access type")
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
@@ -112,18 +107,10 @@ func (s *service) NodeStageVolume(
 			err.Error())
 	}
 
-	attributes := req.VolumeContext
-	fsType := attributes[common.AttributeFsType]
-	klog.V(2).Infof("fsType from VolumeContext: %s", fsType)
-	if fsType == "" {
-		// no fsType is set in VolumeContext, use default "ext4"
-		fsType = common.DefaultFsType
-		klog.V(2).Infof("fsType is not set in VolumeContext, use default type")
-	}
 	if len(mnts) == 0 {
 		// Device isn't mounted anywhere, stage the volume
 		if fs == "" {
-			fs = fsType
+			fs = "ext4"
 		}
 
 		// If read-only access mode, we don't allow formatting
@@ -201,7 +188,14 @@ func (s *service) NodeUnstageVolume(
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	klog.V(2).Infof("found device. volID: %q, path: %q, block: %q, target: %q", volID, dev.FullPath, dev.RealDev, target)
+	f := log.Fields{
+		"volID":  volID,
+		"path":   dev.FullPath,
+		"block":  dev.RealDev,
+		"target": target,
+	}
+
+	log.WithFields(f).Debug("found device")
 
 	// Get mounts for device
 	mnts, err := gofsutil.GetDevMounts(context.Background(), dev.RealDev)
@@ -242,10 +236,14 @@ func (s *service) NodePublishVolume(
 		return nil, err
 	}
 
-	klog.V(2).Infof("Checking if volume: %s with diskID: %s is attached", volID, diskID)
+	f := log.Fields{
+		"volID":  volID,
+		"diskID": diskID,
+	}
+
+	log.WithFields(f).Debug("checking if volume is attached")
 	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
-		klog.Errorf("Failed to verify volume attachment. Error: %v", err)
 		return nil, err
 	}
 
@@ -256,15 +254,20 @@ func (s *service) NodePublishVolume(
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
+
+	f["volumePath"] = dev.FullPath
+	f["device"] = dev.RealDev
+	f["target"] = req.GetTargetPath()
+
 	// check for Block vs Mount
 	volCap := req.GetVolumeCapability()
 	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
 		// bind mount device to target
-		return publishBlockVol(ctx, req, dev)
+		return publishBlockVol(ctx, req, dev, f)
 	}
 
 	// Volume must be a mount volume
-	return publishMountVol(ctx, req, dev)
+	return publishMountVol(ctx, req, dev, f)
 }
 
 func (s *service) NodeUnpublishVolume(
@@ -333,98 +336,7 @@ func (s *service) NodeGetVolumeStats(
 	req *csi.NodeGetVolumeStatsRequest) (
 	*csi.NodeGetVolumeStatsResponse, error) {
 
-	var err error
-	targetPath := req.GetVolumePath()
-	if targetPath == "" {
-		err = fmt.Errorf("targetpath %v is empty", targetPath)
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	dev, err := getDevFromMount(targetPath)
-	if err != nil {
-		err = fmt.Errorf("unable to get targetpath %v device", targetPath)
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if dev == nil {
-		err = fmt.Errorf("could not find device mounted on targetpath %v", targetPath)
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	//TODO Check that the matching device is a vSphere volume, and that the volID matches the mount point
-
-	volMetrics, err := getMetrics(targetPath)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	available, ok := (*(volMetrics.Available)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch available bytes")
-	}
-	capacity, ok := (*(volMetrics.Capacity)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch capacity bytes")
-		return nil, status.Error(codes.Unknown, "failed to fetch capacity bytes")
-	}
-	used, ok := (*(volMetrics.Used)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch used bytes")
-	}
-	inodes, ok := (*(volMetrics.Inodes)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch available inodes")
-		return nil, status.Error(codes.Unknown, "failed to fetch available inodes")
-
-	}
-	inodesFree, ok := (*(volMetrics.InodesFree)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch free inodes")
-	}
-
-	inodesUsed, ok := (*(volMetrics.InodesUsed)).AsInt64()
-	if !ok {
-		klog.Errorf("failed to fetch used inodes")
-	}
-	return &csi.NodeGetVolumeStatsResponse{
-		Usage: []*csi.VolumeUsage{
-			{
-				Available: available,
-				Total:     capacity,
-				Used:      used,
-				Unit:      csipbv1.VolumeUsage_BYTES,
-			},
-			{
-				Available: inodesFree,
-				Total:     inodes,
-				Used:      inodesUsed,
-				Unit:      csipbv1.VolumeUsage_INODES,
-			},
-		},
-	}, nil
-}
-
-//Get volume metrics using k8s fsInfo strategy
-func getMetrics(path string) (*k8svol.Metrics, error) {
-	if path == "" {
-		return nil, fmt.Errorf("No path given")
-	}
-
-	available, capacity, usage, inodes, inodesFree, inodesUsed, err := fs.FsInfo(path)
-	metrics := &k8svol.Metrics{Time: metav1.Now()}
-	if err != nil {
-		return nil, err
-	}
-	metrics.Available = resource.NewQuantity(available, resource.BinarySI)
-	metrics.Capacity = resource.NewQuantity(capacity, resource.BinarySI)
-	metrics.Used = resource.NewQuantity(usage, resource.BinarySI)
-	metrics.Inodes = resource.NewQuantity(inodes, resource.BinarySI)
-	metrics.InodesFree = resource.NewQuantity(inodesFree, resource.BinarySI)
-	metrics.InodesUsed = resource.NewQuantity(inodesUsed, resource.BinarySI)
-	if err != nil {
-		return metrics, err
-	}
-
-	return metrics, nil
+	return nil, nil
 }
 
 func (s *service) NodeGetCapabilities(
@@ -441,13 +353,6 @@ func (s *service) NodeGetCapabilities(
 					},
 				},
 			},
-			{
-				Type: &csi.NodeServiceCapability_Rpc{
-					Rpc: &csi.NodeServiceCapability_RPC{
-						Type: csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
-					},
-				},
-			},
 		},
 	}, nil
 }
@@ -456,96 +361,23 @@ func (s *service) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
-	nodeID := os.Getenv("NODE_NAME")
-	if nodeID == "" {
-		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
-	}
-	var cfg *cnsconfig.Config
-	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			klog.V(2).Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-			return &csi.NodeGetInfoResponse{
-				NodeId: nodeID,
-			}, nil
-		}
-		klog.Errorf("Failed to read cnsconfig. Error: %v", err)
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	var accessibleTopology map[string]string
-	topology := &csi.Topology{}
 
-	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
-		klog.V(2).Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
-		if err != nil {
-			klog.Errorf("Failed to get VirtualCenterConfig from cns config. err=%v", err)
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		vcManager := cnsvsphere.GetVirtualCenterManager()
-		vcenter, err := vcManager.RegisterVirtualCenter(vcenterconfig)
-		if err != nil {
-			klog.Errorf("Failed to register vcenter with virtualCenterManager.")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		defer vcManager.UnregisterAllVirtualCenters()
-		//Connect to vCenter
-		err = vcenter.Connect(ctx)
-		if err != nil {
-			klog.Errorf("Failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		// Get VM UUID
-		uuid, err := getSystemUUID()
-		if err != nil {
-			klog.Errorf("Failed to get system uuid for node VM")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		klog.V(4).Infof("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
-		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(uuid, false)
-		if err != nil || nodeVM == nil {
-			klog.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			uuid, err = convertUUID(uuid)
-			if err != nil {
-				klog.Errorf("convertUUID failed with error: %v", err)
-				return nil, status.Errorf(codes.Internal, err.Error())
-			}
-			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(uuid, false)
-			if err != nil || nodeVM == nil {
-				klog.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-				return nil, status.Errorf(codes.Internal, err.Error())
-			}
-		}
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
-		if err != nil {
-			klog.Errorf("Failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		klog.V(4).Infof("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
-		if zone != "" && region != "" {
-			accessibleTopology = make(map[string]string)
-			accessibleTopology[csitypes.LabelRegionFailureDomain] = region
-			accessibleTopology[csitypes.LabelZoneFailureDomain] = zone
-		}
-	}
-	if len(accessibleTopology) > 0 {
-		topology.Segments = accessibleTopology
+	id, err := os.Hostname()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to retrieve Node ID, err: %s", err)
 	}
 
 	return &csi.NodeGetInfoResponse{
-		NodeId:             nodeID,
-		AccessibleTopology: topology,
+		NodeId: id,
 	}, nil
 }
 
 func publishMountVol(
 	ctx context.Context,
 	req *csi.NodePublishVolumeRequest,
-	dev *Device) (
+	dev *Device,
+	f log.Fields) (
 	*csi.NodePublishVolumeResponse, error) {
 
 	volCap := req.GetVolumeCapability()
@@ -567,7 +399,11 @@ func publishMountVol(
 	if err := verifyTargetDir(stagingTarget); err != nil {
 		return nil, err
 	}
+	f["stagingTarget"] = stagingTarget
+
 	ro := req.GetReadonly()
+	f["readonly"] = ro
+
 	// get block device mounts
 	// Check if device is already mounted
 	devMnts, err := getDevMounts(dev)
@@ -595,7 +431,7 @@ func publishMountVol(
 				}
 
 				// Existing mount satisfies request
-				klog.V(3).Infof("volume already published to target. volumePath: %q, device: %q, req: %v", dev.FullPath, dev.RealDev, req)
+				log.WithFields(f).Debug("volume already published to target")
 				return &csi.NodePublishVolumeResponse{}, nil
 			}
 		}
@@ -621,7 +457,8 @@ func publishMountVol(
 func publishBlockVol(
 	ctx context.Context,
 	req *csi.NodePublishVolumeRequest,
-	dev *Device) (
+	dev *Device,
+	f log.Fields) (
 	*csi.NodePublishVolumeResponse, error) {
 
 	// We are responsible for creating target file, per spec
@@ -665,11 +502,12 @@ func publishBlockVol(
 			return nil, status.Error(codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
-		klog.V(3).Infof("volume already published to target. volumePath: %q, device: %q, target: %q", dev.FullPath, dev.RealDev, req.GetTargetPath())
+		log.WithFields(f).Debug("volume already published to target")
 	} else {
 		return nil, status.Error(codes.Internal,
 			"block volume already mounted in more than one place")
 	}
+
 	// existing or new mount satisfies request
 	return &csi.NodePublishVolumeResponse{}, nil
 }
@@ -762,7 +600,8 @@ func verifyVolumeAttached(diskID string) (string, error) {
 			"disk: %s not attached to node", diskID)
 	}
 
-	klog.V(2).Infof("found disk. diskID: %q, path: %q", diskID, volPath)
+	log.WithField("diskID", diskID).WithField("path", volPath).Debug("found disk")
+
 	return volPath, nil
 }
 
@@ -800,10 +639,11 @@ func mkdir(path string) (bool, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.Mkdir(path, 0750); err != nil {
-				klog.Errorf("Unable to create dir :%q", path)
+				log.WithField("dir", path).WithError(
+					err).Error("Unable to create dir")
 				return false, err
 			}
-			klog.V(3).Infof("created directory. Path: %q", path)
+			log.WithField("path", path).Debug("created directory")
 			return true, nil
 		}
 		return false, err
@@ -821,11 +661,12 @@ func mkfile(path string) (bool, error) {
 	if os.IsNotExist(err) {
 		file, err := os.OpenFile(path, os.O_CREATE, 0755)
 		if err != nil {
-			klog.Errorf("Unable to create a file :%q", path)
+			log.WithField("dir", path).WithError(
+				err).Error("Unable to create dir")
 			return false, err
 		}
 		file.Close()
-		klog.V(3).Infof("created file. Path: %q", path)
+		log.WithField("path", path).Debug("created file")
 		return true, nil
 	}
 	if st.IsDir() {
@@ -838,7 +679,7 @@ func mkfile(path string) (bool, error) {
 // for directories, an error is returned if the dir is not empty
 func rmpath(target string) error {
 	// target should be empty
-	klog.V(3).Infof("removing target path: %q", target)
+	log.WithField("path", target).Debug("removing target path")
 	if err := os.Remove(target); err != nil {
 		return status.Errorf(codes.Internal,
 			"Unable to remove target path: %s, err: %v", target, err)
@@ -882,39 +723,44 @@ func getSystemUUID() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	klog.V(4).Infof("uuid in bytes: %v", idb)
-	id := strings.TrimSpace(string(idb))
-	klog.V(4).Infof("uuid in string: %s", id)
-	return strings.ToLower(id), nil
-}
 
-// convertUUID helps convert UUID to vSphere format
-//input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
-//returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
-func convertUUID(uuid string) (string, error) {
-	if len(uuid) != 36 {
-		return "", errors.New("uuid length should be 36")
-	}
-	convertedUUID := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
-		uuid[6:8], uuid[4:6], uuid[2:4], uuid[0:2],
-		uuid[11:13], uuid[9:11],
-		uuid[16:18], uuid[14:16],
-		uuid[19:23],
-		uuid[24:36])
-	return strings.ToLower(convertedUUID), nil
+	id := strings.TrimSpace(string(idb))
+
+	return convertUUID(id), nil
 }
 
 func getDiskID(volID string, pubCtx map[string]string) (string, error) {
+
 	if volID == "" {
 		return "", status.Error(codes.InvalidArgument,
 			"Volume ID required")
 	}
-	if _, ok := pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
-		return "", status.Errorf(codes.InvalidArgument,
-			"Attribute: %s required in publish context",
-			common.AttributeFirstClassDiskUUID)
+
+	var diskID string
+
+	if controllerType == VanillaK8SControllerType {
+		if _, ok := pubCtx["page83data"]; !ok {
+			return "", status.Errorf(codes.InvalidArgument,
+				"Attribute: %s required in publish context",
+				"page83data")
+		}
+		diskID = pubCtx["page83data"]
+	} else {
+		diskID = volID
 	}
-	return pubCtx[common.AttributeFirstClassDiskUUID], nil
+
+	return diskID, nil
+}
+
+func convertUUID(id string) string {
+	// convert UUID to vSphere format
+	uuid := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
+		id[6:8], id[4:6], id[2:4], id[0:2],
+		id[11:13], id[9:11],
+		id[16:18], id[14:16],
+		id[19:23],
+		id[24:36])
+	return strings.ToLower(uuid)
 }
 
 func getDevFromMount(target string) (*Device, error) {
