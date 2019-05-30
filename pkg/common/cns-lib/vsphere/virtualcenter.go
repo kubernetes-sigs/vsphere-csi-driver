@@ -1,18 +1,16 @@
-/*
-Copyright 2019 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2018 VMware, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package vsphere
 
@@ -26,9 +24,7 @@ import (
 	"strconv"
 	"sync"
 
-	csictx "github.com/rexray/gocsi/context"
 	"github.com/vmware/govmomi"
-	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
@@ -39,8 +35,6 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"k8s.io/klog"
-
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 const (
@@ -59,7 +53,7 @@ type VirtualCenter struct {
 	// PbmClient represents the govmomi PBM Client instance.
 	PbmClient *pbm.Client
 	// CnsClient represents the CNS client instance.
-	CnsClient       *cns.Client
+	CnsClient       *CNSClient
 	credentialsLock sync.Mutex
 }
 
@@ -80,13 +74,8 @@ type VirtualCenterConfig struct {
 	Username string
 	// Password represents the virtual center password in clear text.
 	Password string
-	// Specifies whether to verify the server's certificate chain. Set to true to
-	// skip verification.
+	// Insecure tells if an insecure connection is allowed.
 	Insecure bool
-	// Specifies the path to a CA certificate in PEM format. This has no effect if
-	// Insecure is enabled. Optional; if not configured, the system's CA
-	// certificates will be used.
-	CAFile string
 	// RoundTripperCount is the SOAP round tripper count. (retries = RoundTripperCount - 1)
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
@@ -116,19 +105,13 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	}
 
 	soapClient := soap.NewClient(url, vc.Config.Insecure)
-	if len(vc.Config.CAFile) > 0 && !vc.Config.Insecure {
-		if err := soapClient.SetRootCAs(vc.Config.CAFile); err != nil {
-			klog.Errorf("Failed to load CA file: %v", err)
-			return nil, err
-		}
-	}
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		klog.Errorf("Failed to create new client with err: %v", err)
 		return nil, err
 	}
 
-	vimClient.UserAgent = "k8s-csi-useragent"
+	vimClient.UserAgent = "common-csp"
 
 	client := &govmomi.Client{
 		Client:         vimClient,
@@ -202,27 +185,18 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 		return err
 	}
 	klog.V(2).Infof("Invalid credentials. Cannot connect to server %q. "+
-		"Fetching credentials from secret.", vc.Config.Host)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-
-	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
+		"Fetching credentials from secrets.", vc.Config.Host)
+	store, err := GetCredentialManager().GetCredentialStore()
 	if err != nil {
-		klog.Errorf("Failed to read config with err: %v", err)
+		klog.Errorf("Cannot get credential store with err: %v", err)
 		return err
 	}
-	vcenterconfig, err := GetVirtualCenterConfig(cfg)
+	credential, err := store.GetCredential(vc.Config.Host)
 	if err != nil {
-		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		klog.Errorf("Cannot get credentials from credential store with err: %v", err)
 		return err
 	}
-	vc.UpdateCredentials(vcenterconfig.Username, vcenterconfig.Password)
+	vc.UpdateCredentials(credential.User, credential.Password)
 	return vc.connect(ctx)
 }
 
@@ -266,7 +240,7 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 	}
 	// Recreate CNSClient If created using timed out VC Client
 	if vc.CnsClient != nil {
-		if vc.CnsClient, err = NewCNSClient(ctx, vc.Client.Client); err != nil {
+		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
 			klog.Errorf("Failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
 			return err
 		}
