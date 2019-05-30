@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vanilla
+package wcp
 
 import (
 	"context"
@@ -32,7 +32,6 @@ import (
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
-	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	cnssim "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/simulator"
@@ -90,7 +89,6 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		InsecureFlag: cfg.Global.InsecureFlag,
 		Datacenters:  cfg.Global.Datacenters,
 	}
-
 	return cfg, func() {
 		s.Close()
 		model.Remove()
@@ -103,68 +101,6 @@ func configFromEnvOrSim() (*config.Config, func()) {
 		return configFromSim()
 	}
 	return cfg, func() {}
-}
-
-type FakeNodeManager struct {
-	client             *vim25.Client
-	sharedDatastoreURL string
-}
-
-func (f *FakeNodeManager) Initialize(serviceAccount string) error {
-	return nil
-}
-
-func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error) {
-	finder := find.NewFinder(f.client, false)
-
-	var datacenterName string
-	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datacenterName = v
-	} else {
-		datacenterName = simulator.Map.Any("Datacenter").(*simulator.Datacenter).Name
-	}
-
-	dc, _ := finder.Datacenter(ctx, datacenterName)
-	finder.SetDatacenter(dc)
-
-	datastores, err := finder.DatastoreList(ctx, "*")
-	if err != nil {
-		return nil, err
-	}
-	var dsList []types.ManagedObjectReference
-	for _, ds := range datastores {
-		dsList = append(dsList, ds.Reference())
-	}
-	var dsMoList []mo.Datastore
-	pc := property.DefaultCollector(dc.Client())
-	properties := []string{"info"}
-	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
-	if err != nil {
-		return nil, err
-	}
-
-	var sharedDatastoreManagedObject *mo.Datastore
-	for _, dsMo := range dsMoList {
-		if dsMo.Info.GetDatastoreInfo().Url == f.sharedDatastoreURL {
-			sharedDatastoreManagedObject = &dsMo
-			break
-		}
-	}
-	if sharedDatastoreManagedObject == nil {
-		return nil, fmt.Errorf("Failed to get shared datastores")
-	}
-	return []*cnsvsphere.DatastoreInfo{
-		{
-			&cnsvsphere.Datastore{
-				object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
-				nil},
-			sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
-		},
-	}, nil
-}
-
-func (f *FakeNodeManager) GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, error) {
-	return nil, nil
 }
 
 type controllerTest struct {
@@ -209,19 +145,10 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(),
 		}
 
-		var sharedDatastoreURL string
-		if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-			sharedDatastoreURL = v
-		} else {
-			sharedDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
-		}
 		c := &controller{
 			manager: manager,
-			nodeMgr: &FakeNodeManager{
-				client:             vcenter.Client.Client,
-				sharedDatastoreURL: sharedDatastoreURL,
-			},
 		}
+
 		controllerTestInstance = &controllerTest{
 			controller: c,
 			config:     config,
@@ -231,7 +158,66 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func TestCreateVolumeWithStoragePolicy(t *testing.T) {
+func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphere.DatastoreInfo, error) {
+	var sharedDatastoreURL string
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		sharedDatastoreURL = v
+	} else {
+		sharedDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
+	}
+
+	var datacenterName string
+	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
+		datacenterName = v
+	} else {
+		datacenterName = simulator.Map.Any("Datacenter").(*simulator.Datacenter).Name
+	}
+
+	vc, _ := block.GetVCenter(ctx, controller.manager)
+	finder := find.NewFinder(vc.Client.Client, false)
+	dc, _ := finder.Datacenter(ctx, datacenterName)
+	finder.SetDatacenter(dc)
+	datastores, err := finder.DatastoreList(ctx, "*")
+	if err != nil {
+		return nil, err
+	}
+	var dsList []types.ManagedObjectReference
+	for _, ds := range datastores {
+		dsList = append(dsList, ds.Reference())
+	}
+	var dsMoList []mo.Datastore
+	pc := property.DefaultCollector(dc.Client())
+	properties := []string{"info"}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	if err != nil {
+		return nil, err
+	}
+
+	var sharedDatastoreManagedObject *mo.Datastore
+	for _, dsMo := range dsMoList {
+		if dsMo.Info.GetDatastoreInfo().Url == sharedDatastoreURL {
+			sharedDatastoreManagedObject = &dsMo
+			break
+		}
+	}
+	if sharedDatastoreManagedObject == nil {
+		return nil, fmt.Errorf("Failed to get shared datastores")
+	}
+	return []*cnsvsphere.DatastoreInfo{
+		{
+			&cnsvsphere.Datastore{
+				object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
+				nil},
+			sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+		},
+	}, nil
+}
+
+/*
+ * TestCreateVolumeWithoutStoragePolicyWcp creates volume
+ * with storage policy
+ */
+func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -240,15 +226,28 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 
 	// Create
 	params := make(map[string]string, 0)
-	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-		params[block.AttributeDatastoreURL] = v
-	}
 
-	// PBM simulator defaults
-	params[block.AttributeStoragePolicyName] = "vSAN Default Storage Policy"
-	if v := os.Getenv("VSPHERE_STORAGE_POLICY_NAME"); v != "" {
-		params[block.AttributeStoragePolicyName] = v
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
+	params[block.AttributeStoragePolicyID] = profileID
+
 	capabilities := []*csi.VolumeCapability{
 		{
 			AccessMode: &csi.VolumeCapability_AccessMode{
@@ -256,7 +255,6 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 			},
 		},
 	}
-
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName,
 		CapacityRange: &csi.CapacityRange{
@@ -266,23 +264,12 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		VolumeCapabilities: capabilities,
 	}
 
+	getSharedDatastores = getFakeDatastores
 	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-
-	// Varify the volume has been create with corresponding storage policy ID
-	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	profileId, err := pc.ProfileIDByName(ctx, params[block.AttributeStoragePolicyName])
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -294,13 +281,12 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
 	}
 
-	if queryResult.Volumes[0].StoragePolicyId != profileId {
-		t.Fatalf("Failed to match volume policy ID: %s", profileId)
+	if queryResult.Volumes[0].StoragePolicyId != profileID {
+		t.Fatalf("Failed to match volume policy ID: %s", profileID)
 	}
 
 	// QueryAll
@@ -319,29 +305,14 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
-	}
-
-	// Delete
-	reqDelete := &csi.DeleteVolumeRequest{
-		VolumeId: volID,
-	}
-	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
-	if err != nil {
-		t.Errorf("DeleteVolume failed: %v", err)
-	}
-
-	// Varify the volume has been deleted
-	queryResult, err = ct.vcenter.QueryVolume(ctx, queryFilter)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(queryResult.Volumes) != 0 {
-		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
 }
 
-func TestCompleteControllerFlow(t *testing.T) {
+/*
+ * TestCreateVolumeWithoutStoragePolicyWcp creates volume
+ * without storage policy
+ */
+func TestWCPCreateVolumeWithoutStoragePolicy(t *testing.T) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -350,9 +321,6 @@ func TestCompleteControllerFlow(t *testing.T) {
 
 	// Create
 	params := make(map[string]string, 0)
-	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-		params[block.AttributeDatastoreURL] = v
-	}
 	capabilities := []*csi.VolumeCapability{
 		{
 			AccessMode: &csi.VolumeCapability_AccessMode{
@@ -370,13 +338,13 @@ func TestCompleteControllerFlow(t *testing.T) {
 		VolumeCapabilities: capabilities,
 	}
 
+	getSharedDatastores = getFakeDatastores
 	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-
-	// Varify the volume has been created
+	// Verify the volume has been created
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -388,7 +356,6 @@ func TestCompleteControllerFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
 	}
@@ -409,24 +376,5 @@ func TestCompleteControllerFlow(t *testing.T) {
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
-	}
-
-	// Delete
-	reqDelete := &csi.DeleteVolumeRequest{
-		VolumeId: volID,
-	}
-	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
-	if err != nil {
-		t.Errorf("DeleteVolume failed: %v", err)
-	}
-
-	// Varify the volume has been deleted
-	queryResult, err = ct.vcenter.QueryVolume(ctx, queryFilter)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(queryResult.Volumes) != 0 {
-		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
 }
