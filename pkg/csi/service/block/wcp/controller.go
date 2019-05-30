@@ -17,7 +17,10 @@ limitations under the License.
 package wcp
 
 import (
+	"fmt"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -36,6 +39,8 @@ var (
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 	}
 )
+
+var getSharedDatastores = getSharedDatastoresInPodVMK8SCluster
 
 type controller struct {
 	manager *block.Manager
@@ -89,7 +94,40 @@ func (c *controller) Init(config *config.Config) error {
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	return &csi.CreateVolumeResponse{}, nil
+	err := validateCreateVolumeRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	volSizeMB := int64(block.RoundUpSize(volSizeBytes, block.MbInBytes))
+
+	var storagePolicyID string
+	storagePolicyID = req.Parameters[block.AttributeStoragePolicyID]
+
+	var createVolumeSpec = block.CreateVolumeSpec{
+		CapacityMB:      volSizeMB,
+		Name:            req.Name,
+		StoragePolicyID: storagePolicyID,
+	}
+	// Get shared datastores for the Kubernetes cluster
+	sharedDatastores, err := getSharedDatastores(ctx, c)
+	volumeID, err := block.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
+		klog.Errorf(msg)
+		return nil, err
+	}
+	attributes := make(map[string]string)
+	attributes[block.AttributeDiskType] = block.DiskTypeString
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      volumeID,
+			CapacityBytes: int64(units.FileSize(volSizeMB * block.MbInBytes)),
+			VolumeContext: attributes,
+		},
+	}
+	return resp, nil
 }
 
 // CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
@@ -183,4 +221,52 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 
 	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
+}
+
+// GetSharedDatastoresInPodVMK8SCluster gets the shared datastores for WCP PodVM cluster
+func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([]*cnsvsphere.DatastoreInfo, error) {
+	vc, err := block.GetVCenter(ctx, c.manager)
+	if err != nil {
+		klog.Errorf("Failed to get vCenter from Manager, err=%+v", err)
+		return nil, err
+	}
+	hosts, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
+	if err != nil {
+		klog.Errorf("Failed to get hosts from VC with err %+v", err)
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		errMsg := fmt.Sprintf("Empty List of hosts returned from VC")
+		klog.Errorf(errMsg)
+		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
+	}
+	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	for _, host := range hosts {
+		klog.V(4).Infof("Getting accessible datastores for node %s", host.InventoryPath)
+		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(sharedDatastores) == 0 {
+			sharedDatastores = accessibleDatastores
+		} else {
+			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
+			// Check if sharedDatastores is found in accessibleDatastores
+			for _, sharedDs := range sharedDatastores {
+				for _, accessibleDs := range accessibleDatastores {
+					// Intersection is performed based on the datastoreUrl as this uniquely identifies the datastore.
+					if sharedDs.Info.Url == accessibleDs.Info.Url {
+						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
+						break
+					}
+				}
+			}
+			sharedDatastores = sharedAccessibleDatastores
+		}
+		if len(sharedDatastores) == 0 {
+			return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster for host: %+v", host)
+		}
+	}
+	klog.V(3).Infof("The list of shared datastores: %+v", sharedDatastores)
+	return sharedDatastores, nil
 }

@@ -52,6 +52,10 @@ const (
 	// during mount if user does not specify the filesystem type in the Storage Class
 	DefaultFsType = "ext4"
 
+	// AttributeStoragePolicyID represents Storage Policy Id in the Storage Classs
+	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
+	AttributeStoragePolicyID = "StoragePolicyId"
+
 	//ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
 	ProviderPrefix = "vsphere://"
