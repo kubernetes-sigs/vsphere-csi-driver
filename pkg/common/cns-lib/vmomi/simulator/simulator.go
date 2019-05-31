@@ -136,14 +136,23 @@ func (m *CnsVolumeManager) CnsCreateVolume(ctx context.Context, req *cnstypes.Cn
 func (m *CnsVolumeManager) CnsQueryVolume(ctx context.Context, req *cnstypes.CnsQueryVolume) soap.HasFault {
 	retVolumes := []cnstypes.CnsVolume{}
 	reqVolumeIds := make(map[string]bool)
+	isQueryFilter := false
+
+	if req.Filter.VolumeIds != nil {
+		isQueryFilter = true
+	}
 	// Create map of requested volume Ids in query request
-	for _, volumeId := range req.Filter.VolumeIds {
-		reqVolumeIds[volumeId.Id] = true
+	for _, volumeID := range req.Filter.VolumeIds {
+		reqVolumeIds[volumeID.Id] = true
 	}
 
 	for _, dsVolumes := range m.volumes {
 		for _, volume := range dsVolumes {
-			if _, ok := reqVolumeIds[volume.VolumeId.Id]; ok {
+			if isQueryFilter {
+				if _, ok := reqVolumeIds[volume.VolumeId.Id]; ok {
+					retVolumes = append(retVolumes, *volume)
+				}
+			} else {
 				retVolumes = append(retVolumes, *volume)
 			}
 		}
@@ -163,14 +172,23 @@ func (m *CnsVolumeManager) CnsQueryVolume(ctx context.Context, req *cnstypes.Cns
 func (m *CnsVolumeManager) CnsQueryAllVolume(ctx context.Context, req *cnstypes.CnsQueryAllVolume) soap.HasFault {
 	retVolumes := []cnstypes.CnsVolume{}
 	reqVolumeIds := make(map[string]bool)
+	isQueryFilter := false
+
+	if req.Filter.VolumeIds != nil {
+		isQueryFilter = true
+	}
 	// Create map of requested volume Ids in query request
-	for _, volumeId := range req.Filter.VolumeIds {
-		reqVolumeIds[volumeId.Id] = true
+	for _, volumeID := range req.Filter.VolumeIds {
+		reqVolumeIds[volumeID.Id] = true
 	}
 
 	for _, dsVolumes := range m.volumes {
 		for _, volume := range dsVolumes {
-			if _, ok := reqVolumeIds[volume.VolumeId.Id]; ok {
+			if isQueryFilter {
+				if _, ok := reqVolumeIds[volume.VolumeId.Id]; ok {
+					retVolumes = append(retVolumes, *volume)
+				}
+			} else {
 				retVolumes = append(retVolumes, *volume)
 			}
 		}
