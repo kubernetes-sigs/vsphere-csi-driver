@@ -99,18 +99,6 @@ func validateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	return nil
 }
 
-// validateDeleteVolumeRequest is the helper function to validate
-// DeleteVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
-	//check for required parameters
-	if len(req.VolumeId) == 0 {
-		msg := "Volume ID is a required parameter."
-		klog.Error(msg)
-		return status.Errorf(codes.Internal, msg)
-	}
-	return nil
-}
-
 // validateControllerPublishVolumeRequest is the helper function to validate
 // ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
 func validateControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
