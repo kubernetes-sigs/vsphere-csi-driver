@@ -306,75 +306,23 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
 	}
-}
 
-/*
- * TestCreateVolumeWithoutStoragePolicyWcp creates volume
- * without storage policy
- */
-func TestWCPCreateVolumeWithoutStoragePolicy(t *testing.T) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	ct := getControllerTest(t)
-
-	// Create
-	params := make(map[string]string, 0)
-	capabilities := []*csi.VolumeCapability{
-		{
-			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-			},
-		},
+	// Delete
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
 	}
-
-	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
-		CapacityRange: &csi.CapacityRange{
-			RequiredBytes: 1 * block.GbInBytes,
-		},
-		Parameters:         params,
-		VolumeCapabilities: capabilities,
-	}
-
-	getSharedDatastores = getFakeDatastores
-	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	volID := respCreate.Volume.VolumeId
-	// Verify the volume has been created
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: []cnstypes.CnsVolumeId{
-			{
-				Id: volID,
-			},
-		},
-	}
-	queryResult, err := ct.vcenter.QueryVolume(ctx, queryFilter)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
-	}
-
-	// QueryAll
-	queryFilter = cnstypes.CnsQueryFilter{
-		VolumeIds: []cnstypes.CnsVolumeId{
-			{
-				Id: volID,
-			},
-		},
-	}
-	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.QueryAllVolume(ctx, queryFilter, querySelection)
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+	// Varify the volume has been deleted
+	queryResult, err = ct.vcenter.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
 }

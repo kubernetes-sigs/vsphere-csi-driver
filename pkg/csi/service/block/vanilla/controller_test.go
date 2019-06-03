@@ -327,7 +327,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
 	if err != nil {
-		t.Errorf("DeleteVolume failed: %v", err)
+		t.Fatal(err)
 	}
 
 	// Varify the volume has been deleted
@@ -417,7 +417,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
 	if err != nil {
-		t.Errorf("DeleteVolume failed: %v", err)
+		t.Fatal(err)
 	}
 
 	// Varify the volume has been deleted
