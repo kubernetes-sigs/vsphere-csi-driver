@@ -129,7 +129,7 @@ dist: dist-csi-tgz dist-csi-zip
 ################################################################################
 # The deploy target is for use by Prow.
 .PHONY: deploy
-deploy:
+deploy: | $(DOCKER_SOCK)
 	$(MAKE) check
 	$(MAKE) build-bins
 	$(MAKE) unit-test
