@@ -15,7 +15,7 @@ There exist 2 significant issues when deploying Kubernetes workloads or pods in 
 1. Datastore objects, specifically names and even morefs (Managed Object References), are not unique across vCenters instances
 2. Datastore objects, specifically names, are not unique within a single vCenter since objects of the same name can exist in different Datacenters
 
-TODO: IMAGE
+![Which datastore?](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/docs/images/whichdatastore.png)
 
 There needs to be a mechanism in place to allow end-users to continue to use the human readable "friendly" names for objects like datastores and datastore clusters and still be able to target workloads to use resources from them. This is where the concept of zones or zoning comes in. Zones allow you to partition datacenters and compute clusters so that the end-user can target workloads to specific locations in your vSphere environment.
 
@@ -27,14 +27,21 @@ This section outlines some optimal configurations for Kubernetes zones in your v
 
 An ideal configuration is creating a zone per cluster. It follows that datastore and datastore clusters access be tied to the compute nodes within a given cluster. The main reason for this is to take advantage of the High Availability (HA) that clusters offer as well as features like vMotion and etc. Example diagrams or configurations appear below.
 
-TODO: IMAGE 1-to-1 cluster to datastore
-TODO: IMAGE Many-to-1 cluster to datastore
+![Cluster-based Zones](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/docs/images/clusterbased.png)
 
 #### Zones Per Datacenter
 
 Zones per datacenter can work as well, but there are some very important design considerations when doing this. If this deployment strategy is taken, it is important to understand that all compute nodes in that zone aka datacenter have access to provision VMDKs from a given shared datastore. The reason for this is CSI driver uses zones in order to target Kubenetes pods or workloads when provisioning external storage. Example diagrams or configurations appear below.
 
-TODO: IMAGE 1-to-many clusters/hosts
+![Datacenter-based Zones](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/docs/images/datacenterbased.png)
+
+### Pitfalls: Zones as they Relate to Storage
+
+Here is a great example of a mistake you don't want to make. In a multi-Datacenter or multi-vCenter environment, you need to use to zones in an effective way especially when it comes to the use of persistent storage. The picture below shows an example of how zones can be incorrectly used.
+
+We have two clusters in `Datacenter 1`. If we deploy a pod to `Zone Engineering` what cluster will the pod land on? If you don't care, then this topology will work, but if you want to run a stateful pod with some storage to be provisioned, then placement really does matter. The `StorageClass` explicitly calls out from what datastore you want to provision a storage, or in our case a VMDK, out of. So placement in that case is very important and the zone configuration here is **insufficient** to handle that deployment scenario.
+
+![Pitfalls of Zones](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/docs/images/pitfalls.png)
 
 ### Wrap-Up Zone Considerations
 
