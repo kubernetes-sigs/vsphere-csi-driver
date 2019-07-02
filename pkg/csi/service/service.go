@@ -32,6 +32,8 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/fcd"
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+
+	"k8s.io/klog"
 )
 
 const (
@@ -117,13 +119,29 @@ func (s *service) BeforeServe(
 	klogLevel := "2"
 	lvl := log.GetLevel()
 	if lvl == log.DebugLevel {
-		klogLevel = "4"
+		klogLevel = "6"
 	}
 
 	flag.Set("logtostderr", "true")
 	flag.Set("stderrthreshold", "INFO")
+	flag.Set("alsologtostderr", "true")
+
 	flag.Set("v", klogLevel)
 	flag.Parse()
+
+	// This is a temporary hack to enable proper logging until upstream dependencies
+	// are migrated to fully utilize klog instead of glog.
+	klogFlags := flag.NewFlagSet("klog", flag.ExitOnError)
+	klog.InitFlags(klogFlags)
+
+	// Sync the glog and klog flags.
+	flag.VisitAll(func(f1 *flag.Flag) {
+		f2 := klogFlags.Lookup(f1.Name)
+		if f2 != nil {
+			value := f1.Value.String()
+			f2.Value.Set(value)
+		}
+	})
 
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
