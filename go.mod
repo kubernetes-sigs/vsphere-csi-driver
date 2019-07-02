@@ -14,6 +14,7 @@ require (
 	github.com/onsi/gomega v1.4.3
 	github.com/rexray/gocsi v0.4.1-0.20181205192803-207653674028
 	github.com/sirupsen/logrus v1.4.1
+	github.com/spf13/pflag v1.0.2
 	github.com/vmware/govmomi v0.20.0
 	golang.org/x/net v0.0.0-20190415214537-1da14a5a36f2
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
