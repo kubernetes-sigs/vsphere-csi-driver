@@ -22,6 +22,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/wcpguest"
 
 	"net"
 	"os"
@@ -45,6 +46,9 @@ const (
 
 	// WcpControllerType indicated WCP CSI Controller
 	WcpControllerType = "WCP"
+
+	//WcpGuestControllerType indicated WCPGC CSI Controller
+	WcpGuestControllerType = "WCPGC"
 
 	defaultController = VanillaK8SControllerType
 )
@@ -75,12 +79,15 @@ func New() Service {
 func (s *service) GetController() csi.ControllerServer {
 	// check which controller type to use
 	controllerType = os.Getenv(vTypes.EnvControllerType)
-	if controllerType == WcpControllerType {
+	switch controllerType {
+	case WcpControllerType:
 		s.cnscs = wcp.New()
-		return s.cnscs
+	case WcpGuestControllerType:
+		s.cnscs = wcpguest.New()
+	default:
+		s.cnscs = vanilla.New()
 	}
-	controllerType = defaultController
-	s.cnscs = vanilla.New()
+
 	return s.cnscs
 }
 
