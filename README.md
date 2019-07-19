@@ -24,6 +24,7 @@ $ git clone https://github.com/kubernetes-sigs/vsphere-csi-driver && \
 ```
 
 The project uses [Go modules](https://github.com/golang/go/wiki/Modules) and:
+
 * Requires Go 1.11+
 * Should not be cloned into the `$GOPATH`
 
