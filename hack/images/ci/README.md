@@ -34,6 +34,7 @@ While Prow jobs [run the Docker server inside the container](#run-the-docker-ser
 Please note that this option is only available when using a local copy of the sources. This is because all of the paths known to Docker will be of the local host system, not from the container.
 
 ### Run the Docker server inside the container
+
 This is option that Prow jobs utilize and is also the method illustrated by the examples below. Please keep in mind that using this option locally requires a large amount of memory and disk space available to Docker:
 
 | Type | Minimum Requirement |
@@ -100,6 +101,7 @@ $ docker run -it --rm --privileged \
 ```
 
 ## Deploy the CSI image
+
 Pushing the images requires bind mounting a GCR key file into the container and setting the environment variable `GCR_KEY_FILE` to inform the deployment process the location of the key file:
 
 ```shell
