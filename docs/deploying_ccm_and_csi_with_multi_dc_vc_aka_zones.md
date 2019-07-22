@@ -12,6 +12,7 @@ This document assumes that you have read and understood the setup documentation 
 ## Why Do We Need to Use Zones in a Multi-vCenter or Multi-Datacenter Environment
 
 There exist 2 significant issues when deploying Kubernetes workloads or pods in a mutli-vCenter or single vCenter with multiple Datacenters. They are:
+
 1. Datastore objects, specifically names and even morefs (Managed Object References), are not unique across vCenters instances
 2. Datastore objects, specifically names, are not unique within a single vCenter since objects of the same name can exist in different Datacenters
 
@@ -23,13 +24,13 @@ There needs to be a mechanism in place to allow end-users to continue to use the
 
 This section outlines some optimal configurations for Kubernetes zones in your vSphere environment/configuration. The implementation for zone support in the CCM and CSI driver are quite flexible but there are some configurations that can take advantage of features in vSphere and thus providing certain benefits. Here are a couple of common deployment scenarios for zones. If you cannot roll out or deploy zones in some of these suggested configurations, it might be worth consulting someone with familiarity with how zones are implemented.
 
-#### Zones Per Cluster
+### Zones Per Cluster
 
 An ideal configuration is creating a zone per cluster. It follows that datastore and datastore clusters access be tied to the compute nodes within a given cluster. The main reason for this is to take advantage of the High Availability (HA) that clusters offer as well as features like vMotion and etc. Example diagrams or configurations appear below.
 
 ![Cluster-based Zones](https://github.com/kubernetes-sigs/vsphere-csi-driver/raw/master/docs/images/clusterbased.png)
 
-#### Zones Per Datacenter
+### Zones Per Datacenter
 
 Zones per datacenter can work as well, but there are some very important design considerations when doing this. If this deployment strategy is taken, it is important to understand that all compute nodes in that zone aka datacenter have access to provision VMDKs from a given shared datastore. The reason for this is CSI driver uses zones in order to target Kubenetes pods or workloads when provisioning external storage. Example diagrams or configurations appear below.
 
@@ -46,6 +47,7 @@ We have two clusters in `Datacenter 1`. If we deploy a pod to `Zone Engineering`
 ### Wrap-Up Zone Considerations
 
 Some important takeaways for implementing zones:
+
 1. Zones allow you to target Kubernetes workloads to a specific group of vSphere infrastructure. This is handled by the CCM.
 2. Zones also define persistent storage boundaries. In other words, all compute nodes within a given zone must have access to shared storage if persistent storage (aka an FCD) is to be provisioned for stateful applications/pods/workloads.
 
@@ -58,7 +60,7 @@ Steps that will be covered in order to setup zones for the vSphere CCM, vSphere 
 3. Updating your `StorageClass` when using Persistent Storage
 4. Example: Deploying a Kubernetes pod to a Specific Zone using Persistent Storage
 
-## Deploying Zones using the CCM and CSI driver
+### Deploying Zones using the CCM and CSI driver
 
 #### 1. Enabling Zones the `vsphere.conf` file
 
@@ -66,7 +68,7 @@ The zones implementation depends on 2 sets of vSphere tags to be used on objects
 
 In the example `vsphere.conf` below, `k8s-region` and `k8s-zone` was selected:
 
-```
+```sh
 [Global]
 # properties in this section will be used for all specified vCenters unless overridden in VirtualCenter section.
 
@@ -100,23 +102,27 @@ zone = k8s-zone
 There are many options for creating vSphere tags. One such method would be to use [govc](https://github.com/vmware/govmomi/tree/master/govc). All the examples below will make use of this method. You could also create tags by accessing the vSphere REST APIs directly or by using the vSphere UI.
 
 > **NOTE**: The example commands below assume that you have exported the GOVC_URL before running said commands:
+
 ```bash
 [k8suser@k8master ~]$ export GOVC_URL=https://REPLACE_VSPHERE_USERNAME:REPLACE_VSPHERE_PASSWORD@REPLACE_VSPHERE_IP/sdk
 ```
 
 Using the example above, if it is decided that `k8s-region` and `k8s-zone` are to be used for your Category labels, then you can create those vSphere Categories using `govc` by running the following command:
+
 ```bash
 [k8suser@k8master ~]$ ./govc tags.category.create -d "Kubernetes region" k8s-region
 [k8suser@k8master ~]$ ./govc tags.category.create -d "Kubernetes zone" k8s-zone
 ```
 
 Say there are 2 `regions` in the US and EU that cover our vSphere environment, we can then create 2 region tags `k8s-region-us` and `k8s-region-eu` using `govc` by running the following command:
+
 ```bash
 [k8suser@k8master ~]$ ./govc tags.create -d "Kubernetes Region US" -c k8s-region k8s-region-us
 [k8suser@k8master ~]$ ./govc tags.create -d "Kubernetes Region EU" -c k8s-region k8s-region-eu
 ```
 
 Now say our colocations in those regions are fairly small and we have 2 datacenters (dcwest and dceast) in the US and 1 datacenter (dceu) in the EU each with just a small vSphere cluster in each datacenter. Let's each datacenter could represent a particular `zone` in those `regions`. In this example, we could simply create tags for each datacenter, such as `k8s-region-us-west`, `k8s-region-us-east` and `k8s-region-eu-all`, by running the following command:
+
 ```bash
 [k8suser@k8master ~]$ ./govc tags.create -d "Kubernetes Zone US West" -c k8s-zone k8s-zone-us-west
 [k8suser@k8master ~]$ ./govc tags.create -d "Kubernetes Zone US East" -c k8s-zone k8s-zone-us-east
@@ -124,6 +130,7 @@ Now say our colocations in those regions are fairly small and we have 2 datacent
 ```
 
 Now let's assign the region and zone tags to each of the datacenters in the vSphere environment by running the following command:
+
 ```bash
 #dcwest
 [k8suser@k8master ~]$ ./govc tags.attach k8s-region k8s-region-us /dcwest
@@ -144,7 +151,7 @@ And there you go! All setup with the correct tags.
 
 Now that we have set the regions and zones within the vSphere environment, we can now target a specific region/zone to deploy a Kubernetes workload or pod into. If a persistent volume is required for that given Kubernetes pod, we need to update the `StorageClass` with the `region` and `zone` information that the particular datastore is in. This is what the `StorageClass` YAML might look like:
 
-```
+```yaml
 kind: StorageClass
 apiVersion: storage.k8s.io/v1
 metadata:
@@ -170,7 +177,7 @@ allowedTopologies:
 
 Now if one wanted to deploy a Kubernetes pod into a specific `region` and `zone`  also using the persistent volume above, the YAML would look something like this:
 
-```
+```yaml
 kind: Pod
 apiVersion: v1
 metadata:
