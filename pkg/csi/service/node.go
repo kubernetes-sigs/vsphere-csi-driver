@@ -30,6 +30,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	utilfs "k8s.io/kubernetes/pkg/volume/util/fs"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/fcd"
 )
@@ -338,7 +339,21 @@ func (s *service) NodeGetVolumeStats(
 	req *csi.NodeGetVolumeStatsRequest) (
 	*csi.NodeGetVolumeStatsResponse, error) {
 
-	return nil, nil
+	target := req.GetVolumePath()
+	if err := verifyTargetDir(target); err != nil {
+		return nil, err
+	}
+	available, capacity, usage, inodes, inodesFree, inodesUsed, err := utilfs.FsInfo(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"Unable to statfs target %s, err: %s", target, err)
+	}
+	return &csi.NodeGetVolumeStatsResponse{
+		Usage: []*csi.VolumeUsage{
+			{Total: capacity, Available: available, Used: usage, Unit: 1},
+			{Total: inodes, Available: inodesFree, Used: inodesUsed, Unit: 2},
+		},
+	}, nil
 }
 
 func (s *service) NodeGetCapabilities(
@@ -352,6 +367,13 @@ func (s *service) NodeGetCapabilities(
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
 						Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
 					},
 				},
 			},
