@@ -233,35 +233,19 @@ cover: test
 ################################################################################
 ##                                 LINTING                                    ##
 ################################################################################
-FMT_FLAGS ?= -d -e -s -w
-.PHONY: fmt
+.PHONY: fmt vet lint
 fmt:
-	f="$$(mktemp)" && \
-	find . -name "*.go" | grep -v vendor | xargs gofmt $(FMT_FLAGS) | tee "$${f}"; \
-	test -z "$$(head -n 1 "$${f}")"
+	hack/check-format.sh
 
-.PHONY: vet
 vet:
-	go vet ./...
+	hack/check-vet.sh
 
-HAS_LINT := $(shell command -v golint 2>/dev/null)
-.PHONY: lint
 lint:
-ifndef HAS_LINT
-	cd / && GO111MODULE=off go get -u github.com/golang/lint/golint
-endif
-	f=$$(mktemp); \
-	go list ./... | xargs golint -set_exit_status 2>&1 >"$${f}" || \
-	{ x="$${?}"; sed 's~$(PWD)~.~' 1>&2 <"$${f}"; }; \
-	rm -f "$${f}"; exit "$${x:-0}"
+	hack/check-lint.sh
 
 .PHONY: check
 check: build-dirs
 	JUNIT_REPORT="$(abspath $(ARTIFACTS)/junit_check.xml)" hack/check.sh
-
-.PHONY: check-warn
-check-warn:
-	-$(MAKE) check
 
 ################################################################################
 ##                                 BUILD IMAGES                               ##
