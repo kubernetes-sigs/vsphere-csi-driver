@@ -39,6 +39,7 @@ const usage = `    X_CSI_VSPHERE_APINAME
         Specifies the name of the API to use when talking to vCenter
 
 				The default value is "FCD" (First Class Disk)
+				This is a test
 
     X_CSI_VSPHERE_CLOUD_CONFIG
         Specifies the path to the vsphere.conf file
