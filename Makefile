@@ -13,10 +13,6 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
-# ARTIFACTS is the directory containing artifacts uploaded to the Kubernetes
-# test grid at the end of a Prow job.
-export ARTIFACTS ?= $(BUILD_OUT)/artifacts
-
 -include hack/make/docker.mk
 
 ################################################################################
@@ -74,7 +70,6 @@ print-image:
 build-dirs:
 	@mkdir -p $(BIN_OUT)
 	@mkdir -p $(DIST_OUT)
-	@mkdir -p $(ARTIFACTS)
 
 ################################################################################
 ##                              BUILD BINARIES                                ##
@@ -130,7 +125,6 @@ dist: dist-csi-tgz dist-csi-zip
 # The deploy target is for use by Prow.
 .PHONY: deploy
 deploy: | $(DOCKER_SOCK)
-	$(MAKE) check
 	$(MAKE) build-bins
 	$(MAKE) unit-test
 	$(MAKE) build-images
@@ -143,7 +137,7 @@ deploy: | $(DOCKER_SOCK)
 clean:
 	@rm -f Dockerfile*
 	rm -f $(CSI_BIN) vsphere-csi-*.tar.gz vsphere-csi-*.zip \
-		image-*.tar image-*.d $(DIST_OUT)/* $(BIN_OUT)/* $(ARTIFACTS)/*
+		image-*.tar image-*.d $(DIST_OUT)/* $(BIN_OUT)/*
 	GO111MODULE=off go clean -i -x . ./cmd/$(CSI_BIN_NAME)
 
 .PHONY: clean-d
@@ -244,8 +238,7 @@ lint:
 	hack/check-lint.sh
 
 .PHONY: check
-check: build-dirs
-	JUNIT_REPORT="$(abspath $(ARTIFACTS)/junit_check.xml)" hack/check.sh
+check: fmt vet lint
 
 ################################################################################
 ##                                 BUILD IMAGES                               ##
