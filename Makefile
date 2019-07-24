@@ -52,16 +52,9 @@ deps:
 # Ensure the version is injected into the binaries via a linker flag.
 export VERSION ?= $(shell git describe --always --dirty)
 
-# Load the image registry include.
-include hack/make/login-to-image-registry.mk
-
-# Define the images.
-IMAGE_CSI := $(REGISTRY)/vsphere-csi
-.PHONY: print-image
-
-# Printing the image version is defined early so Go modules aren't forced.
-print-image:
-	@echo $(IMAGE_CSI):$(VERSION)
+.PHONY: version
+version:
+	@echo $(VERSION)
 
 ################################################################################
 ##                                BUILD DIRS                                  ##
@@ -127,7 +120,6 @@ dist: dist-csi-tgz dist-csi-zip
 deploy: | $(DOCKER_SOCK)
 	$(MAKE) build-bins
 	$(MAKE) unit-test
-	$(MAKE) build-images
 	$(MAKE) push-images
 
 ################################################################################
@@ -243,33 +235,16 @@ check: fmt vet lint
 ################################################################################
 ##                                 BUILD IMAGES                               ##
 ################################################################################
-IMAGE_CSI_D := image-csi-$(VERSION).d
-build-csi-image csi-image: $(IMAGE_CSI_D)
-$(IMAGE_CSI): $(IMAGE_CSI_D)
-ifneq ($(GOOS),linux)
-$(IMAGE_CSI_D):
-	$(error Please set GOOS=linux for building $@)
-else
-$(IMAGE_CSI_D): $(CSI_BIN) | $(DOCKER_SOCK)
-	cp -f $< cluster/images/csi/vsphere-csi
-	docker build -t $(IMAGE_CSI):$(VERSION) cluster/images/csi
-	docker tag $(IMAGE_CSI):$(VERSION) $(IMAGE_CSI):latest
-	@rm -f cluster/images/csi/vsphere-csi && touch $@
-endif
-
-build-images images: build-csi-image
+.PHONY: images
+images: | $(DOCKER_SOCK)
+	hack/release.sh
 
 ################################################################################
 ##                                  PUSH IMAGES                               ##
 ################################################################################
-.PHONY: push-$(IMAGE_CSI) upload-$(IMAGE_CSI)
-push-csi-image upload-csi-image: upload-$(IMAGE_CSI)
-push-$(IMAGE_CSI) upload-$(IMAGE_CSI): $(IMAGE_CSI_D) login-to-image-registry | $(DOCKER_SOCK)
-	docker push $(IMAGE_CSI):$(VERSION)
-	docker push $(IMAGE_CSI):latest
-
 .PHONY: push-images upload-images
-push-images upload-images: upload-csi-image
+push-images: | $(DOCKER_SOCK)
+	hack/release.sh -p
 
 ################################################################################
 ##                                  CI IMAGE                                  ##
@@ -282,18 +257,3 @@ push-ci-image:
 
 print-ci-image:
 	@$(MAKE) --no-print-directory -C hack/images/ci print
-
-################################################################################
-##                               PRINT VERISON                                ##
-################################################################################
-.PHONY: version
-version:
-	@echo $(VERSION)
-
-################################################################################
-##                                TODO(akutz)                                 ##
-################################################################################
-TODO := docs godoc releasenotes translation
-.PHONY: $(TODO)
-$(TODO):
-	@echo "$@ not yet implemented"
