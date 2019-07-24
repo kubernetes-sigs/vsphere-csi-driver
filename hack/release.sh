@@ -34,7 +34,6 @@ readonly CSI_IMAGE_PR=${BASE_IMAGE_REPO}/csi/pr/driver
 # CI images
 readonly CSI_IMAGE_CI=${BASE_IMAGE_REPO}/csi/ci/driver
 
-AUTH=
 PUSH=
 LATEST=
 CSI_IMAGE_NAME=
@@ -109,18 +108,10 @@ function build_images() {
   fi
 }
 
-function logout() {
-  if [ "${AUTH}" ]; then
-    gcloud auth revoke
-  fi
-}
-
 function login() {
   # If GCR_KEY_FILE is set, use that service account to login
   if [ "${GCR_KEY_FILE}" ]; then
-    trap logout EXIT
-    gcloud auth activate-service-account --key-file "${GCR_KEY_FILE}" || fatal "unable to login"
-    AUTH=1
+    docker login -u _json_key --password-stdin https://gcr.io <"${GCR_KEY_FILE}" || fatal "unable to login"
   fi
 }
 
