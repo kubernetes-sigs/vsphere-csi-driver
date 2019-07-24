@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/akutz/gofsutil v0.1.2
+	github.com/akutz/gosync v0.1.0 // indirect
 	github.com/akutz/memconn v0.1.0
 	github.com/container-storage-interface/spec v1.0.0
 	github.com/google/btree v1.0.0 // indirect
@@ -14,6 +15,8 @@ require (
 	github.com/onsi/gomega v1.4.3
 	github.com/rexray/gocsi v0.4.1-0.20181205192803-207653674028
 	github.com/sirupsen/logrus v1.4.1
+	github.com/thecodeteam/gofsutil v0.1.2 // indirect
+	github.com/thecodeteam/gosync v0.1.0 // indirect
 	github.com/vmware/govmomi v0.20.0
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
 	golang.org/x/net v0.0.0-20190628185345-da137c7871d7
@@ -22,7 +25,8 @@ require (
 	golang.org/x/text v0.3.2 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	google.golang.org/grpc v1.19.0
-	k8s.io/cloud-provider-vsphere v0.1.2-0.20190402145035-39e2b5e81d7e
+	k8s.io/cloud-provider-vsphere v0.2.1
 	k8s.io/klog v0.2.0
 	k8s.io/kubernetes v1.11.2
+	k8s.io/utils v0.0.0-20190308190857-21c4ce38f2a7 // indirect
 )
