@@ -26,7 +26,7 @@ spec:
         effect: NoSchedule
       containers:
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/vsphere-csi:v0.2.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v0.2.1
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
