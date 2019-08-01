@@ -24,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"k8s.io/klog"
 
 	"github.com/vmware/govmomi/simulator"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -40,6 +39,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	clientset "k8s.io/client-go/kubernetes"
+	testclient "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -182,10 +182,9 @@ func TestSyncerWorkflows(t *testing.T) {
 	}
 	metadataSyncer.Commontypes.Cfg = config
 	// Create the kubernetes client from config or env
-	if k8sclient, err = K8sClientFromEnvOrSim(metadataSyncer); err != nil {
-		klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
-		return
-	}
+	// Here we should use a faked client to avoid test inteference with running
+	// metadata syncer pod in real Kubernetes cluster
+	k8sclient = testclient.NewSimpleClientset()
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sclient)
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
