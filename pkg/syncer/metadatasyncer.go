@@ -27,48 +27,47 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	csictx "github.com/rexray/gocsi/context"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog"
-
+	cnstypes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/types"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
-// NewInformer returns uninitialized metadataSyncInformer
-func NewInformer() *MetadataSyncInformer {
-	return &MetadataSyncInformer{}
+// new Returns uninitialized metadataSyncInformer
+func NewInformer() *metadataSyncInformer {
+	return &metadataSyncInformer{}
 }
 
 // getFullSyncIntervalInMin return the FullSyncInterval
-// If enviroment variable FULL_SYNC_INTERVAL_MINUTES is set and valid,
+// If enviroment variable X_CSI_FULL_SYNC_INTERVAL_MINUTES is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default value 30 minutes
 func getFullSyncIntervalInMin() int {
 	fullSyncIntervalInMin := defaultFullSyncIntervalInMin
-	if v := os.Getenv(envFullSyncIntervalMinutes); v != "" {
+	if v := os.Getenv("X_CSI_FULL_SYNC_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 || value > defaultFullSyncIntervalInMin {
-				msg := fmt.Sprintf("FullSync: FULL_SYNC_INTERVAL_MINUTES %s is not in valid range, will use the default interval", v)
-				klog.Warningf(msg)
+			if value <= 0 {
+				klog.Warningf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
+			} else if value > defaultFullSyncIntervalInMin {
+				klog.Warningf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is larger than max vlaue can be set, will use the default interval", v)
 			} else {
 				fullSyncIntervalInMin = value
 				klog.V(2).Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
 			}
 		} else {
-			msg := fmt.Sprintf("FullSync: FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
-			klog.Warningf(msg)
+			klog.Warningf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
 		}
 	}
 	return fullSyncIntervalInMin
 }
 
-// Init initializes the Metadata Sync Informer
-func (metadataSyncer *MetadataSyncInformer) Init() error {
+// Initializes the Metadata Sync Informer
+func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer() error {
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -77,13 +76,13 @@ func (metadataSyncer *MetadataSyncInformer) Init() error {
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
-	metadataSyncer.cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+	metadataSyncer.Cfg, err = cnsconfig.GetCnsconfig(cfgPath)
 	if err != nil {
 		klog.Errorf("Failed to parse config. Err: %v", err)
 		return err
 	}
 
-	metadataSyncer.vcconfig, err = cnsvsphere.GetVirtualCenterConfig(metadataSyncer.cfg)
+	metadataSyncer.vcconfig, err = cnsvsphere.GetVirtualCenterConfig(metadataSyncer.Cfg)
 	if err != nil {
 		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
 		return err
@@ -164,7 +163,7 @@ func (metadataSyncer *MetadataSyncInformer) Init() error {
 }
 
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated
-func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer) {
+func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	// Get old and new pvc objects
 	oldPvc, ok := oldObj.(*v1.PersistentVolumeClaim)
 	if oldPvc == nil || !ok {
@@ -209,7 +208,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
+			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 			EntityMetadata:   metadataList,
 		},
 	}
@@ -221,7 +220,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer
 }
 
 // pvDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
-func pvcDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
+func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	pvc, ok := obj.(*v1.PersistentVolumeClaim)
 	if pvc == nil || !ok {
 		klog.Warningf("PVCDeleted: unrecognized object %+v", obj)
@@ -260,7 +259,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
+			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 			EntityMetadata:   metadataList,
 		},
 	}
@@ -272,7 +271,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 }
 
 // pvUpdated updates volume metadata on VC when volume labels on K8S cluster have been updated
-func pvUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer) {
+func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	// Get old and new PV objects
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
@@ -321,7 +320,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer)
 				Id: newPv.Spec.CSI.VolumeHandle,
 			},
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 				EntityMetadata:   metadataList,
 			},
 		}
@@ -333,9 +332,9 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer)
 	} else {
 		createSpec := &cnstypes.CnsVolumeCreateSpec{
 			Name:       oldPv.Name,
-			VolumeType: common.BlockVolumeType,
+			VolumeType: block.BlockVolumeType,
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 				EntityMetadata:   metadataList,
 			},
 			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
@@ -355,7 +354,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer)
 }
 
 // pvDeleted deletes volume metadata on VC when volume has been deleted on K8s cluster
-func pvDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
+func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		klog.Warningf("PVDeleted: unrecognized object %+v", obj)
@@ -393,7 +392,7 @@ func pvDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 }
 
 // podUpdated updates pod metadata on VC when pod labels have been updated on K8s cluster
-func podUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer) {
+func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	// Get old and new pod objects
 	oldPod, ok := oldObj.(*v1.Pod)
 	if oldPod == nil || !ok {
@@ -421,11 +420,15 @@ func podUpdated(oldObj, newObj interface{}, metadataSyncer *MetadataSyncInformer
 }
 
 // pvDeleted deletes pod metadata on VC when pod has been deleted on K8s cluster
-func podDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
+func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	// Get pod object
 	pod, ok := obj.(*v1.Pod)
 	if pod == nil || !ok {
 		klog.Warningf("PodDeleted: unrecognized new object %+v", obj)
+		return
+	}
+
+	if pod.Status.Phase == v1.PodPending {
 		return
 	}
 
@@ -441,7 +444,7 @@ func podDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 }
 
 // updatePodMetadata updates metadata for volumes attached to the pod
-func updatePodMetadata(pod *v1.Pod, metadataSyncer *MetadataSyncInformer, deleteFlag bool) []error {
+func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) []error {
 	var errorList []error
 	// Iterate through volumes attached to pod
 	for _, volume := range pod.Spec.Volumes {
@@ -476,7 +479,7 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *MetadataSyncInformer, delete
 					Id: pv.Spec.CSI.VolumeHandle,
 				},
 				Metadata: cnstypes.CnsVolumeMetadata{
-					ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
+					ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 					EntityMetadata:   metadataList,
 				},
 			}
