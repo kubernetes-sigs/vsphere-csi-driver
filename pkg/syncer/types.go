@@ -21,10 +21,9 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
-
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -40,9 +39,6 @@ const (
 	updateVolumeWithDeleteClaimOperation = "updateVolumeWithDeleteClaim"
 	// Delete the Pod entry on CNS
 	updateVolumeWithDeletePodOperation = "updateVolumeWithDeletePod"
-
-	// Env variable for FullSync interval
-	envFullSyncIntervalMinutes = "FULL_SYNC_INTERVAL_MINUTES"
 )
 
 var (
@@ -50,15 +46,12 @@ var (
 	// as this mapping does not exist in K8s
 	// in case a Pod entry needs to be deleted from CNS cache
 	cnsVolumeToPodMap map[string]string
-
 	// Create a mapping of CNS volume to Pvc name
 	cnsVolumeToPvcMap map[string]string
-
 	// Create a mapping of CNS volume to entity Namespace name
 	// Here entity can be either PVC or Pod - both will
 	// belong to the same namespace
 	cnsVolumeToEntityNamespaceMap map[string]string
-
 	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is deleted from CNS
@@ -82,11 +75,10 @@ type (
 	podMap = map[string]*v1.Pod
 )
 
-// MetadataSyncInformer is the struct for metadata sync informer
-type MetadataSyncInformer struct {
-	cfg                  *cnsconfig.Config
-	vcconfig             *cnsvsphere.VirtualCenterConfig
+type metadataSyncInformer struct {
+	types.Commontypes
 	k8sInformerManager   *k8s.InformerManager
+	vcconfig             *cnsvsphere.VirtualCenterConfig
 	virtualcentermanager cnsvsphere.VirtualCenterManager
 	vcenter              *cnsvsphere.VirtualCenter
 	pvLister             corelisters.PersistentVolumeLister
