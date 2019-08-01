@@ -142,7 +142,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	err = block.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-		klog.Error(msg)
+		klog.Errorf(msg)
 		return nil, err
 	}
 	return &csi.DeleteVolumeResponse{}, nil
@@ -152,17 +152,80 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	return &csi.ControllerPublishVolumeResponse{}, nil
+	err := validateWCPControllerPublishVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+		klog.Errorf(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	vmuuid, err := getVMUUIDFromPodListenerService(req.VolumeId, req.NodeId)
+	if err != nil {
+		klog.Errorf("Failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
+		return nil, err
+	}
+
+	vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
+	if err != nil {
+		klog.Errorf("Failed to get datacenter from config with error: %+v", err)
+		return nil, err
+	}
+	var vCenterHost, dcMorefValue string
+	for key, value := range vcdcMap {
+		vCenterHost = key
+		dcMorefValue = value
+	}
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(vCenterHost)
+	if err != nil {
+		klog.Errorf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
+			vc.Config.Host, err)
+		return nil, err
+	}
+
+	// Connect to VC
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = vc.Connect(ctx)
+	if err != nil {
+		klog.Errorf("Failed to connect to Virtual Center: %s", vc.Config.Host)
+		return nil, err
+	}
+
+	podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
+	}
+
+	// Attach the volume to the node
+	diskUUID, err := block.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	publishInfo := make(map[string]string, 0)
+	publishInfo[block.AttributeDiskType] = block.DiskTypeString
+	publishInfo[block.AttributeFirstClassDiskUUID] = block.FormatDiskUUID(diskUUID)
+	resp := &csi.ControllerPublishVolumeResponse{
+		PublishContext: publishInfo,
+	}
+
+	return resp, nil
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
+	err := validateWCPControllerUnpublishVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
