@@ -7,6 +7,9 @@ ARG GOLANG_IMAGE=golang:1.12.6
 # This build arg allows the specification of a custom Photon image.
 ARG PHOTON_IMAGE=photon:2.0
 
+# This build arg is the version to embed in the CSI binary
+ARG VERSION=unknown
+
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
@@ -18,7 +21,7 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-RUN go build -a -ldflags='-w -s -extldflags="static"' -o vsphere-csi ./cmd/vsphere-csi
+RUN go build -a -ldflags='-w -s -extldflags=static -X main.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
 
 ################################################################################
 ##                               MAIN STAGE                                   ##

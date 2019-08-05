@@ -101,6 +101,7 @@ function build_images() {
   docker build \
     -f cluster/images/csi/Dockerfile \
     -t "${CSI_IMAGE_NAME}":"${VERSION}" \
+    --build-arg "VERSION=${VERSION}" \
     .
   if [ "${LATEST}" ]; then
     echo "tagging image ${CSI_IMAGE_NAME}:${VERSION} as latest"
