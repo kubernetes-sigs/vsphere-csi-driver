@@ -21,7 +21,7 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-RUN go build -a -ldflags='-w -s -extldflags=static -X main.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
+RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
