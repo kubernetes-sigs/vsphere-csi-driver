@@ -39,8 +39,8 @@ LATEST=
 CSI_IMAGE_NAME=
 VERSION=$(git describe --dirty --always 2>/dev/null)
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
-
-BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE-}"
+GOPROXY="${GOPROXY:-}"
+BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 
 # If BUILD_RELEASE_TYPE is not set then check to see if this is a PR
 # or release build. This may still be overridden below with the "-t" flag.
@@ -56,6 +56,11 @@ USAGE="
 usage: ${0} [FLAGS]
   Builds and optionally pushes new images for vSphere CSI driver
 
+  Honored environment variables:
+  GCR_KEY_FILE
+  GOPROXY
+  BUILD_RELEASE_TYPE
+
 FLAGS
   -h    show this help and exit
   -k    path to GCR key file. Used to login to registry if specified
@@ -63,7 +68,7 @@ FLAGS
   -l    tag the images as \"latest\" in addition to their version
         when used with -p, both tags will be pushed
   -p    push the images to the public container registry
-  -t    the build/release type (defaults to ${BUILD_RELEASE_TYPE})
+  -t    the build/release type (defaults to: ${BUILD_RELEASE_TYPE})
         one of [ci,pr,release]
 "
 
@@ -98,10 +103,12 @@ function build_images() {
   esac
 
   echo "building ${CSI_IMAGE_NAME}:${VERSION}"
+  echo "GOPROXY=${GOPROXY}"
   docker build \
     -f cluster/images/csi/Dockerfile \
     -t "${CSI_IMAGE_NAME}":"${VERSION}" \
     --build-arg "VERSION=${VERSION}" \
+    --build-arg "GOPROXY=${GOPROXY}" \
     .
   if [ "${LATEST}" ]; then
     echo "tagging image ${CSI_IMAGE_NAME}:${VERSION} as latest"
