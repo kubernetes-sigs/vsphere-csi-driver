@@ -15,9 +15,6 @@
 # Ignore any Dockerfiles at the root of the project.
 /Dockerfile*
 
-# Ignore the binaries copied into the staging areas.
-/cluster/images/csi/vsphere-csi*
-
 # Ignore vendor at the root of the project.
 /vendor
 

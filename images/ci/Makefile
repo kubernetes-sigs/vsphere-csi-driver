@@ -1,6 +1,6 @@
 all: build
 
-include ../../../hack/make/login-to-image-registry.mk
+include ../../hack/make/login-to-image-registry.mk
 
 VERSION ?= $(shell git describe --always --dirty)
 IMAGE := $(REGISTRY)/csi-ci
