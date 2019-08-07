@@ -105,7 +105,7 @@ function build_images() {
   echo "building ${CSI_IMAGE_NAME}:${VERSION}"
   echo "GOPROXY=${GOPROXY}"
   docker build \
-    -f cluster/images/csi/Dockerfile \
+    -f images/driver/Dockerfile \
     -t "${CSI_IMAGE_NAME}":"${VERSION}" \
     --build-arg "VERSION=${VERSION}" \
     --build-arg "GOPROXY=${GOPROXY}" \
