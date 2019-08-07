@@ -14,8 +14,10 @@
 
 all: build
 
+include ../../hack/make/login-to-image-registry.mk
+
 VERSION ?= $(shell git describe --always --dirty)
-IMAGE_NAME ?= gcr.io/cloud-provider-vsphere/extra/csi-driver-base
+IMAGE_NAME ?= $(REGISTRY)/extra/csi-driver-base
 IMAGE_TAG ?= $(IMAGE_NAME):$(VERSION)
 
 build:
@@ -23,7 +25,21 @@ build:
 	docker tag $(IMAGE_TAG) $(IMAGE_NAME):latest
 .PHONY: build
 
-push:
+push: login-to-image-registry
 	docker push $(IMAGE_TAG)
 	docker push $(IMAGE_NAME):latest
 .PHONY: push
+
+.PHONY: clean
+DOCKER_RMI_FLAGS := --no-prune
+clean:
+	docker rmi $(DOCKER_RMI_FLAGS) $(IMAGE_TAG) $(IMAGE_NAME):latest 2>/dev/null || true
+
+.PHONY: clobber
+clobber: DOCKER_RMI_FLAGS :=
+clobber: clean
+	docker rmi $$(docker images -qf reference=$(IMAGE_NAME):*) 2>/dev/null || true
+
+.PHONY: print
+print:
+	@echo $(IMAGE_TAG)
