@@ -4,8 +4,8 @@
 # This build arg allows the specification of a custom Golang image.
 ARG GOLANG_IMAGE=golang:1.12.6
 
-# This build arg allows the specification of a custom Photon image.
-ARG PHOTON_IMAGE=photon:2.0
+# This build arg allows the specification of a custom base image.
+ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v0.2.1-10-gb2fb75e
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
@@ -31,18 +31,8 @@ RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
-FROM ${PHOTON_IMAGE}
+FROM ${BASE_IMAGE}
 LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
-
-RUN tdnf -y remove toybox
-
-RUN tdnf -y install \
-  util-linux \
-  e2fsprogs \
-  xfsprogs \
-  btrfs-progs
-
-RUN tdnf clean all
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 
