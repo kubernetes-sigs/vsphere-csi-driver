@@ -7,20 +7,25 @@ ARG GOLANG_IMAGE=golang:1.12.6
 # This build arg allows the specification of a custom Photon image.
 ARG PHOTON_IMAGE=photon:2.0
 
-# This build arg is the version to embed in the CSI binary
-ARG VERSION=unknown
-
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
 FROM ${GOLANG_IMAGE} as builder
+
+# This build arg is the version to embed in the CSI binary
+ARG VERSION=unknown
+
+# This build arg controls the GOPROXY setting
+ARG GOPROXY
+
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
+ENV GOPROXY ${GOPROXY:-}
 RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
 
 ################################################################################
