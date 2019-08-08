@@ -187,15 +187,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
 			msg := fmt.Sprintf("Failed to get shared datastores in kubernetes cluster. Error: %+v", err)
-			klog.Errorf(msg)
-			return nil, err
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
 	volumeID, err := block.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
-		klog.Errorf(msg)
-		return nil, err
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
 	attributes[block.AttributeDiskType] = block.DiskTypeString
@@ -252,7 +252,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	if err != nil {
 		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		klog.Error(msg)
-		return nil, err
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 	return &csi.DeleteVolumeResponse{}, nil
 }
