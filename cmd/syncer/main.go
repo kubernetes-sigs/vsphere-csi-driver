@@ -17,11 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
+	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	"k8s.io/klog"
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 )
@@ -29,6 +32,10 @@ import (
 const (
 	// WcpControllerType indicated WCP CSI Controller
 	WcpControllerType = "WCP"
+)
+
+var (
+	enableLeaderElection = flag.Bool("leader-election", false, "Enable leader election.")
 )
 
 // main is ignored when this package is built as a go plug-in.
@@ -46,8 +53,26 @@ func main() {
 	}
 
 	syncer := syncer.NewInformer()
-	if err := syncer.InitMetadataSyncer(); err != nil {
-		klog.Errorf("Error initializing Metadata Syncer")
-		os.Exit(1)
+	run := func(ctx context.Context) {
+		if err := syncer.InitMetadataSyncer(); err != nil {
+			klog.Errorf("Error initializing Metadata Syncer")
+			os.Exit(1)
+		}
+	}
+
+	if !*enableLeaderElection {
+		run(context.TODO())
+	} else {
+		k8sClient, err := k8s.NewClient()
+		if err != nil {
+			klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
+			os.Exit(1)
+		}
+		lockName := "vsphere-syncer"
+		le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
+
+		if err := le.Run(); err != nil {
+			klog.Fatalf("Error initializing leader election: %v", err)
+		}
 	}
 }
