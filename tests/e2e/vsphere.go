@@ -33,6 +33,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/types"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	e2elog "k8s.io/kubernetes/test/e2e/framework"
@@ -353,6 +354,36 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.Mana
 		Id:        types.ID{Id: fcdID},
 	}
 	res, err := methods.DeleteVStorageObject_Task(ctx, vs.Client.Client, &req)
+	if err != nil {
+		return err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	_, err = task.WaitForResult(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// relocateFCD relocates an FCD disk
+func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types.ManagedObjectReference, dsRefDest types.ManagedObjectReference) error {
+	spec := types.VslmRelocateSpec{
+		VslmMigrateSpec: types.VslmMigrateSpec{
+			DynamicData: vim25types.DynamicData{},
+			BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
+				VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+					Datastore: dsRefDest,
+				},
+			},
+		},
+	}
+	req := types.RelocateVStorageObject_Task{
+		This:      *vs.Client.Client.ServiceContent.VStorageObjectManager,
+		Id:        types.ID{Id: fcdID},
+		Datastore: dsRefSrc,
+		Spec:      spec,
+	}
+	res, err := methods.RelocateVStorageObject_Task(ctx, vs.Client.Client, &req)
 	if err != nil {
 		return err
 	}
