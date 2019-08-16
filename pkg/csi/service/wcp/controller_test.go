@@ -39,7 +39,7 @@ import (
 	cspvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
 const (
@@ -138,7 +138,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
-		manager := &block.Manager{
+		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
 			VolumeManager:  cspvolume.GetManager(vcenter),
@@ -173,7 +173,7 @@ func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphe
 		datacenterName = simulator.Map.Any("Datacenter").(*simulator.Datacenter).Name
 	}
 
-	vc, _ := block.GetVCenter(ctx, controller.manager)
+	vc, _ := common.GetVCenter(ctx, controller.manager)
 	finder := find.NewFinder(vc.Client.Client, false)
 	dc, _ := finder.Datacenter(ctx, datacenterName)
 	finder.SetDatacenter(dc)
@@ -246,7 +246,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	params[block.AttributeStoragePolicyID] = profileID
+	params[common.AttributeStoragePolicyID] = profileID
 
 	capabilities := []*csi.VolumeCapability{
 		{
@@ -258,7 +258,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName,
 		CapacityRange: &csi.CapacityRange{
-			RequiredBytes: 1 * block.GbInBytes,
+			RequiredBytes: 1 * common.GbInBytes,
 		},
 		Parameters:         params,
 		VolumeCapabilities: capabilities,

@@ -17,6 +17,7 @@ limitations under the License.
 package service
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -26,10 +27,16 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/klog"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
@@ -107,10 +114,18 @@ func (s *service) NodeStageVolume(
 			err.Error())
 	}
 
+	attributes := req.VolumeContext
+	fsType, _ := attributes[common.AttributeFsType]
+	log.WithField("fsType", fsType).Info("Get fsType from VolumeContext")
+	if fsType == "" {
+		// no fsType is set in VolumeContext, use default "ext4"
+		fsType = common.DefaultFsType
+		log.WithField("fsType", fsType).Info("fsType is not set in VolumeContext, use default type")
+	}
 	if len(mnts) == 0 {
 		// Device isn't mounted anywhere, stage the volume
 		if fs == "" {
-			fs = "ext4"
+			fs = fsType
 		}
 
 		// If read-only access mode, we don't allow formatting
@@ -361,15 +376,83 @@ func (s *service) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
-
-	id, err := os.Hostname()
+	nodeId, err := os.Hostname()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
 			"Unable to retrieve Node ID, err: %s", err)
 	}
+	var cfg *cnsconfig.Config
+	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+	if cfgPath == "" {
+		cfgPath = cnsconfig.DefaultCloudConfigPath
+	}
+	cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+	if err != nil {
+		klog.Errorf("Failed to read cnsconfig. Error: %v", err)
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	var accessibleTopology map[string]string
+	topology := &csi.Topology{}
+
+	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
+		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+		if err != nil {
+			klog.Errorf("Failed to get VirtualCenterConfig from cns config. err=%v", err)
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		vcManager := cnsvsphere.GetVirtualCenterManager()
+		vcenter, err := vcManager.RegisterVirtualCenter(vcenterconfig)
+		if err != nil {
+			klog.Errorf("Failed to register vcenter with virtualCenterManager.")
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		defer vcManager.UnregisterAllVirtualCenters()
+		//Connect to vCenter
+		err = vcenter.Connect(ctx)
+		if err != nil {
+			klog.Errorf("Failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		// Get VM UUID
+		uuid, err := getSystemUUID()
+		if err != nil {
+			klog.Errorf("Failed to get system uuid for node VM")
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		klog.V(4).Infof("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeId)
+		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(uuid, false)
+		if err != nil || nodeVM == nil {
+			klog.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+			uuid, err = convertUUID(uuid)
+			if err != nil {
+				klog.Errorf("convertUUID failed with error: %v", err)
+				return nil, status.Errorf(codes.Internal, err.Error())
+			}
+			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(uuid, false)
+			if err != nil || nodeVM == nil {
+				klog.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+				return nil, status.Errorf(codes.Internal, err.Error())
+			}
+		}
+		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
+		if err != nil {
+			klog.Errorf("Failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		klog.V(4).Infof("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeId)
+		if zone != "" && region != "" {
+			accessibleTopology = make(map[string]string)
+			accessibleTopology[csitypes.LabelRegionFailureDomain] = region
+			accessibleTopology[csitypes.LabelZoneFailureDomain] = zone
+		}
+	}
+	if len(accessibleTopology) > 0 {
+		topology.Segments = accessibleTopology
+	}
 
 	return &csi.NodeGetInfoResponse{
-		NodeId: id,
+		NodeId:             nodeId,
+		AccessibleTopology: topology,
 	}, nil
 }
 
@@ -723,10 +806,26 @@ func getSystemUUID() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
+	klog.V(4).Infof("uuid in bytes: %v", idb)
 	id := strings.TrimSpace(string(idb))
+	klog.V(4).Infof("uuid in string: %s", id)
+	return strings.ToLower(id), nil
+}
 
-	return convertUUID(id), nil
+// convertUUID helps convert UUID to vSphere format
+//input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
+//returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
+func convertUUID(uuid string) (string, error) {
+	if len(uuid) != 36 {
+		return "", errors.New("uuid length should be 36")
+	}
+	convertedUUID := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
+		uuid[6:8], uuid[4:6], uuid[2:4], uuid[0:2],
+		uuid[11:13], uuid[9:11],
+		uuid[16:18], uuid[14:16],
+		uuid[19:23],
+		uuid[24:36])
+	return strings.ToLower(convertedUUID), nil
 }
 
 func getDiskID(volID string, pubCtx map[string]string) (string, error) {
@@ -739,28 +838,17 @@ func getDiskID(volID string, pubCtx map[string]string) (string, error) {
 	var diskID string
 
 	if controllerType == VanillaK8SControllerType {
-		if _, ok := pubCtx["page83data"]; !ok {
+		if _, ok := pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
 			return "", status.Errorf(codes.InvalidArgument,
 				"Attribute: %s required in publish context",
-				"page83data")
+				common.AttributeFirstClassDiskUUID)
 		}
-		diskID = pubCtx["page83data"]
+		diskID = pubCtx[common.AttributeFirstClassDiskUUID]
 	} else {
 		diskID = volID
 	}
 
 	return diskID, nil
-}
-
-func convertUUID(id string) string {
-	// convert UUID to vSphere format
-	uuid := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
-		id[6:8], id[4:6], id[2:4], id[0:2],
-		id[11:13], id[9:11],
-		id[16:18], id[14:16],
-		id[19:23],
-		id[24:36])
-	return strings.ToLower(uuid)
 }
 
 func getDevFromMount(target string) (*Device, error) {

@@ -46,6 +46,10 @@ func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	if !IsValidVolumeCapabilities(volCaps) {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
 	}
+	// Validate volume size exists in spec
+	if req.GetCapacityRange() == nil || req.GetCapacityRange().RequiredBytes == 0 {
+		return status.Error(codes.InvalidArgument, "Volume size is a required parameter")
+	}
 	return nil
 }
 
@@ -107,7 +111,7 @@ func ValidateControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolume
 // CheckAPI checks if specified version is 6.7.3 or higher
 func CheckAPI(version string) error {
 	items := strings.Split(version, ".")
-	if len(items) < 2 {
+	if len(items) < 2 || len(items) > 3 {
 		return fmt.Errorf("Invalid API Version format")
 	}
 	major, err := strconv.Atoi(items[0])
@@ -124,7 +128,7 @@ func CheckAPI(version string) error {
 	}
 
 	if major == MinSupportedVCenterMajor && minor == MinSupportedVCenterMinor {
-		if len(items) >= 3 {
+		if len(items) == 3 {
 			patch, err := strconv.Atoi(items[2])
 			if err != nil || patch < MinSupportedVCenterPatch {
 				return fmt.Errorf("Invalid patch version value")
