@@ -23,7 +23,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
 // validateVanillaCreateVolumeRequest is the helper function to validate
@@ -34,30 +34,30 @@ func validateVanillaCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	params := req.GetParameters()
 	for paramName := range params {
 		paramName = strings.ToLower(paramName)
-		if paramName != block.AttributeDatastoreURL && paramName != block.AttributeStoragePolicyName && paramName != block.AttributeFsType {
+		if paramName != common.AttributeDatastoreURL && paramName != common.AttributeStoragePolicyName && paramName != common.AttributeFsType {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid Vanilla CSI parameter.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
 	}
-	return block.ValidateCreateVolumeRequest(req)
+	return common.ValidateCreateVolumeRequest(req)
 }
 
 // validateVanillaDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateVanillaDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
-	return block.ValidateDeleteVolumeRequest(req)
+	return common.ValidateDeleteVolumeRequest(req)
 
 }
 
 // validateControllerPublishVolumeRequest is the helper function to validate
 // ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
 func validateVanillaControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
-	return block.ValidateControllerPublishVolumeRequest(req)
+	return common.ValidateControllerPublishVolumeRequest(req)
 }
 
 // validateControllerUnpublishVolumeRequest is the helper function to validate
 // ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
 func validateVanillaControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
-	return block.ValidateControllerUnpublishVolumeRequest(req)
+	return common.ValidateControllerUnpublishVolumeRequest(req)
 }

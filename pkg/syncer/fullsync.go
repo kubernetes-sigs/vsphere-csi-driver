@@ -30,7 +30,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
 // triggerFullSync triggers full sync
@@ -327,7 +327,7 @@ func constructCnsCreateSpec(pvList []*v1.PersistentVolume, pvToPVCMap pvcMap, pv
 		// volume exist in K8S, but not in CNS cache, need to create this volume
 		createSpec := cnstypes.CnsVolumeCreateSpec{
 			Name:       pv.Name,
-			VolumeType: block.BlockVolumeType,
+			VolumeType: common.BlockVolumeType,
 			Metadata: cnstypes.CnsVolumeMetadata{
 				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.Cfg.Global.ClusterID, metadataSyncer.Cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
 				EntityMetadata:   metadataList,
