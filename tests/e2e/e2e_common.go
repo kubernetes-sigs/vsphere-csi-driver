@@ -26,6 +26,7 @@ import (
 
 const (
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
+	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	envNonSharedStorageClassDatastoreURL       = "NONSHARED_VSPHERE_DATASTORE_URL"
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
 	scParamDatastoreURL                        = "DatastoreURL"
