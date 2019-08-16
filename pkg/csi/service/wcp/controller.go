@@ -14,14 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vanilla
+package wcp
 
 import (
 	"fmt"
 	"strings"
-
-	"math/rand"
-	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/units"
@@ -29,11 +26,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
-	cnstypes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -42,20 +38,13 @@ var (
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 	}
 )
 
-type NodeManagerInterface interface {
-	Initialize() error
-	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
-	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
-	GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, error)
-}
+var getSharedDatastores = getSharedDatastoresInPodVMK8SCluster
 
 type controller struct {
-	manager *block.Manager
-	nodeMgr NodeManagerInterface
+	manager *common.Manager
 }
 
 // New creates a CNS controller
@@ -65,7 +54,7 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
-	klog.Infof("Initializing CNS controller")
+	klog.Infof("Initializing WCP CSI controller")
 	// Get VirtualCenterManager instance and validate version
 	var err error
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
@@ -79,7 +68,7 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
-	c.manager = &block.Manager{
+	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
 		VolumeManager:  cnsvolume.GetManager(vcenter),
@@ -88,20 +77,14 @@ func (c *controller) Init(config *config.Config) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc, err := block.GetVCenter(ctx, c.manager)
+	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
 		klog.Errorf("Failed to get vcenter. err=%v", err)
 		return err
 	}
 	// Check vCenter API Version
-	if err = block.CheckAPI(vc.Client.ServiceContent.About.ApiVersion); err != nil {
+	if err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion); err != nil {
 		klog.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
-		return err
-	}
-	c.nodeMgr = &Nodes{}
-	err = c.nodeMgr.Initialize()
-	if err != nil {
-		klog.Errorf("Failed to initialize nodeMgr. err=%v", err)
 		return err
 	}
 	return nil
@@ -111,130 +94,51 @@ func (c *controller) Init(config *config.Config) error {
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-
 	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	err := validateVanillaCreateVolumeRequest(req)
+	err := validateWCPCreateVolumeRequest(req)
 	if err != nil {
-		klog.Errorf("Failed to validate Create Volume Request with err: %v", err)
+		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+		klog.Error(msg)
 		return nil, err
 	}
 
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-	volSizeMB := int64(block.RoundUpSize(volSizeBytes, block.MbInBytes))
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	var datastoreURL string
-	var storagePolicyName string
+	var storagePolicyID string
 	var fsType string
-
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
-		if param == block.AttributeDatastoreURL {
-			datastoreURL = req.Parameters[paramName]
-		} else if param == block.AttributeStoragePolicyName {
-			storagePolicyName = req.Parameters[paramName]
-		} else if param == block.AttributeFsType {
-			fsType = req.Parameters[block.AttributeFsType]
+		if param == common.AttributeStoragePolicyID {
+			storagePolicyID = req.Parameters[paramName]
+		} else if param == common.AttributeFsType {
+			fsType = req.Parameters[common.AttributeFsType]
 		}
 	}
 
-	var createVolumeSpec = block.CreateVolumeSpec{
-		CapacityMB:        volSizeMB,
-		Name:              req.Name,
-		DatastoreURL:      datastoreURL,
-		StoragePolicyName: storagePolicyName,
+	var createVolumeSpec = common.CreateVolumeSpec{
+		CapacityMB:      volSizeMB,
+		Name:            req.Name,
+		StoragePolicyID: storagePolicyID,
 	}
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	var datastoreTopologyMap = make(map[string][]map[string]string)
-
-	// Get accessibility
-	topologyRequirement := req.GetAccessibilityRequirements()
-	if topologyRequirement != nil {
-		// Get shared accessible datastores for matching topology requirement
-		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
-			// if zone and region label (vSphere category names) not specified in the config secret, then return
-			// NotFound error.
-			errMsg := fmt.Sprintf("Zone/Region vsphere category names not specified in the vsphere config secret")
-			klog.Errorf(errMsg)
-			return nil, status.Error(codes.NotFound, errMsg)
-		}
-		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
-		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
-			klog.Errorf(msg)
-			return nil, status.Error(codes.NotFound, msg)
-		}
-		klog.V(4).Infof("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
-		if createVolumeSpec.DatastoreURL != "" {
-			// Check datastoreURL specified in the storageclass is accessible from topology
-			isDataStoreAccessible := false
-			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == createVolumeSpec.DatastoreURL {
-					isDataStoreAccessible = true
-					break
-				}
-			}
-			if !isDataStoreAccessible {
-				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
-					createVolumeSpec.DatastoreURL, topologyRequirement)
-				klog.Errorf(errMsg)
-				return nil, status.Error(codes.InvalidArgument, errMsg)
-			}
-		}
-
-	} else {
-		// Get shared datastores for the Kubernetes cluster
-		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
-		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in kubernetes cluster. Error: %+v", err)
-			klog.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	}
-	volumeID, err := block.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
+	// Get shared datastores for the Kubernetes cluster
+	sharedDatastores, err := getSharedDatastores(ctx, c)
+	volumeID, err := common.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-	attributes[block.AttributeDiskType] = block.DiskTypeString
-	attributes[block.AttributeFsType] = fsType
+	attributes[common.AttributeDiskType] = common.DiskTypeString
+	attributes[common.AttributeFsType] = fsType
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
-			CapacityBytes: int64(units.FileSize(volSizeMB * block.MbInBytes)),
+			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			VolumeContext: attributes,
 		},
-	}
-	// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
-	var volumeAccessibleTopology = make(map[string]string)
-	if len(datastoreTopologyMap) > 0 {
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: volumeIds,
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
-		if err != nil {
-			klog.Errorf("QueryVolume failed for volumeID: %s", volumeID)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		if len(queryResult.Volumes) > 0 {
-			// Find datastore topology from the retrieved datastoreURL
-			datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
-			klog.V(3).Infof("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
-			if len(datastoreAccessibleTopology) > 0 {
-				rand.Seed(time.Now().Unix())
-				volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-				klog.V(3).Infof("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
-			}
-		}
-	}
-	if len(volumeAccessibleTopology) != 0 {
-		volumeTopology := &csi.Topology{
-			Segments: volumeAccessibleTopology,
-		}
-		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 	}
 	return resp, nil
 }
@@ -244,11 +148,13 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	*csi.DeleteVolumeResponse, error) {
 	klog.V(4).Infof("DeleteVolume: called with args: %+v", *req)
 	var err error
-	err = validateVanillaDeleteVolumeRequest(req)
+	err = validateWCPDeleteVolumeRequest(req)
 	if err != nil {
+		msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
+		klog.Error(msg)
 		return nil, err
 	}
-	err = block.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
+	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		klog.Error(msg)
@@ -261,33 +167,72 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateVanillaControllerPublishVolumeRequest(req)
+	err := validateWCPControllerPublishVolumeRequest(req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		klog.Errorf(msg)
+		return nil, err
 	}
-	node, err := c.nodeMgr.GetNodeByName(req.NodeId)
+
+	vmuuid, err := getVMUUIDFromPodListenerService(req.VolumeId, req.NodeId)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	klog.V(4).Infof("Found VirtualMachine for node:%q.", req.NodeId)
-	diskUUID, err := block.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+
+	vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
+		msg := fmt.Sprintf("Failed to get datacenter from config with error: %+v", err)
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
+	var vCenterHost, dcMorefValue string
+	for key, value := range vcdcMap {
+		vCenterHost = key
+		dcMorefValue = value
+	}
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(vCenterHost)
+	if err != nil {
+		msg := fmt.Sprintf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
+			vc.Config.Host, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	// Connect to VC
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = vc.Connect(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to connect to Virtual Center: %s", vc.Config.Host)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	// Attach the volume to the node
+	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
 	publishInfo := make(map[string]string, 0)
-	publishInfo[block.AttributeDiskType] = block.DiskTypeString
-	publishInfo[block.AttributeFirstClassDiskUUID] = block.FormatDiskUUID(diskUUID)
+	publishInfo[common.AttributeDiskType] = common.DiskTypeString
+	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
 	resp := &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
 	}
+
 	return resp, nil
 }
 
@@ -295,28 +240,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateVanillaControllerUnpublishVolumeRequest(req)
+	err := validateWCPControllerUnpublishVolumeRequest(req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, err
 	}
-	node, err := c.nodeMgr.GetNodeByName(req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	err = block.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	resp := &csi.ControllerUnpublishVolumeResponse{}
-	return resp, nil
+	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
@@ -326,7 +257,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	klog.V(4).Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if block.IsValidVolumeCapabilities(volCaps) {
+	if common.IsValidVolumeCapabilities(volCaps) {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -385,4 +316,52 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 
 	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
+}
+
+// GetSharedDatastoresInPodVMK8SCluster gets the shared datastores for WCP PodVM cluster
+func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([]*cnsvsphere.DatastoreInfo, error) {
+	vc, err := common.GetVCenter(ctx, c.manager)
+	if err != nil {
+		klog.Errorf("Failed to get vCenter from Manager, err=%+v", err)
+		return nil, err
+	}
+	hosts, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
+	if err != nil {
+		klog.Errorf("Failed to get hosts from VC with err %+v", err)
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		errMsg := fmt.Sprintf("Empty List of hosts returned from VC")
+		klog.Errorf(errMsg)
+		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
+	}
+	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	for _, host := range hosts {
+		klog.V(4).Infof("Getting accessible datastores for node %s", host.InventoryPath)
+		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(sharedDatastores) == 0 {
+			sharedDatastores = accessibleDatastores
+		} else {
+			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
+			// Check if sharedDatastores is found in accessibleDatastores
+			for _, sharedDs := range sharedDatastores {
+				for _, accessibleDs := range accessibleDatastores {
+					// Intersection is performed based on the datastoreUrl as this uniquely identifies the datastore.
+					if sharedDs.Info.Url == accessibleDs.Info.Url {
+						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
+						break
+					}
+				}
+			}
+			sharedDatastores = sharedAccessibleDatastores
+		}
+		if len(sharedDatastores) == 0 {
+			return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster for host: %+v", host)
+		}
+	}
+	klog.V(3).Infof("The list of shared datastores: %+v", sharedDatastores)
+	return sharedDatastores, nil
 }

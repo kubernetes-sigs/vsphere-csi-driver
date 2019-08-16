@@ -23,10 +23,9 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
-
 
 var (
 	// controllerCaps represents the capability of controller service
@@ -37,7 +36,7 @@ var (
 )
 
 type controller struct {
-	manager *block.Manager
+	manager *common.Manager
 }
 
 // New creates a CNS controller
@@ -92,7 +91,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	klog.V(4).Infof("ValidateVolumeCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if block.IsValidVolumeCapabilities(volCaps) {
+	if common.IsValidVolumeCapabilities(volCaps) {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -152,4 +151,3 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
-

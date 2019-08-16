@@ -34,7 +34,7 @@ import (
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 )
 
@@ -50,31 +50,31 @@ func validateWCPCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	params := req.GetParameters()
 	for paramName := range params {
 		paramName = strings.ToLower(paramName)
-		if paramName != block.AttributeStoragePolicyID && paramName != block.AttributeFsType {
+		if paramName != common.AttributeStoragePolicyID && paramName != common.AttributeFsType {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
 	}
-	return block.ValidateCreateVolumeRequest(req)
+	return common.ValidateCreateVolumeRequest(req)
 }
 
 // validateWCPDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateWCPDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
-	return block.ValidateDeleteVolumeRequest(req)
+	return common.ValidateDeleteVolumeRequest(req)
 }
 
 // validateWCPControllerPublishVolumeRequest is the helper function to validate
 // ControllerPublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
 func validateWCPControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
-	return block.ValidateControllerPublishVolumeRequest(req)
+	return common.ValidateControllerPublishVolumeRequest(req)
 }
 
 // validateWCPControllerUnpublishVolumeRequest is the helper function to validate
 // ControllerUnpublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
 func validateWCPControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
-	return block.ValidateControllerUnpublishVolumeRequest(req)
+	return common.ValidateControllerUnpublishVolumeRequest(req)
 }
 
 // getVMUUIDFromPodListenerService gets the vmuuid from pod listener gRPC service
