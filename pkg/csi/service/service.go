@@ -120,17 +120,26 @@ func (s *service) BeforeServe(
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-
+	controllerType = os.Getenv(vTypes.EnvControllerType)
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 		var cfg *cnsconfig.Config
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
+		var err error
+		if controllerType == WcpGuestControllerType {
+			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
+			if cfgPath == "" {
+				cfgPath = cnsconfig.DefaultGCConfigPath
+			}
+			cfg, err = cnsconfig.GetGCconfig(cfgPath)
+		} else {
+			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+			if cfgPath == "" {
+				cfgPath = cnsconfig.DefaultCloudConfigPath
+			}
+			cfg, err = cnsconfig.GetCnsconfig(cfgPath)
 		}
-		cfg, err := cnsconfig.GetCnsconfig(cfgPath)
 		if err != nil {
-			klog.Errorf("Failed to read cnsconfig. Error: %v", err)
+			klog.Errorf("Failed to read config. Error: %+v", err)
 			return err
 		}
 		if err := s.cnscs.Init(cfg); err != nil {
