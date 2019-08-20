@@ -49,4 +49,5 @@ type CreateVolumeSpec struct {
 	StoragePolicyID   string
 	Datastore         string
 	CapacityMB        int64
+	AffineToHost      string
 }

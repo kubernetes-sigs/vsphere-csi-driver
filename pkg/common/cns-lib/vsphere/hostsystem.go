@@ -62,3 +62,19 @@ func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*Data
 	}
 	return dsObjList, nil
 }
+
+// GetHostVsanNodeUUID gets the vSAN NodeUuid for this host
+func (host *HostSystem) GetHostVsanNodeUUID(ctx context.Context) (string, error) {
+	hostVsanSystem, err := host.ConfigManager().VsanSystem(ctx)
+	if err != nil {
+		klog.Errorf("Failed getting the VsanSystem for host %v with err: %v", host, err)
+		return "", err
+	}
+	var vsan mo.HostVsanSystem
+	err = hostVsanSystem.Properties(ctx, hostVsanSystem.Reference(), []string{"config.clusterInfo"}, &vsan)
+	if err != nil {
+		klog.Errorf("Failed fetching 'config.clusterInfo' of host %v with err: %v", host, err)
+		return "", err
+	}
+	return vsan.Config.ClusterInfo.NodeUuid, nil
+}
