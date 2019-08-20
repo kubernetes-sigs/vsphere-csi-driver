@@ -19,13 +19,16 @@ package config
 import (
 	"errors"
 	"fmt"
+
 	"io"
 	"os"
+
 	"strconv"
 	"strings"
 
-	"gopkg.in/gcfg.v1"
 	"k8s.io/klog"
+
+	"gopkg.in/gcfg.v1"
 )
 
 const (
@@ -34,10 +37,16 @@ const (
 	DefaultK8sServiceAccount string = "vsphere-csi-controller"
 	// DefaultVCenterPort is the default port used to access vCenter.
 	DefaultVCenterPort string = "443"
+	// DefaultGCPort is the default port used to access Supervisor Cluster.
+	DefaultGCPort string = "6443"
 	// DefaultCloudConfigPath is the default path of csi config file
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
+	// DefaultGCConfigPath is the default path of GC config file
+	DefaultGCConfigPath = "/etc/cloud/cns-csi.conf"
 	// EnvCloudConfig contains the path to the CSI vSphere Config
-	EnvCloudConfig = "VSPHERE_CSI_CONFIG"
+	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
+	// EnvGCConfig contains the path to the CSI GC Config
+	EnvGCConfig = "X_CSI_GC_CONFIG"
 )
 
 // Errors
@@ -55,6 +64,19 @@ var (
 	// ErrMissingVCenter is returned when the provided configuration does not
 	// define any vCenters.
 	ErrMissingVCenter = errors.New("No Virtual Center hosts defined")
+
+	// ErrMissingEndpoint is returned when the provided configuration does not
+	// define any endpoints.
+	ErrMissingEndpoint = errors.New("No Supervisor Cluster endpoint defined in Guest Cluster config")
+
+	// ErrMissingNamespace is returned when the provided namespace is empty
+	ErrMissingNamespace = errors.New("Supervisor Cluster Namespace is missing in Guest Cluster config")
+
+	//ErrMissingTOKEN is returned when the provided token is empty
+	ErrMissingToken = errors.New("Token to connect Supervisor Cluster is missing in Guest Cluster config")
+
+	//ErrMissingCertificate is returned when the provided certificate is empty
+	ErrMissingCertificate = errors.New("Certificate to connect Supervisor Cluster is missing in Guest Cluster config")
 )
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
@@ -233,6 +255,7 @@ func validateConfig(cfg *Config) error {
 		}
 		insecure := vcConfig.InsecureFlag
 		if !insecure {
+			insecure = cfg.Global.InsecureFlag
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}
@@ -262,11 +285,10 @@ func GetCnsconfig(cfgPath string) (*Config, error) {
 	var cfg *Config
 	//Read in the vsphere.conf if it exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		klog.V(2).Infof("Could not stat %s, reading config params from env", cfgPath)
 		// config from Env var only
 		cfg = &Config{}
-		if fromEnvErr := FromEnv(cfg); fromEnvErr != nil {
-			klog.Errorf("Failed to get config params from env. Err: %v", fromEnvErr)
+		if err := FromEnv(cfg); err != nil {
+			klog.Errorf("Error reading vsphere.conf\n")
 			return cfg, err
 		}
 	} else {
@@ -282,4 +304,102 @@ func GetCnsconfig(cfgPath string) (*Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// FromEnvToGC initializes the provided configuration object with values
+// obtained from environment variables. If an environment variable is set
+// for a property that's already initialized, the environment variable's value
+// takes precedence.
+func FromEnvToGC(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("Config object cannot be nil")
+	}
+	if v := os.Getenv("WCP_ENDPOINT"); v != "" {
+		cfg.GC.Endpoint = v
+	}
+	if v := os.Getenv("WCP_PORT"); v != "" {
+		cfg.GC.Port = v
+	}
+	if v := os.Getenv("WCP_NAMESPACE"); v != "" {
+		cfg.GC.Namespace = v
+	}
+	if v := os.Getenv("TOKEN"); v != "" {
+		cfg.GC.Token = v
+	}
+	if v := os.Getenv("CERTIFICATE"); v != "" {
+		cfg.GC.Certificate = v
+	}
+	if cfg.GC.Port == "" {
+		cfg.GC.Port = DefaultGCPort
+	}
+	err := validateGCConfig(cfg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReadGCConfig parses gc config file and stores it into GCConfig.
+// Environment variables are also checked
+func ReadGCConfig(config io.Reader) (*Config, error) {
+	if config == nil {
+		return nil, fmt.Errorf("Guest Cluster config file is not present")
+	}
+	cfg := &Config{}
+	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
+		return nil, err
+	}
+	// Env Vars should override config file entries if present
+	if err := FromEnvToGC(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// GetGCconfig returns Config from specified config file path
+func GetGCconfig(cfgPath string) (*Config, error) {
+	klog.V(4).Infof("Get Guest Cluster config called with cfgPath: %s", cfgPath)
+	var cfg *Config
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		// config from Env var only
+		cfg = &Config{}
+		if err := FromEnvToGC(cfg); err != nil {
+			klog.Errorf("Error reading guest cluster configuration file. Err: %v", err)
+			return cfg, err
+		}
+	} else {
+		config, err := os.Open(cfgPath)
+		if err != nil {
+			klog.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			return cfg, err
+		}
+		cfg, err = ReadGCConfig(config)
+		if err != nil {
+			klog.Errorf("Failed to parse config. Err: %v", err)
+			return cfg, err
+		}
+	}
+	return cfg, nil
+}
+
+// validateGCConfig validates the Guest Cluster config contains all the necessary fields
+func validateGCConfig(cfg *Config) error {
+
+	if cfg.GC.Endpoint == "" {
+		klog.Error(ErrMissingEndpoint)
+		return ErrMissingEndpoint
+	}
+	if cfg.GC.Namespace == "" {
+		klog.Error(ErrMissingNamespace)
+		return ErrMissingNamespace
+	}
+	if cfg.GC.Token == "" {
+		klog.Error(ErrMissingToken)
+		return ErrMissingToken
+	}
+	if cfg.GC.Certificate == "" {
+		klog.Error(ErrMissingCertificate)
+		return ErrMissingCertificate
+	}
+	return nil
 }

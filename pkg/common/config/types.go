@@ -43,6 +43,9 @@ type Config struct {
 	// Virtual Center configurations
 	VirtualCenter map[string]*VirtualCenterConfig
 
+	// Guest Cluster configurations, only used by GC
+	GC GCConfig
+
 	// Tag categories and tags which correspond to "built-in node labels: zones and region"
 	Labels struct {
 		Zone   string `gcfg:"zone"`
@@ -63,4 +66,19 @@ type VirtualCenterConfig struct {
 	InsecureFlag bool `gcfg:"insecure-flag"`
 	// Datacenter in which VMs are located.
 	Datacenters string `gcfg:"datacenters"`
+}
+
+// GCConfig contains information used by guest cluster to access a supervisor
+// cluster endpoint using token and certificate
+type GCConfig struct {
+	// SV sever IP
+	Endpoint string `gcfg:"endpoint"`
+	// SV server port
+	Port string `gcfg:"port"`
+	// SV namespace
+	Namespace string `gcfg:"namespace"`
+	// SV service account token
+	Token string `gcfg:"token"`
+	// SV serivice account certificate
+	Certificate string `gcfg:"certificate"`
 }
