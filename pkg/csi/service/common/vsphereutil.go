@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"golang.org/x/net/context"
@@ -110,6 +111,17 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: spec.StoragePolicyID,
 		}
+		if spec.AffineToHost != "" {
+			hostVsanUUID, err := getHostVsanUUID(ctx, spec.AffineToHost, vc)
+			if err != nil {
+				klog.Errorf("Failed to get the vSAN UUID for node: %s", spec.AffineToHost)
+				return "", err
+			}
+			param1 := vim25types.KeyValue{Key: VsanAffinityKey, Value: hostVsanUUID}
+			param2 := vim25types.KeyValue{Key: VsanAffinityMandatory, Value: "1"}
+			param3 := vim25types.KeyValue{Key: VsanMigrateForDecom, Value: "1"}
+			profileSpec.ProfileParams = append(profileSpec.ProfileParams, param1, param2, param3)
+		}
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 	klog.V(4).Infof("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
@@ -119,6 +131,24 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 		return "", err
 	}
 	return volumeID.Id, nil
+}
+
+// getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's HostVsanSystem
+func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCenter) (string, error) {
+	klog.V(4).Infof("getHostVsanUUID for host moid: %v", hostMoID)
+
+	// get host vsan UUID from the HostSystem
+	hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: hostMoID}
+	host := &vsphere.HostSystem{
+		HostSystem: object.NewHostSystem(vc.Client.Client, hostMoRef),
+	}
+	nodeUUID, err := host.GetHostVsanNodeUUID(ctx)
+	if err != nil {
+		klog.Errorf("Failed getting ESX host %v vsanUuid, err: %v", host, err)
+		return "", err
+	}
+	klog.V(4).Infof("Got HostVsanUUID for host %s: %s", host.Reference(), nodeUUID)
+	return nodeUUID, nil
 }
 
 // AttachVolumeUtil is the helper function to attach CNS volume to specified vm
