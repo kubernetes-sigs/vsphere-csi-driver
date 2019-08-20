@@ -19,7 +19,7 @@ package kubernetes
 import (
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-
+	"net"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -39,6 +39,25 @@ func NewClient() (clientset.Interface, error) {
 	}
 
 	return clientset.NewForConfig(config)
+}
+
+// NewSupervisorClient creates a new Guest Cluster client from given endpoint, port, certificate and token
+func NewSupervisorClient(endpoint string, port string, certificate string, token string) (clientset.Interface, error) {
+	var config *restclient.Config
+	klog.V(2).Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
+	config = &restclient.Config{
+		Host: "https://" + net.JoinHostPort(endpoint, port),
+		TLSClientConfig: restclient.TLSClientConfig{
+			CAData: []byte(certificate),
+		},
+		BearerToken: string(token),
+	}
+	client, err := clientset.NewForConfig(config)
+	if err != nil {
+		klog.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		return nil, err
+	}
+	return client, nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file
