@@ -107,6 +107,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var storagePolicyID string
 	var fsType string
+	var affineToHost string
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -114,6 +115,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			storagePolicyID = req.Parameters[paramName]
 		} else if param == common.AttributeFsType {
 			fsType = req.Parameters[common.AttributeFsType]
+		} else if param == common.AttributeAffineToHost {
+			affineToHost = req.Parameters[common.AttributeAffineToHost]
 		}
 	}
 
@@ -121,6 +124,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		CapacityMB:      volSizeMB,
 		Name:            req.Name,
 		StoragePolicyID: storagePolicyID,
+		AffineToHost:    affineToHost,
 	}
 	// Get shared datastores for the Kubernetes cluster
 	sharedDatastores, err := getSharedDatastores(ctx, c)
