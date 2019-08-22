@@ -1,19 +1,3 @@
-/*
-Copyright 2019 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package vsphere
 
 import (
@@ -22,17 +6,16 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"reflect"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"strconv"
 	"strings"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/sts"
-	"github.com/vmware/govmomi/vim25"
-	"github.com/vmware/govmomi/vim25/soap"
-	"github.com/vmware/govmomi/vim25/types"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin
@@ -100,9 +83,6 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	for idx := range vcConfig.DatacenterPaths {
 		vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 	}
-	if len(cfg.Global.CAFile) > 0 && !cfg.Global.InsecureFlag {
-		vcConfig.CAFile = cfg.Global.CAFile
-	}
 	return vcConfig, nil
 }
 
@@ -134,7 +114,10 @@ func CompareKubernetesMetadata(pvMetaData *cnstypes.CnsKubernetesEntityMetadata,
 		return false
 	}
 	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(pvMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
-	return labelsMatch
+	if !labelsMatch {
+		return false
+	}
+	return true
 }
 
 // Signer decodes the certificate and private key and returns SAML token needed for authentication
@@ -145,11 +128,11 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	certificate, err := tls.X509KeyPair([]byte(username), []byte(password))
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load X509 key pair. Error: %+v", err)
+		return nil, errors.New(fmt.Sprintf("Failed to load X509 key pair. Error: %+v", err))
 	}
 	tokens, err := sts.NewClient(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create STS client. err: %+v", err)
+		return nil, errors.New(fmt.Sprintf("Failed to create STS client. err: %+v", err))
 	}
 	req := sts.TokenRequest{
 		Certificate: &certificate,
@@ -157,7 +140,7 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	signer, err := tokens.Issue(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to issue SAML token. err: %+v", err)
+		return nil, errors.New(fmt.Sprintf("Failed to issue SAML token. err: %+v", err))
 	}
 	return signer, nil
 }

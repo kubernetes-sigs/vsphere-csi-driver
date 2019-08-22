@@ -24,14 +24,15 @@ import (
 	"strings"
 	"time"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -51,25 +52,28 @@ import (
 var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
 	var (
-		client              clientset.Interface
-		namespace           string
-		labelKey            string
-		labelValue          string
-		pandoraSyncWaitTime int
-		fullSyncWaitTime    int
-		datacenter          *object.Datacenter
-		datastore           *object.Datastore
-		err                 error
-		datastoreURL        string
-		fcdID               string
-		datacenters         []string
+		client                clientset.Interface
+		namespace             string
+		labelKey              string
+		labelValue            string
+		pandoraSyncWaitTime   int
+		fullSyncWaitTime      int
+		datacenter            *object.Datacenter
+		datastore             *object.Datastore
+		err                   error
+		datastoreURL          string
+		fcdID                 string
+		datacenters           []string
+		isK8SVanillaTestSetup bool
+		storagePolicyName     string
+		scParameters          map[string]string
 	)
 
 	const (
 		fcdName                  = "BasicStaticFCD"
 		stopVsanHealthOperation  = "stop"
 		startVsanHealthOperation = "start"
-		sshdPort                 = "22"
+		vcenterPort              = "22"
 		numberOfPVC              = 5
 	)
 
@@ -81,7 +85,9 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bootstrap()
-
+		scParameters = make(map[string]string)
+		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -126,7 +132,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -140,7 +145,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -166,7 +171,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
 		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
@@ -174,9 +178,24 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
+	ginkgo.It("[csi-common-e2e] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
-		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+		var sc *storagev1.StorageClass
+		var pvc *v1.PersistentVolumeClaim
+		var err error
+		// decide which test setup is available to run
+		if isK8SVanillaTestSetup {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+		}
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 
@@ -187,7 +206,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		pv := pvs[0]
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -231,11 +250,25 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("Verify CNS volume is deleted after full sync when pv entry is delete", func() {
+	ginkgo.It("[csi-common-e2e] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify CNS volume creation"))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+		var sc *storagev1.StorageClass
+		var pvc *v1.PersistentVolumeClaim
+		var err error
+		// decide which test setup is available to run
+		if isK8SVanillaTestSetup {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 
@@ -267,7 +300,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		}
 		gomega.Expect(datastore).NotTo(gomega.BeNil())
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -311,7 +344,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 	   11. cleanup to remove pvs and pvcliams
 	*/
 	ginkgo.It("Verify Multiple PVCs are deleted/updated after full sync", func() {
-		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "")
+		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 		var pvclaims []*v1.PersistentVolumeClaim
@@ -328,7 +361,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		}
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -384,13 +417,12 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		// cleanup
 		for _, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-			_ = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
+			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
 		}
 
 		for _, pv := range pvs {
 			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
 			err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 
@@ -412,7 +444,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -438,14 +469,13 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
@@ -489,7 +519,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -517,13 +546,12 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -552,7 +580,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("Scale down csi driver statefulset and verify PV metadata is created in CNS", func() {
+	ginkgo.It("Bring down syncer pod and verify PV metadata is created in CNS", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -570,7 +598,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -583,9 +610,13 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
-		ginkgo.By("Scaling down the csi driver to zero replica")
-		statefulSet := updateStatefulSetReplica(client, 0, vSphereCSIControllerPodNamePrefix, kubeSystemNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver statefulset:%s to zero replicas", statefulSet.Name))
+		statefulsetTester := framework.NewStatefulSetTester(client)
+		statefulset := statefulsetTester.GetStatefulSet(kubeSystemNamespace, syncerStatefulsetName)
+		replicas := *(statefulset.Spec.Replicas)
+		ginkgo.By(fmt.Sprintf("Kill syncer statefulset by scaling down statefulsets to number of Replica: %v", replicas-1))
+		_, scaleDownErr := statefulsetTester.Scale(statefulset, replicas-1)
+		gomega.Expect(scaleDownErr).NotTo(gomega.HaveOccurred())
+		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas-1)
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
@@ -594,9 +625,11 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Scaling up the csi driver to one replica")
-		statefulSet = updateStatefulSetReplica(client, 1, vSphereCSIControllerPodNamePrefix, kubeSystemNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver statefulset:%s to one replica", statefulSet.Name))
+		ginkgo.By(fmt.Sprintf("Recreate syncer statefulset by scaling up statefulsets to number of Replica: %v", replicas))
+		_, scaleUpErr := statefulsetTester.Scale(statefulset, replicas)
+		gomega.Expect(scaleUpErr).NotTo(gomega.HaveOccurred())
+		statefulsetTester.WaitForStatusReplicas(statefulset, replicas)
+		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)

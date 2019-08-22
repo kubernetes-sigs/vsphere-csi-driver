@@ -19,18 +19,17 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
@@ -85,7 +84,6 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 
 		for _, dc := range datacenters {
 			defaultDatacenter, err = finder.Datacenter(ctx, dc)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -94,7 +92,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 
 	ginkgo.AfterEach(func() {
 		ginkgo.By("Performing test cleanup")
-		if deleteFCDRequired {
+		if deleteFCDRequired == true {
 			ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -158,7 +156,6 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 		ginkgo.By("Creating the PVC")
 		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
@@ -180,7 +177,6 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 
 		ginkgo.By(fmt.Sprintf("Verify the volume attached to the node: %s", pod.Spec.NodeName))
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached"))
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
@@ -202,7 +198,6 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 
 		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not detached from the node"))
 
 		ginkgo.By("Deleting the PV Claim")

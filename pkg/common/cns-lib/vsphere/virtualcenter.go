@@ -19,22 +19,25 @@ import (
 	"crypto/tls"
 	"encoding/pem"
 	"fmt"
+	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	"net"
 	neturl "net/url"
 	"strconv"
 	"sync"
 
-	"github.com/vmware/govmomi"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/pbm"
-	"github.com/vmware/govmomi/session"
-	"github.com/vmware/govmomi/sts"
-	"github.com/vmware/govmomi/vim25"
-	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/soap"
-	"github.com/vmware/govmomi/vim25/types"
+	csictx "github.com/rexray/gocsi/context"
+	"gitlab.eng.vmware.com/hatchway/govmomi"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	"gitlab.eng.vmware.com/hatchway/govmomi/pbm"
+	"gitlab.eng.vmware.com/hatchway/govmomi/session"
+	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"k8s.io/klog"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 const (
@@ -53,7 +56,7 @@ type VirtualCenter struct {
 	// PbmClient represents the govmomi PBM Client instance.
 	PbmClient *pbm.Client
 	// CnsClient represents the CNS client instance.
-	CnsClient       *CNSClient
+	CnsClient       *cns.Client
 	credentialsLock sync.Mutex
 }
 
@@ -111,7 +114,7 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 		return nil, err
 	}
 
-	vimClient.UserAgent = "common-csp"
+	vimClient.UserAgent = "k8s-csi-useragent"
 
 	client := &govmomi.Client{
 		Client:         vimClient,
@@ -185,18 +188,27 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 		return err
 	}
 	klog.V(2).Infof("Invalid credentials. Cannot connect to server %q. "+
-		"Fetching credentials from secrets.", vc.Config.Host)
-	store, err := GetCredentialManager().GetCredentialStore()
+		"Fetching credentials from secret.", vc.Config.Host)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+	if cfgPath == "" {
+		cfgPath = cnsconfig.DefaultCloudConfigPath
+	}
+
+	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
 	if err != nil {
-		klog.Errorf("Cannot get credential store with err: %v", err)
+		klog.Errorf("Failed to read config with err: %v", err)
 		return err
 	}
-	credential, err := store.GetCredential(vc.Config.Host)
+	vcenterconfig, err := GetVirtualCenterConfig(cfg)
 	if err != nil {
-		klog.Errorf("Cannot get credentials from credential store with err: %v", err)
+		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
-	vc.UpdateCredentials(credential.User, credential.Password)
+	vc.UpdateCredentials(vcenterconfig.Username, vcenterconfig.Password)
 	return vc.connect(ctx)
 }
 

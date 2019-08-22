@@ -17,13 +17,13 @@ limitations under the License.
 package common
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	vim25types "github.com/vmware/govmomi/vim25/types"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"golang.org/x/net/context"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
@@ -99,10 +99,8 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 		Name:       spec.Name,
 		VolumeType: BlockVolumeType,
 		Datastores: datastores,
-		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
-				CapacityInMb: spec.CapacityMB,
-			},
+		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
+			CapacityInMb: spec.CapacityMB,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster: vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User),

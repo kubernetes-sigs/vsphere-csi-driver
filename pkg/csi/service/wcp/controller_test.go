@@ -26,17 +26,17 @@ import (
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/pbm"
-	pbmsim "github.com/vmware/govmomi/pbm/simulator"
-	"github.com/vmware/govmomi/property"
-	"github.com/vmware/govmomi/simulator"
-	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/types"
-	cnssim "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/simulator"
-	cnstypes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/types"
-	cspvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	"gitlab.eng.vmware.com/hatchway/govmomi/pbm"
+	pbmsim "gitlab.eng.vmware.com/hatchway/govmomi/pbm/simulator"
+	"gitlab.eng.vmware.com/hatchway/govmomi/property"
+	"gitlab.eng.vmware.com/hatchway/govmomi/simulator"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -141,7 +141,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cspvolume.GetManager(vcenter),
+			VolumeManager:  cnsvolume.GetManager(vcenter),
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(),
 		}
 
