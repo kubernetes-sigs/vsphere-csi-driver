@@ -1,19 +1,3 @@
-/*
-Copyright 2019 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package e2e
 
 import (
@@ -24,19 +8,19 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi"
-	cnsmethods "github.com/vmware/govmomi/cns/methods"
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/pbm"
-	pbmtypes "github.com/vmware/govmomi/pbm/types"
-	"github.com/vmware/govmomi/vim25/methods"
-	"github.com/vmware/govmomi/vim25/types"
-	vim25types "github.com/vmware/govmomi/vim25/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi"
+	cnsmethods "gitlab.eng.vmware.com/hatchway/govmomi/cns/methods"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	"gitlab.eng.vmware.com/hatchway/govmomi/pbm"
+	pbmtypes "gitlab.eng.vmware.com/hatchway/govmomi/pbm/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/methods"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 type vSphere struct {
@@ -115,21 +99,21 @@ func (vs *vSphere) isVolumeAttachedToNode(client clientset.Interface, volumeID s
 	defer cancel()
 	vmUUID := getNodeUUID(client, nodeName)
 	gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-	e2elog.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
+	framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
 	vmRef, err := vs.getVMByUUID(ctx, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	e2elog.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
 	gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
 	vm := object.NewVirtualMachine(vs.Client.Client, vmRef.Reference())
 	device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
 	if err != nil {
-		e2elog.Logf("Failed to determine whether disk %q is still attached to the node %q", volumeID, nodeName)
+		framework.Logf("Failed to determine whether disk %q is still attached to the node %q", volumeID, nodeName)
 		return false, err
 	}
 	if device == nil {
 		return false, nil
 	}
-	e2elog.Logf("Found the disk %q is attached to the node %q", volumeID, nodeName)
+	framework.Logf("Found the disk %q is attached to the node %q", volumeID, nodeName)
 	return true, nil
 }
 
@@ -138,11 +122,11 @@ func (vs *vSphere) isVolumeAttachedToNode(client clientset.Interface, volumeID s
 func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, volumeID string, nodeName string) (bool, error) {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		diskAttached, _ := vs.isVolumeAttachedToNode(client, volumeID, nodeName)
-		if !diskAttached {
-			e2elog.Logf("Disk: %s successfully detached", volumeID)
+		if diskAttached == false {
+			framework.Logf("Disk: %s successfully detached", volumeID)
 			return true, nil
 		}
-		e2elog.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
+		framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
 		return false, nil
 	})
 	if err != nil {
@@ -153,7 +137,7 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, vol
 
 // VerifySpbmPolicyOfVolume verifies if  volume is created with specified storagePolicyName
 func (vs *vSphere) VerifySpbmPolicyOfVolume(volumeID string, storagePolicyName string) (bool, error) {
-	e2elog.Logf("Verifying volume: %s is created using storage policy: %s", volumeID, storagePolicyName)
+	framework.Logf("Verifying volume: %s is created using storage policy: %s", volumeID, storagePolicyName)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -162,7 +146,7 @@ func (vs *vSphere) VerifySpbmPolicyOfVolume(volumeID string, storagePolicyName s
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	profileID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	e2elog.Logf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
+	framework.Logf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
 	ProfileID :=
 		pbmtypes.PbmProfileId{
 			UniqueId: profileID,
@@ -172,12 +156,26 @@ func (vs *vSphere) VerifySpbmPolicyOfVolume(volumeID string, storagePolicyName s
 	gomega.Expect(associatedDisks).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to find associated disks for storage policy: %s", profileID))
 	for _, ad := range associatedDisks {
 		if ad.Key == volumeID {
-			e2elog.Logf("Volume: %s is associated with storage policy: %s", volumeID, profileID)
+			framework.Logf("Volume: %s is associated with storage policy: %s", volumeID, profileID)
 			return true, nil
 		}
 	}
-	e2elog.Logf("Volume: %s is NOT associated with storage policy: %s", volumeID, profileID)
+	framework.Logf("Volume: %s is NOT associated with storage policy: %s", volumeID, profileID)
 	return false, nil
+}
+
+// GetSpbmPolicyID returns profile ID for the specified storagePolicyName
+func (vs *vSphere) GetSpbmPolicyID(storagePolicyName string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Get PBM Client
+	pbmClient, err := pbm.NewClient(ctx, vs.Client.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	profileID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to get profileID from given profileName"))
+	framework.Logf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
+	return profileID
 }
 
 // getLabelsForCNSVolume executes QueryVolume API on vCenter for requested volumeid and returns
@@ -205,7 +203,7 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string, ent
 func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string, entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		e2elog.Logf("queryResult: %s", spew.Sdump(queryResult))
+		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
 		if err != nil {
 			return true, err
 		}
@@ -245,7 +243,7 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		e2elog.Logf("queryResult: %s", spew.Sdump(queryResult))
+		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
 		if err != nil {
 			return true, err
 		}
@@ -284,10 +282,10 @@ func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
 		}
 
 		if len(queryResult.Volumes) == 0 {
-			e2elog.Logf("volume %q has successfully deleted", volumeID)
+			framework.Logf("volume %q has successfully deleted", volumeID)
 			return true, nil
 		}
-		e2elog.Logf("waiting for Volume %q to be deleted.", volumeID)
+		framework.Logf("waiting for Volume %q to be deleted.", volumeID)
 		return false, nil
 	})
 	if err != nil {
@@ -306,10 +304,10 @@ func (vs *vSphere) waitForCNSVolumeToBeCreated(volumeID string) error {
 		}
 
 		if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
-			e2elog.Logf("volume %q has successfully created", volumeID)
+			framework.Logf("volume %q has successfully created", volumeID)
 			return true, nil
 		}
-		e2elog.Logf("waiting for Volume %q to be created.", volumeID)
+		framework.Logf("waiting for Volume %q to be created.", volumeID)
 		return false, nil
 	})
 	return err

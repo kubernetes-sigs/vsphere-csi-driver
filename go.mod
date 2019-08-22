@@ -39,7 +39,7 @@ require (
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/json-iterator/go v1.1.6 // indirect
 	github.com/kr/pty v1.1.8 // indirect
-	github.com/kubernetes-csi/csi-lib-utils v0.6.1 // indirect
+	github.com/kubernetes-csi/csi-lib-utils v0.6.1
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.4.3
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
@@ -55,8 +55,8 @@ require (
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/thecodeteam/gosync v0.1.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
-	github.com/vmware/govmomi v0.21.0
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
+	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20190822195948-d02eb439cf16
 	go.etcd.io/bbolt v1.3.2 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/multierr v1.1.0 // indirect

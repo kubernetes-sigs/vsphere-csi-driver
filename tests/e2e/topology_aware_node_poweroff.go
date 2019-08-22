@@ -19,19 +19,17 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi/object"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
-	v1 "k8s.io/api/core/v1"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
+	"time"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Power-Cycles", func() {
+var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Power-Cycles", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
@@ -104,10 +102,10 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 
 		vmUUID := getNodeUUID(client, nodeNameToPowerOff)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-		e2elog.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameToPowerOff)
+		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameToPowerOff)
 		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		e2elog.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+		framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
 		gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
 		vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
 		_, err = vm.PowerOff(ctx)
@@ -150,7 +148,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		e2elog.Logf("Deleting all statefulset in namespace: %v", namespace)
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 		framework.DeleteAllStatefulSets(client, namespace)
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
@@ -211,10 +209,10 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 
 		vmUUID := getNodeUUID(client, nodeNameBeforePowerOff)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-		e2elog.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameBeforePowerOff)
+		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameBeforePowerOff)
 		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		e2elog.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+		framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
 		gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
 		vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
 		_, err = vm.PowerOff(ctx)
@@ -257,9 +255,9 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		statefulsetTester.WaitForStatusReadyReplicas(statefulset, 1)
 		err = verifyPodLocation(&pod, nodeList, pvZone, pvRegion)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		e2elog.Logf("Pod was not scheduled on any other zone")
+		framework.Logf("Pod was not scheduled on any other zone")
 
-		e2elog.Logf("Deleting all statefulset in namespace: %v", namespace)
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 		framework.DeleteAllStatefulSets(client, namespace)
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
