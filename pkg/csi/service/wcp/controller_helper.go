@@ -19,7 +19,6 @@ package wcp
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -82,9 +81,9 @@ func getVMUUIDFromPodListenerService(volumeID string, nodeName string) (string, 
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	port := getPodListenerServicePort()
-	podListenerServiceAddr := flag.String("pod_listener_service", "127.0.0.1:"+strconv.Itoa(port), "The server address in the format of host:port")
+	podListenerServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
 	// Connect to pod listerner gRPC service
-	conn, err := grpc.Dial(*podListenerServiceAddr, opts...)
+	conn, err := grpc.Dial(podListenerServiceAddr, opts...)
 	if err != nil {
 		klog.Errorf("Failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
 		return "", err
