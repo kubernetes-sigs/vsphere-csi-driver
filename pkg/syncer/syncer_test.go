@@ -25,12 +25,12 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
-	"github.com/vmware/govmomi/simulator"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
+	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/simulator"
+	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	cnssim "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/simulator"
-	cnstypes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vmomi/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
