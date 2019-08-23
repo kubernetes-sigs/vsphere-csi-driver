@@ -100,9 +100,9 @@ func (s *service) GetController() csi.ControllerServer {
 	case WcpGuestControllerType:
 		s.cnscs = wcpguest.New()
 	default:
+		controllerType = defaultController
 		s.cnscs = vanilla.New()
 	}
-
 	return s.cnscs
 }
 
