@@ -17,8 +17,6 @@ package vsphere
 import (
 	"context"
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
 	"k8s.io/klog"
 )
@@ -56,67 +54,4 @@ func (vc *VirtualCenter) DisconnectCns(ctx context.Context) {
 	} else {
 		vc.CnsClient = nil
 	}
-}
-
-// CreateVolume calls the CNS create API.
-func (vc *VirtualCenter) CreateVolume(ctx context.Context, createSpecList []cnstypes.CnsVolumeCreateSpec) (*object.Task, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.CreateVolume(ctx, createSpecList)
-}
-
-// UpdateVolumeMetadata calls the CNS CnsUpdateVolumeMetadata API with UpdateSpecs specified in the argument
-func (vc *VirtualCenter) UpdateVolumeMetadata(ctx context.Context, updateSpecList []cnstypes.CnsVolumeMetadataUpdateSpec) (*object.Task, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.UpdateVolumeMetadata(ctx, updateSpecList)
-}
-
-// DeleteVolume calls the CNS delete API.
-func (vc *VirtualCenter) DeleteVolume(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId, deleteDisk bool) (*object.Task, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.DeleteVolume(ctx, volumeIDList, deleteDisk)
-}
-
-// AttachVolume calls the CNS Attach API.
-func (vc *VirtualCenter) AttachVolume(ctx context.Context, attachSpecList []cnstypes.CnsVolumeAttachDetachSpec) (*object.Task, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.AttachVolume(ctx, attachSpecList)
-}
-
-// DetachVolume calls the CNS Detach API.
-func (vc *VirtualCenter) DetachVolume(ctx context.Context, detachSpecList []cnstypes.CnsVolumeAttachDetachSpec) (*object.Task, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.DetachVolume(ctx, detachSpecList)
-}
-
-// QueryVolume calls the CNS QueryVolume API.
-func (vc *VirtualCenter) QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.QueryVolume(ctx, queryFilter)
-}
-
-// QueryVolume calls the CNS QueryAllVolume API.
-func (vc *VirtualCenter) QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-	err := vc.ConnectCns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return vc.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
 }
