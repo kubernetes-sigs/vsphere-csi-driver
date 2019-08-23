@@ -224,7 +224,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
-		err = vcenter.Connect(ctx)
+		err = vcenter.ConnectCns(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -328,7 +328,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 			},
 		},
 	}
-	queryResult, err := ct.vcenter.QueryVolume(ctx, queryFilter)
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	// Varify the volume has been deleted
-	queryResult, err = ct.vcenter.QueryVolume(ctx, queryFilter)
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 			},
 		},
 	}
-	queryResult, err := ct.vcenter.QueryVolume(ctx, queryFilter)
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	// Varify the volume has been deleted
-	queryResult, err = ct.vcenter.QueryVolume(ctx, queryFilter)
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}

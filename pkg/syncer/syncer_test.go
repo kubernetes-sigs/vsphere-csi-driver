@@ -166,7 +166,7 @@ func TestSyncerWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = virtualCenter.Connect(ctx)
+	err = virtualCenter.ConnectCns(ctx)
 	defer virtualCenter.Disconnect(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Verify if volume is created
-	queryResult, err := metadataSyncer.vcenter.QueryVolume(ctx, queryFilter)
+	queryResult, err := metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
@@ -326,7 +326,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
@@ -349,7 +349,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, newPvc.Name, testPVCLabelValue); err != nil {
@@ -371,7 +371,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	podUpdated(oldPod, newPod, metadataSyncer)
 
 	// Verify pod label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, newPod.Name, ""); err != nil {
@@ -380,7 +380,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test podDeleted workflow on VC
 	podDeleted(newPod, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, POD); err != nil {
@@ -389,7 +389,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test pvcDelete workflow
 	pvcDeleted(newPvc, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, PVC); err != nil {
@@ -398,7 +398,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test pvDelete workflow
 	pvDeleted(newPv, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, PV); err != nil {
@@ -607,7 +607,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Verify if volume is created
-	queryResult, err := virtualCenter.QueryVolume(ctx, queryFilter)
+	queryResult, err := virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,7 +623,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	triggerFullSync(k8sclient, metadataSyncer)
 
 	// Verify if volume has been deleted from cache
-	queryResult, err = virtualCenter.QueryVolume(ctx, queryFilter)
+	queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	triggerFullSync(k8sclient, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, testPVLabelValue); err != nil {
@@ -688,7 +688,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Verify pv label value has been updated in CNS cache
 
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, newTestPVLabelValue); err != nil {
@@ -707,7 +707,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Verify pvc label value has been updated in CNS cache
 
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, pvc.Name, newTestPVCLabelValue); err != nil {
@@ -726,7 +726,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	triggerFullSync(k8sclient, metadataSyncer)
 
 	// Verify POD metadata of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcenter.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = metadataSyncer.vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, pod.Name, ""); err != nil {
