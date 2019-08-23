@@ -75,12 +75,11 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
-
 	// If the VSphereUser in the CreateSpec is different from session user, update the CreateSpec
 	s, err := m.virtualCenter.Client.SessionManager.UserSession(ctx)
 	if err != nil {
@@ -96,7 +95,7 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
 	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
 	// Call the CNS CreateVolume
-	task, err := m.virtualCenter.CreateVolume(ctx, cnsCreateSpecList)
+	task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
 	if err != nil {
 		klog.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
@@ -142,9 +141,9 @@ func (m *defaultManager) AttachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	defer cancel()
 
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return "", err
 	}
 	// Construct the CNS AttachSpec list
@@ -157,7 +156,7 @@ func (m *defaultManager) AttachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	}
 	cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachSpec)
 	// Call the CNS AttachVolume
-	task, err := m.virtualCenter.AttachVolume(ctx, cnsAttachSpecList)
+	task, err := m.virtualCenter.CnsClient.AttachVolume(ctx, cnsAttachSpecList)
 	if err != nil {
 		klog.Errorf("CNS AttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return "", err
@@ -211,9 +210,9 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return err
 	}
 	// Construct the CNS DetachSpec list
@@ -226,7 +225,7 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	}
 	cnsDetachSpecList = append(cnsDetachSpecList, cnsDetachSpec)
 	// Call the CNS DetachVolume
-	task, err := m.virtualCenter.DetachVolume(ctx, cnsDetachSpecList)
+	task, err := m.virtualCenter.CnsClient.DetachVolume(ctx, cnsDetachSpecList)
 	if err != nil {
 		klog.Errorf("CNS DetachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
@@ -270,9 +269,9 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return err
 	}
 	// Construct the CNS VolumeId list
@@ -280,9 +279,9 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 	cnsVolumeID := cnstypes.CnsVolumeId{
 		Id: volumeID,
 	}
-	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
 	// Call the CNS DeleteVolume
-	task, err := m.virtualCenter.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+	task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
 	if err != nil {
 		klog.Errorf("CNS DeleteVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
@@ -324,9 +323,9 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return err
 	}
 	// If the VSphereUser in the VolumeMetadataUpdateSpec is different from session user, update the VolumeMetadataUpdateSpec
@@ -348,7 +347,7 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 		Metadata: spec.Metadata,
 	}
 	cnsUpdateSpecList = append(cnsUpdateSpecList, cnsUpdateSpec)
-	task, err := m.virtualCenter.UpdateVolumeMetadata(ctx, cnsUpdateSpecList)
+	task, err := m.virtualCenter.CnsClient.UpdateVolumeMetadata(ctx, cnsUpdateSpecList)
 	if err != nil {
 		klog.Errorf("CNS UpdateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
@@ -390,13 +389,13 @@ func (m *defaultManager) QueryVolume(queryFilter cnstypes.CnsQueryFilter) (*cnst
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
 	//Call the CNS QueryVolume
-	res, err := m.virtualCenter.QueryVolume(ctx, queryFilter)
+	res, err := m.virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		klog.Errorf("CNS QueryVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
@@ -413,13 +412,13 @@ func (m *defaultManager) QueryAllVolume(queryFilter cnstypes.CnsQueryFilter, que
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Set up the VC connection
-	err = m.virtualCenter.Connect(ctx)
+	err = m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center with err: %v", err)
+		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
 	//Call the CNS QueryAllVolume
-	res, err := m.virtualCenter.QueryAllVolume(ctx, queryFilter, querySelection)
+	res, err := m.virtualCenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		klog.Errorf("CNS QueryAllVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
