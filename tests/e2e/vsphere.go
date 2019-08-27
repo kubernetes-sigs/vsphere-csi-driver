@@ -83,23 +83,24 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 		datacenter := object.NewDatacenter(vs.Client.Client, dc.Reference())
 		s := object.NewSearchIndex(vs.Client.Client)
 		vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
-		vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, nil)
+		isK8SVanillaTestSetup := GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
+		instanceUUID := !isK8SVanillaTestSetup
+		vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
+
 		if err != nil || vmMoRef == nil {
 			continue
 		}
 		return vmMoRef, nil
 	}
+	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
 }
 
-// verifyCNSVolumeIsAttached checks volume is attached to the node.
-// This function returns true if volume is attached to the node, else returns false
-func (vs *vSphere) isVolumeAttachedToNode(client clientset.Interface, volumeID string, nodeName string) (bool, error) {
+// isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
+// This function returns true if volume is attached to the VM, else returns false
+func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vmUUID := getNodeUUID(client, nodeName)
-	gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-	framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
 	vmRef, err := vs.getVMByUUID(ctx, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
@@ -107,13 +108,13 @@ func (vs *vSphere) isVolumeAttachedToNode(client clientset.Interface, volumeID s
 	vm := object.NewVirtualMachine(vs.Client.Client, vmRef.Reference())
 	device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
 	if err != nil {
-		framework.Logf("Failed to determine whether disk %q is still attached to the node %q", volumeID, nodeName)
+		framework.Logf("Failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
 		return false, err
 	}
 	if device == nil {
 		return false, nil
 	}
-	framework.Logf("Found the disk %q is attached to the node %q", volumeID, nodeName)
+	framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)
 	return true, nil
 }
 
@@ -121,7 +122,9 @@ func (vs *vSphere) isVolumeAttachedToNode(client clientset.Interface, volumeID s
 // This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
 func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, volumeID string, nodeName string) (bool, error) {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		diskAttached, _ := vs.isVolumeAttachedToNode(client, volumeID, nodeName)
+		vmUUID := getNodeUUID(client, nodeName)
+		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if diskAttached == false {
 			framework.Logf("Disk: %s successfully detached", volumeID)
 			return true, nil

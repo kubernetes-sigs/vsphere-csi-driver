@@ -19,14 +19,15 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"time"
 )
 
 var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Power-Cycles", func() {
@@ -135,7 +136,9 @@ var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-P
 		pod = podList.Items[0]
 		failoverNode := pod.Spec.NodeName
 
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, failoverNode)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, failoverNode))
+		vmUUID = getNodeUUID(client, failoverNode)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
 

@@ -19,17 +19,18 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"gitlab.eng.vmware.com/hatchway/govmomi/find"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
@@ -175,8 +176,9 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 		pod, err := framework.CreatePod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Verify the volume attached to the node: %s", pod.Spec.NodeName))
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached"))
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")

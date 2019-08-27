@@ -62,7 +62,11 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		namespace = f.Namespace.Name
+		if isK8SVanillaTestSetup {
+			namespace = f.Namespace.Name
+		} else {
+			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		}
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -115,8 +119,9 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 
 		ginkgo.By("Verify the volumes are attached to the node vm")
 		for _, pv := range persistentvolumes {
-			ginkgo.By(fmt.Sprintf("Verify volume:%s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-			isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume: %s is not attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}

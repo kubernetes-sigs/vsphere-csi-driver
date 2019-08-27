@@ -28,9 +28,9 @@ import (
 	"github.com/onsi/gomega"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	v1 "k8s.io/api/core/v1"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -77,7 +77,12 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		namespace = f.Namespace.Name
+		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
+		if isK8SVanillaTestSetup {
+			namespace = f.Namespace.Name
+		} else {
+			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		}
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -92,7 +97,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		pvlabelKey = "app-pv"
 		pvlabelValue = "e2e-labels-pv"
 		scParameters = make(map[string]string)
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 	})
 
@@ -154,6 +158,10 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if !isK8SVanillaTestSetup {
+			deleteResourceQuota(client, namespace)
+		}
 	})
 
 	ginkgo.It("[csi-common-e2e] verify labels are removed in CNS after removing them from pvc and/or pv", func() {
@@ -228,6 +236,9 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !isK8SVanillaTestSetup {
+			deleteResourceQuota(client, namespace)
+		}
 	})
 
 	ginkgo.It("[csi-common-e2e] verify podname label is created/deleted when pod with cns volume is created/deleted.", func() {
@@ -262,8 +273,22 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
 
-		ginkgo.By("Verify volume is attached to the node")
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+		var vmUUID string
+		var exists bool
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if isK8SVanillaTestSetup {
+			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		} else {
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
 
@@ -273,11 +298,21 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 
 		ginkgo.By("Deleting the pod")
 		framework.DeletePodWithWait(f, client, pod)
-
-		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-
+		if isK8SVanillaTestSetup {
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		} else {
+			ginkgo.By("Wait for 2 minutes for the pod to get terminated successfully")
+			time.Sleep(time.Duration(60) * time.Second)
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
+			deleteResourceQuota(client, namespace)
+		}
 		ginkgo.By(fmt.Sprintf("Waiting for pod name to be deleted for volume %s by metadata-syncer", pv.Spec.CSI.VolumeHandle))
 		err = waitForPodNameLabelRemoval(pv.Spec.CSI.VolumeHandle, pod.Name, pod.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
