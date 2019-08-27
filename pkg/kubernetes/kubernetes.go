@@ -17,13 +17,13 @@ limitations under the License.
 package kubernetes
 
 import (
-	"k8s.io/klog"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"net"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
+	"net"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
 // NewClient creates a newk8s client based on a service account
