@@ -4,6 +4,9 @@
 # Ignore the build output.
 /.build
 
+# Ingore project specific setting files created by Intellij IDE
+/.idea
+
 # Ignore the environment variable and Prow configuration files at
 # the root of the project.
 /config.env

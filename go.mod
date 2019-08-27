@@ -7,6 +7,7 @@ require (
 	github.com/akutz/gosync v0.1.0 // indirect
 	github.com/akutz/memconn v0.1.0
 	github.com/container-storage-interface/spec v1.0.0
+	github.com/davecgh/go-spew v1.1.1
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190212212710-3befbb6ad0cc // indirect
@@ -17,16 +18,21 @@ require (
 	github.com/sirupsen/logrus v1.4.1
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/thecodeteam/gosync v0.1.0 // indirect
-	github.com/vmware/govmomi v0.20.0
-	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
-	golang.org/x/net v0.0.0-20190628185345-da137c7871d7
-	golang.org/x/sync v0.0.0-20190423024810-112230192c58 // indirect
-	golang.org/x/sys v0.0.0-20190712062909-fae7ac547cb7 // indirect
+	github.com/vmware/govmomi v0.21.1-0.20190821201433-8bdc2d6fc858
+	golang.org/x/crypto v0.0.0-20190820162420-60c769a6c586 // indirect
+	golang.org/x/lint v0.0.0-20190409202823-959b441ac422 // indirect
+	golang.org/x/net v0.0.0-20190827160401-ba9fcec4b297
+	golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456 // indirect
 	golang.org/x/text v0.3.2 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
+	golang.org/x/tools v0.0.0-20190827205025-b29f5f60c37a // indirect
 	google.golang.org/grpc v1.19.0
+	gopkg.in/gcfg.v1 v1.2.3
+	k8s.io/apimachinery v0.0.0-20180621070125-103fd098999d
+	k8s.io/client-go v8.0.0+incompatible
 	k8s.io/cloud-provider-vsphere v0.2.1
 	k8s.io/klog v0.2.0
 	k8s.io/kubernetes v1.11.2
+	k8s.io/sample-controller v0.0.0-20180822125000-be98dc6210ab
 	k8s.io/utils v0.0.0-20190308190857-21c4ce38f2a7 // indirect
 )
