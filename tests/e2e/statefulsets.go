@@ -17,7 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -25,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
 const (
@@ -49,30 +50,56 @@ const (
 	9. Delete the storage class.
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] statefulset", func() {
+var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	var (
-		namespace string
-		client    clientset.Interface
+		namespace             string
+		client                clientset.Interface
+		isK8SVanillaTestSetup bool
+		storagePolicyName     string
+		scParameters          map[string]string
 	)
 	ginkgo.BeforeEach(func() {
-		namespace = f.Namespace.Name
+		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
+		if isK8SVanillaTestSetup {
+			namespace = f.Namespace.Name
+		} else {
+			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		}
 		client = f.ClientSet
 		bootstrap()
 		sc, err := client.StorageV1().StorageClasses().Get(storageclassname, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(sc.Name, nil)).NotTo(gomega.HaveOccurred())
 		}
+		scParameters = make(map[string]string)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
 	})
 
 	ginkgo.AfterEach(func() {
-		e2elog.Logf("Deleting all statefulset in namespace: %v", namespace)
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 		framework.DeleteAllStatefulSets(client, namespace)
+		if !isK8SVanillaTestSetup {
+			deleteResourceQuota(client, namespace)
+		}
 	})
 
 	ginkgo.It("vSphere statefulset testing", func() {
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, nil, nil, "", "")
+		// decide which test setup is available to run
+		if isK8SVanillaTestSetup {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = nil
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storageclassname)
+		}
+
+		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "")
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
@@ -121,9 +148,22 @@ var _ = ginkgo.Describe("[csi-block-e2e] statefulset", func() {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-						isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+						if isK8SVanillaTestSetup {
+							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							gomega.Expect(err).NotTo(gomega.HaveOccurred())
+							gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+						} else {
+							annotations := sspod.Annotations
+							vmUUID, exists := annotations[vmUUIDLabel]
+							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+							ginkgo.By("Wait for 2 minutes for the volume to detach from the pod VM")
+							time.Sleep(time.Duration(120) * time.Second)
+							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+							ctx, cancel := context.WithCancel(context.Background())
+							defer cancel()
+							_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+							gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, sspod.Spec.NodeName))
+						}
 					}
 				}
 			}
@@ -164,7 +204,21 @@ var _ = ginkgo.Describe("[csi-block-e2e] statefulset", func() {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify scale up operation should not introduced new volume")
 					gomega.Expect(contains(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+					var vmUUID string
+					var exists bool
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					if isK8SVanillaTestSetup {
+						vmUUID = getNodeUUID(client, sspod.Spec.NodeName)
+					} else {
+						annotations := pod.Annotations
+						vmUUID, exists = annotations[vmUUIDLabel]
+						gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
 					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Disk is not attached"))
 					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
@@ -173,13 +227,14 @@ var _ = ginkgo.Describe("[csi-block-e2e] statefulset", func() {
 				}
 			}
 		}
+
 	})
 })
 
 // check whether the slice contains an element
 func contains(volumes []string, volumeID string) bool {
-	for _, volumeUUID := range volumes {
-		if volumeUUID == volumeID {
+	for _, volumeID := range volumes {
+		if volumeID == volumeID {
 			return true
 		}
 	}

@@ -2,9 +2,11 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -14,6 +16,7 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	appsv1 "k8s.io/api/apps/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -23,9 +26,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	"time"
 
-	"errors"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 )
@@ -80,7 +81,10 @@ func getPvFromClaim(client clientset.Interface, namespace string, claimName stri
 func getNodeUUID(client clientset.Interface, nodeName string) string {
 	node, err := client.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
+	vmUUID := strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
+	gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+	ginkgo.By(fmt.Sprintf("VM UUID is: %s for node: %s", vmUUID, nodeName))
+	return vmUUID
 }
 
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the one is CNS cache
@@ -456,7 +460,6 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 
 // createResourceQuota creates resource quota for the specified namespace.
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
-	quotaName := "cns-test-quota"
 	waitTime := 10
 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
 	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(resourceQuota)
@@ -464,6 +467,13 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
 	ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
 	time.Sleep(time.Duration(waitTime) * time.Second)
+}
+
+// deleteResourceQuota deletes resource quota for the specified namespace.
+func deleteResourceQuota(client clientset.Interface, namespace string) {
+	err := client.CoreV1().ResourceQuotas(namespace).Delete(quotaName, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
 }
 
 // newTestResourceQuota returns a quota that enforces default constraints for testing

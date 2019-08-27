@@ -41,6 +41,9 @@ const (
 	poll                                       = 2 * time.Second
 	pollTimeout                                = 5 * time.Minute
 	pollTimeoutShort                           = 1 * time.Minute / 2
+	scParamStoragePolicyID                     = "StoragePolicyId"
+	envK8SVanillaTestSetup                     = "K8S_VANILLA_ENVIRONMENT"
+	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
 	defaultPandoraSyncWaitTime                 = 90
@@ -58,7 +61,11 @@ const (
 	invalidFSType                              = "ext10"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	kubeSystemNamespace                        = "kube-system"
-	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
+	syncerStatefulsetName                      = "vsphere-csi-metadata-syncer"
+	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
+	rqLimit                                    = "10Gi"
+	vmUUIDLabel                                = "vmware-system-vm-uuid"
+	quotaName                                  = "cns-test-quota"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable
@@ -74,4 +81,12 @@ func GetAndExpectIntEnvVar(varName string) int {
 	varIntValue, err := strconv.Atoi(varValue)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error Parsing "+varName)
 	return varIntValue
+}
+
+// GetAndExpectBoolEnvVar parses a boolean from env variable
+func GetAndExpectBoolEnvVar(varName string) bool {
+	varValue := GetAndExpectStringEnvVar(varName)
+	varBoolValue, err := strconv.ParseBool(varValue)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error Parsing "+varName)
+	return varBoolValue
 }
