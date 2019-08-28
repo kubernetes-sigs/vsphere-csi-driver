@@ -46,10 +46,12 @@ func main() {
 	controllerType := os.Getenv(vTypes.EnvControllerType)
 	// Initialize Pod Listener gRPC server only if WCP controller is enabled
 	if controllerType == WcpControllerType {
-		if err := podlistener.InitPodListenerService(); err != nil {
-			klog.Errorf("Error initializing Pod Listener gRPC sever")
-			os.Exit(1)
-		}
+		go func() {
+			if err := podlistener.InitPodListenerService(); err != nil {
+				klog.Errorf("Error initializing Pod Listener gRPC sever")
+				os.Exit(1)
+			}
+		}()
 	}
 
 	syncer := syncer.NewInformer()
