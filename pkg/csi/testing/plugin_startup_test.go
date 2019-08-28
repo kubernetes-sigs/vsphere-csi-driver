@@ -19,7 +19,6 @@ package test
 import (
 	"context"
 	"net"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -152,7 +151,7 @@ func getPipedClient(ctx context.Context, sp gocsi.StoragePluginProvider) (*grpc.
 
 	clientOpts := []grpc.DialOption{
 		grpc.WithInsecure(),
-		grpc.WithDialer(func(string, time.Duration) (net.Conn, error) {
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return memconn.Dial("memu", "csi-vsphere-test")
 		}),
 	}

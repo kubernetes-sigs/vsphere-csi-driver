@@ -189,7 +189,6 @@ func (m *nodeManager) GetAllNodes() ([]*vsphere.VirtualMachine, error) {
 			}
 			if k8snodeUUID == "" {
 				klog.Errorf("Node: %q with empty providerId found in the cluster. aborting get all nodes", nodeName)
-				err = ErrEmptyProviderID
 				return true
 			}
 			m.nodeNameToUUID.Store(nodeName, k8snodeUUID)

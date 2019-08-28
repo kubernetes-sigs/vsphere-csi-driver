@@ -233,7 +233,6 @@ func validateConfig(cfg *Config) error {
 		}
 		insecure := vcConfig.InsecureFlag
 		if !insecure {
-			insecure = cfg.Global.InsecureFlag
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}
