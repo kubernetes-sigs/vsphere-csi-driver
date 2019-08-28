@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	"golang.org/x/net/context"
 
@@ -45,10 +44,6 @@ import (
 type controller struct {
 	cfg     *vcfg.Config
 	connMgr *cm.ConnectionManager
-}
-
-func noResyncPeriodFunc() time.Duration {
-	return 0
 }
 
 // New creates a FCD controller
@@ -338,7 +333,7 @@ func (c *controller) ControllerPublishVolume(
 
 	log.Infof("AttachDisk(%s) succeeded with: VolID=%s UUID=%s", filePath, req.VolumeId, diskUUID)
 
-	publishInfo := make(map[string]string, 0)
+	publishInfo := make(map[string]string)
 	publishInfo[AttributeFirstClassDiskType] = FirstClassDiskTypeString
 	publishInfo[AttributeFirstClassDiskVcenter] = discoveryInfo.VcServer
 	publishInfo[AttributeFirstClassDiskDatacenter] = discoveryInfo.DataCenter.Name()

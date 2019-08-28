@@ -219,18 +219,26 @@ cover: test
 ################################################################################
 ##                                 LINTING                                    ##
 ################################################################################
-.PHONY: fmt vet lint
+.PHONY: check fmt lint mdlint shellcheck vet
+check: fmt lint mdlint shellcheck staticcheck vet
+
 fmt:
 	hack/check-format.sh
-
-vet:
-	hack/check-vet.sh
 
 lint:
 	hack/check-lint.sh
 
-.PHONY: check
-check: fmt vet lint
+mdlint:
+	hack/check-mdlint.sh
+
+shellcheck:
+	hack/check-shell.sh
+
+staticcheck:
+	hack/check-staticcheck.sh
+
+vet:
+	hack/check-vet.sh
 
 ################################################################################
 ##                                 BUILD IMAGES                               ##

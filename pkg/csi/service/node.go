@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -718,17 +717,6 @@ func getDevMounts(
 		}
 	}
 	return devMnts, nil
-}
-
-func getSystemUUID() (string, error) {
-	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
-	if err != nil {
-		return "", err
-	}
-
-	id := strings.TrimSpace(string(idb))
-
-	return convertUUID(id), nil
 }
 
 func getDiskID(volID string, pubCtx map[string]string) (string, error) {
