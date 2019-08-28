@@ -21,7 +21,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -50,19 +49,19 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
 	// connect to the CSI controller in supervisor cluster
+	klog.Infof("Initializing WCPGC CSI controller")
 	var err error
 	c.svClient, err = k8s.NewSupervisorClient(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
 	if err != nil {
-		klog.Errorf("Failed to connect to Supervisor Cluster. err=%v", err)
 		return err
 	}
-	// test Init only, will remove when merging
+	/* test Init only, will remove when merging
 	nodes, err := c.svClient.CoreV1().Nodes().List(metav1.ListOptions{})
 	klog.Infof("node is %+v", nodes)
 	if err != nil {
-		klog.Errorf("Failed to connect to Supervisor Cluster. err=%v", err)
+		klog.Errorf("Failed to connect to Supervisor Cluster. err: %v", err)
 		return err
-	}
+	}*/
 	return nil
 }
 
