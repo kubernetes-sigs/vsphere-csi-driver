@@ -14,16 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fcd
+package types
 
-import "errors"
-
-// Error Messages
 const (
-	ListInvalidNextTokenErrMsg = "Invalid next token"
-)
-
-// Error constants
-var (
-	ErrListInvalidNextToken = errors.New(ListInvalidNextTokenErrMsg)
+	// LabelRegionFailureDomain is label placed on nodes and PV containing region detail
+	LabelRegionFailureDomain = "failure-domain.beta.kubernetes.io/region"
+	// LabelZoneFailureDomain is label placed on nodes and PV containing zone detail
+	LabelZoneFailureDomain = "failure-domain.beta.kubernetes.io/zone"
 )

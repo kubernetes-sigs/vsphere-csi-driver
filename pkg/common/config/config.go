@@ -37,7 +37,7 @@ const (
 	// DefaultCloudConfigPath is the default path of csi config file
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// EnvCloudConfig contains the path to the CSI vSphere Config
-	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
+	EnvCloudConfig = "VSPHERE_CSI_CONFIG"
 )
 
 // Errors
