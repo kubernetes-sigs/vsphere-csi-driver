@@ -148,7 +148,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	//create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	params[AttributeFirstClassDiskParentType] = string(vclib.TypeDatastore)
 	params[AttributeFirstClassDiskParentName] = myds.Name
 
@@ -253,7 +253,7 @@ func TestListBoundaries(t *testing.T) {
 	}
 
 	//create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	params[AttributeFirstClassDiskParentType] = string(vclib.TypeDatastore)
 	params[AttributeFirstClassDiskParentName] = myds.Name
 
@@ -393,7 +393,7 @@ func TestListOrder(t *testing.T) {
 	}
 
 	//create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	params[AttributeFirstClassDiskParentType] = string(vclib.TypeDatastore)
 	params[AttributeFirstClassDiskParentName] = myds.Name
 
@@ -618,7 +618,7 @@ func TestZoneSupport(t *testing.T) {
 	 */
 
 	//create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	params[AttributeFirstClassDiskParentType] = string(vclib.TypeDatastore)
 	params[AttributeFirstClassDiskParentName] = datastoreName
 
@@ -635,7 +635,7 @@ func TestZoneSupport(t *testing.T) {
 
 	// Target the eastern zone
 	topology := &csi.Topology{
-		Segments: make(map[string]string, 0),
+		Segments: make(map[string]string),
 	}
 	topology.Segments[LabelZoneRegion] = "k8s-region-US"
 	topology.Segments[LabelZoneFailureDomain] = "k8s-zone-US-east"
