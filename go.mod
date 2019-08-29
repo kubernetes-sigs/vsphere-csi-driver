@@ -28,6 +28,7 @@ require (
 	golang.org/x/tools v0.0.0-20190827205025-b29f5f60c37a // indirect
 	google.golang.org/grpc v1.19.0
 	gopkg.in/gcfg.v1 v1.2.3
+	honnef.co/go/tools v0.0.1-2019.2.2 // indirect
 	k8s.io/apimachinery v0.0.0-20180621070125-103fd098999d
 	k8s.io/client-go v8.0.0+incompatible
 	k8s.io/cloud-provider-vsphere v0.2.1
