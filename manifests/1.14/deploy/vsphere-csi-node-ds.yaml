@@ -7,6 +7,8 @@ spec:
   selector:
     matchLabels:
       app: vsphere-csi-node
+  updateStrategy:
+    type: "RollingUpdate"
   template:
     metadata:
       labels:
@@ -20,7 +22,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "rm -rf /registration/vsphere.csi.vmware.com /var/lib/kubelet/plugins_registry/vsphere.csi.vmware.com/csi.sock"]
+                command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com-reg.sock"]
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -29,7 +31,7 @@ spec:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: /var/lib/kubelet/plugins_registry/vsphere.csi.vmware.com/csi.sock
+              value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
           securityContext:
             privileged: true
           volumeMounts:
@@ -38,7 +40,8 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v0.2.1
+          image: vmware/vsphere-block-csi-driver:v1.0.0
+          imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
@@ -46,14 +49,19 @@ spec:
               value: "node"
             - name: X_CSI_SPEC_REQ_VALIDATION
               value: "false"
-#           - name: X_CSI_DEBUG
-#             value: "true"
+            - name: VSPHERE_CSI_CONFIG
+              value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
+          args:
+            - "--v=4"
           securityContext:
             privileged: true
             capabilities:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
           volumeMounts:
+            - name: vsphere-config-volume
+              mountPath: /etc/cloud
+              readOnly: true
             - name: plugin-dir
               mountPath: /csi
             - name: pods-mount-dir
@@ -74,13 +82,16 @@ spec:
             - name: plugin-dir
               mountPath: /csi
       volumes:
+        - name: vsphere-config-volume
+          secret:
+            secretName: vsphere-config-secret
         - name: registration-dir
           hostPath:
             path: /var/lib/kubelet/plugins_registry
             type: DirectoryOrCreate
         - name: plugin-dir
           hostPath:
-            path: /var/lib/kubelet/plugins_registry/vsphere.csi.vmware.com
+            path: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com
             type: DirectoryOrCreate
         - name: pods-mount-dir
           hostPath:
