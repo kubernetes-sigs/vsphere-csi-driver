@@ -86,3 +86,84 @@ Set the GINKGO_FOCUS env variable:
 $ export GINKGO_FOCUS="Basic\sTopology\sAware\sProvisioning"
 ```
 Note that specify spaces using “\s”.
+
+## Running fail-over e2e test on multi-master K8s
+### Prerequisite
+To run those tests, a multi-master K8S testbed with 3 master nodes is required. CSI driver must be deployed as a K8S deployment with 1 replica. Use manifest file at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/tree/master/manifests/1.14 to deploy CSI driver.
+
+The following output shows a sample multi-master K8S testbed (with 3 master nodes and 3 worker nodes)
+``` shell
+root@master01:~# kubectl get node
+
+NAME       STATUS   ROLES    AGE   VERSION
+
+master01   Ready    master   15d   v1.14.2
+
+master02   Ready    master   15d   v1.14.2
+
+master03   Ready    master   15d   v1.14.2
+
+worker01   Ready    <none>   15d   v1.14.2
+
+worker02   Ready    <none>   15d   v1.14.2
+
+worker03   Ready    <none>   15d   v1.14.2
+```
+
+Please verify ProviderID is set on all registered nodes.
+``` shell
+root@master01:~# kubectl describe nodes | egrep "ProviderID:|Name:"
+
+Name:               master01
+
+ProviderID:                  vsphere://4222b6fd-ae22-f4e7-96f1-aa8a78cf5b03
+
+Name:               master02
+
+ProviderID:                  vsphere://4222c427-14de-7156-33a8-9f28f309d984
+
+Name:               master03
+
+ProviderID:                  vsphere://422216f0-70a3-7c18-a79d-e298c8127e7f
+
+Name:               worker01
+
+ProviderID:                  vsphere://42227c4a-4e00-8c17-2b06-66b0aedbc985
+
+Name:               worker02
+
+ProviderID:                  vsphere://42223b4b-240f-82c8-2050-c703ac1f5f89
+
+Name:               worker03
+
+ProviderID:                  vsphere://422279f2-0510-b5ff-1129-f32e2b87a23d
+
+```
+
+
+### Setting SSH keys for K8S master node with your local machine
+
+```
+1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
+2.ssh root@k8s_master_ip mkdir -p .ssh
+3.cat ~/.ssh/id_rsa.pub | ssh root@vcip 'cat >> .ssh/authorized_keys'
+4.ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
+```
+SSH keys need to be configured properley for all three master nodes of K8S cluster using the above command.
+
+### Setting env variables
+``` shell
+export E2E_TEST_CONF_FILE="/path/to/e2eTest.conf"
+export K8S_VANILLA_ENVIRONMENT=true
+export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/vsan:52e7e70e3b966d33-609dd50e5ac9d1b1/"
+export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
+export USER=root
+export K8S_MASTER1_NAME="master01"
+export K8S_MASTER2_NAME="master02"
+export K8S_MASTER3_NAME="master03"
+export K8S_MASTER1_IP="10.161.69.104"
+export K8S_MASTER2_IP="10.161.64.51"
+export K8S_MASTER3_IP="10.161.79.174"
+export GINKGO_FOCUS="csi-multi-master-block-e2e"
+```
+
