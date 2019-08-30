@@ -51,6 +51,7 @@ const (
 	sleepTimeOut                               = 30
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
+	k8sPodTerminationTimeOutLong               = 10 * time.Minute
 	vsanhealthServiceName                      = "vsan-health"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
@@ -67,6 +68,13 @@ const (
 	rqLimit                                    = "10Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	quotaName                                  = "cns-test-quota"
+	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
+	envK8SMaster1Name                          = "K8S_MASTER1_NAME"
+	envK8SMaster2Name                          = "K8S_MASTER2_NAME"
+	envK8SMaster3Name                          = "K8S_MASTER3_NAME"
+	envK8SMaster1IP                            = "K8S_MASTER1_IP"
+	envK8SMaster2IP                            = "K8S_MASTER2_IP"
+	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable
