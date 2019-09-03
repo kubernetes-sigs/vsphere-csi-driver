@@ -17,12 +17,21 @@ limitations under the License.
 package wcpguest
 
 import (
+	"fmt"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strconv"
+	"strings"
+	"time"
+
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -37,8 +46,15 @@ var (
 	}
 )
 
+const (
+	// prefix of the PVC Name in the supervisor cluster
+	// TODO: This should be the Guest Cluster Unique ID
+	pvcPrefix = "pvcsc-"
+)
+
 type controller struct {
-	svClient clientset.Interface
+	supervisorClient    clientset.Interface
+	supervisorNamespace string
 }
 
 // New creates a CNS controller
@@ -49,19 +65,13 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
 	// connect to the CSI controller in supervisor cluster
-	klog.Infof("Initializing WCPGC CSI controller")
+	klog.V(1).Infof("Initializing WCPGC CSI controller")
 	var err error
-	c.svClient, err = k8s.NewSupervisorClient(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
+	c.supervisorNamespace = config.GC.Namespace
+	c.supervisorClient, err = k8s.NewSupervisorClient(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
 	if err != nil {
 		return err
 	}
-	/* test Init only, will remove when merging
-	nodes, err := c.svClient.CoreV1().Nodes().List(metav1.ListOptions{})
-	klog.Infof("node is %+v", nodes)
-	if err != nil {
-		klog.Errorf("Failed to connect to Supervisor Cluster. err: %v", err)
-		return err
-	}*/
 	return nil
 }
 
@@ -70,7 +80,67 @@ func (c *controller) Init(config *config.Config) error {
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	err := validateGuestClusterCreateVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	// Get PVC name and disk size for the supervisor cluster
+	// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
+	supervisorPVCName := pvcPrefix + req.Name[4:]
+
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	// Get supervisorStorageClass and accessMode
+	var supervisorStorageClass string
+	for param := range req.Parameters {
+		paramName := strings.ToLower(param)
+		if paramName == common.AttributeSupervisorStorageClass {
+			supervisorStorageClass = req.Parameters[param]
+		}
+	}
+	var accessMode csi.VolumeCapability_AccessMode_Mode
+	accessMode = req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
+			claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
+			klog.V(4).Infof("PVC claim spec is %+v", spew.Sdump(claim))
+			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(claim)
+			if err != nil {
+				msg := fmt.Sprintf("Failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+				klog.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		} else {
+			msg := fmt.Sprintf("Failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+	isBound, err := isPVCInSupervisorClusterBound(c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin())*time.Minute)
+	if !isBound {
+		msg := fmt.Sprintf("Failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	attributes := make(map[string]string)
+	attributes[common.AttributeDiskType] = common.DiskTypeString
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      supervisorPVCName,
+			CapacityBytes: int64(volSizeMB * common.MbInBytes),
+			VolumeContext: attributes,
+		},
+	}
+	return resp, nil
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest

@@ -24,6 +24,7 @@ const (
 	GbInBytes = int64(1024 * 1024 * 1024)
 
 	// DefaultGbDiskSize is the default disk size in gibibytes.
+	// TODO: will make the DefaultGbDiskSize configurable in the future
 	DefaultGbDiskSize = int64(10)
 
 	// DiskTypeString is the value for the PersistentVolume's attribute "type"
@@ -44,6 +45,10 @@ const (
 	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
 	AttributeStoragePolicyID = "storagepolicyid"
 
+	// AttributeSupervisorStorageClas represents name of the Storage Class
+	// For example: StorageClassName: "silver"
+	AttributeSupervisorStorageClass = "svstorageclass"
+
 	// AttributeFsType represents filesystem type in the Storage Classs
 	// For Example: FsType: "ext4"
 	AttributeFsType = "fstype"
@@ -55,10 +60,6 @@ const (
 	// DefaultFsType represents the default filesystem type which will be used to format the volume
 	// during mount if user does not specify the filesystem type in the Storage Class
 	DefaultFsType = "ext4"
-
-	// AttributeStoragePolicyID represents Storage Policy Id in the Storage Classs
-	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
-	AttributeStoragePolicyID = "StoragePolicyId"
 
 	//ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
@@ -78,7 +79,8 @@ const (
 	// on which CNS is supported.
 	MinSupportedVCenterMinor int = 7
 
-	// MinSupportedVCenterPatch is the patch version supported with MinSupportedVCenterMajor and MinSupportedVCenterMinor
+	// MinSupportedVCenterMajor is the minimum, major version of vCenter
+	// on which CNS is supported.
 	MinSupportedVCenterPatch int = 3
 
 	// VsanAffinityKey is the profile param key to indicate which node the FCD should be affinitized to.
