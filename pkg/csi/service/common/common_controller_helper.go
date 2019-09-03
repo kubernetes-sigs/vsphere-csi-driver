@@ -46,10 +46,7 @@ func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	if !IsValidVolumeCapabilities(volCaps) {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
 	}
-	// Validate volume size exists in spec
-	if req.GetCapacityRange() == nil || req.GetCapacityRange().RequiredBytes == 0 {
-		return status.Error(codes.InvalidArgument, "Volume size is a required parameter")
-	}
+
 	return nil
 }
 
