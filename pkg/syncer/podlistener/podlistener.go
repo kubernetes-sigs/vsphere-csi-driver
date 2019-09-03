@@ -229,7 +229,6 @@ func (podListener *podListener) getPVWithVolumeID(volumeID string) (*v1.Persiste
  */
 func (podListener *podListener) getPod(pvcName string, pvcNamespace string,
 	nodeName string) (*v1.Pod, error) {
-	var podResult *v1.Pod
 	pods, err := podListener.k8sClient.CoreV1().Pods(pvcNamespace).List(metav1.ListOptions{
 		FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"spec.nodeName": string(nodeName)}), fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)})).String(),
 	})
@@ -243,23 +242,17 @@ func (podListener *podListener) getPod(pvcName string, pvcNamespace string,
 
 	// Identify the pod that a volume with name "pvcName" associated with it
 	for _, pod := range pods.Items {
-		if pod.Spec.Volumes != nil {
-			for _, volume := range pod.Spec.Volumes {
-				pvClaim := volume.VolumeSource.PersistentVolumeClaim
-				if pvClaim != nil && pvClaim.ClaimName == pvcName {
-					podResult = &pod
-					break
-				}
+		for _, volume := range pod.Spec.Volumes {
+			pvClaim := volume.VolumeSource.PersistentVolumeClaim
+			if pvClaim != nil && pvClaim.ClaimName == pvcName {
+				klog.V(3).Infof("Returned pod: %s with pvClaim name: %s and namespace: %s running on node: %s",
+					spew.Sdump(&pod), pvcName, pvcNamespace, nodeName)
+				return &pod, nil
 			}
 		}
 	}
 
-	if podResult == nil {
-		errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s", pvcName, pvcNamespace, nodeName)
-		klog.Errorf(errMsg)
-		return nil, fmt.Errorf(errMsg)
-	}
-	klog.V(3).Infof("Returned pod: %s with pvClaim name: %s and namespace: %s running on node: %s",
-		spew.Sdump(podResult), pvcName, pvcNamespace, nodeName)
-	return podResult, nil
+	errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s", pvcName, pvcNamespace, nodeName)
+	klog.Error(errMsg)
+	return nil, fmt.Errorf(errMsg)
 }
