@@ -102,7 +102,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return nil, err
 	}
 
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
 	var storagePolicyID string
