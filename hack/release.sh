@@ -27,16 +27,20 @@ readonly BASE_IMAGE_REPO=gcr.io/cloud-provider-vsphere
 
 # Release images
 readonly CSI_IMAGE_RELEASE=${BASE_IMAGE_REPO}/csi/release/driver
+readonly SYNCER_IMAGE_RELEASE=${BASE_IMAGE_REPO}/csi/release/syncer
 
 # PR images
 readonly CSI_IMAGE_PR=${BASE_IMAGE_REPO}/csi/pr/driver
+readonly SYNCER_IMAGE_PR=${BASE_IMAGE_REPO}/csi/pr/syncer
 
 # CI images
 readonly CSI_IMAGE_CI=${BASE_IMAGE_REPO}/csi/ci/driver
+readonly SYNCER_IMAGE_CI=${BASE_IMAGE_REPO}/csi/ci/syncer
 
 PUSH=
 LATEST=
 CSI_IMAGE_NAME=
+SYNCER_IMAGE_NAME=
 VERSION=$(git describe --dirty --always 2>/dev/null)
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-}"
@@ -91,14 +95,17 @@ function build_images() {
     ci)
       # A non-PR, non-release build. This is usually a build off of master
       CSI_IMAGE_NAME=${CSI_IMAGE_CI}
+      SYNCER_IMAGE_NAME=${SYNCER_IMAGE_CI}
       ;;
     pr)
       # A PR build
       CSI_IMAGE_NAME=${CSI_IMAGE_PR}
+      SYNCER_IMAGE_NAME=${SYNCER_IMAGE_PR}
       ;;
     release)
       # On an annotated tag
       CSI_IMAGE_NAME=${CSI_IMAGE_RELEASE}
+      SYNCER_IMAGE_NAME=${SYNCER_IMAGE_RELEASE}
       ;;
   esac
 
@@ -110,9 +117,20 @@ function build_images() {
     --build-arg "VERSION=${VERSION}" \
     --build-arg "GOPROXY=${GOPROXY}" \
     .
+
+  echo "building ${SYNCER_IMAGE_NAME}:${VERSION}"
+  docker build \
+      -f images/syncer/Dockerfile \
+      -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
+      --build-arg "VERSION=${VERSION}" \
+      --build-arg "GOPROXY=${GOPROXY}" \
+      .
   if [ "${LATEST}" ]; then
     echo "tagging image ${CSI_IMAGE_NAME}:${VERSION} as latest"
     docker tag "${CSI_IMAGE_NAME}":"${VERSION}" "${CSI_IMAGE_NAME}":latest
+    echo "tagging image ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
+    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${SYNCER_IMAGE_NAME}":latest
+
   fi
 }
 
@@ -125,14 +143,21 @@ function login() {
 
 function push_images() {
   [ "${CSI_IMAGE_NAME}" ] || fatal "CSI_IMAGE_NAME not set"
+  [ "${SYNCER_IMAGE_NAME}" ] || fatal "SYNCER_IMAGE_NAME not set"
 
   login
 
   echo "pushing ${CSI_IMAGE_NAME}:${VERSION}"
   docker push "${CSI_IMAGE_NAME}":"${VERSION}"
+  echo "pushing ${SYNCER_IMAGE_NAME}:${VERSION}"
+  docker push "${SYNCER_IMAGE_NAME}":"${VERSION}"
+
   if [ "${LATEST}" ]; then
     echo "also pushing ${CSI_IMAGE_NAME}:${VERSION} as latest"
     docker push "${CSI_IMAGE_NAME}":latest
+    echo "also pushing ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
+    docker push "${SYNCER_IMAGE_NAME}":latest
+
   fi
 }
 
