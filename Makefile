@@ -198,14 +198,51 @@ endif # ifndef X_BUILD_DISABLED
 ##                                 TESTING                                    ##
 ################################################################################
 ifndef PKGS_WITH_TESTS
-export PKGS_WITH_TESTS := $(sort $(shell find . -name "*_test.go" -type f -exec dirname \{\} \;))
+export PKGS_WITH_TESTS := $(sort $(shell find . -path ./tests -prune -o -name "*_test.go" -type f -exec dirname \{\} \;))
 endif
-TEST_FLAGS ?= -v
+TEST_FLAGS ?= -v -count=1
 .PHONY: unit build-unit-tests
 unit unit-test:
-	go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
+	env -u VSPHERE_VCENTER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_DATASTORE_URL -u VSPHERE_STORAGE_POLICY_NAME -u VSPHERE_K8S_NODE -u VSPHERE_INSECURE -u KUBECONFIG go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
 build-unit-tests:
 	$(foreach pkg,$(PKGS_WITH_TESTS),go test $(TEST_FLAGS) -c $(pkg); )
+
+.PHONY: integration-unit-test
+integration-unit-test:
+ifndef VSPHERE_VCENTER
+	$(error Requires VSPHERE_VCENTER from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_USER
+	$(error Requires VSPHERE_USER from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_PASSWORD
+	$(error Requires VSPHERE_PASSWORD from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_DATACENTER
+	$(error Requires VSPHERE_DATACENTER from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_DATASTORE_URL
+	$(error Requires VSPHERE_DATASTORE_URL from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_K8S_NODE
+	$(error Requires VSPHERE_K8S_NODE from a deployed testbed to run integration-unit-test)
+endif
+ifndef KUBECONFIG
+	$(error Requires KUBECONFIG from a deployed testbed to run integration-unit-test)
+endif
+ifndef VSPHERE_INSECURE
+	$(error Requires VSPHERE_INSECURE from a deployed testbed to run integration-unit-test)
+endif
+	    go test $(TEST_FLAGS) -tags=integration-unit ./pkg/csi/service/cns
+
+# The default test target.
+.PHONY: test build-tests
+test: unit
+build-tests: build-unit-tests
+
+.PHONY: cover
+cover: TEST_FLAGS += -cover
+cover: test
 
 # The default test target.
 .PHONY: test build-tests

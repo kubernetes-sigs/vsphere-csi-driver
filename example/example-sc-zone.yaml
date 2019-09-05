@@ -1,0 +1,15 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: example-vanilla-block-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.vsphere.vmware.com
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: failure-domain.beta.kubernetes.io/zone
+        values:
+          - k8s-zone-us-west
+      - key: failure-domain.beta.kubernetes.io/region
+        values:
+          - k8s-region-us
