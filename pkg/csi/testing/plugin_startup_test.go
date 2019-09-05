@@ -119,16 +119,14 @@ var _ = Describe("CSI plugin", func() {
 						Ω(err).ShouldNot(HaveOccurred())
 						Ω(res).ShouldNot(BeNil())
 						caps := res.GetCapabilities()
-						Ω(caps).Should(HaveLen(3))
+						Ω(caps).Should(HaveLen(2))
 						rpcTypes := []csi.ControllerServiceCapability_RPC_Type{
 							caps[0].GetRpc().Type,
 							caps[1].GetRpc().Type,
-							caps[2].GetRpc().Type,
 						}
 						Ω(rpcTypes).Should(ConsistOf(
 							csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-							csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-							csi.ControllerServiceCapability_RPC_LIST_VOLUMES))
+							csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME))
 					})
 				})
 			})

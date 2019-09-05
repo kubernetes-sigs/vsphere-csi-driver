@@ -23,6 +23,9 @@ const (
 	// GbInBytes is the number of bytes in one gibibyte.
 	GbInBytes = int64(1024 * 1024 * 1024)
 
+	// DefaultGbDiskSize is the default disk size in gibibytes.
+	DefaultGbDiskSize = int64(10)
+
 	// DiskTypeString is the value for the PersistentVolume's attribute "type"
 	DiskTypeString = "vSphere CNS Block Volume"
 

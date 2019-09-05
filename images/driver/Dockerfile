@@ -50,4 +50,4 @@ LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 
-CMD ["/bin/vsphere-csi"]
+ENTRYPOINT ["/bin/vsphere-csi"]

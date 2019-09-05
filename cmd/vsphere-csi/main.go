@@ -18,8 +18,10 @@ package main
 
 import (
 	"context"
+	"flag"
 
 	"github.com/rexray/gocsi"
+	"k8s.io/klog"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
@@ -27,6 +29,8 @@ import (
 
 // main is ignored when this package is built as a go plug-in.
 func main() {
+	klog.InitFlags(nil)
+	flag.Parse()
 	gocsi.Run(
 		context.Background(),
 		service.Name,
@@ -35,19 +39,8 @@ func main() {
 		provider.New())
 }
 
-const usage = `    X_CSI_VSPHERE_APINAME
-        Specifies the name of the API to use when talking to vCenter
+const usage = `    VSPHERE_CSI_CONFIG
+        Specifies the path to the csi-vsphere.conf file
 
-				The default value is "FCD" (First Class Disk)
-
-    X_CSI_VSPHERE_CLOUD_CONFIG
-        Specifies the path to the vsphere.conf file
-
-        The default falue is "/etc/cloud/vsphere.conf"
-
-    X_CSI_DISABLE_K8S_CLIENT
-        Boolean flag that disables the Kubernetes API client to retrieve
-        secrets.
-
-        The default value is "false"
+        The default value is "/etc/cloud/csi-vsphere.conf"
 `

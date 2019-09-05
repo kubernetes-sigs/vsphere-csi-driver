@@ -17,13 +17,13 @@ limitations under the License.
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-	"golang.org/x/net/context"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
