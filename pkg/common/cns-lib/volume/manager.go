@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"github.com/davecgh/go-spew/spew"
+	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"k8s.io/klog"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -101,14 +102,14 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 		return nil, err
 	}
 	// Get the taskInfo
-	taskInfo, err := GetTaskInfo(ctx, task)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
 		klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
 	klog.V(2).Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
 	// Get the taskResult
-	taskResult, err := GetTaskResult(ctx, taskInfo)
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 
 	if err != nil {
 		klog.Errorf("unable to find the task result for CreateVolume task from vCenter %q. taskID: %q, opId: %q createResults: %+v",
@@ -162,14 +163,14 @@ func (m *defaultManager) AttachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 		return "", err
 	}
 	// Get the taskInfo
-	taskInfo, err := GetTaskInfo(ctx, task)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
 		klog.Errorf("Failed to get taskInfo for AttachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return "", err
 	}
 	klog.V(2).Infof("AttachVolume: volumeID: %q, vm: %q, opId: %q", volumeID, vm.String(), taskInfo.ActivationId)
 	// Get the taskResult
-	taskResult, err := GetTaskResult(ctx, taskInfo)
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 	if err != nil {
 		klog.Errorf("unable to find the task result for AttachVolume task from vCenter %q with taskID %s and attachResults %v",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
@@ -231,14 +232,14 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 		return err
 	}
 	// Get the taskInfo
-	taskInfo, err := GetTaskInfo(ctx, task)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
 		klog.Errorf("Failed to get taskInfo for DetachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	klog.V(2).Infof("DetachVolume: volumeID: %q, vm: %q, opId: %q", volumeID, vm.String(), taskInfo.ActivationId)
 	// Get the task results for the given task
-	taskResult, err := GetTaskResult(ctx, taskInfo)
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 	if err != nil {
 		klog.Errorf("unable to find the task result for DetachVolume task from vCenter %q with taskID %s and detachResults %v",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
@@ -287,14 +288,14 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 		return err
 	}
 	// Get the taskInfo
-	taskInfo, err := GetTaskInfo(ctx, task)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
 		klog.Errorf("Failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	klog.V(2).Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	// Get the task results for the given task
-	taskResult, err := GetTaskResult(ctx, taskInfo)
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 	if err != nil {
 		klog.Errorf("unable to find the task result for DeleteVolume task from vCenter %q with taskID %s and deleteResults %v",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
@@ -353,14 +354,14 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 		return err
 	}
 	// Get the taskInfo
-	taskInfo, err := GetTaskInfo(ctx, task)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
 		klog.Errorf("Failed to get taskInfo for UpdateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	klog.V(2).Infof("UpdateVolumeMetadata: volumeID: %q, opId: %q", spec.VolumeId.Id, taskInfo.ActivationId)
 	// Get the task results for the given task
-	taskResult, err := GetTaskResult(ctx, taskInfo)
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 	if err != nil {
 		klog.Errorf("unable to find the task result for UpdateVolume task from vCenter %q with taskID %q, opId: %q and updateResults %+v",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
