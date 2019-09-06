@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2018 The Kubernetes Authors.
+# Copyright 2019 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,21 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# Change directories to the parent directory of the one in which this
-# script is located.
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+go get github.com/onsi/ginkgo/ginkgo
 
-go vet ./cmd/... ./pkg/... ./tests/...
+# Exporting KUBECONFIG path
+export KUBECONFIG=$HOME/.kube/config
+# Running the e2e test
+
+FOCUS=${GINKGO_FOCUS:-}
+if [ -z "$FOCUS" ]
+then
+    FOCUS="[csi\-block\-e2e]"
+fi
+ginkgo -v --focus="$FOCUS" tests/e2e
+
+# Checking for test status
+TEST_PASS=$?
+if [[ $TEST_PASS -ne 0 ]]; then
+    exit 1
+fi
