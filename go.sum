@@ -233,8 +233,8 @@ github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9o
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20190822195948-d02eb439cf16 h1:jBoByldg1FoynFQSZWSMG3sSgkefPJK2Tzvg5ey5GLY=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20190822195948-d02eb439cf16/go.mod h1:lC08KkqFGUYndMdW3MHPuxb9kZdWgDw5RjEPYFL7oyo=
+gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20190906183155-de093f2d06e9 h1:Ow34EuZFmOJQJ6WSEeuizk31xcpAwmDdYdrT/152GrE=
+gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20190906183155-de093f2d06e9/go.mod h1:lC08KkqFGUYndMdW3MHPuxb9kZdWgDw5RjEPYFL7oyo=
 go.etcd.io/bbolt v1.3.2 h1:Z/90sZLPOeCy2PwprqkFa25PdkusRzaj9P8zm/KNyvk=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.4.0 h1:cxzIVoETapQEqDhQu3QfnvXAV4AlzcvUCxkVUFw3+EU=
