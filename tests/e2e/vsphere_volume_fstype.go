@@ -175,8 +175,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 	} else {
-		ginkgo.By("Wait for 2 minutes for the pod to get terminated successfully")
-		time.Sleep(time.Duration(120) * time.Second)
+		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+		time.Sleep(supervisorClusterOperationsTimeout)
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

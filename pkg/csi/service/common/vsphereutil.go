@@ -21,8 +21,8 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"golang.org/x/net/context"
 	"k8s.io/klog"
