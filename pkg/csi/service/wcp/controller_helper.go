@@ -50,7 +50,7 @@ func validateWCPCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	for paramName := range params {
 		paramName = strings.ToLower(paramName)
 		if paramName != common.AttributeStoragePolicyID && paramName != common.AttributeFsType &&
-		   paramName != common.AttributeAffineToHost {
+			paramName != common.AttributeAffineToHost {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
