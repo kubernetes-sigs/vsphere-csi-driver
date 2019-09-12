@@ -18,20 +18,16 @@ package cns
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	cnssim "github.com/vmware/govmomi/cns/simulator"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
-	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25"
@@ -52,63 +48,6 @@ const (
 	testVolumeName  = "test-volume"
 	testClusterName = "test-cluster"
 )
-
-// configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with an empty tls.Config.
-func configFromSim() (*config.Config, func()) {
-	return configFromSimWithTLS(new(tls.Config), true)
-}
-
-// configFromSimWithTLS starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with a tls.Config. The returned client
-// config can be configured to allow/decline insecure connections.
-func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
-	cfg := &config.Config{}
-	model := simulator.VPX()
-	defer model.Remove()
-
-	err := model.Create()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	model.Service.TLS = tlsConfig
-	s := model.Service.NewServer()
-
-	// CNS Service simulator
-	model.Service.RegisterSDK(cnssim.New())
-
-	// PBM Service simulator
-	model.Service.RegisterSDK(pbmsim.New())
-	cfg.Global.InsecureFlag = insecureAllowed
-
-	cfg.Global.VCenterIP = s.URL.Hostname()
-	cfg.Global.VCenterPort = s.URL.Port()
-	cfg.Global.User = s.URL.User.Username()
-	cfg.Global.Password, _ = s.URL.User.Password()
-	cfg.Global.Datacenters = "DC0"
-	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
-	}
-
-	return cfg, func() {
-		s.Close()
-		model.Remove()
-	}
-}
-
-func configFromEnvOrSim() (*config.Config, func()) {
-	cfg := &config.Config{}
-	if err := config.FromEnv(cfg); err != nil {
-		return configFromSim()
-	}
-	return cfg, func() {}
-}
 
 type FakeNodeManager struct {
 	client             *vim25.Client
@@ -208,7 +147,7 @@ var (
 
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
-		config, _ := configFromEnvOrSim()
+		config, _ := config.FromEnvOrSim()
 
 		// CNS based CSI requires a valid cluster name
 		config.Global.ClusterID = testClusterName

@@ -265,7 +265,7 @@ endif
 ifndef VSPHERE_INSECURE
 	$(error Requires VSPHERE_INSECURE from a deployed testbed to run integration-unit-test)
 endif
-	    go test $(TEST_FLAGS) -tags=integration-unit ./pkg/csi/service/cns
+	    go test $(TEST_FLAGS) -tags=integration-unit ./pkg/csi/service/cns ./pkg/syncer
 
 # The default test target.
 .PHONY: test build-tests
