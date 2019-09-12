@@ -156,8 +156,8 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-							ginkgo.By("Wait for 2 minutes for the volume to detach from the pod VM")
-							time.Sleep(time.Duration(120) * time.Second)
+							ginkgo.By("Wait for 3 minutes for the volume to detach from the pod VM")
+							time.Sleep(supervisorClusterOperationsTimeout)
 							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 							ctx, cancel := context.WithCancel(context.Background())
 							defer cancel()

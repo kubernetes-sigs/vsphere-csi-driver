@@ -68,6 +68,12 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		if !isK8SVanillaTestSetup {
+			deleteResourceQuota(client, namespace)
+		}
+	})
+
 	ginkgo.It("[csi-common-e2e] Verify dynamic volume provisioning works when storage policy specified in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))
@@ -189,14 +195,13 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
 	} else {
-		ginkgo.By("Wait for 2 minutes for the pod to get terminated successfully")
-		time.Sleep(time.Duration(60) * time.Second)
+		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+		time.Sleep(supervisorClusterOperationsTimeout)
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, nodeName))
-		deleteResourceQuota(client, namespace)
 	}
 }
 

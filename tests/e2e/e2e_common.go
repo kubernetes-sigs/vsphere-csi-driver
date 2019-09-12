@@ -50,6 +50,7 @@ const (
 	defaultFullSyncWaitTime                    = 1800
 	sleepTimeOut                               = 30
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
+	supervisorClusterOperationsTimeout         = 3 * time.Minute
 	vsanhealthServiceName                      = "vsan-health"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
