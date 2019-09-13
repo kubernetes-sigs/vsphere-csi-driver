@@ -20,7 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	csictx "github.com/rexray/gocsi/context"
@@ -39,6 +42,29 @@ import (
 // NewInformer returns uninitialized metadataSyncInformer
 func NewInformer() *MetadataSyncInformer {
 	return &MetadataSyncInformer{}
+}
+
+// getFullSyncIntervalInMin return the FullSyncInterval
+// If enviroment variable FULL_SYNC_INTERVAL_MINUTES is set and valid,
+// return the interval value read from enviroment variable
+// otherwise, use the default value 30 minutes
+func getFullSyncIntervalInMin() int {
+	fullSyncIntervalInMin := defaultFullSyncIntervalInMin
+	if v := os.Getenv(envFullSyncIntervalMinutes); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 || value > defaultFullSyncIntervalInMin {
+				msg := fmt.Sprintf("FullSync: FULL_SYNC_INTERVAL_MINUTES %s is not in valid range, will use the default interval", v)
+				klog.Warningf(msg)
+			} else {
+				fullSyncIntervalInMin = value
+				klog.V(2).Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
+			}
+		} else {
+			msg := fmt.Sprintf("FullSync: FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+			klog.Warningf(msg)
+		}
+	}
+	return fullSyncIntervalInMin
 }
 
 // Init initializes the Metadata Sync Informer
@@ -86,6 +112,22 @@ func (metadataSyncer *MetadataSyncInformer) Init() error {
 		return err
 	}
 
+	// Initialize cnsDeletionMap used by Full Sync
+	cnsDeletionMap = make(map[string]bool)
+	// Initialize cnsCreationMap used by Full Sync
+	cnsCreationMap = make(map[string]bool)
+
+	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin()) * time.Minute)
+	// Trigger full sync
+	go func() {
+		for range ticker.C {
+			klog.V(2).Infof("fullSync is triggered")
+			triggerFullSync(k8sclient, metadataSyncer)
+		}
+	}()
+
+	stopFullSync := make(chan bool, 1)
+
 	// Set up kubernetes resource listeners for metadata syncer
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sclient)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
@@ -117,6 +159,7 @@ func (metadataSyncer *MetadataSyncInformer) Init() error {
 	klog.V(2).Infof("Initialized metadata syncer")
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	<-(stopCh)
+	<-(stopFullSync)
 	return nil
 }
 

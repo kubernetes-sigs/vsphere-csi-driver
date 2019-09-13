@@ -19,6 +19,7 @@ package syncer
 import (
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -26,11 +27,59 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
+const (
+	// default interval for csi full sync, used unless overridden by user in csi-controller YAML
+	defaultFullSyncIntervalInMin = 30
+
+	// Constants for specifying operation that needs to be performed on CNS volume
+	// Create the volume on CNS
+	createVolumeOperation = "createVolume"
+	// Update the volume entries on CNS
+	updateVolumeOperation = "updateVolume"
+	// Delete the PVC entry and Pod entry (if it exists) on CNS
+	updateVolumeWithDeleteClaimOperation = "updateVolumeWithDeleteClaim"
+	// Delete the Pod entry on CNS
+	updateVolumeWithDeletePodOperation = "updateVolumeWithDeletePod"
+
+	// Env variable for FullSync interval
+	envFullSyncIntervalMinutes = "FULL_SYNC_INTERVAL_MINUTES"
+)
+
 var (
+	// Create a mapping of CNS volume to Pod name
+	// as this mapping does not exist in K8s
+	// in case a Pod entry needs to be deleted from CNS cache
+	cnsVolumeToPodMap map[string]string
+
+	// Create a mapping of CNS volume to Pvc name
+	cnsVolumeToPvcMap map[string]string
+
+	// Create a mapping of CNS volume to entity Namespace name
+	// Here entity can be either PVC or Pod - both will
+	// belong to the same namespace
+	cnsVolumeToEntityNamespaceMap map[string]string
+
+	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
+	// If a volume exists in this map across two fullsync cycles,
+	// the volume is deleted from CNS
+	cnsDeletionMap map[string]bool
+
+	// cnsCreationMap tracks volumes that exist in K8s but not in CNS
+	// If a volume exists in this map across two fullsync cycles,
+	// the volume is created in CNS
+	cnsCreationMap map[string]bool
+
 	// Metadata syncer and full sync share a global lock
 	// to mitigate race conditions related to
 	// static provisioning of volumes
 	volumeOperationsLock sync.Mutex
+)
+
+type (
+	// Maps K8s PV names to respective PVC object
+	pvcMap = map[string]*v1.PersistentVolumeClaim
+	// Maps K8s PVC name to respective Pod object
+	podMap = map[string]*v1.Pod
 )
 
 // MetadataSyncInformer is the struct for metadata sync informer
