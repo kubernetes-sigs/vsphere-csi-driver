@@ -25,7 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework/log"
+	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
 var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Statefulset", func() {
