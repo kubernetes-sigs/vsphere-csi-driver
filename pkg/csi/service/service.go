@@ -121,17 +121,22 @@ func (s *service) BeforeServe(
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	controllerType = os.Getenv(vTypes.EnvControllerType)
+	if strings.TrimSpace(controllerType) == "" {
+		controllerType = defaultController
+	}
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 		var cfg *cnsconfig.Config
 		var err error
 		if controllerType == WcpGuestControllerType {
+			// Config path for Guest Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
 			if cfgPath == "" {
 				cfgPath = cnsconfig.DefaultGCConfigPath
 			}
 			cfg, err = cnsconfig.GetGCconfig(cfgPath)
 		} else {
+			// Config path for SuperVisor and Vanilla Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 			if cfgPath == "" {
 				cfgPath = cnsconfig.DefaultCloudConfigPath
