@@ -75,7 +75,7 @@ Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest 
 ``` shell
 $ export GINKGO_FOCUS=""
 ```
-### To run a particular test, set GINKGO_FOCUS to the string located after [csi-block-e2e-zone] in “Ginkgo.Describe()” for that test:
+### To run a particular test, set GINKGO_FOCUS to the string located after [csi-topology-block-e2e] in “Ginkgo.Describe()” for that test:
 To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
 ``` shell
 $ export GINKGO_FOCUS="Volume\sDisk\sSize"
