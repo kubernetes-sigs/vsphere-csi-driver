@@ -32,7 +32,9 @@ ESXi hosts in Cluster-3   : zone-c
 ## Setting env variables for All e2e tests
 ```shell
 $ export E2E_TEST_CONF_FILE="/path/to/e2eTest.conf"
+$ export KUBECONFIG="~/.kube/config"
 $ export K8S_VANILLA_ENVIRONMENT=true
+$ export VOLUME_OPS_SCALE=5
 $ export SVC_NAMESPACE="user-pods-ns"
 $ export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5cf05d97-4aac6e02-2940-02003e89d50e/"
 $ export NONSHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5cf05d98-b2c43515-d903-02003e89d50e/"
