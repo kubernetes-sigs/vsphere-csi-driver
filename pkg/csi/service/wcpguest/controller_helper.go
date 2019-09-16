@@ -18,13 +18,14 @@ package wcpguest
 
 import (
 	"fmt"
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -67,6 +68,13 @@ func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	return common.ValidateCreateVolumeRequest(req)
+}
+
+// validateGuestClusterDeleteVolumeRequest is the helper function to validate
+// DeleteVolumeRequest for pvCSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateGuestClusterDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
+	return common.ValidateDeleteVolumeRequest(req)
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode
