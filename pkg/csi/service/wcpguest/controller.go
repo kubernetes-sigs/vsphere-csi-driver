@@ -18,14 +18,15 @@ package wcpguest
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strconv"
-	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -147,7 +148,25 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	klog.V(4).Infof("DeleteVolume: called with args: %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	var err error
+	err = validateGuestClusterDeleteVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for Delete Volume Request: %+v has failed. Error: %+v", *req, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(req.VolumeId, nil)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			klog.V(4).Infof("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
+			return &csi.DeleteVolumeResponse{}, nil
+		}
+		msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	klog.V(2).Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 // ControllerPublishVolume attaches a volume to the Node VM.
