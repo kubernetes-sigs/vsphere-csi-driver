@@ -26,7 +26,7 @@ spec:
         - name: csi-attacher
           image: quay.io/k8scsi/csi-attacher:v1.1.1
           args:
-            - "--v=5"
+            - "--v=4"
             - "--timeout=60s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
@@ -72,7 +72,7 @@ spec:
         - name: vsphere-syncer
           image: <your docker registry>/volume-metadata-syncer:latest
           args:
-            - "--v=5"
+            - "--v=4"
             - "--leader-election"
           imagePullPolicy: "Always"
           env:
@@ -87,7 +87,7 @@ spec:
         - name: csi-provisioner
           image: quay.io/k8scsi/csi-provisioner:v1.2.1
           args:
-            - "--v=5"
+            - "--v=4"
             - "--timeout=60s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
