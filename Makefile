@@ -262,38 +262,66 @@ endif
 TEST_FLAGS ?= -v -count=1 -coverprofile coverage_report.out
 .PHONY: unit build-unit-tests
 unit unit-test:
-	env -u VSPHERE_SERVER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
+	env -u VSPHERE_SERVER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
 build-unit-tests:
 	$(foreach pkg,$(PKGS_WITH_TESTS),go test $(TEST_FLAGS) -c $(pkg); )
 
-INTEGRATION_TEST_PKGS ?= ./pkg/syncer ./pkg/csi/service/wcp
+INTEGRATION_TEST_PKGS ?=
 .PHONY: integration-unit-test
 integration-unit-test:
-ifndef VSPHERE_VCENTER
-	$(error Requires VSPHERE_VCENTER from a deployed testbed to run integration-unit-test)
-endif
-ifndef VSPHERE_USER
-	$(error Requires VSPHERE_USER from a deployed testbed to run integration-unit-test)
-endif
-ifndef VSPHERE_PASSWORD
-	$(error Requires VSPHERE_PASSWORD from a deployed testbed to run integration-unit-test)
-endif
-ifndef VSPHERE_DATACENTER
-	$(error Requires VSPHERE_DATACENTER from a deployed testbed to run integration-unit-test)
-endif
-ifndef VSPHERE_DATASTORE_URL
-	$(error Requires VSPHERE_DATASTORE_URL from a deployed testbed to run integration-unit-test)
-endif
-ifndef VSPHERE_K8S_NODE
-	$(warning VSPHERE_K8S_NODE not specified. Vanilla tests will be skipped.)
+ifndef TYPE
+	$(error Requires TYPE from a deployed testbed to run integration-unit-test)
 else
-	$(eval INTEGRATION_TEST_PKGS += ./pkg/csi/service/vanilla)
-endif
-ifndef KUBECONFIG
-	$(warning KUBECONFIG not specified. Vanilla tests will be skipped.)
-endif
-ifndef VSPHERE_INSECURE
-	$(error Requires VSPHERE_INSECURE from a deployed testbed to run integration-unit-test)
+    ifeq ($(TYPE), guestcluster)
+        ifndef WCP_ENDPOINT
+            $(error Requires WCP_ENDPOINT from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef WCP_NAMESPACE
+            $(error Requires WCP_NAMESPACE from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef SUPERVISOR_STORAGE_CLASS
+            $(error Requires SUPERVISOR_STORAGE_CLASS from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef TOKEN
+            $(error Requires TOKEN from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef CERTIFICATE
+            $(error Requires CERTIFICATE from a deployed testbed to run integration-unit-test)
+        else
+	        $(eval INTEGRATION_TEST_PKGS += ./pkg/csi/service/wcpguest)
+        endif
+    else
+        ifndef VSPHERE_VCENTER
+            $(error Requires VSPHERE_VCENTER from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef VSPHERE_USER
+            $(error Requires VSPHERE_USER from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef VSPHERE_PASSWORD
+            $(error Requires VSPHERE_PASSWORD from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef VSPHERE_DATACENTER
+            $(error Requires VSPHERE_DATACENTER from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef VSPHERE_DATASTORE_URL
+            $(error Requires VSPHERE_DATASTORE_URL from a deployed testbed to run integration-unit-test)
+        endif
+        ifndef VSPHERE_INSECURE
+            $(error Requires VSPHERE_INSECURE from a deployed testbed to run integration-unit-test)
+        endif
+        ifeq ($(TYPE), supervisorcluster)
+	        $(eval INTEGRATION_TEST_PKGS += ./pkg/csi/service/wcp ./pkg/syncer)
+        else
+            ifndef VSPHERE_K8S_NODE
+                $(error Requires VSPHERE_K8S_NODE from a deployed testbed to run integration-unit-test)
+            endif
+            ifndef KUBECONFIG
+                $(error Requires KUBECONFIG from a deployed testbed to run integration-unit-test)
+            else
+		$(eval INTEGRATION_TEST_PKGS += ./pkg/csi/service/vanilla ./pkg/syncer)
+            endif
+        endif
+    endif
 endif
 	go test $(TEST_FLAGS) -tags=integration-unit $(INTEGRATION_TEST_PKGS)
 
