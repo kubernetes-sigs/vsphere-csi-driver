@@ -108,7 +108,7 @@ func ValidateControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolume
 // CheckAPI checks if specified version is 6.7.3 or higher
 func CheckAPI(version string) error {
 	items := strings.Split(version, ".")
-	if len(items) < 2 || len(items) > 3 {
+	if len(items) < 2 || len(items) > 4 {
 		return fmt.Errorf("Invalid API Version format")
 	}
 	major, err := strconv.Atoi(items[0])
@@ -125,7 +125,7 @@ func CheckAPI(version string) error {
 	}
 
 	if major == MinSupportedVCenterMajor && minor == MinSupportedVCenterMinor {
-		if len(items) == 3 {
+		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
 			if err != nil || patch < MinSupportedVCenterPatch {
 				return fmt.Errorf("Invalid patch version value")
