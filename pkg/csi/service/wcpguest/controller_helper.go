@@ -47,7 +47,7 @@ const (
 func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	// Validate Name length of volumeName is > 4, eg: pvc-xxxxx
 	if len(req.Name) <= 4 {
-		msg := fmt.Sprint("Volume name %s is not valid", req.Name)
+		msg := fmt.Sprintf("Volume name %s is not valid", req.Name)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	// Get create params
@@ -64,7 +64,7 @@ func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error
 	}
 	// Validate if the req contains non-empty common.AttributeSupervisorStorageClass
 	if supervisorStorageClass == "" {
-		msg := fmt.Sprint("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
+		msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	return common.ValidateCreateVolumeRequest(req)
