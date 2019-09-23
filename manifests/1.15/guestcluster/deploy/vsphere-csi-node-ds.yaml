@@ -15,7 +15,30 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      dnsPolicy: "Default"
       containers:
+      - name: node-driver-registrar
+        image: vmware/csi-node-driver-registrar:<ver>
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com-reg.sock"]
+        args:
+          - "--v=5"
+          - "--csi-address=$(ADDRESS)"
+          - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+        env:
+          - name: ADDRESS
+            value: /csi/csi.sock
+          - name: DRIVER_REG_SOCK_PATH
+            value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - name: plugin-dir
+            mountPath: /csi
+          - name: registration-dir
+            mountPath: /registration
       - name: vsphere-csi-node
         image: vmware/vsphere-csi:<vsphere_csi_ver>
         imagePullPolicy: "Always"
@@ -32,8 +55,6 @@ spec:
           value: "false"
         - name: CLUSTER_FLAVOR
           value: "GUEST_CLUSTER"
-        - name: X_CSI_GC_CONFIG
-          value: "/etc/vmware/wcp/cns-csi.conf"
         - name: X_CSI_DEBUG
           value: "true"
         args:
@@ -44,9 +65,6 @@ spec:
             add: ["SYS_ADMIN"]
           allowPrivilegeEscalation: true
         volumeMounts:
-        - name: wcp-config-volume
-          mountPath: /etc/vmware/wcp
-          readOnly: true
         - name: plugin-dir
           mountPath: /csi
         - name: pods-mount-dir
@@ -65,9 +83,6 @@ spec:
         - name: plugin-dir
           mountPath: /csi
       volumes:
-      - name: wcp-config-volume
-        secret:
-          secretName: wcp-config-secret
       - name: registration-dir
         hostPath:
           path: /var/lib/kubelet/plugins_registry

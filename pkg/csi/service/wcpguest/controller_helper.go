@@ -17,6 +17,7 @@ limitations under the License.
 package wcpguest
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -24,12 +25,15 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
+	vmoperatorclient "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apimachineryTypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 
@@ -38,7 +42,10 @@ import (
 
 const (
 	// default timeout for provision, used unless overridden by user in csi-controller YAML
-	defaultProvisionTimeoutInMin = 5
+	defaultProvisionTimeoutInMin = 4
+
+	// timeout for attach and detach operation for watching on VirtualMachines instances, used unless overridden by user in csi-controller YAML
+	defaultAttacherTimeoutInMin = 4
 )
 
 // validateGuestClusterCreateVolumeRequest is the helper function to validate
@@ -75,6 +82,10 @@ func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error
 // Function returns error if validation fails otherwise returns nil.
 func validateGuestClusterDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
 	return common.ValidateDeleteVolumeRequest(req)
+}
+
+func validateGuestClusterControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
+	return common.ValidateControllerPublishVolumeRequest(req)
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode
@@ -138,7 +149,7 @@ func isPVCInSupervisorClusterBound(client clientset.Interface, claim *v1.Persist
 }
 
 // getProvisionTimeoutInMin() return the timeout for volume provision.
-// If environment variable PROVISION_TIMEOUT is set and valid,
+// If environment variable PROVISION_TIMEOUT_MINUTES is set and valid,
 // return the interval value read from environment variable
 // otherwise, use the default timeout 5 mins
 func getProvisionTimeoutInMin() int {
@@ -156,4 +167,54 @@ func getProvisionTimeoutInMin() int {
 		}
 	}
 	return provisionTimeoutInMin
+}
+
+// getAttacherTimeoutInMin() return the timeout for volume attach and detach.
+// If environment variable ATTACHER_TIMEOUT_MINUTES is set and valid,
+// return the interval value read from environment variable
+// otherwise, use the default timeout 5 mins
+func getAttacherTimeoutInMin() int {
+	attacherTimeoutInMin := defaultAttacherTimeoutInMin
+	if v := os.Getenv("ATTACHER_TIMEOUT_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				klog.Warningf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
+			} else {
+				attacherTimeoutInMin = value
+				klog.V(2).Infof("attacherTimeout is set to %d minutes", attacherTimeoutInMin)
+			}
+		} else {
+			klog.Warningf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
+		}
+	}
+	return attacherTimeoutInMin
+}
+
+// patchVirtualMachineVolumes patches VirtualMachine instance with spec changes supplied in the newVirtualMachine instance.
+func patchVirtualMachineVolumes(client *vmoperatorclient.VmoperatorV1alpha1Client, oldVirtualMachine *vmoperatortypes.VirtualMachine, newVirtualMachine *vmoperatortypes.VirtualMachine) (*vmoperatortypes.VirtualMachine, error) {
+	oldVMData, err := json.Marshal(oldVirtualMachine)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", oldVirtualMachine, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	newVMData, err := json.Marshal(newVirtualMachine)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", newVirtualMachine, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldVMData, newVMData, oldVirtualMachine)
+	if err != nil {
+		msg := fmt.Sprintf("CreateTwoWayMergePatch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	updatedVirtualMachine, err := client.VirtualMachines(oldVirtualMachine.Namespace).Patch(oldVirtualMachine.Name, apimachineryTypes.StrategicMergePatchType, patchBytes)
+	if err != nil {
+		msg := fmt.Sprintf("patch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
+		klog.Error(msg)
+		return nil, err
+	}
+	return updatedVirtualMachine, nil
 }
