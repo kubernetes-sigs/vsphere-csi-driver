@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	vmoperatorv1alpha1 "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -41,10 +42,9 @@ func NewClient() (clientset.Interface, error) {
 	return clientset.NewForConfig(config)
 }
 
-// NewSupervisorClient creates a new Guest Cluster client from given endpoint, port, certificate and token
-func NewSupervisorClient(endpoint string, port string, certificate string, token string) (clientset.Interface, error) {
+// GetRestClientConfig returns restclient config for given endpoint, port, certificate and token
+func GetRestClientConfig(endpoint string, port string, certificate string, token string) *restclient.Config {
 	var config *restclient.Config
-	klog.V(2).Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
 	config = &restclient.Config{
 		Host: "https://" + net.JoinHostPort(endpoint, port),
 		TLSClientConfig: restclient.TLSClientConfig{
@@ -52,12 +52,28 @@ func NewSupervisorClient(endpoint string, port string, certificate string, token
 		},
 		BearerToken: string(token),
 	}
+	return config
+}
+
+// NewSupervisorClient creates a new supervisor client for given restClient config
+func NewSupervisorClient(config *restclient.Config) (clientset.Interface, error) {
+	klog.V(2).Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
 	client, err := clientset.NewForConfig(config)
 	if err != nil {
 		klog.Error("Failed to connect to the supervisor cluster with err: %+v", err)
 		return nil, err
 	}
 	return client, nil
+}
+
+// NewVMOperatorClient creates a new VMOperatorClient for given restClient config
+func NewVMOperatorClient(config *restclient.Config) (*vmoperatorv1alpha1.VmoperatorV1alpha1Client, error) {
+	vmOperatorClient, err := vmoperatorv1alpha1.NewForConfig(config)
+	if err != nil {
+		klog.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		return nil, err
+	}
+	return vmOperatorClient, nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file

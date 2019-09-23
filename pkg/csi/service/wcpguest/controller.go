@@ -24,12 +24,15 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
+	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
+	vmoperatorclient "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 
@@ -55,6 +58,7 @@ const (
 
 type controller struct {
 	supervisorClient    clientset.Interface
+	vmOperatorClient    *vmoperatorclient.VmoperatorV1alpha1Client
 	supervisorNamespace string
 }
 
@@ -66,11 +70,18 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
 	// connect to the CSI controller in supervisor cluster
-	klog.V(1).Infof("Initializing WCPGC CSI controller")
+	klog.V(2).Infof("Initializing WCPGC CSI controller")
 	var err error
 	c.supervisorNamespace = config.GC.Namespace
-	c.supervisorClient, err = k8s.NewSupervisorClient(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
+	restClientConfig := k8s.GetRestClientConfig(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
+	c.supervisorClient, err = k8s.NewSupervisorClient(restClientConfig)
 	if err != nil {
+		klog.Errorf("Failed to create supervisorClient. Error: %+v", err)
+		return err
+	}
+	c.vmOperatorClient, err = k8s.NewVMOperatorClient(restClientConfig)
+	if err != nil {
+		klog.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
 	return nil
@@ -173,9 +184,115 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	err := validateGuestClusterControllerPublishVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	klog.V(4).Infof("Found virtualMachine instance for node: %q", req.NodeId)
+	oldvirtualMachine := virtualMachine.DeepCopy()
+
+	// Check if volume is already present in the virtualMachine.Spec.Volumes
+	var isVolumePresentInSpec, isVolumeAttached bool
+	var diskUUID string
+	for _, volume := range virtualMachine.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == req.VolumeId {
+			klog.V(2).Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+			isVolumePresentInSpec = true
+			break
+		}
+	}
+
+	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
+	if isVolumePresentInSpec {
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId && volume.Attached == true && volume.DiskUuid != "" {
+				diskUUID = volume.DiskUuid
+				isVolumeAttached = true
+				klog.V(2).Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
+				break
+			}
+		}
+	} else {
+		// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
+		vmvolumes := vmoperatortypes.VirtualMachineVolumes{
+			Name: req.VolumeId,
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: req.VolumeId,
+			},
+		}
+		virtualMachine.Spec.Volumes = append(oldvirtualMachine.Spec.Volumes, vmvolumes)
+		_, err := patchVirtualMachineVolumes(c.vmOperatorClient, oldvirtualMachine, virtualMachine)
+		if err != nil {
+			msg := fmt.Sprintf("failed to patch virtualMachine %q with Error: %+v", virtualMachine.Name, err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+
+	// volume is not attached, so wait until volume is attached and DiskUuid is set
+	if !isVolumeAttached {
+		timeoutSeconds := int64(getAttacherTimeoutInMin() * 60)
+		watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
+			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+			ResourceVersion: virtualMachine.ResourceVersion,
+			TimeoutSeconds:  &timeoutSeconds,
+		})
+		if err != nil {
+			msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		defer watchVirtualMachine.Stop()
+		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
+		for diskUUID != "" {
+			// blocking wait for update event
+			klog.V(4).Infof(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
+			event := <-watchVirtualMachine.ResultChan()
+			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
+			if !ok {
+				continue
+			}
+			klog.V(4).Infof(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
+			for _, volume := range vm.Status.Volumes {
+				if volume.Name == req.VolumeId {
+					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
+						diskUUID = volume.DiskUuid
+						klog.V(2).Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q", volume.DiskUuid, volume.Name, vm.Name)
+					} else {
+						if volume.Error != "" {
+							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q", volume.Error, volume.Name, vm.Name)
+							klog.Error(msg)
+							return nil, status.Errorf(codes.Internal, msg)
+						}
+					}
+					break
+				}
+			}
+			if diskUUID == "" {
+				klog.V(4).Infof(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
+			}
+		}
+		klog.V(4).Infof(fmt.Sprintf("disk UUID is set for the volume: %q ", req.VolumeId))
+	}
+
+	//return PublishContext with diskUUID of the volume attached to node.
+	publishInfo := make(map[string]string, 0)
+	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+	resp := &csi.ControllerPublishVolumeResponse{
+		PublishContext: publishInfo,
+	}
+	return resp, nil
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
