@@ -62,7 +62,8 @@ func configFromEnvOrSim() (clientset.Interface, error) {
 	isUnitTest = false
 	// This step is help to format the certificate from env.
 	certificate := strings.Replace(cfg.GC.Certificate, `\n`, "\n", -1)
-	supervisorClient, err := k8s.NewSupervisorClient(cfg.GC.Endpoint, cfg.GC.Port, certificate, cfg.GC.Token)
+	restClientConfig := k8s.GetRestClientConfig(cfg.GC.Endpoint, cfg.GC.Port, certificate, cfg.GC.Token)
+	supervisorClient, err := k8s.NewSupervisorClient(restClientConfig)
 	if err != nil {
 		return nil, err
 	}

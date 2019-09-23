@@ -29,12 +29,12 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -55,7 +55,7 @@ func (s *service) NodeStageVolume(
 	volID := req.GetVolumeId()
 	pubCtx := req.GetPublishContext()
 
-	diskID, err := getDiskID(volID, pubCtx)
+	diskID, err := getDiskID(pubCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (s *service) NodePublishVolume(
 	volID := req.GetVolumeId()
 	pubCtx := req.GetPublishContext()
 
-	diskID, err := getDiskID(volID, pubCtx)
+	diskID, err := getDiskID(pubCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +381,12 @@ func (s *service) NodeGetInfo(
 	nodeId := os.Getenv("NODE_NAME")
 	if nodeId == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
+	}
+	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
+		return &csi.NodeGetInfoResponse{
+			NodeId:             nodeId,
+			AccessibleTopology: &csi.Topology{},
+		}, nil
 	}
 	var cfg *cnsconfig.Config
 	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
@@ -829,26 +835,14 @@ func convertUUID(uuid string) (string, error) {
 	return strings.ToLower(convertedUUID), nil
 }
 
-func getDiskID(volID string, pubCtx map[string]string) (string, error) {
-
-	if volID == "" {
-		return "", status.Error(codes.InvalidArgument,
-			"Volume ID required")
-	}
-
+func getDiskID(pubCtx map[string]string) (string, error) {
 	var diskID string
-
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		if _, ok := pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
-			return "", status.Errorf(codes.InvalidArgument,
-				"Attribute: %s required in publish context",
-				common.AttributeFirstClassDiskUUID)
-		}
-		diskID = pubCtx[common.AttributeFirstClassDiskUUID]
-	} else {
-		diskID = volID
+	var ok bool
+	if diskID, ok = pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
+		return "", status.Errorf(codes.InvalidArgument,
+			"Attribute: %s required in publish context",
+			common.AttributeFirstClassDiskUUID)
 	}
-
 	return diskID, nil
 }
 

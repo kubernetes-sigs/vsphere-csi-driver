@@ -80,7 +80,8 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster
 		// if metadata syncer is being initialized for guest clusters
-		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Certificate, metadataSyncer.configInfo.Cfg.GC.Token)
+		restClientConfig := k8s.GetRestClientConfig(metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Certificate, metadataSyncer.configInfo.Cfg.GC.Token)
+		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(restClientConfig)
 		if err != nil {
 			klog.Errorf("Creating Supervisor client failed. Err: %v", err)
 			return err
