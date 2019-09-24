@@ -76,7 +76,7 @@ spec:
             - "--v=2"
           imagePullPolicy: "Always"
           env:
-            - name: X_CSI_FULL_SYNC_INTERVAL_MINUTES
+            - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
