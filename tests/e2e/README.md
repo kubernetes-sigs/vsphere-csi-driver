@@ -57,7 +57,7 @@ ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 ```shell
 
 ### Setting full sync time var
-1. Add `X_CSI_FULL_SYNC_INTERVAL_MINUTES` in csi-driver-deploy.yaml for vsphere-csi-metadata-syncer
+1. Add `FULL_SYNC_INTERVAL_MINUTES` in csi-driver-deploy.yaml for vsphere-csi-metadata-syncer
 2. Setting time interval in the env
 
 ```shell
