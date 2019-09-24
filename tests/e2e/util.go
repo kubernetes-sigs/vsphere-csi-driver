@@ -215,6 +215,18 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	return statefulSet
 }
 
+// updateDeploymentReplica helps to update the replica for a deployment
+func updateDeploymentReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.Deployment {
+	deployment, err := client.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	*deployment.Spec.Replicas = count
+	deployment, err = client.AppsV1().Deployments(namespace).Update(deployment)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Waiting for update operation on deployment to take effect")
+	time.Sleep(1 * time.Minute)
+	return deployment
+}
+
 // getLabelsMapFromKeyValue returns map[string]string for given array of vim25types.KeyValue
 func getLabelsMapFromKeyValue(labels []vim25types.KeyValue) map[string]string {
 	labelsMap := make(map[string]string)
