@@ -17,9 +17,7 @@ limitations under the License.
 package e2e
 
 import (
-	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -58,57 +56,38 @@ Test to verify if an invalid fstype specified in storage class fails pod creatio
  7. Verify if the MountVolume.MountDevice fails because it is unable to find the file system executable file on the node.
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Filesystem Type Test", func() {
+var _ = ginkgo.Describe("[csi-block-e2e] Volume Filesystem Type Test", func() {
 	f := framework.NewDefaultFramework("volume-fstype")
 	var (
 		client                clientset.Interface
 		namespace             string
-		isK8SVanillaTestSetup bool
 		storagePolicyName     string
 		profileID             string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = f.Namespace.Name
 		bootstrap()
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if !isK8SVanillaTestSetup {
-			ginkgo.By("CNS_TEST: Running for WCP setup")
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-			profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-		}
-	})
-	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
-			deleteResourceQuota(client, namespace)
-		}
 	})
 
 	ginkgo.It("CSI - verify fstype - ext3 formatted volume", func() {
-		invokeTestForFstype(f, client, namespace, ext3FSType, ext3FSType, isK8SVanillaTestSetup, storagePolicyName, profileID)
+		invokeTestForFstype(f, client, namespace, ext3FSType, ext3FSType, storagePolicyName, profileID)
 	})
 
 	ginkgo.It("CSI - verify fstype - default value should be ext4", func() {
-		invokeTestForFstype(f, client, namespace, "", ext4FSType, isK8SVanillaTestSetup, storagePolicyName, profileID)
+		invokeTestForFstype(f, client, namespace, "", ext4FSType, storagePolicyName, profileID)
 	})
 
 	ginkgo.It("CSI - verify invalid fstype", func() {
-		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, isK8SVanillaTestSetup, storagePolicyName, profileID)
+		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
 })
 
-func invokeTestForFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, expectedContent string, isK8SVanillaTestSetup bool, storagePolicyName string, profileID string) {
+func invokeTestForFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for fstype: %s", fstype))
 	scParameters := make(map[string]string)
 	scParameters["fstype"] = fstype
@@ -117,18 +96,18 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	// decide which test setup is available to run
-	if isK8SVanillaTestSetup {
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
-	} else {
-		ginkgo.By("CNS_TEST: Running for WCP setup")
-		scParameters[scParamStoragePolicyID] = profileID
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
-	}
 
+	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	// Waiting for PVC to be bound
 	var pvclaims []*v1.PersistentVolumeClaim
@@ -144,19 +123,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 
 	pv := persistentvolumes[0]
 	var vmUUID string
-	var exists bool
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if isK8SVanillaTestSetup {
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
-	} else {
-		annotations := pod.Annotations
-		vmUUID, exists = annotations[vmUUIDLabel]
-		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
@@ -165,30 +133,18 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Delete POD and PVC
-	ginkgo.By("Deleting the pod")
-	framework.DeletePodWithWait(f, client, pod)
-
-	if isK8SVanillaTestSetup {
-		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-	} else {
-		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
-		time.Sleep(supervisorClusterOperationsTimeout)
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
-	}
-
-	err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+	// Delete POD
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err = framework.DeletePodWithWait(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Verify volume is detached from the node")
+	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 }
 
-func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, isK8SVanillaTestSetup bool, storagePolicyName string, profileID string) {
+func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, storagePolicyName string, profileID string) {
 	scParameters := make(map[string]string)
 	scParameters["fstype"] = fstype
 
@@ -197,18 +153,18 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	// decide which test setup is available to run
-	if isK8SVanillaTestSetup {
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
-	} else {
-		ginkgo.By("CNS_TEST: Running for WCP setup")
-		scParameters[scParamStoragePolicyID] = profileID
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
-	}
 
+	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	// Waiting for PVC to be bound
 	var pvclaims []*v1.PersistentVolumeClaim
@@ -222,17 +178,9 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 
-	eventList, err := client.CoreV1().Events(namespace).List(metav1.ListOptions{})
-	gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 	pv := persistentvolumes[0]
-	errorMsg := `MountVolume.MountDevice failed for volume "` + pv.Name
-	isFailureFound := false
-	for _, item := range eventList.Items {
-		ginkgo.By(fmt.Sprintf("Print errorMessage %q \n", item.Message))
-		if strings.Contains(item.Message, errorMsg) {
-			isFailureFound = true
-		}
-	}
+	expectedErrorMsg := `MountVolume.MountDevice failed for volume "` + pv.Name
+	isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name)}, expectedErrorMsg)
 	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify MountVolume.MountDevice failure")
 
 	// pod.Spec.NodeName may not be set yet when pod just created
@@ -244,15 +192,12 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	podNodeName = pod.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("Refetch the POD: podNodeName: %v podName: %v", podNodeName, pod.Name))
 
-	// Delete POD and PVC
-	ginkgo.By("Deleting the pod")
-	framework.DeletePodWithWait(f, client, pod)
+	// Delete POD
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err = framework.DeletePodWithWait(f, client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Verify volume is detached from the node")
 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, podNodeName)
 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, podNodeName))
-
-	err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 }

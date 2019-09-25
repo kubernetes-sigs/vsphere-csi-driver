@@ -33,6 +33,7 @@ const (
 	manifestPath     = "tests/e2e/testing-manifests/statefulset/nginx"
 	mountPath        = "/usr/share/nginx/html"
 	storageclassname = "nginx-sc"
+	servicename      = "nginx"
 )
 
 /*
@@ -74,12 +75,9 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-
 	})
 
 	ginkgo.AfterEach(func() {
-		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		framework.DeleteAllStatefulSets(client, namespace)
 		if !isK8SVanillaTestSetup {
 			deleteResourceQuota(client, namespace)
 		}
@@ -102,11 +100,23 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "")
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Creating statefulset")
 		statefulsetTester := framework.NewStatefulSetTester(client)
 		statefulset := statefulsetTester.CreateStatefulSet(manifestPath, namespace)
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			framework.DeleteAllStatefulSets(client, namespace)
+			if !isK8SVanillaTestSetup {
+				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
