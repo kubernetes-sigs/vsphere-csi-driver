@@ -63,6 +63,8 @@ const (
 	invalidFSType                              = "ext10"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	kubeSystemNamespace                        = "kube-system"
+	csiSystemNamespace                         = "vmware-system-csi"
+	syncerStatefulsetName                      = "vsphere-csi-metadata-syncer"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
 	rqLimit                                    = "10Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
