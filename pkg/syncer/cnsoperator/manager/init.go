@@ -25,8 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 )
 
@@ -55,8 +57,16 @@ func InitCnsOperator() error {
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 
 	// Create CnsNodeVMAttachment CRD
-	crdKind := reflect.TypeOf(v1alpha1.CnsNodeVmAttachment{}).Name()
-	err = createCustomResourceDefinition(apiextensionsClientSet, v1alpha1.CnsNodeVmAttachmentPlural, crdKind)
+	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
+	err = createCustomResourceDefinition(apiextensionsClientSet, apis.CnsNodeVmAttachmentPlural, crdKind)
+	if err != nil {
+		klog.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
+		return err
+	}
+
+	// Create CnsVolumeMetadata CRD
+	crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
+	err = createCustomResourceDefinition(apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
 	if err != nil {
 		klog.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
