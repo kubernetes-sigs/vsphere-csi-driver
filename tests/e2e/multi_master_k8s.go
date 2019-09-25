@@ -18,7 +18,9 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -42,6 +44,11 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-multi-master-k8s")
 	var (
 		namespace             string
+		controllerNamespace   string
+		sc                    *storagev1.StorageClass
+		pvc                   *v1.PersistentVolumeClaim
+		pvs                   []*v1.PersistentVolume
+		err                   error
 		client                clientset.Interface
 		isK8SVanillaTestSetup bool
 		storagePolicyName     string
@@ -51,24 +58,23 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		nodeNameIPMap         map[string]string
 	)
 	ginkgo.BeforeEach(func() {
-		namespace = f.Namespace.Name
 		client = f.ClientSet
+		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
+		if isK8SVanillaTestSetup {
+			namespace = f.Namespace.Name
+			controllerNamespace = kubeSystemNamespace
+		} else {
+			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+			controllerNamespace = csiSystemNamespace
+		}
 		bootstrap()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		master1Name := GetAndExpectStringEnvVar(envK8SMaster1Name)
-		master1IP := GetAndExpectStringEnvVar(envK8SMaster1IP)
-
-		master2Name := GetAndExpectStringEnvVar(envK8SMaster2Name)
-		master2IP := GetAndExpectStringEnvVar(envK8SMaster2IP)
-
-		master3Name := GetAndExpectStringEnvVar(envK8SMaster3Name)
-		master3IP := GetAndExpectStringEnvVar(envK8SMaster3IP)
 
 		nodeNameIPMap = make(map[string]string)
-		nodeNameIPMap[master1Name] = master1IP
-		nodeNameIPMap[master2Name] = master2IP
-		nodeNameIPMap[master3Name] = master3IP
+		ginkgo.By("Retrieving testbed configuration data")
+		err := getTestbedConfig(client, nodeNameIPMap)
+		framework.ExpectNoError(err)
 
 		labelKey = "app"
 		labelValue = "e2e-multi-master"
@@ -76,9 +82,31 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		ginkgo.By("Performing test cleanup")
 		if !isK8SVanillaTestSetup {
 			deleteResourceQuota(client, namespace)
 		}
+
+        if pvc != nil {
+			err = framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	    }
+
+		for _, pv := range pvs {
+			err = framework.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))
+		}
+
+	    if (sc != nil) {
+			client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+		}
+
+		ginkgo.By(fmt.Sprintf("Waiting for old vsphere-csi-controller pod to be removed"))
+		err = waitForControllerDeletion(client, controllerNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
@@ -95,14 +123,11 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		8. Delete the storage class.
 	*/
 	ginkgo.It("Power off the node where vsphere-csi-controller pod is running", func() {
-		nodeList, podList := getControllerRuntimeDetails(client, kubeSystemNamespace)
+		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
 		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
 
 		ginkgo.By("Create a pvc and wait for PVC to bound")
-		var sc *storagev1.StorageClass
-		var pvc *v1.PersistentVolumeClaim
-		var err error
 		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
 		if isK8SVanillaTestSetup {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -117,10 +142,9 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err = framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -162,7 +186,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		time.Sleep(k8sPodTerminationTimeOutLong)
 
 		ginkgo.By("vsphere-csi-controller pod should be rescheduled to other node")
-		newNodeList, newPodList := getControllerRuntimeDetails(client, kubeSystemNamespace)
+		newNodeList, newPodList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", newPodList, newNodeList))
 		gomega.Expect(len(newPodList) == 2).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 2")
 
@@ -175,20 +199,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// cleanup
+		// power on vm
 		vm.PowerOn(ctx)
-
-		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Waiting for old vsphere-csi-controller pod to be removed"))
-		err = waitForControllerDeletion(client, kubeSystemNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
@@ -206,15 +218,12 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		9. Delete the storage class.
 	*/
 
-	ginkgo.It("Stop kubelet on the node where vsphere-csi-controller pod is running", func() {
-		nodeList, podList := getControllerRuntimeDetails(client, kubeSystemNamespace)
+	ginkgo.It("[csi-common-e2e] Stop kubelet on the node where vsphere-csi-controller pod is running", func() {
+		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
 		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
 
 		ginkgo.By("Create a pvc and wait for PVC to bound")
-		var sc *storagev1.StorageClass
-		var pvc *v1.PersistentVolumeClaim
-		var err error
 		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
 		if isK8SVanillaTestSetup {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -229,10 +238,9 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err = framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -267,7 +275,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		time.Sleep(k8sPodTerminationTimeOutLong)
 
 		ginkgo.By("vsphere-csi-controller pod should be rescheduled to other node")
-		newNodeList, newPodList := getControllerRuntimeDetails(client, kubeSystemNamespace)
+		newNodeList, newPodList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", newPodList, newNodeList))
 		gomega.Expect(len(newPodList) == 2).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 2")
 
@@ -284,21 +292,6 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		_, err = client.CoreV1().PersistentVolumes().Update(pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Waiting for old vsphere-csi-controller pod to be removed"))
-		err = waitForControllerDeletion(client, kubeSystemNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
 
@@ -333,4 +326,33 @@ func waitForControllerDeletion(client clientset.Interface, namespace string) err
 
 	return err
 
+}
+
+// getTestbedConfig returns master node name and IP from K8S testbed
+func getTestbedConfig(client clientset.Interface, nodeNameIPMap map[string]string) error {
+
+	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
+	if err != nil {
+		return err
+	}
+	if len(nodes.Items) <= 1 {
+		return errors.New("K8S testbed does not have more than one master nodes")
+	}
+	for _, node := range nodes.Items {
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == v1.NodeExternalIP && addr.Address != "" && net.ParseIP(addr.Address) != nil {
+				framework.Logf("Found master node name %s with external IP %s", node.Name, addr.Address)
+				nodeNameIPMap[node.Name] = addr.Address
+			} else if addr.Type == v1.NodeInternalIP && addr.Address != "" && net.ParseIP(addr.Address) != nil {
+				framework.Logf("Found master node name %s with internal IP %s", node.Name, addr.Address)
+				nodeNameIPMap[node.Name] = addr.Address
+			}
+			if _, ok := nodeNameIPMap[node.Name]; !ok {
+				framework.Logf("No IP address is found for master node %s", node.Name)
+				return errors.New(fmt.Sprintf("IP address is not found for node %s", node.Name))
+			}
+		}
+	}
+
+	return nil
 }

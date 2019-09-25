@@ -89,7 +89,7 @@ Note that specify spaces using “\s”.
 
 ## Running fail-over e2e test on multi-master K8s
 ### Prerequisite
-To run those tests, a multi-master K8S testbed with 3 master nodes is required. CSI driver must be deployed as a K8S deployment with 1 replica. Use manifest file at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/tree/master/manifests/1.14 to deploy CSI driver.
+To run those tests, a multi-master K8S testbed which has more than one master node is required. CSI driver must be deployed as a K8S deployment with 1 replica. Use manifest file at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/tree/master/manifests/1.14 to deploy CSI driver.
 
 The following output shows a sample multi-master K8S testbed (with 3 master nodes and 3 worker nodes)
 ``` shell
@@ -146,8 +146,8 @@ ProviderID:                  vsphere://422279f2-0510-b5ff-1129-f32e2b87a23d
 ```
 1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
 2.ssh root@k8s_master_ip mkdir -p .ssh
-3.cat ~/.ssh/id_rsa.pub | ssh root@vcip 'cat >> .ssh/authorized_keys'
-4.ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
+3.cat ~/.ssh/id_rsa.pub | ssh root@k8s_master_ip 'cat >> .ssh/authorized_keys'
+4.ssh root@k8s_master_ip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 ```
 SSH keys need to be configured properley for all three master nodes of K8S cluster using the above command.
 
@@ -158,12 +158,6 @@ export K8S_VANILLA_ENVIRONMENT=true
 export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/vsan:52e7e70e3b966d33-609dd50e5ac9d1b1/"
 export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
 export USER=root
-export K8S_MASTER1_NAME="master01"
-export K8S_MASTER2_NAME="master02"
-export K8S_MASTER3_NAME="master03"
-export K8S_MASTER1_IP="10.161.69.104"
-export K8S_MASTER2_IP="10.161.64.51"
-export K8S_MASTER3_IP="10.161.79.174"
 export GINKGO_FOCUS="csi-multi-master-block-e2e"
 ```
 
