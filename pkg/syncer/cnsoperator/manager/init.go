@@ -18,12 +18,15 @@ package manager
 
 import (
 	"fmt"
+	"reflect"
 
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 )
 
@@ -40,6 +43,22 @@ func InitCnsOperator() error {
 	cfg, err := config.GetConfig()
 	if err != nil {
 		klog.Errorf("Failed to get Kubernetes config. Err: %+v", err)
+		return err
+	}
+
+	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
+	if err != nil {
+		klog.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
+		return err
+	}
+
+	// TODO: Verify leader election for CNS Operator in multi-master mode
+
+	// Create CnsNodeVMAttachment CRD
+	crdKind := reflect.TypeOf(v1alpha1.CnsNodeVmAttachment{}).Name()
+	err = createCustomResourceDefinition(apiextensionsClientSet, v1alpha1.CnsNodeVmAttachmentPlural, crdKind)
+	if err != nil {
+		klog.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
