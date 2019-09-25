@@ -26,6 +26,7 @@ import (
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 )
 
@@ -48,7 +49,13 @@ func main() {
 	if controllerType == WcpControllerType {
 		go func() {
 			if err := podlistener.InitPodListenerService(); err != nil {
-				klog.Errorf("Error initializing Pod Listener gRPC sever")
+				klog.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)
+				os.Exit(1)
+			}
+		}()
+		go func() {
+			if err := manager.InitCnsOperator(); err != nil {
+				klog.Errorf("Error initializing Cns Operator. Error: %+v", err)
 				os.Exit(1)
 			}
 		}()
@@ -56,8 +63,9 @@ func main() {
 
 	syncer := syncer.NewInformer()
 	run := func(ctx context.Context) {
+		klog.V(2).Infof("Calling InitMetadataSyncer function")
 		if err := syncer.InitMetadataSyncer(); err != nil {
-			klog.Errorf("Error initializing Metadata Syncer")
+			klog.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)
 		}
 	}
