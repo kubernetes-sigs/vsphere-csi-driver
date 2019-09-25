@@ -20,6 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier
+	AttributeFirstClassDiskUUID = "diskUUID"
+)
+
 // CnsNodeVmAttachmentSpec defines the desired state of CnsNodeVmAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVmAttachmentSpec struct {
