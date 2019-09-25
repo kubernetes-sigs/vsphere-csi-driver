@@ -27,7 +27,7 @@ spec:
           image: quay.io/k8scsi/csi-attacher:v1.1.1
           args:
             - "--v=4"
-            - "--timeout=60s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
             - "--leader-election-type=leases"
@@ -88,7 +88,7 @@ spec:
           image: quay.io/k8scsi/csi-provisioner:v1.2.1
           args:
             - "--v=4"
-            - "--timeout=60s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
             - "--strict-topology"
