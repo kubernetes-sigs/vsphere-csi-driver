@@ -18,6 +18,8 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
 const (
@@ -57,6 +59,7 @@ type CnsNodeVmAttachmentStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
+// +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CnsNodeVmAttachment is the Schema for the cnsnodevmattachments API
@@ -80,5 +83,5 @@ type CnsNodeVmAttachmentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CnsNodeVmAttachment{}, &CnsNodeVmAttachmentList{})
+	apis.SchemeBuilder.Register(&CnsNodeVmAttachment{}, &CnsNodeVmAttachmentList{})
 }
