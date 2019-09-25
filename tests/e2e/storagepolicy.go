@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -67,7 +66,6 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
-
 	ginkgo.AfterEach(func() {
 		if !isK8SVanillaTestSetup {
 			deleteResourceQuota(client, namespace)
@@ -110,13 +108,10 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForNonSharedDatastores)
 		}
 
-		err := invokeInvalidPolicyTestNeg(client, namespace, scParameters, isK8SVanillaTestSetup, storagePolicyNameForNonSharedDatastores)
-		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrorMsg := "No compatible datastore found for storagePolicy"
-		framework.Logf(fmt.Sprintf("expected error: %+q", expectedErrorMsg))
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), expectedErrorMsg)
-		}
+		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, isK8SVanillaTestSetup, storagePolicyNameForNonSharedDatastores)
+		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
 
 	ginkgo.It("Verify non-existing SPBM policy is not honored for dynamic volume provisioning using storageclass", func() {
@@ -124,15 +119,11 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
 
-		err := invokeInvalidPolicyTestNeg(client, namespace, scParameters, isK8SVanillaTestSetup, scParamStoragePolicyName)
-		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrorMsg := "no pbm profile found with name: \"" + f.Namespace.Name + "\""
-		framework.Logf(fmt.Sprintf("expected error: %+q", expectedErrorMsg))
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), expectedErrorMsg)
-		}
+		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, isK8SVanillaTestSetup, scParamStoragePolicyName)
+		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
-
 })
 
 // verifyStoragePolicyBasedVolumeProvisioning helps invokes storage policy related positive e2e tests
@@ -150,8 +141,15 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-	defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
 	ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
@@ -187,8 +185,9 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
 
-	ginkgo.By("Deleting the pod")
-	framework.DeletePodWithWait(f, client, pod)
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err = framework.DeletePodWithWait(f, client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if isK8SVanillaTestSetup {
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", volumeID, nodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
@@ -206,7 +205,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 }
 
 // invokeInvalidPolicyTestNeg helps invokes storage policy related negative e2e tests
-func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string, isK8SVanillaTestSetup bool, storagePolicyName string) error {
+func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string, isK8SVanillaTestSetup bool, storagePolicyName string) *v1.PersistentVolumeClaim {
 
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
@@ -220,16 +219,18 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create a StorageClasse. Error: %v", err))
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-	defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
 	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, poll, pollTimeoutShort)
 	gomega.Expect(err).To(gomega.HaveOccurred())
-
-	// eventList contains the events related to pvc
-	eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
-	errMsg := eventList.Items[len(eventList.Items)-1].Message
-	framework.Logf(fmt.Sprintf("Actual failure message: %+q", errMsg))
-	return fmt.Errorf(errMsg)
+	return pvclaim
 }

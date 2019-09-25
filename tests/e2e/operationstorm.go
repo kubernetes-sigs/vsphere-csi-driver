@@ -50,16 +50,20 @@ import (
 */
 
 var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
+	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
 	const defaultVolumeOpsScale = 30
 	var (
-		client            clientset.Interface
-		namespace         string
-		storageclass      *storage.StorageClass
-		pvclaims          []*v1.PersistentVolumeClaim
-		persistentvolumes []*v1.PersistentVolume
-		err               error
-		volumeOpsScale    int
+		client                clientset.Interface
+		namespace             string
+		scParameters          map[string]string
+		storageclass          *storage.StorageClass
+		pvclaims              []*v1.PersistentVolumeClaim
+		persistentvolumes     []*v1.PersistentVolume
+		err                   error
+		volumeOpsScale        int
+		isK8SVanillaTestSetup bool
+		storagePolicyName     string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -81,29 +85,51 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 			volumeOpsScale = defaultVolumeOpsScale
 		}
 		pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+		scParameters = make(map[string]string)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 	})
 
 	ginkgo.AfterEach(func() {
-		ginkgo.By("Deleting all PVCs")
-		for _, claim := range pvclaims {
-			framework.DeletePersistentVolumeClaim(client, claim.Name, namespace)
-		}
-		ginkgo.By("Wait until all PVs are deleted from Kubernetes and CNS")
-		for _, pv := range persistentvolumes {
-			framework.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
-			e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-		}
 		if !isK8SVanillaTestSetup {
 			deleteResourceQuota(client, namespace)
+		}
+		ginkgo.By("Deleting all PVCs")
+		for _, claim := range pvclaims {
+			err := framework.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Verify PVs, volumes are deleted from CNS")
+		for _, pv := range persistentvolumes {
+			err := framework.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))
 		}
 	})
 
 	ginkgo.It("create/delete pod with many volumes and verify no attach/detach call should fail", func() {
 		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
 		ginkgo.By("Creating Storage Class")
-		storageclass, err = client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec("", nil, nil, "", ""))
+
+		// decide which test setup is available to run
+		if isK8SVanillaTestSetup {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = nil
+			storagePolicyName = ""
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, "100Gi", storagePolicyName)
+		}
+
+		storageclass, err = client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", ""))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Creating PVCs using the Storage Class")
 		count := 0
@@ -170,16 +196,6 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 				_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
 			}
-		}
-		ginkgo.By("Deleting PVCs")
-		for _, claim := range pvclaims {
-			err = framework.DeletePersistentVolumeClaim(client, claim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		ginkgo.By("Verify volumes are deleted from CNS")
-		for _, pv := range persistentvolumes {
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))
 		}
 	})
 })

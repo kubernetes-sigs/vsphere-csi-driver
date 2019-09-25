@@ -469,11 +469,14 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	time.Sleep(time.Duration(waitTime) * time.Second)
 }
 
-// deleteResourceQuota deletes resource quota for the specified namespace.
+// deleteResourceQuota deletes resource quota for the specified namespace, if it exists.
 func deleteResourceQuota(client clientset.Interface, namespace string) {
-	err := client.CoreV1().ResourceQuotas(namespace).Delete(quotaName, nil)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
+	_, err := client.CoreV1().ResourceQuotas(namespace).Get(quotaName, metav1.GetOptions{})
+	if err == nil {
+		err = client.CoreV1().ResourceQuotas(namespace).Delete(quotaName, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
+	}
 }
 
 // newTestResourceQuota returns a quota that enforces default constraints for testing
@@ -485,4 +488,19 @@ func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQ
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       v1.ResourceQuotaSpec{Hard: hard},
 	}
+}
+
+// checkEventsforError prints the list of all events that occurred in the namespace and
+// searches for expectedErrorMsg among these events
+func checkEventsforError(client clientset.Interface, namespace string, listOptions metav1.ListOptions, expectedErrorMsg string) bool {
+	eventList, _ := client.CoreV1().Events(namespace).List(listOptions)
+	isFailureFound := false
+	for _, item := range eventList.Items {
+		ginkgo.By(fmt.Sprintf("EventList item: %q \n", item.Message))
+		if strings.Contains(item.Message, expectedErrorMsg) {
+			isFailureFound = true
+			break
+		}
+	}
+	return isFailureFound
 }

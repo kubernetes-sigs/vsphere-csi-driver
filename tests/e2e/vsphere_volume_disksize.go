@@ -67,6 +67,12 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		if !isK8SVanillaTestSetup {
+			deleteResourceQuota(client, namespace)
+		}
+	})
+
 	// Test for valid disk size of 2Gi
 	ginkgo.It("Verify dynamic provisioning of pv using storageclass with a valid disk size passes", func() {
 		ginkgo.By("Invoking Test for valid disk size")
@@ -86,9 +92,12 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", storagePolicyName)
 		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
@@ -98,13 +107,20 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 
 		persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		defer func() {
+			err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", persistentvolumes[0].Spec.CSI.VolumeHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(persistentvolumes[0].Spec.CSI.VolumeHandle)
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(queryResult.Volumes) == 0 {
-			err = fmt.Errorf("Error: QueryCNSVolumeWithResult returned no volume")
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verifying disk size specified in PVC in honored")
@@ -112,8 +128,5 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 			err = fmt.Errorf("Wrong disk size provisioned ")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if !isK8SVanillaTestSetup {
-			deleteResourceQuota(client, namespace)
-		}
 	})
 })
