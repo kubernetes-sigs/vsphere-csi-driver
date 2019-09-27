@@ -20,10 +20,10 @@ import (
 	"sync"
 
 	"k8s.io/api/core/v1"
-	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	cnsoperatorclient "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/client/clientset/versioned/typed/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -79,7 +79,7 @@ type (
 type metadataSyncInformer struct {
 	volumeManager      volumes.Manager
 	host               string
-	supervisorClient   clientset.Interface
+	cnsOperatorClient  *cnsoperatorclient.CnsV1alpha1Client
 	configInfo         *types.ConfigInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister

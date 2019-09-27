@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	"net"
 	vmoperatorv1alpha1 "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	"io/ioutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,8 +26,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/klog"
-	"net"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	cnsoperatorclient "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/client/clientset/versioned/typed/cns/v1alpha1"
 )
 
 // NewClient creates a newk8s client based on a service account
@@ -76,6 +77,17 @@ func GetRestClientConfig(endpoint string, port string) *restclient.Config {
 func NewSupervisorClient(config *restclient.Config) (clientset.Interface, error) {
 	klog.V(2).Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
 	client, err := clientset.NewForConfig(config)
+	if err != nil {
+		klog.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		return nil, err
+	}
+	return client, nil
+
+}
+
+// NewCnsVolumeMetadataClient creates a new CnsVolumeMetadata client from the given rest client config
+func NewCnsVolumeMetadataClient(config *restclient.Config) (*cnsoperatorclient.CnsV1alpha1Client, error) {
+	client, err := cnsoperatorclient.NewForConfig(config)
 	if err != nil {
 		klog.Error("Failed to connect to the supervisor cluster with err: %+v", err)
 		return nil, err

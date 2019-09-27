@@ -18,8 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
 const (
@@ -80,8 +78,4 @@ type CnsNodeVmAttachmentList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CnsNodeVmAttachment `json:"items"`
-}
-
-func init() {
-	apis.SchemeBuilder.Register(&CnsNodeVmAttachment{}, &CnsNodeVmAttachmentList{})
 }
