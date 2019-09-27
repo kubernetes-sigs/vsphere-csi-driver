@@ -81,7 +81,7 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 		// Initialize client to supervisor cluster
 		// if metadata syncer is being initialized for guest clusters
 		restClientConfig := k8s.GetRestClientConfig(metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(restClientConfig)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewCnsVolumeMetadataClient(restClientConfig)
 		if err != nil {
 			klog.Errorf("Creating Supervisor client failed. Err: %v", err)
 			return err

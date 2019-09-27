@@ -18,8 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
@@ -102,7 +100,3 @@ const (
 	CnsOperatorEntityTypePV  = string("PERSISTENT_VOLUME")
 	CnsOperatorEntityTypePOD = string("POD")
 )
-
-func init() {
-	apis.SchemeBuilder.Register(&CnsVolumeMetadata{}, &CnsVolumeMetadataList{})
-}

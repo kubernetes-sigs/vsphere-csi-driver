@@ -22,18 +22,60 @@ limitations under the License.
 package apis
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
 var (
 	// SchemeGroupVersion is group version used to register these objects
-	SchemeGroupVersion = schema.GroupVersion{Group: "cns.vmware.com", Version: "v1alpha1"}
-
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
-
+	SchemeGroupVersion        = schema.GroupVersion{Group: "cns.vmware.com", Version: "v1alpha1"}
 	CnsNodeVmAttachmentPlural = "cnsnodevmattachments"
 
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
 )
+
+var (
+	SchemeBuilder      runtime.SchemeBuilder
+	localSchemeBuilder = &SchemeBuilder
+)
+
+func init() {
+	// We only register manually written functions here. The registration of the
+	// generated functions takes place in the generated files. The separation
+	// makes the code compile even when the generated files are missing.
+	localSchemeBuilder.Register(addKnownTypes)
+}
+
+// Resource takes an unqualified resource and returns a Group qualified GroupResource
+func Resource(resource string) schema.GroupResource {
+	return SchemeGroupVersion.WithResource(resource).GroupResource()
+}
+
+// Adds the list of known types to the given scheme.
+func addKnownTypes(scheme *runtime.Scheme) error {
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsvolumemetadatav1alpha1.CnsVolumeMetadata{},
+		&cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{},
+		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{},
+	)
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&metav1.Status{},
+	)
+
+	metav1.AddToGroupVersion(
+		scheme,
+		SchemeGroupVersion,
+	)
+
+	return nil
+}
