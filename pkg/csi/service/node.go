@@ -353,17 +353,16 @@ func (s *service) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
-	nodeID, err := os.Hostname()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Unable to retrieve Node ID, err: %s", err)
+	nodeID := os.Getenv("NODE_NAME")
+	if nodeID == "" {
+		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
 	var cfg *cnsconfig.Config
 	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
-	cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
 	if err != nil {
 		klog.Errorf("Failed to read cnsconfig. Error: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
