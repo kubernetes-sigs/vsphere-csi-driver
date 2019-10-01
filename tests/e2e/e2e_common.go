@@ -81,6 +81,12 @@ const (
 	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 )
 
+const (
+	// total time to wait for CSI controller plugin or file system resize to finish
+	totalResizeWaitPeriod = 10 * time.Minute
+	resizePollInterval    = 2 * time.Second
+)
+
 // The following variables are required to know cluster type to run common e2e tests
 // These variables will be set once during test suites initialization.
 var (

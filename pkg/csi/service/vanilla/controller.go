@@ -43,6 +43,7 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
 )
 
@@ -339,6 +340,69 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	resp := &csi.ControllerUnpublishVolumeResponse{}
+	return resp, nil
+}
+
+// ControllerExpandVolume expands a volume.
+// volume id and size is retrieved from ControllerExpandVolumeRequest
+func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
+	klog.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
+
+	err := validateVanillaControllerExpandVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	volumeID := req.GetVolumeId()
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	// Check if volume is already expanded
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+	}
+	queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
+	if err != nil {
+		klog.Errorf("Failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	var currentSize int64
+	if len(queryResult.Volumes) > 0 {
+		currentSize = queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb
+	} else {
+		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	if currentSize >= volSizeMB {
+		klog.Infof("Volume size %d is greater than or equal to the requested size %d for volumeID: %q", currentSize, volSizeMB, volumeID)
+	} else {
+		klog.V(4).Infof("Current volume size is %d, requested size is %d for volumeID: %q. Need volume expansion.", currentSize, volSizeMB, volumeID)
+
+		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
+		if err != nil {
+			msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", req.VolumeId, volSizeMB, err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+
+	// TODO(xyang): In CSI spec 1.2, ControllerExpandVolume will be
+	// passing in VolumeCapability with access_type info indicating
+	// whether it is BlockVolume (raw block mode) or MountVolume (file
+	// system mode). Update this function when CSI spec 1.2 is supported
+	// by external-resizer. For BlockVolume, set NodeExpansionRequired to
+	// false; for MountVolume, set it to true.
+
+	resp := &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
+		NodeExpansionRequired: true,
+	}
 	return resp, nil
 }
 

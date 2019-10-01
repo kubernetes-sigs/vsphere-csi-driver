@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Relocate detached volume ", func() {
 		}
 
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)

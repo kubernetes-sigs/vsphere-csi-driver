@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(GetAndExpectStringEnvVar(envRegionZoneWithSharedDS))
 
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(topologyValue)
 
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)

@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9. Delete Storage Class
 	*/
 	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with shared datastore", func() {
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)

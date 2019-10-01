@@ -118,7 +118,7 @@ var _ = utils.SIGDescribe("[csi-vanilla] Volume Operations Storm", func() {
 			createResourceQuota(client, namespace, "100Gi", storagePolicyName)
 		}
 
-		storageclass, err = client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", ""))
+		storageclass, err = client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)

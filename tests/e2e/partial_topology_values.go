@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		sharedDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters := make(map[string]string)
 		scParameters[scParamDatastoreURL] = sharedDatastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to pass provisioning volume")
@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		sharedDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters := make(map[string]string)
 		scParameters[scParamDatastoreURL] = sharedDatastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to pass provisioning volume")

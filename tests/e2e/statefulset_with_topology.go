@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	*/
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after deleting the pod", func() {
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)

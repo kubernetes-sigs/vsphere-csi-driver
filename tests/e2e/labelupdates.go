@@ -108,14 +108,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -173,14 +173,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -246,14 +246,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -372,7 +372,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Creating storage class"))
-		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", "")
+		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating PVC"))
@@ -595,7 +595,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 			createResourceQuota(client, namespace, rqLimit, storageclassname)
 		}
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
