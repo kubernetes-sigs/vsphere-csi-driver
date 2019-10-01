@@ -33,7 +33,7 @@ import (
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
-func getVSphereStorageClassSpec(scName string, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement, scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode) *storagev1.StorageClass {
+func getVSphereStorageClassSpec(scName string, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement, scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool) *storagev1.StorageClass {
 	if bindingMode == "" {
 		bindingMode = storagev1.VolumeBindingImmediate
 	}
@@ -45,8 +45,9 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string, a
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "sc-",
 		},
-		Provisioner:       e2evSphereCSIBlockDriverName,
-		VolumeBindingMode: &bindingMode,
+		Provisioner:          e2evSphereCSIBlockDriverName,
+		VolumeBindingMode:    &bindingMode,
+		AllowVolumeExpansion: &allowVolumeExpansion,
 	}
 	// If scName is specified, use that name, else auto-generate storage class name
 	if scName != "" {
@@ -167,12 +168,12 @@ func getPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string, s
 
 // createPVCAndStorageClass helps creates a storage class with specified name, storageclass parameters and PVC using storage class
 func createPVCAndStorageClass(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string, scParameters map[string]string, ds string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, bindingMode storagev1.VolumeBindingMode, names ...string) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, error) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, names ...string) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, error) {
 	scName := ""
 	if len(names) > 0 {
 		scName = names[0]
 	}
-	storageclass, err := createStorageClass(client, scParameters, allowedTopologies, "", bindingMode, scName)
+	storageclass, err := createStorageClass(client, scParameters, allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pvclaim, err := createPVC(client, pvcnamespace, pvclaimlabels, ds, storageclass)
@@ -183,9 +184,9 @@ func createPVCAndStorageClass(client clientset.Interface, pvcnamespace string, p
 
 // createStorageClass helps creates a storage class with specified name, storageclass parameters
 func createStorageClass(client clientset.Interface, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement,
-	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, scName string) (*storagev1.StorageClass, error) {
-	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v", scName, scParameters, allowedTopologies, scReclaimPolicy))
-	storageclass, err := client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode))
+	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
+	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
+	storageclass, err := client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
 }

@@ -327,6 +327,13 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
+// ControllerExpandVolume expands a volume.
+func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
+	klog.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
+}
+
 // GetSharedDatastoresInPodVMK8SCluster gets the shared datastores for WCP PodVM cluster
 func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([]*cnsvsphere.DatastoreInfo, error) {
 	vc, err := common.GetVCenter(ctx, c.manager)
