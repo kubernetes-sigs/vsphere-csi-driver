@@ -136,13 +136,13 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	// decide which test setup is available to run
 	if vanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 	} else if guestCluster {
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 	} else {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -226,13 +226,13 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 	// decide which test setup is available to run
 	if vanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 	} else if guestCluster {
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 	} else {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create a StorageClass. Error: %v", err))
 

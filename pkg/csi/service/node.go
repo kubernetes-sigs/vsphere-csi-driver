@@ -23,18 +23,22 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"k8s.io/kubernetes/pkg/util/mount"
+	"k8s.io/kubernetes/pkg/util/resizefs"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -52,6 +56,8 @@ func (s *service) NodeStageVolume(
 	req *csi.NodeStageVolumeRequest) (
 	*csi.NodeStageVolumeResponse, error) {
 
+	klog.V(4).Infof("NodeStageVolume: called with args %+v", *req)
+
 	volID := req.GetVolumeId()
 	pubCtx := req.GetPublishContext()
 
@@ -59,6 +65,7 @@ func (s *service) NodeStageVolume(
 	if err != nil {
 		return nil, err
 	}
+	klog.V(4).Infof("NodeStageVolume: volID %q, published context %+v, diskID %s", volID, pubCtx, diskID)
 
 	f := log.Fields{
 		"volID":  volID,
@@ -70,6 +77,7 @@ func (s *service) NodeStageVolume(
 	if err != nil {
 		return nil, err
 	}
+	klog.V(4).Infof("NodeStageVolume: volID %q, diskID %s, Attached path %s", volID, diskID, volPath)
 
 	// Check that block device looks good
 	dev, err := getDevice(volPath)
@@ -78,6 +86,8 @@ func (s *service) NodeStageVolume(
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
+
+	klog.V(4).Infof("NodeStageVolume: getDevice %+v", *dev)
 
 	f["device"] = dev.RealDev
 
@@ -180,6 +190,7 @@ func (s *service) NodeUnstageVolume(
 	ctx context.Context,
 	req *csi.NodeUnstageVolumeRequest) (
 	*csi.NodeUnstageVolumeResponse, error) {
+	klog.V(4).Infof("NodeUnstageVolume: called with args %+v", *req)
 
 	volID := req.GetVolumeId()
 
@@ -244,6 +255,7 @@ func (s *service) NodePublishVolume(
 	ctx context.Context,
 	req *csi.NodePublishVolumeRequest) (
 	*csi.NodePublishVolumeResponse, error) {
+	klog.V(4).Infof("NodePublishVolume: called with args %+v", *req)
 
 	volID := req.GetVolumeId()
 	pubCtx := req.GetPublishContext()
@@ -291,6 +303,7 @@ func (s *service) NodeUnpublishVolume(
 	ctx context.Context,
 	req *csi.NodeUnpublishVolumeRequest) (
 	*csi.NodeUnpublishVolumeResponse, error) {
+	klog.V(4).Infof("NodeUnpublishVolume: called with args %+v", *req)
 
 	volID := req.GetVolumeId()
 
@@ -367,6 +380,13 @@ func (s *service) NodeGetCapabilities(
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
 						Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
 					},
 				},
 			},
@@ -463,6 +483,92 @@ func (s *service) NodeGetInfo(
 	}, nil
 }
 
+func (s *service) NodeExpandVolume(
+	ctx context.Context,
+	req *csi.NodeExpandVolumeRequest) (
+	*csi.NodeExpandVolumeResponse, error) {
+	klog.V(4).Infof("NodeExpandVolume: called with args %+v", *req)
+
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "volume id must be provided")
+	} else if req.GetCapacityRange() == nil {
+		return nil, status.Error(codes.InvalidArgument, "capacity range must be provided")
+	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
+		return nil, status.Error(codes.InvalidArgument, "capacity ranges values cannot be negative")
+	}
+
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	// TODO(xyang): In CSI spec 1.2, NodeExpandVolume will be
+	// passing in a staging_target_path which is more precise
+	// than volume_path. Use the new staging_target_path
+	// instead of the volume_path when it is supported by Kubernetes.
+
+	volumePath := req.GetVolumePath()
+	if len(volumePath) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "volume path must be provided to expand volume on node")
+	}
+
+	// Look up block device mounted to staging target path
+	dev, err := getDevFromMount(volumePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"error getting block device for volume: %q, err: %s",
+			volumeID, err.Error())
+	} else if dev == nil {
+		return nil, status.Errorf(codes.Internal,
+			"volume %q is not mounted at the path %s",
+			volumeID, volumePath)
+	}
+	klog.V(4).Infof("NodeExpandVolume: staging target path %s, getDevFromMount %+v", volumePath, *dev)
+
+	realMounter := mount.New("")
+	realExec := mount.NewOsExec()
+	mounter := &mount.SafeFormatAndMount{
+		Interface: realMounter,
+		Exec:      realExec,
+	}
+	resizer := resizefs.NewResizeFs(mounter)
+	_, err = resizer.Resize(dev.RealDev, volumePath)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("error when resizing filesystem on volume %q on node: %v", volumeID, err))
+	}
+	klog.V(4).Infof("NodeExpandVolume: Resized filesystem with devicePath %s volumePath %s", dev.RealDev, volumePath)
+
+	// Check the block size
+	gotBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("error when getting size of block volume at path %s: %v", dev.RealDev, err))
+	}
+	// NOTE(xyang): Make sure new size is greater than or equal to the
+	// requested size. It is possible for volume size to be rounded up
+	// and therefore bigger than the requested size.
+	if gotBlockSizeBytes < volSizeBytes {
+		return nil, status.Errorf(codes.Internal, "requested volume size was %v, but got volume with size %v", volSizeBytes, gotBlockSizeBytes)
+	}
+
+	klog.V(4).Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(volSizeMB*common.MbInBytes)))
+
+	return &csi.NodeExpandVolumeResponse{
+		CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
+	}, nil
+}
+
+func getBlockSizeBytes(mounter *mount.SafeFormatAndMount, devicePath string) (int64, error) {
+	output, err := mounter.Exec.Run("blockdev", "--getsize64", devicePath)
+	if err != nil {
+		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %v", devicePath, string(output), err)
+	}
+	strOut := strings.TrimSpace(string(output))
+	gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse size %s into int a size", strOut)
+	}
+	return gotSizeBytes, nil
+}
+
 func publishMountVol(
 	ctx context.Context,
 	req *csi.NodePublishVolumeRequest,
@@ -502,6 +608,7 @@ func publishMountVol(
 			"could not reliably determine existing mount status: %s",
 			err.Error())
 	}
+	klog.V(4).Infof("publishMountVol: device %+v, device mounts %s", *dev, devMnts)
 
 	// We expect that block device already staged, so there should be at least 1
 	// mount already. if it's > 1, it may already be published

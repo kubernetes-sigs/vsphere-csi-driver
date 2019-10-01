@@ -19,6 +19,7 @@ package test
 import (
 	"context"
 	"net"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -87,14 +88,19 @@ var _ = Describe("CSI plugin", func() {
 						Ω(err).ShouldNot(HaveOccurred())
 						Ω(res).ShouldNot(BeNil())
 						caps := res.GetCapabilities()
-						Ω(caps).Should(HaveLen(2))
+						Ω(caps).Should(HaveLen(3))
 						svcTypes := []csi.PluginCapability_Service_Type{
 							caps[0].GetService().Type,
 							caps[1].GetService().Type,
 						}
+						expansionTypes := []csi.PluginCapability_VolumeExpansion_Type{
+							caps[2].GetVolumeExpansion().Type,
+						}
 						Ω(svcTypes).Should(ConsistOf(
 							csi.PluginCapability_Service_CONTROLLER_SERVICE,
 							csi.PluginCapability_Service_VOLUME_ACCESSIBILITY_CONSTRAINTS))
+						Ω(expansionTypes).Should(ConsistOf(
+							csi.PluginCapability_VolumeExpansion_OFFLINE))
 					})
 				})
 				PContext("Probe", func() {
@@ -119,14 +125,18 @@ var _ = Describe("CSI plugin", func() {
 						Ω(err).ShouldNot(HaveOccurred())
 						Ω(res).ShouldNot(BeNil())
 						caps := res.GetCapabilities()
-						Ω(caps).Should(HaveLen(2))
+						Ω(caps).Should(HaveLen(4))
 						rpcTypes := []csi.ControllerServiceCapability_RPC_Type{
 							caps[0].GetRpc().Type,
 							caps[1].GetRpc().Type,
+							caps[2].GetRpc().Type,
+							caps[3].GetRpc().Type,
 						}
 						Ω(rpcTypes).Should(ConsistOf(
 							csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-							csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME))
+							csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+							csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+							csi.ControllerServiceCapability_RPC_EXPAND_VOLUME))
 					})
 				})
 			})
@@ -149,7 +159,7 @@ func getPipedClient(ctx context.Context, sp gocsi.StoragePluginProvider) (*grpc.
 
 	clientOpts := []grpc.DialOption{
 		grpc.WithInsecure(),
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		grpc.WithDialer(func(string, time.Duration) (net.Conn, error) {
 			return memconn.Dial("memu", "csi-vsphere-test")
 		}),
 	}

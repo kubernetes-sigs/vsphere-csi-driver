@@ -140,3 +140,25 @@ func CheckAPI(version string) error {
 	}
 	return nil
 }
+
+// ValidateControllerExpandVolumeRequest is the helper function to validate
+// ControllerExpandVolumeRequest for all block controllers.
+// Function returns error if validation fails otherwise returns nil.
+func ValidateControllerExpandVolumeRequest(req *csi.ControllerExpandVolumeRequest) error {
+	// check for required parameters
+	if len(req.GetVolumeId()) == 0 {
+		msg := "volume id is a required parameter"
+		klog.Error(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	} else if req.GetCapacityRange() == nil {
+		msg := "capacity range is a required parameter."
+		klog.Error(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
+		msg := "capacity ranges values cannot be negative"
+		klog.Error(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	}
+
+	return nil
+}

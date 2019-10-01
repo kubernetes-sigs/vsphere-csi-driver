@@ -370,3 +370,10 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
+
+// ControllerExpandVolume expands a volume.
+func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
+	klog.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
+}

@@ -223,6 +223,19 @@ func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, de
 	return nil
 }
 
+// ExpandVolumeUtil is the helper function to extend CNS volume for given volumeId
+func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
+	var err error
+	klog.V(4).Infof("vSphere CNS driver expanding volume %q to new size %d MB.", volumeID, capacityInMb)
+	err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+	if err != nil {
+		klog.Errorf("failed to expand volume %q with error %+v", volumeID, err)
+		return err
+	}
+	klog.V(4).Infof("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
+	return nil
+}
+
 // Helper function to get DatastoreMoRefs
 func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.ManagedObjectReference {
 	var datastoreMoRefs []vim25types.ManagedObjectReference

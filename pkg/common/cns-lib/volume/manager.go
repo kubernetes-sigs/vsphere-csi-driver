@@ -44,6 +44,8 @@ type Manager interface {
 	QueryVolume(queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// QueryAllVolume returns all volumes matching the given filter and selection.
 	QueryAllVolume(queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// ExpandVolume expands a volume to a new size.
+	ExpandVolume(ctx context.Context, volumeID string, size int64) error
 }
 
 var (
@@ -302,7 +304,7 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 		if soap.IsSoapFault(err) {
 			soapFault := soap.ToSoapFault(err)
 			if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
-				klog.V(2).Info("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
+				klog.V(2).Infof("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
 				return nil
 			}
 		}
@@ -400,6 +402,74 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
 	}
 	klog.V(2).Infof("UpdateVolumeMetadata: Volume metadata updated successfully. volumeID: %q, opId: %q", spec.VolumeId.Id, taskInfo.ActivationId)
+	return nil
+}
+
+// ExpandVolume expands a volume given its spec.
+func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size int64) error {
+	err := validateManager(m)
+	if err != nil {
+		klog.Errorf("validateManager failed with err: %+v", err)
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		klog.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+
+	// Construct the CNS ExtendSpec list
+	var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
+	cnsExtendSpec := cnstypes.CnsVolumeExtendSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volumeID,
+		},
+		CapacityInMb: size,
+	}
+	cnsExtendSpecList = append(cnsExtendSpecList, cnsExtendSpec)
+
+	// Call the CNS ExtendVolume
+	klog.V(2).Infof("Calling CnsClient.ExtendVolume: VolumeID [%q] Size [%d] cnsExtendSpecList [%#v]", volumeID, size, cnsExtendSpecList)
+	task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
+
+	if err != nil {
+		if soap.IsSoapFault(err) {
+			soapFault := soap.ToSoapFault(err)
+			if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
+				klog.Errorf("VolumeID: %q, not found. Cannot expand volume.", volumeID)
+				return errors.New("volume not found")
+			}
+		}
+		klog.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	// Get the taskInfo
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		klog.Errorf("Failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	klog.V(2).Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		klog.Errorf("Unable to find the task result for ExtendVolume task from vCenter %q with taskID %s and extend volume Results %v",
+			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
+		return err
+	}
+	if taskResult == nil {
+		klog.Errorf("TaskResult is empty for ExtendVolume task: %q, opID: %q", taskInfo.Task.Value, taskInfo.ActivationId)
+		return errors.New("taskResult is empty")
+	}
+
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		klog.Errorf("Failed to extend volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+	}
+	klog.V(2).Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+
 	return nil
 }
 

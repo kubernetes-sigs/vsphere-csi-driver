@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
 			createResourceQuota(client, namespace, rqLimit, storageclassname)
 		}
 
-		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

@@ -71,3 +71,10 @@ func isFileVolumeRequest(v []*csi.VolumeCapability) bool {
 	}
 	return false
 }
+
+// validateVanillaControllerExpandVolumeRequest is the helper function to validate
+// ExpandVolumeRequest for Vanilla CSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateVanillaControllerExpandVolumeRequest(req *csi.ControllerExpandVolumeRequest) error {
+	return common.ValidateControllerExpandVolumeRequest(req)
+}

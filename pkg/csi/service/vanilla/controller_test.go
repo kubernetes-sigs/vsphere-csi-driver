@@ -379,6 +379,131 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 }
 
+func TestExtendVolume(t *testing.T) {
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ct := getControllerTest(t)
+
+	// Create
+	params := make(map[string]string, 0)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// QueryAll
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Extend Volume
+	newSize := 2 * common.GbInBytes
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: volID,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: newSize,
+		},
+	}
+	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
+	respExpand, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if respExpand.CapacityBytes < newSize {
+		t.Fatalf("newly expanded volume size %d is smaller than requested size %d for volume with ID: %s", respExpand.CapacityBytes, newSize, volID)
+	}
+	t.Log(fmt.Sprintf("ControllerExpandVolume succeeded: volume is expanded to requested size %d", newSize))
+
+	//  Query volume after expand volume
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the expanded volume with ID: %s", volID)
+	}
+
+	// Delete
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the volume has been deleted
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
 func TestCompleteControllerFlow(t *testing.T) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())

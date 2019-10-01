@@ -37,6 +37,18 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+        - name: csi-resizer
+          image: quay.io/k8scsi/csi-resizer:v0.2.0
+          args:
+            - "--v=4"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
         - name: vsphere-csi-controller
           image: <your docker registry>/vsphere-block-csi-driver:latest
           lifecycle:

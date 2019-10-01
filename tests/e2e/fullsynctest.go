@@ -196,14 +196,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -275,14 +275,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -366,7 +366,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 	   11. cleanup to remove pvs and pvcliams
 	*/
 	ginkgo.It("Verify Multiple PVCs are deleted/updated after full sync", func() {
-		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", "")
+		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 		var pvclaims []*v1.PersistentVolumeClaim
