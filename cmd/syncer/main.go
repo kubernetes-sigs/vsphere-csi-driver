@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -44,6 +45,18 @@ func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
 
+	// Initialize configInfo and virtualCenterTypes
+	configInfo, err := types.InitConfigInfo()
+	if err != nil {
+		klog.Errorf("Failed to initialize the configInfo. Err: %+v", err)
+		os.Exit(1)
+	}
+	virtualCenterTypes, err := types.InitVirtualCenterTypes(configInfo)
+	if err != nil {
+		klog.Errorf("Failed to initialize the virtualCenterTypes. Err: %+v", err)
+		os.Exit(1)
+	}
+
 	controllerType := os.Getenv(vTypes.EnvControllerType)
 	// Initialize Pod Listener gRPC server only if WCP controller is enabled
 	if controllerType == WcpControllerType {
@@ -54,7 +67,7 @@ func main() {
 			}
 		}()
 		go func() {
-			if err := manager.InitCnsOperator(); err != nil {
+			if err := manager.InitCnsOperator(configInfo, virtualCenterTypes); err != nil {
 				klog.Errorf("Error initializing Cns Operator. Error: %+v", err)
 				os.Exit(1)
 			}
@@ -64,7 +77,7 @@ func main() {
 	syncer := syncer.NewInformer()
 	run := func(ctx context.Context) {
 		klog.V(2).Infof("Calling InitMetadataSyncer function")
-		if err := syncer.InitMetadataSyncer(); err != nil {
+		if err := syncer.InitMetadataSyncer(configInfo, virtualCenterTypes); err != nil {
 			klog.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)
 		}
