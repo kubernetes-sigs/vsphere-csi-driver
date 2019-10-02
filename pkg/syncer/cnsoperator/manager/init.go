@@ -30,6 +30,7 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 var (
@@ -39,7 +40,7 @@ var (
 )
 
 // InitCnsOperator initializes the Cns Operator
-func InitCnsOperator() error {
+func InitCnsOperator(configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
 	klog.V(2).Infof("Initializing CNS Operator")
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
@@ -92,7 +93,7 @@ func InitCnsOperator() error {
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr); err != nil {
+	if err := controller.AddToManager(mgr, configInfo, vcTypes); err != nil {
 		klog.Errorf("Failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}

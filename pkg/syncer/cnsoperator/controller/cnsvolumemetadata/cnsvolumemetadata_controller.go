@@ -27,17 +27,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
-// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager. The Manager will set fields on the Controller
+// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigInfo
+// and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+func Add(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
+	return add(mgr, newReconciler(mgr, configInfo, vcTypes))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme()}
+func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) reconcile.Reconciler {
+	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, vcTypes: vcTypes}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -62,8 +64,10 @@ var _ reconcile.Reconciler = &ReconcileCnsVolumeMetadata{}
 
 // ReconcileCnsVolumeMetadata reconciles a CnsVolumeMetadata object
 type ReconcileCnsVolumeMetadata struct {
-	client client.Client
-	scheme *runtime.Scheme
+	client     client.Client
+	scheme     *runtime.Scheme
+	configInfo *types.ConfigInfo
+	vcTypes    *types.VirtualCenterTypes
 }
 
 // Reconcile reads that state of the cluster for a CnsVolumeMetadata object and makes changes on CNS
@@ -75,4 +79,3 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 	// TODO: Implement the reconcile logic for CnsVolumeMetadata CRDs
 	return reconcile.Result{}, nil
 }
-
