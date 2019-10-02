@@ -21,7 +21,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -76,11 +75,9 @@ type (
 )
 
 type metadataSyncInformer struct {
-	types.Commontypes
-	k8sInformerManager   *k8s.InformerManager
-	vcconfig             *cnsvsphere.VirtualCenterConfig
-	virtualcentermanager cnsvsphere.VirtualCenterManager
-	vcenter              *cnsvsphere.VirtualCenter
-	pvLister             corelisters.PersistentVolumeLister
-	pvcLister            corelisters.PersistentVolumeClaimLister
+	vcTypes            *types.VirtualCenterTypes
+	configInfo         *types.ConfigInfo
+	k8sInformerManager *k8s.InformerManager
+	pvLister           corelisters.PersistentVolumeLister
+	pvcLister          corelisters.PersistentVolumeClaimLister
 }

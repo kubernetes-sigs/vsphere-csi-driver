@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	csictx "github.com/rexray/gocsi/context"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +34,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -47,7 +45,6 @@ const (
 )
 
 type podListener struct {
-	types.Commontypes
 	k8sClient clientset.Interface
 }
 
@@ -55,18 +52,6 @@ type podListener struct {
 func initPodListenerType() (*podListener, error) {
 	var err error
 	podListener := podListener{}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-	podListener.Cfg, err = cnsconfig.GetCnsconfig(cfgPath)
-	if err != nil {
-		klog.Errorf("Failed to parse config. Err: %v", err)
-		return nil, err
-	}
 
 	// Create the kubernetes client from config
 	podListener.k8sClient, err = k8s.NewClient()
