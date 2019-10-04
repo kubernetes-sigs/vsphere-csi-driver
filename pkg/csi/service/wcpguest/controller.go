@@ -192,6 +192,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
+	// TODO: Verify if a race condition can exist here. If yes, implement some locking mechanism
 	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
@@ -260,6 +261,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
+				// TODO: Verify if this condition is triggered continuously when watchVirtualMachine times out
+				klog.V(4).Infof("Event %v was not for VirtualMachine type", event)
 				continue
 			}
 			klog.V(4).Infof(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
@@ -299,9 +302,87 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-
 	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	err := validateGuestClusterControllerUnpublishVolumeRequest(req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+		klog.Error(msg)
+		return nil, err
+	}
+
+	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
+	// 	If yes, implement some locking mechanism
+	oldVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	klog.V(4).Infof("Found VirtualMachine for node: %q.", req.NodeId)
+	newVirtualMachine := oldVirtualMachine.DeepCopy()
+
+	// Remove volume for virtual machine spec, if it exists
+	for index, volume := range newVirtualMachine.Spec.Volumes {
+		if volume.Name == req.VolumeId {
+			klog.V(4).Infof("Removing volume %q from VirtualMachine %q", volume.Name, newVirtualMachine.Name)
+			newVirtualMachine.Spec.Volumes = append(newVirtualMachine.Spec.Volumes[:index], newVirtualMachine.Spec.Volumes[index+1:]...)
+			if _, err = patchVirtualMachineVolumes(c.vmOperatorClient, oldVirtualMachine, newVirtualMachine); err != nil {
+				msg := fmt.Sprintf("Failed to patch VirtualMachine %q with Error: %+v", newVirtualMachine.Name, err)
+				klog.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			break
+		}
+	}
+
+	// Watch virtual machine object and wait for volume name to be removed from the status field.
+	timeoutSeconds := int64(getAttacherTimeoutInMin() * 60)
+	watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
+		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(newVirtualMachine.Name)}).String(),
+		ResourceVersion: oldVirtualMachine.ResourceVersion,
+		TimeoutSeconds:  &timeoutSeconds,
+	})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to watch VirtualMachine %q with Error: %v", newVirtualMachine.Name, err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	if watchVirtualMachine == nil {
+		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", newVirtualMachine.Name)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+
+	}
+	defer watchVirtualMachine.Stop()
+
+	// Loop until the volume is removed from virtualmachine status
+	isVolumeDetached := false
+	for !isVolumeDetached {
+		klog.V(4).Infof(fmt.Sprintf("Waiting for update on VirtualMachine: %q", newVirtualMachine.Name))
+		// Block on update events
+		event := <-watchVirtualMachine.ResultChan()
+		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
+		if !ok {
+			// TODO: Verify if this condition is triggered continuously when watchVirtualMachine times out
+			klog.V(4).Infof("Event %v was not for VirtualMachine type", event)
+			continue
+		}
+		isVolumeDetached = true
+		for _, volume := range vm.Status.Volumes {
+			if volume.Name == req.VolumeId {
+				klog.V(4).Infof(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, newVirtualMachine.Name))
+				isVolumeDetached = false
+				if volume.Attached == true && volume.Error != "" {
+					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, newVirtualMachine.Name, err)
+					klog.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+				break
+			}
+		}
+
+	}
+	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
