@@ -87,8 +87,16 @@ func validateGuestClusterDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error
 	return common.ValidateDeleteVolumeRequest(req)
 }
 
+// validateGuestClusterControllerPublishVolumeRequest is the helper function to validate
+// pvcsi ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
 func validateGuestClusterControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
 	return common.ValidateControllerPublishVolumeRequest(req)
+}
+
+// validateGuestClusterControllerUnpublishVolumeRequest is the helper function to validate
+// pvcsi ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
+func validateGuestClusterControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
+	return common.ValidateControllerUnpublishVolumeRequest(req)
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode
