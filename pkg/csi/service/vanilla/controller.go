@@ -17,19 +17,19 @@ limitations under the License.
 package vanilla
 
 import (
+	"context"
 	"fmt"
-	"strings"
-
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -148,12 +148,19 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		DatastoreURL:      datastoreURL,
 		StoragePolicyName: storagePolicyName,
 	}
+
+	if isFileVolumeRequest(req.GetVolumeCapabilities()) {
+		createVolumeSpec.VolumeType = common.FileVolumeType
+	} else {
+		createVolumeSpec.VolumeType = common.BlockVolumeType
+	}
+
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	var datastoreTopologyMap = make(map[string][]map[string]string)
 
 	// Get accessibility
 	topologyRequirement := req.GetAccessibilityRequirements()
-	if topologyRequirement != nil {
+	if topologyRequirement != nil && createVolumeSpec.VolumeType == common.BlockVolumeType {
 		// Get shared accessible datastores for matching topology requirement
 		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
 			// if zone and region label (vSphere category names) not specified in the config secret, then return
@@ -187,6 +194,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 	} else {
+		// TODO: Make sure for VolumeType = File, we do not need to find shared datastore accessible to all node VM.
+		// This is being addressed in https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/issues/1
+
 		// Get shared datastores for the Kubernetes cluster
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
@@ -202,8 +212,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+
+	if createVolumeSpec.VolumeType == common.BlockVolumeType {
+		attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+	} else {
+		attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+	}
 	attributes[common.AttributeFsType] = fsType
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
@@ -211,34 +227,37 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			VolumeContext: attributes,
 		},
 	}
-	// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
-	var volumeAccessibleTopology = make(map[string]string)
-	if len(datastoreTopologyMap) > 0 {
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: volumeIds,
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
-		if err != nil {
-			klog.Errorf("QueryVolume failed for volumeID: %s", volumeID)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		if len(queryResult.Volumes) > 0 {
-			// Find datastore topology from the retrieved datastoreURL
-			datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
-			klog.V(3).Infof("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
-			if len(datastoreAccessibleTopology) > 0 {
-				rand.Seed(time.Now().Unix())
-				volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-				klog.V(3).Infof("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
+
+	if createVolumeSpec.VolumeType == common.BlockVolumeType {
+		// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
+		var volumeAccessibleTopology = make(map[string]string)
+		if len(datastoreTopologyMap) > 0 {
+			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: volumeIds,
+			}
+			queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
+			if err != nil {
+				klog.Errorf("QueryVolume failed for volumeID: %s", volumeID)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			if len(queryResult.Volumes) > 0 {
+				// Find datastore topology from the retrieved datastoreURL
+				datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
+				klog.V(3).Infof("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
+				if len(datastoreAccessibleTopology) > 0 {
+					rand.Seed(time.Now().Unix())
+					volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
+					klog.V(3).Infof("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
+				}
 			}
 		}
-	}
-	if len(volumeAccessibleTopology) != 0 {
-		volumeTopology := &csi.Topology{
-			Segments: volumeAccessibleTopology,
+		if len(volumeAccessibleTopology) != 0 {
+			volumeTopology := &csi.Topology{
+				Segments: volumeAccessibleTopology,
+			}
+			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 		}
-		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 	}
 	return resp, nil
 }

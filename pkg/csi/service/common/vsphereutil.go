@@ -108,15 +108,19 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 			return "", errors.New(errMsg)
 		}
 	}
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User)
+	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
-		VolumeType: BlockVolumeType,
+		VolumeType: spec.VolumeType,
 		Datastores: datastores,
 		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
 			CapacityInMb: spec.CapacityMB,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User),
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
 		},
 	}
 	if spec.StoragePolicyID != "" {
