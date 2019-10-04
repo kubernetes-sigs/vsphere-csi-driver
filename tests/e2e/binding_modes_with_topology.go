@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Volume-Binding-Modes", func() {
+var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Volume-Binding-Modes", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
