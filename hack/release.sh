@@ -43,7 +43,7 @@ CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
 VERSION=$(git describe --dirty --always 2>/dev/null)
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
-GOPROXY="${GOPROXY:-}"
+GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 
 # If BUILD_RELEASE_TYPE is not set then check to see if this is a PR
