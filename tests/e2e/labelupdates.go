@@ -588,9 +588,20 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		10. Delete PVCs
 		11. Delete SC
 	*/
-	ginkgo.It("Verify label updates on PVC and PV attached to a stateful set.", func() {
+	ginkgo.It("[csi-common-e2e] Verify label updates on PVC and PV attached to a stateful set.", func() {
+		// decide which test setup is available to run
+		if isK8SVanillaTestSetup {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = nil
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storageclassname)
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, nil, nil, "", "")
+		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "")
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -601,6 +612,15 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		ginkgo.By("Creating statefulset")
 		statefulsetTester := framework.NewStatefulSetTester(client)
 		statefulset := statefulsetTester.CreateStatefulSet(manifestPath, namespace)
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			framework.DeleteAllStatefulSets(client, namespace)
+			if !isK8SVanillaTestSetup {
+				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
@@ -652,7 +672,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 
 					ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", pvlabels, pv.Name))
 					pv.Labels = pvlabels
-
 					_, err = client.CoreV1().PersistentVolumes().Update(pv)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -670,9 +689,6 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		statefulsetTester.WaitForStatusReadyReplicas(statefulset, 0)
 		ssPodsAfterScaleDown := statefulsetTester.GetPodList(statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
-
-		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		framework.DeleteAllStatefulSets(client, namespace)
 	})
 
 })
