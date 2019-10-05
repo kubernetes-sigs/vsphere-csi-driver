@@ -61,3 +61,13 @@ func validateVanillaControllerPublishVolumeRequest(req *csi.ControllerPublishVol
 func validateVanillaControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(req)
 }
+
+// IsCnsFileVolumeRequest checks whether the request is to create a CNS file volume.
+func IsCnsFileVolumeRequest(v []*csi.VolumeCapability) bool {
+	for _, cap := range v {
+		if fsType := strings.ToLower(cap.GetMount().GetFsType()); fsType == common.NfsV4FsType {
+			return true
+		}
+	}
+	return false
+}

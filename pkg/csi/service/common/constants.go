@@ -27,8 +27,11 @@ const (
 	// TODO: will make the DefaultGbDiskSize configurable in the future
 	DefaultGbDiskSize = int64(10)
 
-	// DiskTypeString is the value for the PersistentVolume's attribute "type"
-	DiskTypeString = "vSphere CNS Block Volume"
+	// DiskTypeBlockVolume is the value for the PersistentVolume's attribute "type"
+	DiskTypeBlockVolume = "vSphere CNS Block Volume"
+
+	// DiskTypeFileVolume is the value for the PersistentVolume's attribute "type"
+	DiskTypeFileVolume = "vSphere CNS File Volume"
 
 	// AttributeDiskType is a PersistentVolume's attribute.
 	AttributeDiskType = "type"
@@ -61,6 +64,9 @@ const (
 	// during mount if user does not specify the filesystem type in the Storage Class
 	DefaultFsType = "ext4"
 
+	// NfsV4FsType represents NFS4 version
+	NfsV4FsType = "nfsv4"
+
 	//ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
 	ProviderPrefix = "vsphere://"
@@ -70,6 +76,9 @@ const (
 
 	// BlockVolumeType is the VolumeType for CNS Volume
 	BlockVolumeType = "BLOCK"
+
+	// FileVolumeType is the VolumeType for CNS File Share Volume
+	FileVolumeType = "FILE"
 
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
 	// on which CNS is supported.

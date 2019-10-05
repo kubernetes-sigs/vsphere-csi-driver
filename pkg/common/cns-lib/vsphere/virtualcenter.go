@@ -19,11 +19,13 @@ import (
 	"crypto/tls"
 	"encoding/pem"
 	"fmt"
-	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	"net"
 	neturl "net/url"
 	"strconv"
 	"sync"
+
+	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
+	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 
 	csictx "github.com/rexray/gocsi/context"
 	"gitlab.eng.vmware.com/hatchway/govmomi"
@@ -347,4 +349,45 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 			})
 	}
 	return hostObjList, nil
+}
+
+// GetVsanDatastores returns all the vsan datastore exists in the vc inventory
+func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]types.ManagedObjectReference, error) {
+	datacenters, err := vc.GetDatacenters(ctx)
+	if err != nil {
+		klog.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		return nil, err
+	}
+
+	var vsanDatastores []types.ManagedObjectReference
+	for _, dc := range datacenters {
+		finder := find.NewFinder(dc.Datacenter.Client(), false)
+		finder.SetDatacenter(dc.Datacenter)
+		datastoresList, err := finder.DatastoreList(ctx, "*")
+		if err != nil {
+			klog.Errorf("Failed to get all the datastores. err: %+v", err)
+			return nil, err
+		}
+		var dsMorList []types.ManagedObjectReference
+		for _, ds := range datastoresList {
+			dsMorList = append(dsMorList, ds.Reference())
+		}
+		var dsMoList []mo.Datastore
+		pc := property.DefaultCollector(dc.Client())
+		properties := []string{"summary"}
+		err = pc.Retrieve(ctx, dsMorList, properties, &dsMoList)
+		if err != nil {
+			klog.Errorf("Failed to get Datastore managed objects from datastore objects."+
+				" dsObjList: %+v, properties: %+v, err: %v", dsMorList, properties, err)
+			return nil, err
+		}
+
+		for _, dsMo := range dsMoList {
+			if dsMo.Summary.Type == "vsan" {
+				vsanDatastores = append(vsanDatastores, dsMo.Reference())
+			}
+		}
+	}
+
+	return vsanDatastores, nil
 }

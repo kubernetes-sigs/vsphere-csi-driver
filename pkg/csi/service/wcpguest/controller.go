@@ -133,7 +133,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-	attributes[common.AttributeDiskType] = common.DiskTypeString
+	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      supervisorPVCName,

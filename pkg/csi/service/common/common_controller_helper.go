@@ -47,6 +47,12 @@ func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
 	}
 
+	// TODO: Add validation for AccessMode check while creating File volume
+	// Reference: https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/merge_requests/147#note_1874753
+
+	// TODO: Add validation to make sure when fstype is empty string, ext3 or ext4, then access mode should not be RWM
+	// Reference: https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/merge_requests/147#note_1874778
+
 	return nil
 }
 
