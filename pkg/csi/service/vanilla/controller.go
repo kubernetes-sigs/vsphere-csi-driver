@@ -202,7 +202,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-	attributes[common.AttributeDiskType] = common.DiskTypeString
+	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	attributes[common.AttributeFsType] = fsType
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
@@ -287,7 +287,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	publishInfo := make(map[string]string, 0)
-	publishInfo[common.AttributeDiskType] = common.DiskTypeString
+	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
 	resp := &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
