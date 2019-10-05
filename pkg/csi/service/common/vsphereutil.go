@@ -24,6 +24,7 @@ import (
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -51,8 +52,19 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 	}
 	var datastores []vim25types.ManagedObjectReference
 	if spec.DatastoreURL == "" {
-		//  If DatastoreURL is not specified in StorageClass, get all shared datastores
-		datastores = getDatastoreMoRefs(sharedDatastores)
+		if spec.VolumeType == FileVolumeType {
+			// Get only vSAN datastores for file volume
+			// TODO: check whether vsan file service is enabled or not
+			datastores, err = vc.GetVsanDatastores(ctx)
+			if err != nil {
+				klog.Errorf("Failed to eliminate non-vsan datastores with error %+v", err)
+				return "", err
+			}
+		} else {
+			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
+			datastores = getDatastoreMoRefs(sharedDatastores)
+		}
+
 	} else {
 		// Check datastore specified in the StorageClass should be shared datastore across all nodes.
 
@@ -124,6 +136,21 @@ func CreateVolumeUtil(ctx context.Context, manager *Manager, spec *CreateVolumeS
 		}
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
+
+	if createSpec.VolumeType == FileVolumeType {
+		vSANFileCreateSpec := &cnstypes.CnsVSANFileCreateSpec{
+			SoftQuotaInMb: spec.CapacityMB,
+			Permission: []vsanfstypes.VsanFileShareNetPermission{
+				{
+					Ips:         "*",
+					Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
+					AllowRoot:   true,
+				},
+			},
+		}
+		createSpec.CreateSpec = vSANFileCreateSpec
+	}
+
 	klog.V(4).Infof("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(createSpec)
 	if err != nil {
