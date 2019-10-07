@@ -26,12 +26,12 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	"k8s.io/klog"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -153,7 +153,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	// Verify if pv is vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != service.Name {
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 		klog.V(3).Infof("PVCUpdated: Not a Vsphere CSI Volume")
 		return
 	}
@@ -204,7 +204,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 
 	// Verify if pv is a vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != service.Name {
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 		klog.V(3).Infof("PVCDeleted: Not a Vsphere CSI Volume")
 		return
 	}
@@ -253,7 +253,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	klog.V(4).Infof("PVUpdated: PV Updated from %+v to %+v", oldPv, newPv)
 
 	// Verify if pv is a vsphere csi volume
-	if oldPv.Spec.CSI == nil || newPv.Spec.CSI == nil || newPv.Spec.CSI.Driver != service.Name {
+	if oldPv.Spec.CSI == nil || newPv.Spec.CSI == nil || newPv.Spec.CSI.Driver != csitypes.Name {
 		klog.V(3).Infof("PVUpdated: PV is not a Vsphere CSI Volume: %+v", newPv)
 		return
 	}
@@ -329,7 +329,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	klog.V(4).Infof("PVDeleted: Deleting PV: %+v", pv)
 
 	// Verify if pv is a vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != service.Name {
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 		klog.V(3).Infof("PVDeleted: Not a Vsphere CSI Volume: %+v", pv)
 		return
 	}
@@ -433,7 +433,7 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 			}
 
 			// Verify if pv is vsphere csi volume
-			if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != service.Name {
+			if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 				klog.V(3).Infof("Not a Vsphere CSI Volume")
 				continue
 			}

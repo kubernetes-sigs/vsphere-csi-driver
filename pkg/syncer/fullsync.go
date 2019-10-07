@@ -29,8 +29,8 @@ import (
 	api "k8s.io/kubernetes/pkg/apis/core"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 // triggerFullSync triggers full sync
@@ -106,7 +106,7 @@ func getPVsInBoundAvailableOrReleased(k8sclient clientset.Interface) ([]*v1.Pers
 		return nil, err
 	}
 	for index, pv := range allPVs.Items {
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == service.Name {
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 			klog.V(4).Infof("FullSync: pv %v is in state %v", pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, &allPVs.Items[index])

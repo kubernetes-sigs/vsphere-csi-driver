@@ -35,23 +35,11 @@ import (
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
-	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
-	// Name is the name of this CSI SP.
-	Name = "csi.vsphere.vmware.com"
-
-	// VanillaK8SControllerType indicated Vanilla K8S CSI Controller
-	VanillaK8SControllerType = "VANILLA"
-
-	// WcpControllerType indicated WCP CSI Controller
-	WcpControllerType = "WCP"
-
-	//WcpGuestControllerType indicated WCPGC CSI Controller
-	WcpGuestControllerType = "WCPGC"
-
-	defaultController = VanillaK8SControllerType
+	defaultController = csitypes.VanillaK8SControllerType
 
 	// UnixSocketPrefix is the prefix before the path on disk
 	UnixSocketPrefix = "unix://"
@@ -72,7 +60,7 @@ type Service interface {
 
 type service struct {
 	mode  string
-	cnscs vTypes.CnsController
+	cnscs csitypes.CnsController
 }
 
 // This works around a bug that if k8s node dies, this will clean up the sock file
@@ -93,11 +81,11 @@ func New() Service {
 
 func (s *service) GetController() csi.ControllerServer {
 	// check which controller type to use
-	controllerType = os.Getenv(vTypes.EnvControllerType)
+	controllerType = os.Getenv(csitypes.EnvControllerType)
 	switch controllerType {
-	case WcpControllerType:
+	case csitypes.WcpControllerType:
 		s.cnscs = wcp.New()
-	case WcpGuestControllerType:
+	case csitypes.WcpGuestControllerType:
 		s.cnscs = wcpguest.New()
 	default:
 		controllerType = defaultController
@@ -115,12 +103,12 @@ func (s *service) BeforeServe(
 			"mode":           s.mode,
 		}
 
-		log.WithFields(fields).Infof("configured: %s", Name)
+		log.WithFields(fields).Infof("configured: %s", csitypes.Name)
 	}()
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-	controllerType = os.Getenv(vTypes.EnvControllerType)
+	controllerType = os.Getenv(csitypes.EnvControllerType)
 	if strings.TrimSpace(controllerType) == "" {
 		controllerType = defaultController
 	}
@@ -128,7 +116,7 @@ func (s *service) BeforeServe(
 		// Controller service is needed
 		var cfg *cnsconfig.Config
 		var err error
-		if controllerType == WcpGuestControllerType {
+		if controllerType == csitypes.WcpGuestControllerType {
 			// Config path for Guest Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
 			if cfgPath == "" {

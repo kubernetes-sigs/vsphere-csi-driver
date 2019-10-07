@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 var _ = Describe("CSI plugin", func() {
@@ -77,7 +77,7 @@ var _ = Describe("CSI plugin", func() {
 						res, err = client.GetPluginInfo(ctx, &csi.GetPluginInfoRequest{})
 						Ω(err).ShouldNot(HaveOccurred())
 						Ω(res).ShouldNot(BeNil())
-						Ω(res.GetName()).Should(Equal(service.Name))
+						Ω(res.GetName()).Should(Equal(csitypes.Name))
 					})
 				})
 				Context("GetPluginCapabilities", func() {

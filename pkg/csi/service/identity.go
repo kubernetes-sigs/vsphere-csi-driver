@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 // set via ldflags
@@ -39,7 +40,7 @@ func (s *service) GetPluginInfo(
 	*csi.GetPluginInfoResponse, error) {
 
 	return &csi.GetPluginInfoResponse{
-		Name:          Name,
+		Name:          csitypes.Name,
 		VendorVersion: version,
 	}, nil
 }
