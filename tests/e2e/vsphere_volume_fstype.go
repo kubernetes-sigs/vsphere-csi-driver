@@ -59,10 +59,10 @@ Test to verify if an invalid fstype specified in storage class fails pod creatio
 var _ = ginkgo.Describe("[csi-block-e2e] Volume Filesystem Type Test", func() {
 	f := framework.NewDefaultFramework("volume-fstype")
 	var (
-		client                clientset.Interface
-		namespace             string
-		storagePolicyName     string
-		profileID             string
+		client            clientset.Interface
+		namespace         string
+		storagePolicyName string
+		profileID         string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
