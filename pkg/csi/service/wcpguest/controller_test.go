@@ -18,36 +18,36 @@ package wcpguest
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"os"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 const (
-	testVolumeName  = "pvc-12345"
+	testVolumeName        = "pvc-12345"
 	testSupervisorPVCName = "pvcsc-12345"
-	testNamespace = "test-namespace"
-	testStorageClass = "test-storageclass"
+	testNamespace         = "test-namespace"
+	testStorageClass      = "test-storageclass"
 )
 
 var (
-	isUnitTest bool
+	isUnitTest          bool
 	supervisorNamespace string
 )
 
-func configFromSim() (clientset.Interface, error){
+func configFromSim() (clientset.Interface, error) {
 	isUnitTest = true
 	supervisorClient := testclient.NewSimpleClientset()
 	supervisorNamespace = testNamespace
@@ -61,7 +61,7 @@ func configFromEnvOrSim() (clientset.Interface, error) {
 	}
 	isUnitTest = false
 	// This step is help to format the certificate from env.
-	certificate := strings.Replace(cfg.GC.Certificate,`\n`,"\n",-1)
+	certificate := strings.Replace(cfg.GC.Certificate, `\n`, "\n", -1)
 	supervisorClient, err := k8s.NewSupervisorClient(cfg.GC.Endpoint, cfg.GC.Port, certificate, cfg.GC.Token)
 	if err != nil {
 		return nil, err
@@ -87,8 +87,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 		}
 
 		c := &controller{
-			supervisorClient: supervisorClient,
-			supervisorNamespace:supervisorNamespace,
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: supervisorNamespace,
 		}
 
 		controllerTestInstance = &controllerTest{
@@ -98,7 +98,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func createVolume(ct *controllerTest, ctx context.Context, reqCreate *csi.CreateVolumeRequest, response chan *csi.CreateVolumeResponse, error chan error){
+func createVolume(ct *controllerTest, ctx context.Context, reqCreate *csi.CreateVolumeRequest, response chan *csi.CreateVolumeResponse, error chan error) {
 	defer close(response)
 	defer close(error)
 	res, err := ct.controller.CreateVolume(ctx, reqCreate)
@@ -113,7 +113,6 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 
 	ct := getControllerTest(t)
 
@@ -172,7 +171,6 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	// Delete
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: supervisorPVCName,
@@ -186,9 +184,8 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	// Verify the pvc has been deleted
 	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
-	if !errors.IsNotFound(err){
+	if !errors.IsNotFound(err) {
 		t.Fatal(err)
 	}
-
 
 }
