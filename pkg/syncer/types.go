@@ -19,8 +19,10 @@ package syncer
 import (
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -75,7 +77,9 @@ type (
 )
 
 type metadataSyncInformer struct {
-	vcTypes            *types.VirtualCenterTypes
+	volumeManager      volumes.Manager
+	host               string
+	supervisorClient   clientset.Interface
 	configInfo         *types.ConfigInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister

@@ -34,8 +34,8 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 const (

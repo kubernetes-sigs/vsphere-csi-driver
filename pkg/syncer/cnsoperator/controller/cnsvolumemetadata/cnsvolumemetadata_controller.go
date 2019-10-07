@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -33,13 +34,13 @@ import (
 // Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
-	return add(mgr, newReconciler(mgr, configInfo, vcTypes))
+func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) reconcile.Reconciler {
-	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, vcTypes: vcTypes}
+func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) reconcile.Reconciler {
+	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -64,10 +65,10 @@ var _ reconcile.Reconciler = &ReconcileCnsVolumeMetadata{}
 
 // ReconcileCnsVolumeMetadata reconciles a CnsVolumeMetadata object
 type ReconcileCnsVolumeMetadata struct {
-	client     client.Client
-	scheme     *runtime.Scheme
-	configInfo *types.ConfigInfo
-	vcTypes    *types.VirtualCenterTypes
+	client        client.Client
+	scheme        *runtime.Scheme
+	configInfo    *types.ConfigInfo
+	volumeManager volumes.Manager
 }
 
 // Reconcile reads that state of the cluster for a CnsVolumeMetadata object and makes changes on CNS
