@@ -36,10 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -48,15 +48,13 @@ import (
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
-	return add(mgr, newReconciler(mgr, configInfo, vcTypes))
+func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) reconcile.Reconciler {
-	return &ReconcileCnsNodeVmAttachment{client: mgr.GetClient(),
-		scheme: mgr.GetScheme(), configInfo: configInfo,
-		vcTypes: vcTypes, nodeManager: cnsnode.GetManager()}
+func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) reconcile.Reconciler {
+	return &ReconcileCnsNodeVmAttachment{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, nodeManager: cnsnode.GetManager()}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -85,11 +83,11 @@ var _ reconcile.Reconciler = &ReconcileCnsNodeVmAttachment{}
 type ReconcileCnsNodeVmAttachment struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client      client.Client
-	scheme      *runtime.Scheme
-	configInfo  *types.ConfigInfo
-	vcTypes     *types.VirtualCenterTypes
-	nodeManager cnsnode.Manager
+	client        client.Client
+	scheme        *runtime.Scheme
+	configInfo    *types.ConfigInfo
+	volumeManager volumes.Manager
+	nodeManager   cnsnode.Manager
 }
 
 // Reconcile reads that state of the cluster for a CnsNodeVmAttachment object and makes changes based on the state read
@@ -160,8 +158,13 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 	}
 	// Get node VM by nodeUUID
 	var dc *vsphere.Datacenter
+	vcenter, err := types.GetVirtualCenterInstance(r.configInfo)
+	if err != nil {
+		klog.Errorf("Failed to get virtual center instance with error: %v", err)
+		return reconcile.Result{}, err
+	}
 	dc = &vsphere.Datacenter{
-		Datacenter: object.NewDatacenter(r.vcTypes.Vcenter.Client.Client,
+		Datacenter: object.NewDatacenter(vcenter.Client.Client,
 			vimtypes.ManagedObjectReference{
 				Type:  "Datacenter",
 				Value: dcMoref,
@@ -198,7 +201,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 
 		klog.V(4).Infof("vSphere CNS driver is attaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
-		diskUUID, attachErr := volumes.GetManager(r.vcTypes.Vcenter).AttachVolume(nodeVM, volumeID)
+		diskUUID, attachErr := volumes.GetManager(vcenter).AttachVolume(nodeVM, volumeID)
 		if attachErr != nil {
 			klog.Errorf("Failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				volumeID, nodeVM, request.Name, request.Namespace, err)

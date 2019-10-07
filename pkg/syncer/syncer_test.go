@@ -21,28 +21,27 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"os"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-
 	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/simulator"
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
-
-	"os"
-
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -180,12 +179,9 @@ func TestSyncerWorkflows(t *testing.T) {
 	configInfo := &types.ConfigInfo{}
 	configInfo.Cfg = config
 	metadataSyncer.configInfo = configInfo
-	vcTypes := &types.VirtualCenterTypes{
-		Vcconfig:             cnsVCenterConfig,
-		Virtualcentermanager: virtualCenterManager,
-		Vcenter:              virtualCenter,
-	}
-	metadataSyncer.vcTypes = vcTypes
+	metadataSyncer.volumeManager = volumes.GetManager(virtualCenter)
+	metadataSyncer.host = virtualCenter.Config.Host
+
 	// Create the kubernetes client from config or env
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster
@@ -260,7 +256,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 			ContainerCluster: cnstypes.CnsContainerCluster{
 				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
 				ClusterId:   metadataSyncer.configInfo.Cfg.Global.ClusterID,
-				VSphereUser: metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcconfig.Host].User,
+				VSphereUser: metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			},
 		},
 		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
@@ -283,7 +279,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Verify if volume is created
-	queryResult, err := metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	queryResult, err := virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +303,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
@@ -331,7 +327,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
@@ -354,7 +350,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, newPvc.Name, testPVCLabelValue); err != nil {
@@ -376,7 +372,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	podUpdated(oldPod, newPod, metadataSyncer)
 
 	// Verify pod label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, newPod.Name, ""); err != nil {
@@ -385,7 +381,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test podDeleted workflow on VC
 	podDeleted(newPod, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, POD); err != nil {
@@ -394,7 +390,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test pvcDelete workflow
 	pvcDeleted(newPvc, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, PVC); err != nil {
@@ -403,7 +399,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test pvDelete workflow
 	pvDeleted(newPv, metadataSyncer)
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyDeleteOperation(queryResult, volumeID.Id, PV); err != nil {
@@ -667,7 +663,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	triggerFullSync(k8sclient, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, testPVLabelValue); err != nil {
@@ -693,7 +689,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Verify pv label value has been updated in CNS cache
 
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, newTestPVLabelValue); err != nil {
@@ -712,7 +708,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Verify pvc label value has been updated in CNS cache
 
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, pvc.Name, newTestPVCLabelValue); err != nil {
@@ -731,7 +727,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	triggerFullSync(k8sclient, metadataSyncer)
 
 	// Verify POD metadata of volume matches that of updated metadata
-	if queryResult, err = metadataSyncer.vcTypes.Vcenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
+	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
 	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, pod.Name, ""); err != nil {

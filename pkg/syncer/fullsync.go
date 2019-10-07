@@ -21,13 +21,12 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -57,7 +56,7 @@ func triggerFullSync(k8sclient clientset.Interface, metadataSyncer *metadataSync
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryAllResult, err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).QueryAllVolume(queryFilter, querySelection)
+	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(queryFilter, querySelection)
 	if err != nil {
 		klog.Warningf("FullSync: failed to queryAllVolume with err %v", err)
 		return
@@ -141,7 +140,7 @@ func fullSyncCreateVolumes(createSpecArray []cnstypes.CnsVolumeCreateSpec, metad
 		}
 		if _, existsInK8s := currentK8sPVMap[createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId]; existsInK8s {
 			klog.V(4).Infof("FullSync: Calling CreateVolume for volume %s with id %s and create spec %+v", createSpec.Name, createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId, spew.Sdump(createSpec))
-			_, err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).CreateVolume(&createSpec)
+			_, err := metadataSyncer.volumeManager.CreateVolume(&createSpec)
 			if err != nil {
 				klog.Warningf("FullSync: Failed to create disk %s with id %s. Err: %+v", createSpec.Name, createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId, err)
 				continue
@@ -149,7 +148,6 @@ func fullSyncCreateVolumes(createSpecArray []cnstypes.CnsVolumeCreateSpec, metad
 		}
 		delete(cnsCreationMap, (createSpec.BackingObjectDetails).(*cnstypes.CnsBlockBackingDetails).BackingDiskId)
 	}
-
 
 }
 
@@ -176,7 +174,7 @@ func fullSyncDeleteVolumes(volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataS
 		// Delete volume if not present in currentK8sPVMap
 		if _, existsInK8s := currentK8sPVMap[volID.Id]; !existsInK8s {
 			klog.V(4).Infof("FullSync: Calling DeleteVolume for volume %v with delete disk %v", volID, deleteDisk)
-			err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).DeleteVolume(volID.Id, deleteDisk)
+			err := metadataSyncer.volumeManager.DeleteVolume(volID.Id, deleteDisk)
 			if err != nil {
 				klog.Warningf("FullSync: Failed to delete volume %s with error %+v", volID, err)
 				continue
@@ -191,7 +189,7 @@ func fullSyncUpdateVolumes(updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpe
 	defer wg.Done()
 	for _, updateSpec := range updateSpecArray {
 		klog.V(4).Infof("FullSync: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(&updateSpec); err != nil {
+		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(&updateSpec); err != nil {
 			klog.Warningf("FullSync:UpdateVolumeMetadata failed with err %v", err)
 		}
 	}
@@ -244,7 +242,7 @@ func buildVolumeMap(pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsV
 				},
 			}
 
-			queryResult, err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).QueryVolume(queryFilter)
+			queryResult, err := metadataSyncer.volumeManager.QueryVolume(queryFilter)
 			if err == nil && queryResult != nil && len(queryResult.Volumes) > 0 {
 				if &queryResult.Volumes[0].Metadata != nil {
 					cnsMetadata := queryResult.Volumes[0].Metadata.EntityMetadata
@@ -330,7 +328,7 @@ func constructCnsCreateSpec(pvList []*v1.PersistentVolume, pvToPVCMap pvcMap, pv
 			Name:       pv.Name,
 			VolumeType: common.BlockVolumeType,
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 				EntityMetadata:   metadataList,
 			},
 			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
@@ -356,7 +354,7 @@ func constructCnsUpdateSpec(pvUpdateList []*v1.PersistentVolume, pvToPVCMap pvcM
 				Id: pv.Spec.CSI.VolumeHandle,
 			},
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 				EntityMetadata:   metadataList,
 			},
 		}
@@ -377,7 +375,7 @@ func constructCnsUpdateSpecWithPVCToBeDeleted(pvUpdateList []*v1.PersistentVolum
 		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeleteClaimOperation)
 		// volume exist in K8S and CNS cache, but PVC metadata does not exist in K8S
 		// need to delete PVC entries for this volume
-		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User)
+		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User)
 		updateSpecArray = append(updateSpecArray, updateSpec)
 		klog.V(4).Infof("FullSync: constructCnsUpdateSpecWithPVCToBeDeleted to update metadata for volume %s with delete flag true", pv.Spec.CSI.VolumeHandle)
 	}
@@ -393,7 +391,7 @@ func constructCnsUpdateSpecWithPodToBeDeleted(pvUpdateList []*v1.PersistentVolum
 		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeletePodOperation)
 		// volume exist in K8S and CNS cache, but Pod metadata does not exist in K8S
 		// need to delete Pod entries for this volume
-		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User)
+		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User)
 		updateSpecArray = append(updateSpecArray, updateSpec)
 		klog.V(4).Infof("FullSync: constructCnsUpdateSpecWithPodToBeDeleted to update metadata for volume %s with delete flag true", pv.Spec.CSI.VolumeHandle)
 	}

@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
@@ -40,8 +41,14 @@ var (
 )
 
 // InitCnsOperator initializes the Cns Operator
-func InitCnsOperator(configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
+func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	klog.V(2).Infof("Initializing CNS Operator")
+	vCenter, err := types.GetVirtualCenterInstance(configInfo)
+	if err != nil {
+		return err
+	}
+	volumeManager := volumes.GetManager(vCenter)
+
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -93,7 +100,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterT
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr, configInfo, vcTypes); err != nil {
+	if err := controller.AddToManager(mgr, configInfo, volumeManager); err != nil {
 		klog.Errorf("Failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}

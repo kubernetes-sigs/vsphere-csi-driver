@@ -65,16 +65,37 @@ func getFullSyncIntervalInMin() int {
 }
 
 // Initializes the Metadata Sync Informer
-func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(configInfo *types.ConfigInfo, vcTypes *types.VirtualCenterTypes) error {
+func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) error {
 	var err error
-
+	klog.V(2).Infof("Initializing MetadataSyncer")
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.vcTypes = vcTypes
+
 	// Create the kubernetes client from config
 	k8sclient, err := k8s.NewClient()
 	if err != nil {
 		klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
+	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Initialize client to supervisor cluster
+		// if metadata syncer is being initialized for guest clusters
+		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Certificate, metadataSyncer.configInfo.Cfg.GC.Token)
+		if err != nil {
+			klog.Errorf("Creating Supervisor client failed. Err: %v", err)
+			return err
+		}
+		// TODO: Remove return statement when pvcsi metadata syncer is implemented
+		return nil
+	} else {
+		// Initialize volume manager with vcenter credentials
+		// if metadata syncer is being intialized for Vanilla or Supervisor clusters
+		vCenter, err := types.GetVirtualCenterInstance(configInfo)
+		if err != nil {
+			return err
+		}
+		metadataSyncer.host = vCenter.Config.Host
+		metadataSyncer.volumeManager = volumes.GetManager(vCenter)
 	}
 
 	// Initialize cnsDeletionMap used by Full Sync
@@ -125,6 +146,7 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(configInfo *types
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	<-(stopCh)
 	<-(stopFullSync)
+
 	return nil
 }
 
@@ -174,13 +196,13 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 			EntityMetadata:   metadataList,
 		},
 	}
 
 	klog.V(4).Infof("PVCUpdated: Calling UpdateVolumeMetadata with updateSpec: %+v", spew.Sdump(updateSpec))
-	if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(updateSpec); err != nil {
+	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
 		klog.Errorf("PVCUpdated: UpdateVolumeMetadata failed with err %v", err)
 	}
 }
@@ -225,13 +247,13 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 			EntityMetadata:   metadataList,
 		},
 	}
 
 	klog.V(4).Infof("PVCDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-	if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(updateSpec); err != nil {
+	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
 		klog.Errorf("PVCDeleted: UpdateVolumeMetadata failed with err %v", err)
 	}
 }
@@ -286,13 +308,13 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 				Id: newPv.Spec.CSI.VolumeHandle,
 			},
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 				EntityMetadata:   metadataList,
 			},
 		}
 
 		klog.V(4).Infof("PVUpdated: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(updateSpec); err != nil {
+		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
 			klog.Errorf("PVUpdated: UpdateVolumeMetadata failed with err %v", err)
 		}
 	} else {
@@ -300,7 +322,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 			Name:       oldPv.Name,
 			VolumeType: common.BlockVolumeType,
 			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 				EntityMetadata:   metadataList,
 			},
 			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
@@ -311,7 +333,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
 		klog.V(4).Infof("PVUpdated: vSphere provisioner creating volume %s with create spec %+v", oldPv.Name, spew.Sdump(createSpec))
-		_, err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).CreateVolume(createSpec)
+		_, err := metadataSyncer.volumeManager.CreateVolume(createSpec)
 
 		if err != nil {
 			klog.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
@@ -351,7 +373,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
 	klog.V(4).Infof("PVDeleted: vSphere provisioner deleting volume %v with delete disk %v", pv, deleteDisk)
-	if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
+	if err := metadataSyncer.volumeManager.DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
 		klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
 		return
 	}
@@ -445,13 +467,13 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 					Id: pv.Spec.CSI.VolumeHandle,
 				},
 				Metadata: cnstypes.CnsVolumeMetadata{
-					ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.vcTypes.Vcenter.Config.Host].User),
+					ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User),
 					EntityMetadata:   metadataList,
 				},
 			}
 
 			klog.V(4).Infof("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-			if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(updateSpec); err != nil {
+			if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
 				msg := fmt.Sprintf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
 				errorList = append(errorList, errors.New(msg))
 			}
