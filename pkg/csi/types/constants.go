@@ -1,30 +1,22 @@
-/*
-Copyright 2018 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package types
 
 const (
-	// DefaultCloudConfigPath is /etc/cloud/vsphere.conf
-	DefaultCloudConfigPath = "/etc/cloud/vsphere.conf"
-)
+	// Name is the name of this CSI SP
+	Name = "csi.vsphere.vmware.com"
 
-const (
-	// EnvAPI is the name of the API to use with vSphere
-	EnvControllerType = "X_CSI_CONTROLLER_TYPE"
+	// VanillaK8SControllerType indicated Vanilla K8S CSI Controller
+	VanillaK8SControllerType = "VANILLA"
 
-	// EnvCloudConfig contains the path to the vSphere Cloud Config
-	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
+	// WcpControllerType indicated WCP CSI Controller
+	WcpControllerType = "WCP"
+
+	//WcpGuestControllerType indicated WCPGC CSI Controller
+	WcpGuestControllerType = "WCPGC"
+
+	// For more information please see
+	// https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domain-beta-kubernetes-io-region.
+	// LabelRegionFailureDomain is label placed on nodes and PV containing region detail
+	LabelRegionFailureDomain = "failure-domain.beta.kubernetes.io/region"
+	// LabelZoneFailureDomain is label placed on nodes and PV containing zone detail
+	LabelZoneFailureDomain = "failure-domain.beta.kubernetes.io/zone"
 )

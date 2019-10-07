@@ -41,7 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
@@ -501,7 +501,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 			},
 			PersistentVolumeSource: v1.PersistentVolumeSource{
 				CSI: &v1.CSIPersistentVolumeSource{
-					Driver:       service.Name,
+					Driver:       csitypes.Name,
 					VolumeHandle: volumeHandle,
 					ReadOnly:     false,
 					FSType:       "ext4",
