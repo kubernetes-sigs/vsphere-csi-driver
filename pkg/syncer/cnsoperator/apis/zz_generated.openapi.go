@@ -30,9 +30,9 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":         schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":   schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
 	}
 }
 

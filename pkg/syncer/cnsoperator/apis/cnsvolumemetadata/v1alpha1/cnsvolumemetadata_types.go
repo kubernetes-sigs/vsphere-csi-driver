@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
-
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
 // +k8s:openapi-gen=true
 type CnsVolumeMetadataSpec struct {
@@ -59,7 +58,6 @@ type CnsVolumeMetadataSpec struct {
 	// namespace is set for objects whose EntityType is PERSISTENT_VOLUME.
 	//+optional
 	Namespace string `json:"namespace,omitempty"`
-
 }
 
 // CnsVolumeMetadataStatus defines the observed state of CnsVolumeMetadata

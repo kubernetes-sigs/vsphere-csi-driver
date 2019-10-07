@@ -36,5 +36,4 @@ var (
 	CnsNodeVmAttachmentPlural = "cnsnodevmattachments"
 
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
-
 )
