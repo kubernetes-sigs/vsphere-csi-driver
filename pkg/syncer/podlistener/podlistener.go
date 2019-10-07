@@ -27,7 +27,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -35,7 +35,7 @@ import (
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
@@ -196,7 +196,7 @@ func (podListener *podListener) getPVWithVolumeID(volumeID string) (*v1.Persiste
 	}
 	for _, pv := range allPVs.Items {
 		// Verify if it is vsphere block driver and volumehandle matches the volume ID
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == types.VSphereCSIDriverName && pv.Spec.CSI.VolumeHandle == volumeID {
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Spec.CSI.VolumeHandle == volumeID {
 			klog.V(4).Infof("Found PV: %+v referring to volume ID: %s", pv, volumeID)
 			return &pv, nil
 		}
