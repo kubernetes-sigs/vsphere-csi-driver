@@ -1,0 +1,85 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: vsphere-csi-node
+  namespace: vmware-system-csi
+spec:
+  selector:
+    matchLabels:
+      app: vsphere-csi-node
+  updateStrategy:
+    type: "RollingUpdate"
+  template:
+    metadata:
+      labels:
+        app: vsphere-csi-node
+        role: vsphere-csi
+    spec:
+      containers:
+      - name: vsphere-csi-node
+        image: vmware/vsphere-csi:<vsphere_csi_ver>
+        imagePullPolicy: "Always"
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: CSI_ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: X_CSI_MODE
+          value: "node"
+        - name: X_CSI_SPEC_REQ_VALIDATION
+          value: "false"
+        - name: X_CSI_CONTROLLER_TYPE
+          value: "WCPGC"
+        - name: X_CSI_GC_CONFIG
+          value: "/etc/vmware/wcp/cns-csi.conf"
+        - name: X_CSI_DEBUG
+          value: "true"
+        args:
+          - "--v=4"
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["SYS_ADMIN"]
+          allowPrivilegeEscalation: true
+        volumeMounts:
+        - name: wcp-config-volume
+          mountPath: /etc/vmware/wcp
+          readOnly: true
+        - name: plugin-dir
+          mountPath: /csi
+        - name: pods-mount-dir
+          mountPath: /var/lib/kubelet
+          mountPropagation: "Bidirectional"
+        - name: device-dir
+          mountPath: /dev
+      - name: liveness-probe
+        image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
+        args:
+        - "--csi-address=$(ADDRESS)"
+        env:
+        - name: ADDRESS
+          value: /csi/csi.sock
+        volumeMounts:
+        - name: plugin-dir
+          mountPath: /csi
+      volumes:
+      - name: wcp-config-volume
+        secret:
+          secretName: wcp-config-secret
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: DirectoryOrCreate
+      - name: plugin-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com
+          type: DirectoryOrCreate
+      - name: pods-mount-dir
+        hostPath:
+          path: /var/lib/kubelet
+          type: Directory
+      - name: device-dir
+        hostPath:
+          path: /dev
