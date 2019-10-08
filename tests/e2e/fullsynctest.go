@@ -384,8 +384,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		// cleanup
 		for _, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_ = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
 		}
 
 		for _, pv := range pvs {
