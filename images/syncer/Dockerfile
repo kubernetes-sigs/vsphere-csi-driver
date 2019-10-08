@@ -36,7 +36,7 @@ COPY cmd/    cmd/
 
 ENV CGO_ENABLED=0
 
-ENV GOPROXY ${GOPROXY:-}
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
 RUN go build -o vsphere-syncer ./cmd/syncer
 

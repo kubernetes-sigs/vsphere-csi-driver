@@ -30,7 +30,9 @@ COPY pkg ./pkg/
 COPY cmd ./cmd/
 ARG GOOS
 ARG GOARCH
+ARG GOPROXY
 ENV GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN go mod download && go mod verify
 
 ################################################################################
@@ -47,15 +49,13 @@ COPY pkg ./pkg/
 COPY cmd ./cmd/
 ARG GOOS
 ARG GOARCH
+ARG GOPROXY
 ENV CGO_ENABLED=0 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN LDFLAGS=$(cat ldflags.txt) && \
     go build -ldflags "${LDFLAGS}" ./cmd/vsphere-csi
-
-################################################################################
-##                               LINT STAGE                                   ##
-################################################################################
-FROM ${GOLANG_IMAGE} as lint
-RUN go get -u golang.org/x/lint/golint
+RUN LDFLAGS=$(cat ldflags.txt) && \
+    go build -ldflags "${LDFLAGS}" ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
@@ -77,14 +77,14 @@ RUN apt-get update && \
       jq \
       mercurial \
       python3 \
+      python3-pip \
       unzip \
       zip && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* && \
-    curl -sSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
     pip3 install setuptools wheel --upgrade
 
 # Download the Google Cloud SDK
-RUN curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-245.0.0-linux-x86_64.tar.gz | \
+RUN curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-265.0.0-linux-x86_64.tar.gz | \
     tar xzC / && \
     /google-cloud-sdk/bin/gcloud components update
 
@@ -144,11 +144,6 @@ ENV DOCKER_IN_DOCKER_ENABLED=true
 # Update the PATH to include the Google Cloud SDK and disable its prompts and
 # update the gcloud components.
 ENV PATH="/google-cloud-sdk/bin:${PATH}" CLOUDSDK_CORE_DISABLE_PROMPTS=1
-
-################################################################################
-##                             INSTALL LINT                                   ##
-################################################################################
-COPY --from=lint /go/bin/golint /usr/local/bin/
 
 ################################################################################
 ##                         PRIME GO MOD & BUILD CACHES                        ##
