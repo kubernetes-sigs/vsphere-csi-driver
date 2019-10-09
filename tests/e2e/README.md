@@ -42,46 +42,61 @@ export TOPOLOGY_WITH_NO_SHARED_DATASTORE="<region-2-without-shared-datastore>:<z
 export TOPOLOGY_WITH_ONLY_ONE_NODE="<region-3-with-only-one-node>:<zone-3-with-only-one-node>"
 export STORAGE_POLICY_FROM_INACCESSIBLE_ZONE="PolicyNameInaccessibleToSelectedTopologyValues"
 export INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL="DataStoreUrlInaccessibleToSelectedTopologyValues"
-```shell
+```
 
 Please update the values as per your testbed configuration.
 
 ## To run full sync test, need do extra following steps
 
 ### Setting SSH keys for VC with your local machine to run full sync test
+
 ```shell
 ssh-keygen -t rsa (ignore if you already have public key in the local env)
 ssh root@vcip mkdir -p .ssh
 cat ~/.ssh/id_rsa.pub | ssh root@vcip 'cat >> .ssh/authorized_keys'
 ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
-```shell
+```
 
 ### Setting full sync time var
+
 1. Add `FULL_SYNC_INTERVAL_MINUTES` in csi-driver-deploy.yaml for vsphere-csi-metadata-syncer
 2. Setting time interval in the env
 
 ```shell
-$ export FULL_SYNC_WAIT_TIME=350    // In seconds
-$ export USER=root
-```shell
+export FULL_SYNC_WAIT_TIME=350    // In seconds
+export USER=root
+```
 
 Please update values as per your need.
 Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest var in csi-driver-deploy.yaml
 
 ## Running tests
-### To run all of the e2e tests, set GINKGO_FOCUS to empty string:
-``` shell
-$ export GINKGO_FOCUS=""
-```shell
 
-### To run a particular test, set GINKGO_FOCUS to the string located after [csi-topology-block-e2e] in “Ginkgo.Describe()” for that test:
-To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
+### To run all of the e2e tests, set GINKGO_FOCUS to empty string
+
 ``` shell
-$ export GINKGO_FOCUS="Volume\sDisk\sSize"
-```shell
-To run topology aware tests, setup CCM with instructions provided at https://github.com/kubernetes/cloud-provider-vsphere/blob/master/docs/book/tutorials/deploying_ccm_and_csi_with_multi_dc_vc_aka_zones.md
-Set the GINKGO_FOCUS env variable:
+export GINKGO_FOCUS=""
+```
+
+### To run a particular test, set GINKGO_FOCUS to the string located after [csi-block-e2e] in “Ginkgo.Describe()” for that test
+
+To run the Disk Size test (located at <https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go>)
+
 ``` shell
-$ export GINKGO_FOCUS="Basic\sTopology\sAware\sProvisioning"
-```shell
+export GINKGO_FOCUS="Volume\sDisk\sSize"
+```
+
+To run topology aware tests, setup CCM with instructions provided at <https://github.com/kubernetes/cloud-provider-vsphere/blob/master/docs/book/tutorials/deploying_ccm_and_csi_with_multi_dc_vc_aka_zones.md>
+Set the GINKGO_FOCUS env variable
+
+``` shell
+export GINKGO_FOCUS="csi-topology-block-e2e"
+```
+
+### Run e2e tests
+
+``` shell
+make test-e2e
+```
+
 Note that specify spaces using “\s”.
