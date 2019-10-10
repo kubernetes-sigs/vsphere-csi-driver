@@ -56,7 +56,7 @@ require (
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/thecodeteam/gosync v0.1.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
-	github.com/vmware/govmomi v0.21.1-0.20190821201433-8bdc2d6fc858
+	github.com/vmware/govmomi v0.21.1-0.20191010195446-c0f4e9754e39
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
