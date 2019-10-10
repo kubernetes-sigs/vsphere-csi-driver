@@ -254,8 +254,8 @@ github.com/thecodeteam/gosync v0.1.0/go.mod h1:43QHsngcnWc8GE1aCmi7PEypslflHjCzX
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 h1:LnC5Kc/wtumK+WB441p7ynQJzVuNRJiqddSIE3IlSEQ=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
-github.com/vmware/govmomi v0.21.1-0.20190821201433-8bdc2d6fc858 h1:kVY/A59m1eRowd1b9ECtZsm0jieqcmOm48p7JAeyFug=
-github.com/vmware/govmomi v0.21.1-0.20190821201433-8bdc2d6fc858/go.mod h1:zbnFoBQ9GIjs2RVETy8CNEpb+L+Lwkjs3XZUL0B3/m0=
+github.com/vmware/govmomi v0.21.1-0.20191010195446-c0f4e9754e39 h1:ZYgt7XhnxuIirwkNYf3XJC1scERXHFw/6Cjt0ovfnsc=
+github.com/vmware/govmomi v0.21.1-0.20191010195446-c0f4e9754e39/go.mod h1:zbnFoBQ9GIjs2RVETy8CNEpb+L+Lwkjs3XZUL0B3/m0=
 github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9oS4Wk2s2u4tS29nEaDLdzvuHdB19CvSGJjPgkZJNk=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
