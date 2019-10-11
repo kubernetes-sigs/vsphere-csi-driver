@@ -120,6 +120,7 @@ func getPVsInBoundAvailableOrReleased(k8sclient clientset.Interface) ([]*v1.Pers
 // Before creating a volume, all current K8s volumes are retrieved
 // If the volume is successfully created, it is removed from cnsCreationMap
 func fullSyncCreateVolumes(createSpecArray []cnstypes.CnsVolumeCreateSpec, metadataSyncer *metadataSyncInformer, k8sclient clientset.Interface, wg *sync.WaitGroup) {
+	defer wg.Done()
 	currentK8sPVMap := make(map[string]bool)
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
@@ -149,13 +150,14 @@ func fullSyncCreateVolumes(createSpecArray []cnstypes.CnsVolumeCreateSpec, metad
 		delete(cnsCreationMap, (createSpec.BackingObjectDetails).(*cnstypes.CnsBlockBackingDetails).BackingDiskId)
 	}
 
-	wg.Done()
+
 }
 
 // fullSyncDeleteVolumes delete volumes with given array of volumeId
 // Before deleting a volume, all current K8s volumes are retrieved
 // If the volume is successfully deleted, it is removed from cnsDeletionMap
 func fullSyncDeleteVolumes(volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataSyncer *metadataSyncInformer, k8sclient clientset.Interface, wg *sync.WaitGroup) {
+	defer wg.Done()
 	deleteDisk := false
 	currentK8sPVMap := make(map[string]bool)
 	volumeOperationsLock.Lock()
@@ -182,18 +184,17 @@ func fullSyncDeleteVolumes(volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataS
 		}
 		delete(cnsDeletionMap, volID.Id)
 	}
-	wg.Done()
 }
 
 // fullSyncUpdateVolumes update metadata for volumes with given array of createSpec
 func fullSyncUpdateVolumes(updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup) {
+	defer wg.Done()
 	for _, updateSpec := range updateSpecArray {
 		klog.V(4).Infof("FullSync: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 		if err := volumes.GetManager(metadataSyncer.vcTypes.Vcenter).UpdateVolumeMetadata(&updateSpec); err != nil {
 			klog.Warningf("FullSync:UpdateVolumeMetadata failed with err %v", err)
 		}
 	}
-	wg.Done()
 }
 
 // buildCnsUpdateMetadataList build metadata list for given PV
