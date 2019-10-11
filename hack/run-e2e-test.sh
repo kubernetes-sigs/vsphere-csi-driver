@@ -14,20 +14,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -o errexit
-set -o nounset
-set -o pipefail
+set -uo pipefail
 
-go get github.com/onsi/ginkgo/ginkgo
+# Fetching ginkgo for running the test
+export GO111MODULE=on
+go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo
+if [ $? -ne 0 ]
+then
+    echo "go mod vendor or go get ginkgo error"
+    exit 1
+fi
 
 # Exporting KUBECONFIG path
 export KUBECONFIG=$HOME/.kube/config
-# Running the e2e test
 
+# Running the e2e test.
+# If $GINKGO_FOCUS not set, run "csi-block-e2e" by default.
 FOCUS=${GINKGO_FOCUS:-}
 if [ -z "$FOCUS" ]
 then
-    FOCUS="[csi\-block\-e2e]"
+    FOCUS="csi-block-e2e"
 fi
 ginkgo -v --focus="$FOCUS" tests/e2e
 
