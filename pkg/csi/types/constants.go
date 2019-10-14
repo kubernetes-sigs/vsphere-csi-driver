@@ -4,14 +4,14 @@ const (
 	// Name is the name of this CSI SP
 	Name = "csi.vsphere.vmware.com"
 
-	// VanillaK8SControllerType indicated Vanilla K8S CSI Controller
-	VanillaK8SControllerType = "VANILLA"
+	// VanillaCluster is a vanilla k8s cluster
+	VanillaCluster = ClusterFlavor("VANILLA")
 
-	// WcpControllerType indicated WCP CSI Controller
-	WcpControllerType = "WCP"
+	// SupervisorCluster is a supervisor k8s cluster
+	SupervisorCluster = ClusterFlavor("SUPERVISOR")
 
-	//WcpGuestControllerType indicated WCPGC CSI Controller
-	WcpGuestControllerType = "WCPGC"
+	// GuestCluster is a guest cluster running in a supervisor namespace
+	GuestCluster = ClusterFlavor("GUEST")
 
 	// For more information please see
 	// https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domain-beta-kubernetes-io-region.
