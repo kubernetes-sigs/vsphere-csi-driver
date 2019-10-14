@@ -39,14 +39,14 @@ import (
 )
 
 const (
-	defaultController = csitypes.VanillaK8SControllerType
+	defaultClusterFlavor = csitypes.VanillaCluster
 
 	// UnixSocketPrefix is the prefix before the path on disk
 	UnixSocketPrefix = "unix://"
 )
 
 var (
-	controllerType = defaultController
+	clusterFlavor = defaultClusterFlavor
 	cfgPath        = cnsconfig.DefaultCloudConfigPath
 )
 
@@ -81,14 +81,14 @@ func New() Service {
 
 func (s *service) GetController() csi.ControllerServer {
 	// check which controller type to use
-	controllerType = os.Getenv(csitypes.EnvControllerType)
-	switch controllerType {
-	case csitypes.WcpControllerType:
+	clusterFlavor = csitypes.ClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	switch clusterFlavor {
+	case csitypes.SupervisorCluster:
 		s.cnscs = wcp.New()
-	case csitypes.WcpGuestControllerType:
+	case csitypes.GuestCluster:
 		s.cnscs = wcpguest.New()
 	default:
-		controllerType = defaultController
+		clusterFlavor = defaultClusterFlavor
 		s.cnscs = vanilla.New()
 	}
 	return s.cnscs
@@ -99,7 +99,7 @@ func (s *service) BeforeServe(
 
 	defer func() {
 		fields := map[string]interface{}{
-			"controllerType": controllerType,
+			"clusterFlavor": clusterFlavor,
 			"mode":           s.mode,
 		}
 
@@ -108,15 +108,15 @@ func (s *service) BeforeServe(
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-	controllerType = os.Getenv(csitypes.EnvControllerType)
-	if strings.TrimSpace(controllerType) == "" {
-		controllerType = defaultController
+	clusterFlavor = csitypes.ClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		clusterFlavor = defaultClusterFlavor
 	}
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 		var cfg *cnsconfig.Config
 		var err error
-		if controllerType == csitypes.WcpGuestControllerType {
+		if clusterFlavor == csitypes.GuestCluster {
 			// Config path for Guest Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
 			if cfgPath == "" {

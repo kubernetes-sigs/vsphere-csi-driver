@@ -16,18 +16,7 @@ limitations under the License.
 
 package types
 
-import (
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+const (
+	// EnvClusterFlavor is the k8s cluster type on which CSI Driver is being deployed
+	EnvClusterFlavor = "CLUSTER_FLAVOR"
 )
-
-// Controller is the interface for the CSI Controller Server plus extra methods
-// required to support multiple API backends
-type Controller interface {
-	csi.ControllerServer
-	Init(config *config.Config) error
-}
-
-// ClusterFlavor represents the allowed strings for the env variable CLUSTER_FLAVOR
-// Allowed constants are defined in constants.go
-type ClusterFlavor string

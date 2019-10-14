@@ -29,11 +29,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
-)
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 
-const (
-	// WcpControllerType indicated WCP CSI Controller
-	WcpControllerType = "WCP"
 )
 
 var (
@@ -57,9 +54,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	controllerType := os.Getenv(vTypes.EnvControllerType)
+	clusterFlavor := csitypes.ClusterFlavor(os.Getenv(vTypes.EnvClusterFlavor))
 	// Initialize Pod Listener gRPC server only if WCP controller is enabled
-	if controllerType == WcpControllerType {
+	if clusterFlavor == csitypes.SupervisorCluster {
 		go func() {
 			if err := podlistener.InitPodListenerService(); err != nil {
 				klog.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)
