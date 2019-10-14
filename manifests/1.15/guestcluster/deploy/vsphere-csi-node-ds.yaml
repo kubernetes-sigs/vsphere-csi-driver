@@ -30,8 +30,8 @@ spec:
           value: "node"
         - name: X_CSI_SPEC_REQ_VALIDATION
           value: "false"
-        - name: X_CSI_CONTROLLER_TYPE
-          value: "WCPGC"
+        - name: CLUSTER_FLAVOR
+          value: "GUEST"
         - name: X_CSI_GC_CONFIG
           value: "/etc/vmware/wcp/cns-csi.conf"
         - name: X_CSI_DEBUG

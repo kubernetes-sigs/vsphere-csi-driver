@@ -836,7 +836,7 @@ func getDiskID(volID string, pubCtx map[string]string) (string, error) {
 
 	var diskID string
 
-	if controllerType == csitypes.VanillaK8SControllerType {
+	if clusterFlavor == csitypes.VanillaCluster {
 		if _, ok := pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
 			return "", status.Errorf(codes.InvalidArgument,
 				"Attribute: %s required in publish context",
