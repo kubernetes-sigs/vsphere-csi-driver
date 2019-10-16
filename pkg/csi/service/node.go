@@ -29,10 +29,12 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csictx "github.com/rexray/gocsi/context"
 	log "github.com/sirupsen/logrus"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -836,7 +838,7 @@ func getDiskID(volID string, pubCtx map[string]string) (string, error) {
 
 	var diskID string
 
-	if clusterFlavor == csitypes.VanillaCluster {
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if _, ok := pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
 			return "", status.Errorf(codes.InvalidArgument,
 				"Attribute: %s required in publish context",
