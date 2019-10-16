@@ -29,7 +29,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Multiple-Zones", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Multiple-Zones", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client               clientset.Interface

@@ -49,24 +49,23 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
+var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
 	var (
-		client                clientset.Interface
-		namespace             string
-		labelKey              string
-		labelValue            string
-		pandoraSyncWaitTime   int
-		fullSyncWaitTime      int
-		datacenter            *object.Datacenter
-		datastore             *object.Datastore
-		err                   error
-		datastoreURL          string
-		fcdID                 string
-		datacenters           []string
-		isK8SVanillaTestSetup bool
-		storagePolicyName     string
-		scParameters          map[string]string
+		client              clientset.Interface
+		namespace           string
+		labelKey            string
+		labelValue          string
+		pandoraSyncWaitTime int
+		fullSyncWaitTime    int
+		datacenter          *object.Datacenter
+		datastore           *object.Datastore
+		err                 error
+		datastoreURL        string
+		fcdID               string
+		datacenters         []string
+		storagePolicyName   string
+		scParameters        map[string]string
 	)
 
 	const (
@@ -80,12 +79,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = getNamespaceToRunTests(f)
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -120,7 +114,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
+		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 	})
@@ -193,14 +187,14 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-common-e2e] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
+	ginkgo.It("[csi-supervisor] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		} else {
@@ -271,7 +265,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-common-e2e] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
+	ginkgo.It("[csi-supervisor] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify CNS volume creation"))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -279,7 +273,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		} else {

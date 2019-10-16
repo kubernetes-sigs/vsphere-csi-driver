@@ -36,7 +36,7 @@ const (
 	NonExistingZone   = "NonExistingZone"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Invalid-Zone-And-Region", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Invalid-Zone-And-Region", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface

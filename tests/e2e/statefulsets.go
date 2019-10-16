@@ -51,22 +51,16 @@ const (
 	9. Delete the storage class.
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
+var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	var (
-		namespace             string
-		client                clientset.Interface
-		isK8SVanillaTestSetup bool
-		storagePolicyName     string
-		scParameters          map[string]string
+		namespace         string
+		client            clientset.Interface
+		storagePolicyName string
+		scParameters      map[string]string
 	)
 	ginkgo.BeforeEach(func() {
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
 		sc, err := client.StorageV1().StorageClasses().Get(storageclassname, metav1.GetOptions{})
@@ -78,7 +72,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
+		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 	})
@@ -86,7 +80,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 	ginkgo.It("vSphere statefulset testing", func() {
 		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 		} else {
@@ -111,7 +105,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			framework.DeleteAllStatefulSets(client, namespace)
-			if !isK8SVanillaTestSetup {
+			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -158,7 +152,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-						if isK8SVanillaTestSetup {
+						if vanillaCluster {
 							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 							gomega.Expect(err).NotTo(gomega.HaveOccurred())
 							gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
@@ -219,7 +213,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] statefulset", func() {
 					var exists bool
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					if isK8SVanillaTestSetup {
+					if vanillaCluster {
 						vmUUID = getNodeUUID(client, sspod.Spec.NodeName)
 					} else {
 						annotations := pod.Annotations
