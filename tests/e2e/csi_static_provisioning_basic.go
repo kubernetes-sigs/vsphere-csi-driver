@@ -35,7 +35,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
+var _ = ginkgo.Describe("[csi-vanilla] Basic Static Provisioning", func() {
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
 
 	var (

@@ -33,7 +33,8 @@ ESXi hosts in Cluster-3   : zone-c
 ```shell
 $ export E2E_TEST_CONF_FILE="/path/to/e2eTest.conf"
 $ export KUBECONFIG="~/.kube/config"
-$ export K8S_VANILLA_ENVIRONMENT=true
+$ export SUPERVISOR_CLUSTER_KUBE_CONFIG="/path/to/supervisor-kube-config-file"
+$ export CLUSTER_FLAVOR="VANILLA"                  # Default is set to VANILLA
 $ export VOLUME_OPS_SCALE=5
 $ export SVC_NAMESPACE="user-pods-ns"
 $ export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5cf05d97-4aac6e02-2940-02003e89d50e/"
@@ -47,7 +48,7 @@ $ export TOPOLOGY_WITH_ONLY_ONE_NODE="<region-3-with-only-one-node>:<zone-3-with
 $ export STORAGE_POLICY_FROM_INACCESSIBLE_ZONE="PolicyNameInaccessibleToSelectedTopologyValues"
 $ export INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL="DataStoreUrlInaccessibleToSelectedTopologyValues"
 ```
-Please update the values as per your testbed configuration. You may want to set `K8S_VANILLA_ENVIRONMENT` to `true` while running for K8S vanilla setup and `false` for WCP testbed setup (as of now).
+Please update the values as per your testbed configuration. You may want to set `CLUSTER_FLAVOR` to `VANILLA` for vanilla cluster testbed OR `WORKLOAD` for supervisor cluster testbed OR `GUEST_CLUSTER` for guest cluster testbed.
 
 ## To run full sync test, need do extra following steps
 
@@ -75,7 +76,7 @@ Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest 
 ``` shell
 $ export GINKGO_FOCUS=""
 ```
-### To run a particular test, set GINKGO_FOCUS to the string located after [csi-topology-block-e2e] in “Ginkgo.Describe()” for that test:
+### To run a particular suite, set GINKGO_FOCUS to the string located after [csi-vanilla] in “Ginkgo.Describe()” for that suite:
 To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
 ``` shell
 $ export GINKGO_FOCUS="Volume\sDisk\sSize"
@@ -154,7 +155,7 @@ SSH keys need to be configured properley for all three master nodes of K8S clust
 ### Setting env variables
 ``` shell
 export E2E_TEST_CONF_FILE="/path/to/e2eTest.conf"
-export K8S_VANILLA_ENVIRONMENT=true
+export CLUSTER_FLAVOR="VANILLA"
 export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/vsan:52e7e70e3b966d33-609dd50e5ac9d1b1/"
 export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
 export USER=root

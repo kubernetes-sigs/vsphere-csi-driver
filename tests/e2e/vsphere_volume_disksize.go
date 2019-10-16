@@ -38,26 +38,20 @@ import (
 	4. Verify disk size specified is being honored
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", func() {
+var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] Volume Disk Size ", func() {
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
-		client                clientset.Interface
-		namespace             string
-		scParameters          map[string]string
-		datastoreURL          string
-		pvclaims              []*v1.PersistentVolumeClaim
-		isK8SVanillaTestSetup bool
-		storagePolicyName     string
+		client            clientset.Interface
+		namespace         string
+		scParameters      map[string]string
+		datastoreURL      string
+		pvclaims          []*v1.PersistentVolumeClaim
+		storagePolicyName string
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -68,7 +62,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 	})
 
 	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
+		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 	})
@@ -80,7 +74,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] [csi-common-e2e] Volume Disk Size ", fu
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamDatastoreURL] = datastoreURL
 			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "")

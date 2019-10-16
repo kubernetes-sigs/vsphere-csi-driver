@@ -56,7 +56,7 @@ Test to verify if an invalid fstype specified in storage class fails pod creatio
  7. Verify if the MountVolume.MountDevice fails because it is unable to find the file system executable file on the node.
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] Volume Filesystem Type Test", func() {
+var _ = ginkgo.Describe("[csi-vanilla] Volume Filesystem Type Test", func() {
 	f := framework.NewDefaultFramework("volume-fstype")
 	var (
 		client            clientset.Interface
