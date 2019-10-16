@@ -81,7 +81,7 @@ spec:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: CLUSTER_FLAVOR
-              value: "SUPERVISOR"
+              value: "WORKLOAD"
             - name: X_CSI_MODE
               value: "controller"
             - name: KUBERNETES_SERVICE_HOST
@@ -116,7 +116,7 @@ spec:
             - "--leader-election"
           env:
             - name: CLUSTER_FLAVOR
-              value: "SUPERVISOR"
+              value: "WORKLOAD"
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
