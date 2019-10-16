@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"k8s.io/klog"
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -29,8 +30,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-
 )
 
 var (
@@ -54,9 +53,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	clusterFlavor := csitypes.ClusterFlavor(os.Getenv(vTypes.EnvClusterFlavor))
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(vTypes.EnvClusterFlavor))
 	// Initialize Pod Listener gRPC server only if WCP controller is enabled
-	if clusterFlavor == csitypes.SupervisorCluster {
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
 			if err := podlistener.InitPodListenerService(); err != nil {
 				klog.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)

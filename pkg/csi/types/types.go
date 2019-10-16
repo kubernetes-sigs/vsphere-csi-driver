@@ -27,7 +27,3 @@ type Controller interface {
 	csi.ControllerServer
 	Init(config *config.Config) error
 }
-
-// ClusterFlavor represents the allowed strings for the env variable CLUSTER_FLAVOR
-// Allowed constants are defined in constants.go
-type ClusterFlavor string
