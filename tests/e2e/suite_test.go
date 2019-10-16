@@ -19,9 +19,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
+
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"
@@ -36,6 +40,8 @@ func init() {
 
 	framework.HandleFlags()
 	framework.AfterReadingAllFlags(&framework.TestContext)
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	setClusterFlavor(clusterFlavor)
 }
 
 func TestE2E(t *testing.T) {

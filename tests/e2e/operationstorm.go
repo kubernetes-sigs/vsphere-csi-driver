@@ -49,30 +49,24 @@ import (
 		10. Delete storage class.
 */
 
-var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
+var _ = utils.SIGDescribe("[csi-vanilla] Volume Operations Storm", func() {
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
 	const defaultVolumeOpsScale = 30
 	var (
-		client                clientset.Interface
-		namespace             string
-		scParameters          map[string]string
-		storageclass          *storage.StorageClass
-		pvclaims              []*v1.PersistentVolumeClaim
-		persistentvolumes     []*v1.PersistentVolume
-		err                   error
-		volumeOpsScale        int
-		isK8SVanillaTestSetup bool
-		storagePolicyName     string
+		client            clientset.Interface
+		namespace         string
+		scParameters      map[string]string
+		storageclass      *storage.StorageClass
+		pvclaims          []*v1.PersistentVolumeClaim
+		persistentvolumes []*v1.PersistentVolume
+		err               error
+		volumeOpsScale    int
+		storagePolicyName string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = getNamespaceToRunTests(f)
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -90,7 +84,7 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
+		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 		ginkgo.By("Deleting all PVCs")
@@ -112,7 +106,7 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 		ginkgo.By("Creating Storage Class")
 
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			storagePolicyName = ""
@@ -155,7 +149,7 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if isK8SVanillaTestSetup {
+			if vanillaCluster {
 				vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 			} else {
 				annotations := pod.Annotations
@@ -182,7 +176,7 @@ var _ = utils.SIGDescribe("[csi-block-e2e] Volume Operations Storm", func() {
 
 		ginkgo.By("Verify volumes are detached from the node")
 		for _, pv := range persistentvolumes {
-			if isK8SVanillaTestSetup {
+			if vanillaCluster {
 				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())

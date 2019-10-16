@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"time"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+
 	"github.com/onsi/gomega"
 )
 
@@ -38,11 +40,12 @@ const (
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	scParamStoragePolicyName                   = "StoragePolicyName"
+	svStorageClassName                         = "SVStorageClass"
 	poll                                       = 2 * time.Second
 	pollTimeout                                = 5 * time.Minute
 	pollTimeoutShort                           = 1 * time.Minute / 2
 	scParamStoragePolicyID                     = "StoragePolicyId"
-	envK8SVanillaTestSetup                     = "K8S_VANILLA_ENVIRONMENT"
+	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
@@ -78,6 +81,14 @@ const (
 	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 )
 
+// The following variables are required to know cluster type to run common e2e tests
+// These variables will be set once during test suites initialization.
+var (
+	vanillaCluster    bool
+	supervisorCluster bool
+	guestCluster      bool
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
@@ -99,4 +110,16 @@ func GetAndExpectBoolEnvVar(varName string) bool {
 	varBoolValue, err := strconv.ParseBool(varValue)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error Parsing "+varName)
 	return varBoolValue
+}
+
+// setClusterFlavor sets the boolean variables w.r.t the Cluster type
+func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
+	switch clusterFlavor {
+	case cnstypes.CnsClusterFlavorWorkload:
+		supervisorCluster = true
+	case cnstypes.CnsClusterFlavorGuest:
+		guestCluster = true
+	default:
+		vanillaCluster = true
+	}
 }

@@ -83,8 +83,7 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 		datacenter := object.NewDatacenter(vs.Client.Client, dc.Reference())
 		s := object.NewSearchIndex(vs.Client.Client)
 		vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
-		isK8SVanillaTestSetup := GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		instanceUUID := !isK8SVanillaTestSetup
+		instanceUUID := !vanillaCluster
 		vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
 
 		if err != nil || vmMoRef == nil {

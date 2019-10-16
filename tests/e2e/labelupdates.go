@@ -52,37 +52,31 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
+var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
 	var (
-		client                clientset.Interface
-		namespace             string
-		labelKey              string
-		labelValue            string
-		pvclabelKey           string
-		pvclabelValue         string
-		pvlabelKey            string
-		pvlabelValue          string
-		pandoraSyncWaitTime   int
-		datacenter            *object.Datacenter
-		datastoreURL          string
-		datastore             *object.Datastore
-		fcdID                 string
-		isK8SVanillaTestSetup bool
-		storagePolicyName     string
-		scParameters          map[string]string
+		client              clientset.Interface
+		namespace           string
+		labelKey            string
+		labelValue          string
+		pvclabelKey         string
+		pvclabelValue       string
+		pvlabelKey          string
+		pvlabelValue        string
+		pandoraSyncWaitTime int
+		datacenter          *object.Datacenter
+		datastoreURL        string
+		datastore           *object.Datastore
+		fcdID               string
+		storagePolicyName   string
+		scParameters        map[string]string
 	)
 	const (
 		fcdName = "BasicStaticFCD"
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		isK8SVanillaTestSetup = GetAndExpectBoolEnvVar(envK8SVanillaTestSetup)
-		if isK8SVanillaTestSetup {
-			namespace = f.Namespace.Name
-		} else {
-			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
+		namespace = getNamespaceToRunTests(f)
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -101,18 +95,18 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if !isK8SVanillaTestSetup {
+		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 	})
 
-	ginkgo.It("[csi-common-e2e] verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
+	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		} else {
@@ -168,7 +162,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 
 	})
 
-	ginkgo.It("[csi-common-e2e] verify labels are removed in CNS after removing them from pvc and/or pv", func() {
+	ginkgo.It("[csi-supervisor] verify labels are removed in CNS after removing them from pvc and/or pv", func() {
 		ginkgo.By("Invoking test to verify labels deletion")
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -177,7 +171,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		} else {
@@ -244,13 +238,13 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 
 	})
 
-	ginkgo.It("[csi-common-e2e] verify podname label is created/deleted when pod with cns volume is created/deleted.", func() {
+	ginkgo.It("[csi-supervisor] verify podname label is created/deleted when pod with cns volume is created/deleted.", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test to verify pod name label updates"))
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		} else {
@@ -289,7 +283,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		var exists bool
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 		} else {
 			annotations := pod.Annotations
@@ -308,7 +302,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 
 		ginkgo.By("Deleting the pod")
 		framework.DeletePodWithWait(f, client, pod)
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -588,9 +582,9 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		10. Delete PVCs
 		11. Delete SC
 	*/
-	ginkgo.It("[csi-common-e2e] Verify label updates on PVC and PV attached to a stateful set.", func() {
+	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful set.", func() {
 		// decide which test setup is available to run
-		if isK8SVanillaTestSetup {
+		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 		} else {
@@ -615,7 +609,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] label-updates", func() {
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			framework.DeleteAllStatefulSets(client, namespace)
-			if !isK8SVanillaTestSetup {
+			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
