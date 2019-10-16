@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"net"
 	"os"
 	"strings"
@@ -39,7 +40,7 @@ import (
 )
 
 const (
-	defaultClusterFlavor = csitypes.VanillaCluster
+	defaultClusterFlavor = cnstypes.CnsClusterFlavorVanilla
 
 	// UnixSocketPrefix is the prefix before the path on disk
 	UnixSocketPrefix = "unix://"
@@ -47,7 +48,7 @@ const (
 
 var (
 	clusterFlavor = defaultClusterFlavor
-	cfgPath        = cnsconfig.DefaultCloudConfigPath
+	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
 
 // Service is a CSI SP and idempotency.Provider.
@@ -81,11 +82,11 @@ func New() Service {
 
 func (s *service) GetController() csi.ControllerServer {
 	// check which controller type to use
-	clusterFlavor = csitypes.ClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	switch clusterFlavor {
-	case csitypes.SupervisorCluster:
+	case cnstypes.CnsClusterFlavorWorkload:
 		s.cnscs = wcp.New()
-	case csitypes.GuestCluster:
+	case cnstypes.CnsClusterFlavorGuest:
 		s.cnscs = wcpguest.New()
 	default:
 		clusterFlavor = defaultClusterFlavor
@@ -100,7 +101,7 @@ func (s *service) BeforeServe(
 	defer func() {
 		fields := map[string]interface{}{
 			"clusterFlavor": clusterFlavor,
-			"mode":           s.mode,
+			"mode":          s.mode,
 		}
 
 		log.WithFields(fields).Infof("configured: %s", csitypes.Name)
@@ -108,7 +109,7 @@ func (s *service) BeforeServe(
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-	clusterFlavor = csitypes.ClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	if strings.TrimSpace(string(clusterFlavor)) == "" {
 		clusterFlavor = defaultClusterFlavor
 	}
@@ -116,7 +117,7 @@ func (s *service) BeforeServe(
 		// Controller service is needed
 		var cfg *cnsconfig.Config
 		var err error
-		if clusterFlavor == csitypes.GuestCluster {
+		if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 			// Config path for Guest Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
 			if cfgPath == "" {
