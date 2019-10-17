@@ -57,8 +57,8 @@ spec:
               value: "controller"
             - name: X_CSI_GC_CONFIG
               value: "/etc/vmware/wcp/cns-csi.conf"
-            - name: X_PROVISION_TIMEOUT_MINUTES
-              value: "1"
+            - name: PROVISION_TIMEOUT_MINUTES
+              value: "5"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: wcp-config-volume
