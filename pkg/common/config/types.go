@@ -69,16 +69,12 @@ type VirtualCenterConfig struct {
 }
 
 // GCConfig contains information used by guest cluster to access a supervisor
-// cluster endpoint using token and certificate
+// cluster endpoint
 type GCConfig struct {
-	// SV sever IP
+	// Supervisor Cluster server IP
 	Endpoint string `gcfg:"endpoint"`
-	// SV server port
+	// Supervisor Cluster server port
 	Port string `gcfg:"port"`
-	// SV namespace
-	Namespace string `gcfg:"namespace"`
-	// SV service account token
-	Token string `gcfg:"token"`
-	// SV serivice account certificate
-	Certificate string `gcfg:"certificate"`
+	// Guest Cluster UID
+	ManagedClusterUID string `gcfg:"managedcluster-uid"`
 }

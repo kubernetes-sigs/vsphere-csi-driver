@@ -123,7 +123,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
 		}
 	}
-
+	
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:      volSizeMB,
 		Name:            req.Name,
