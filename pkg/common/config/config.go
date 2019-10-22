@@ -42,7 +42,7 @@ const (
 	// DefaultCloudConfigPath is the default path of csi config file
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// DefaultGCConfigPath is the default path of GC config file
-	DefaultGCConfigPath = "/etc/cloud/cns-csi.conf"
+	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
 	// EnvCloudConfig contains the path to the CSI vSphere Config
 	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
 	// EnvGCConfig contains the path to the CSI GC Config
@@ -69,14 +69,9 @@ var (
 	// define any endpoints.
 	ErrMissingEndpoint = errors.New("No Supervisor Cluster endpoint defined in Guest Cluster config")
 
-	// ErrMissingNamespace is returned when the provided namespace is empty
-	ErrMissingNamespace = errors.New("Supervisor Cluster Namespace is missing in Guest Cluster config")
-
-	//ErrMissingTOKEN is returned when the provided token is empty
-	ErrMissingToken = errors.New("Token to connect Supervisor Cluster is missing in Guest Cluster config")
-
-	//ErrMissingCertificate is returned when the provided certificate is empty
-	ErrMissingCertificate = errors.New("Certificate to connect Supervisor Cluster is missing in Guest Cluster config")
+	// ErrMissingManagedClusterUID is returned when the provided configuration does not
+	// define any ManagedClusterUID.
+	ErrMissingManagedClusterUID = errors.New("No Managed Cluster UID defined in Guest Cluster config")
 )
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
@@ -320,15 +315,10 @@ func FromEnvToGC(cfg *Config) error {
 	if v := os.Getenv("WCP_PORT"); v != "" {
 		cfg.GC.Port = v
 	}
-	if v := os.Getenv("WCP_NAMESPACE"); v != "" {
-		cfg.GC.Namespace = v
+	if v := os.Getenv("WCP_ManagedClusterUID"); v != "" {
+		cfg.GC.ManagedClusterUID = v
 	}
-	if v := os.Getenv("TOKEN"); v != "" {
-		cfg.GC.Token = v
-	}
-	if v := os.Getenv("CERTIFICATE"); v != "" {
-		cfg.GC.Certificate = v
-	}
+
 	if cfg.GC.Port == "" {
 		cfg.GC.Port = DefaultGCPort
 	}
@@ -389,17 +379,10 @@ func validateGCConfig(cfg *Config) error {
 		klog.Error(ErrMissingEndpoint)
 		return ErrMissingEndpoint
 	}
-	if cfg.GC.Namespace == "" {
-		klog.Error(ErrMissingNamespace)
-		return ErrMissingNamespace
+	if cfg.GC.ManagedClusterUID == "" {
+		klog.Error(ErrMissingManagedClusterUID)
+		return ErrMissingManagedClusterUID
 	}
-	if cfg.GC.Token == "" {
-		klog.Error(ErrMissingToken)
-		return ErrMissingToken
-	}
-	if cfg.GC.Certificate == "" {
-		klog.Error(ErrMissingCertificate)
-		return ErrMissingCertificate
-	}
+
 	return nil
 }

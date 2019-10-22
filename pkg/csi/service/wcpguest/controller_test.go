@@ -19,7 +19,6 @@ package wcpguest
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,8 +35,10 @@ import (
 )
 
 const (
-	testVolumeName        = "pvc-12345"
-	testSupervisorPVCName = "pvcsc-12345"
+	testVolumeName = "pvc-12345"
+	// The format of SupervisorPVCName is ManagedClusterUID+"-"+ volumeUID
+	// The ManagedClusterUID is empty in the unit test
+	testSupervisorPVCName = "-12345"
 	testNamespace         = "test-namespace"
 	testStorageClass      = "test-storageclass"
 )
@@ -60,14 +61,11 @@ func configFromEnvOrSim() (clientset.Interface, error) {
 		return configFromSim()
 	}
 	isUnitTest = false
-	// This step is help to format the certificate from env.
-	certificate := strings.Replace(cfg.GC.Certificate, `\n`, "\n", -1)
-	restClientConfig := k8s.GetRestClientConfig(cfg.GC.Endpoint, cfg.GC.Port, certificate, cfg.GC.Token)
+	restClientConfig := k8s.GetRestClientConfig(cfg.GC.Endpoint, cfg.GC.Port)
 	supervisorClient, err := k8s.NewSupervisorClient(restClientConfig)
 	if err != nil {
 		return nil, err
 	}
-	supervisorNamespace = cfg.GC.Namespace
 	return supervisorClient, nil
 }
 

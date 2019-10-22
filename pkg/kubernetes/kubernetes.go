@@ -18,10 +18,12 @@ package kubernetes
 
 import (
 	vmoperatorv1alpha1 "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
+	"io/ioutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/klog"
 	"net"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -43,12 +45,27 @@ func NewClient() (clientset.Interface, error) {
 }
 
 // GetRestClientConfig returns restclient config for given endpoint, port, certificate and token
-func GetRestClientConfig(endpoint string, port string, certificate string, token string) *restclient.Config {
+func GetRestClientConfig(endpoint string, port string) *restclient.Config {
 	var config *restclient.Config
+	const (
+		tokenFile  = common.DefaultpvCSIProviderPath + "/token"
+		rootCAFile = common.DefaultpvCSIProviderPath + "/ca.crt"
+	)
+	token, err := ioutil.ReadFile(tokenFile)
+	if err != nil {
+		return nil
+	}
+	if _, err := certutil.NewPool(rootCAFile); err != nil {
+		klog.Errorf("Expected to load root CA config from %s, but got err: %v", rootCAFile, err)
+		return nil
+	}
 	config = &restclient.Config{
 		Host: "https://" + net.JoinHostPort(endpoint, port),
 		TLSClientConfig: restclient.TLSClientConfig{
-			CAData: []byte(certificate),
+			// TODO: remove this flag after https://jira.eng.vmware.com/browse/VKAL-2595 is solved
+			Insecure: true,
+			// TODO: add the CAFile back once the insecure flag is removed.
+			//CAFile: rootCAFile,
 		},
 		BearerToken: string(token),
 	}

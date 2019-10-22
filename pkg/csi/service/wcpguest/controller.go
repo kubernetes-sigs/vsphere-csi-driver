@@ -50,16 +50,11 @@ var (
 	}
 )
 
-const (
-	// prefix of the PVC Name in the supervisor cluster
-	// TODO: This should be the Guest Cluster Unique ID
-	pvcPrefix = "pvcsc-"
-)
-
 type controller struct {
 	supervisorClient    clientset.Interface
 	vmOperatorClient    *vmoperatorclient.VmoperatorV1alpha1Client
 	supervisorNamespace string
+	managedClusterUID   string
 }
 
 // New creates a CNS controller
@@ -72,8 +67,12 @@ func (c *controller) Init(config *config.Config) error {
 	// connect to the CSI controller in supervisor cluster
 	klog.V(2).Infof("Initializing WCPGC CSI controller")
 	var err error
-	c.supervisorNamespace = config.GC.Namespace
-	restClientConfig := k8s.GetRestClientConfig(config.GC.Endpoint, config.GC.Port, config.GC.Certificate, config.GC.Token)
+	c.supervisorNamespace, err = getNamespace()
+	if err != nil {
+		return err
+	}
+	c.managedClusterUID = config.GC.ManagedClusterUID
+	restClientConfig := k8s.GetRestClientConfig(config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(restClientConfig)
 	if err != nil {
 		klog.Errorf("Failed to create supervisorClient. Error: %+v", err)
@@ -100,7 +99,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	// Get PVC name and disk size for the supervisor cluster
 	// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
-	supervisorPVCName := pvcPrefix + req.Name[4:]
+	supervisorPVCName := c.managedClusterUID + "-" + req.Name[4:]
 
 	// Volume Size - Default is 10 GiB
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
