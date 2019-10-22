@@ -23,7 +23,6 @@ spec:
         - operator: "Exists"
           key: node-role.kubernetes.io/master
           effect: NoSchedule
-      dnsPolicy: "Default"
       containers:
         - name: csi-attacher
           image: vmware/csi-attacher/csi-attacher:v1.1.1
@@ -56,14 +55,17 @@ spec:
             - name: X_CSI_MODE
               value: "controller"
             - name: X_CSI_GC_CONFIG
-              value: "/etc/vmware/wcp/cns-csi.conf"
+              value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: PROVISION_TIMEOUT_MINUTES
               value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
               value: "4"
           volumeMounts:
-            - mountPath: /etc/vmware/wcp
-              name: wcp-config-volume
+            - mountPath: /etc/cloud/pvcsi-provider
+              name: pvcsi-provider-volume
+              readOnly: true
+            - mountPath: /etc/cloud/pvcsi-config
+              name: pvcsi-config-volume
               readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
@@ -77,13 +79,16 @@ spec:
             - name: X_CSI_FULL_SYNC_INTERVAL_MINUTES
               value: "30"
             - name: X_CSI_GC_CONFIG
-              value: "/etc/vmware/wcp/cns-csi.conf"
+              value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
           volumeMounts:
-            - mountPath: /etc/vmware/wcp
-              name: wcp-config-volume
-              readOnly: true
+          - mountPath: /etc/cloud/pvcsi-provider
+            name: pvcsi-provider-volume
+            readOnly: true
+          - mountPath: /etc/cloud/pvcsi-config
+            name: pvcsi-config-volume
+            readOnly: true
         - name: liveness-probe
           image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
           args:
@@ -109,9 +114,12 @@ spec:
             - mountPath: /csi
               name: socket-dir
       volumes:
-         - name: wcp-config-volume
+         - name: pvcsi-provider-volume
            secret:
-             secretName: wcp-config-secret
+             secretName: pvcsi-provider-creds
+         - name: pvcsi-config-volume
+           configMap:
+             name: pvcsi-config
          - name: socket-dir
            hostPath:
              path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
