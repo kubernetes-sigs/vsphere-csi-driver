@@ -75,6 +75,13 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
+		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+		framework.DeleteAllStatefulSets(client, namespace)
+		if supervisorCluster {
+			ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+			err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	ginkgo.It("vSphere statefulset testing", func() {
@@ -102,15 +109,6 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulsetTester := framework.NewStatefulSetTester(client)
 		statefulset := statefulsetTester.CreateStatefulSet(manifestPath, namespace)
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			framework.DeleteAllStatefulSets(client, namespace)
-			if supervisorCluster {
-				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
