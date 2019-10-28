@@ -69,7 +69,7 @@ const (
 	csiSystemNamespace                         = "vmware-system-csi"
 	syncerStatefulsetName                      = "vsphere-csi-metadata-syncer"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
-	rqLimit                                    = "10Gi"
+	rqLimit                                    = "100Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	quotaName                                  = "cns-test-quota"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
