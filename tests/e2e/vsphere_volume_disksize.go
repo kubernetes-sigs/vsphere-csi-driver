@@ -22,6 +22,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -118,7 +119,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] Volume Disk Size ", func
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verifying disk size specified in PVC in honored")
-		if queryResult.Volumes[0].BackingObjectDetails.CapacityInMb != diskSizeInMb {
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != diskSizeInMb {
 			err = fmt.Errorf("Wrong disk size provisioned ")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
