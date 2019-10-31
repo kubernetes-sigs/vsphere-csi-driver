@@ -553,6 +553,6 @@ func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths
 func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
 	for _, filePath := range filePaths {
 		err := framework.CreateEmptyFileOnPod(namespace, podName, filePath)
-		framework.ExpectNoError(err)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
