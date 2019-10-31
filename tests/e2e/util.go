@@ -542,3 +542,17 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	ginkgo.By(fmt.Sprintf("Found volume in Supervisor cluster with VolumeID: %s", volumeHandle))
 	return volumeHandle
 }
+
+func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
+	for _, filePath := range filePaths {
+		_, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/ls", filePath)
+		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+	}
+}
+
+func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
+	for _, filePath := range filePaths {
+		err := framework.CreateEmptyFileOnPod(namespace, podName, filePath)
+		framework.ExpectNoError(err)
+	}
+}
