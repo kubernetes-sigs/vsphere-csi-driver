@@ -37,8 +37,7 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string, a
 	if bindingMode == "" {
 		bindingMode = storagev1.VolumeBindingImmediate
 	}
-	var sc *storagev1.StorageClass
-	sc = &storagev1.StorageClass{
+	var sc = &storagev1.StorageClass{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "StorageClass",
 		},
@@ -465,9 +464,7 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 	var zoneValues []string
 	for region, zones := range topologyMap {
 		regionValues = append(regionValues, region)
-		for _, zone := range zones {
-			zoneValues = append(zoneValues, zone)
-		}
+		zoneValues = append(zoneValues, zones...)
 	}
 	return regionValues, zoneValues
 }

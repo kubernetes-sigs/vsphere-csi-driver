@@ -89,6 +89,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Relocate detached volume ", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			sourceDatastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -98,6 +99,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Relocate detached volume ", func() {
 
 		scParameters[scParamDatastoreURL] = datastoreURL
 		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)

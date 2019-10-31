@@ -171,6 +171,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	}
 
 	storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, storagePolicyName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), fmt.Sprintf("storage policy verification failed"))
 	// TODO: Remove this check when attach/detach is implemented on guest clusters
 	if !guestCluster {

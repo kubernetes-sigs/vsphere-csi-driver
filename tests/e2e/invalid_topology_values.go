@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
 // Constants to store invalid/non-existing region and zone
@@ -87,9 +86,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 
@@ -122,9 +121,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 
@@ -157,9 +156,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 })
