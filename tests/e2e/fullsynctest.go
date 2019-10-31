@@ -137,6 +137,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -180,6 +181,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
 		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
@@ -444,11 +446,13 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		for _, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		for _, pv := range pvs {
 			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
 			err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 
@@ -470,6 +474,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -504,6 +509,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
@@ -549,6 +555,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -576,6 +583,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))

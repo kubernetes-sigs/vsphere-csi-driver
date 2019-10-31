@@ -235,8 +235,8 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
 
 // check whether the slice contains an element
 func contains(volumes []string, volumeID string) bool {
-	for _, volumeID := range volumes {
-		if volumeID == volumeID {
+	for _, volumeUUID := range volumes {
+		if volumeUUID == volumeID {
 			return true
 		}
 	}

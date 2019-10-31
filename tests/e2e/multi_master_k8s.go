@@ -345,7 +345,7 @@ func getTestbedConfig(client clientset.Interface, nodeNameIPMap map[string]strin
 			}
 			if _, ok := nodeNameIPMap[node.Name]; !ok {
 				framework.Logf("No IP address is found for master node %s", node.Name)
-				return errors.New(fmt.Sprintf("IP address is not found for node %s", node.Name))
+				return fmt.Errorf("IP address is not found for node %s", node.Name)
 			}
 		}
 	}

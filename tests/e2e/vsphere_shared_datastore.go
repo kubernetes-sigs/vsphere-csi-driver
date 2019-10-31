@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Datastore Based Volume Provisioning With 
 		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
@@ -85,6 +86,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Datastore Based Volume Provisioning With 
 		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to fail provisioning volume on non shared datastore")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)

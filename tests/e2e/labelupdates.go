@@ -366,6 +366,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -384,8 +385,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 
-		var pv *v1.PersistentVolume
-		pv = pvs[0]
+		var pv = pvs[0]
 		fcdID = pv.Spec.CSI.VolumeHandle
 
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(fcdID)
@@ -485,6 +485,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 
 		for _, dc := range datacenters {
 			datacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(datacenter)
 			datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -512,6 +513,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
