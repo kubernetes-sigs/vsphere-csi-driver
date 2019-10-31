@@ -24,6 +24,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/vim25/soap"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/klog"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -288,7 +290,14 @@ func (m *volumeManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
 	task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
 	if err != nil {
-		klog.Errorf("CNS DeleteVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		if soap.IsSoapFault(err) {
+			soapFault := soap.ToSoapFault(err)
+			if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
+				klog.V(2).Infof("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
+				return nil
+			}
+		}
+		klog.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	// Get the taskInfo
