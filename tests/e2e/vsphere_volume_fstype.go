@@ -199,5 +199,6 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 
 	ginkgo.By("Verify volume is detached from the node")
 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, podNodeName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, podNodeName))
 }

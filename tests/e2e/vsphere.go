@@ -124,7 +124,7 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, vol
 		vmUUID := getNodeUUID(client, nodeName)
 		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if diskAttached == false {
+		if !diskAttached {
 			framework.Logf("Disk: %s successfully detached", volumeID)
 			return true, nil
 		}

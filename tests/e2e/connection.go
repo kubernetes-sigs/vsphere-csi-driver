@@ -19,6 +19,9 @@ package e2e
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
+	"sync"
+
 	gomega "github.com/onsi/gomega"
 	"gitlab.eng.vmware.com/hatchway/govmomi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/session"
@@ -26,8 +29,6 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"k8s.io/kubernetes/test/e2e/framework"
-	neturl "net/url"
-	"sync"
 )
 
 type cnsClient struct {
@@ -67,7 +68,6 @@ func connect(ctx context.Context, vs *vSphere) {
 	framework.Logf("Creating new client session since the existing session is not valid or not authenticated")
 	vs.Client.Logout(ctx)
 	vs.Client = newClient(ctx, vs)
-	return
 }
 
 // newClient creates a new client for vSphere connection
