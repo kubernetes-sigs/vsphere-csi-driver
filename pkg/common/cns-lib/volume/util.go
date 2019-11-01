@@ -17,6 +17,7 @@ package volume
 import (
 	"context"
 	"errors"
+
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"k8s.io/klog"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -57,6 +58,6 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 			}
 		}
 	}
-	klog.V(3).Infof("Volume %s is not attached to VM: %s", volumeID, vm.InventoryPath)
+	klog.V(3).Infof("Volume %s is not attached to VM: %+v", volumeID, vm)
 	return "", nil
 }
