@@ -257,8 +257,20 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 
 	if volumeOperationRes.Fault != nil {
-		klog.Errorf("failed to detach cns volume:%q from node vm: %q. fault: %q, opId: %q", volumeID, vm.InventoryPath, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		// Volume is already attached to VM
+		diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+		if err != nil {
+			klog.Errorf("DetachVolume: CNS Detach has failed with fault: %q. Unable to check if volume: %q is already detached from vm: %+v",
+				spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
+			return err
+		} else if diskUUID == "" {
+			klog.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
+				volumeID, vm)
+			return nil
+		} else {
+			klog.Errorf("failed to detach cns volume:%q from node vm: %+v. fault: %q, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		}
 	}
 	klog.V(2).Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q", volumeID, taskInfo.ActivationId, vm.String())
 	return nil

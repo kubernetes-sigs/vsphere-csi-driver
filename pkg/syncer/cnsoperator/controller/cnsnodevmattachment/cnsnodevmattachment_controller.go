@@ -120,19 +120,6 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, nil
 	}
 
-	// Remove the finalizer from CnsNodeVmAttachment instance
-	if !instance.Status.Attached && instance.DeletionTimestamp != nil {
-		// TODO: Call CNS Detach to detach the volume before removing the finalizer.
-		instance.Finalizers = []string{}
-		err = r.client.Update(ctx, instance)
-		if err != nil {
-			klog.Errorf("Failed to update CnsNodeVmAttachment instance: %q with finalizer on namespace: %q. Error: %+v",
-				request.Name, request.Namespace, err)
-			return reconcile.Result{}, err
-		}
-		return reconcile.Result{}, nil
-	}
-
 	volumeName := instance.Spec.VolumeName
 	volumeID, err := getVolumeID(ctx, r.client, volumeName, instance.Namespace)
 	if err != nil {
@@ -204,7 +191,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		diskUUID, attachErr := volumes.GetManager(vcenter).AttachVolume(nodeVM, volumeID)
 		if attachErr != nil {
 			klog.Errorf("Failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
-				volumeID, nodeVM, request.Name, request.Namespace, err)
+				volumeID, nodeVM, request.Name, request.Namespace, attachErr)
 		}
 
 		if !cnsFinalizerExists {
@@ -228,10 +215,44 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeFirstClassDiskUUID] = diskUUID
 			instance.Status.Attached = true
 			instance.Status.AttachmentMetadata = attachmentMetadata
+			// Clear the error message
+			instance.Status.Error = ""
 		}
 
-		updateCnsNodeVmAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVmAttachment(ctx, r.client, instance)
+		if err != nil {
+			klog.Errorf("Failed to update attach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+				request.Name, request.Namespace, err)
+			return reconcile.Result{}, err
+		}
 		return reconcile.Result{}, attachErr
+	}
+
+	if instance.DeletionTimestamp != nil {
+		klog.V(4).Infof("vSphere CNS driver is detaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
+			volumeID, nodeVM, request.Name, request.Namespace)
+		detachErr := volumes.GetManager(vcenter).DetachVolume(nodeVM, volumeID)
+		if detachErr != nil {
+			klog.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+				volumeID, nodeVM, request.Name, request.Namespace, detachErr)
+			// Update CnsNodeVmAttachment instance with detach error message
+			instance.Status.Error = detachErr.Error()
+		} else {
+			for i, finalizer := range instance.Finalizers {
+				if finalizer == cnsoperatortypes.CNSFinalizer {
+					klog.V(4).Infof("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
+						cnsoperatortypes.CNSFinalizer, request.Name, request.Namespace)
+					instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
+				}
+			}
+		}
+		err = updateCnsNodeVmAttachment(ctx, r.client, instance)
+		if err != nil {
+			klog.Errorf("Failed to update detach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+				request.Name, request.Namespace, err)
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, detachErr
 	}
 	return reconcile.Result{}, nil
 }
