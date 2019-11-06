@@ -620,8 +620,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// PV does not exist in K8S, but volume exist in CNS cache
 	// FullSync should delete this volume from CNS cache after two cycles
-	triggerFullSync(k8sclient, metadataSyncer)
-	triggerFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
 
 	// Verify if volume has been deleted from cache
 	queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
@@ -659,8 +659,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	triggerFullSync(k8sclient, metadataSyncer)
-	triggerFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
@@ -685,7 +685,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	triggerFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
 
 	// Verify pv label value has been updated in CNS cache
 
@@ -704,7 +704,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	triggerFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
 
 	// Verify pvc label value has been updated in CNS cache
 
@@ -724,7 +724,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	triggerFullSync(k8sclient, metadataSyncer)
+	csiFullSync(k8sclient, metadataSyncer)
 
 	// Verify POD metadata of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
