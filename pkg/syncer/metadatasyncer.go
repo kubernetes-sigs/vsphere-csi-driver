@@ -86,8 +86,6 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 			klog.Errorf("Creating Supervisor client failed. Err: %v", err)
 			return err
 		}
-		// TODO: Remove return statement when pvcsi metadata syncer implementation is complete
-		return nil
 	} else {
 		// Initialize volume manager with vcenter credentials
 		// if metadata syncer is being intialized for Vanilla or Supervisor clusters
@@ -109,11 +107,17 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 	go func() {
 		for range ticker.C {
 			klog.V(2).Infof("fullSync is triggered")
-			triggerFullSync(k8sClient, metadataSyncer)
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+				pvcsiFullSync(k8sClient, metadataSyncer)
+			} else {
+				csiFullSync(k8sClient, metadataSyncer)
+			}
 		}
 	}()
 
 	stopFullSync := make(chan bool, 1)
+	// TODO: Remove channel when pvcsi metadata syncer is implemented
+	<-(stopFullSync)
 
 	// Set up kubernetes resource listeners for metadata syncer
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
@@ -146,7 +150,6 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 	klog.V(2).Infof("Initialized metadata syncer")
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	<-(stopCh)
-	<-(stopFullSync)
 
 	return nil
 }
@@ -380,7 +383,7 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 			var metadataList []cnstypes.BaseCnsEntityMetadata
 			var podMetadata *cnstypes.CnsKubernetesEntityMetadata
 			if deleteFlag == false {
-				entityReference := createEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+				entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 				podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 			} else {
 				podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
@@ -413,7 +416,7 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 func csiPVCUpdated(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	// Create updateSpec
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	entityReference := createEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
+	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
@@ -605,14 +608,5 @@ func csiPVDeleted(pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer)
 		if err := metadataSyncer.volumeManager.DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
 			klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
 		}
-	}
-}
-
-// createEntityReference returns an  EntityReference object to which the given entity refers to.
-func createEntityReference(entityType string, entityName string, namespace string) cnstypes.CnsKubernetesEntityReference {
-	return cnstypes.CnsKubernetesEntityReference{
-		EntityType: entityType,
-		EntityName: entityName,
-		Namespace:  namespace,
 	}
 }

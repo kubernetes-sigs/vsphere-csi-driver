@@ -116,3 +116,37 @@ const (
 // CnsOperatorEntityReference defines the type for entityreference
 // parameter in cnsvolumemetadata API
 type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
+
+// CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the input parameters
+func CreateCnsVolumeMetadataSpec(volumeHandle []string, clusterid string, uid string, name string, entityType CnsOperatorEntityType, labels map[string]string, namespace string, reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
+	return &CnsVolumeMetadata{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: GetCnsVolumeMetadataName(clusterid, uid),
+			// TODO: add owner
+			OwnerReferences: nil,
+		},
+		Spec: CnsVolumeMetadataSpec{
+			VolumeNames:      volumeHandle,
+			GuestClusterID:   clusterid,
+			EntityType:       entityType,
+			EntityName:       name,
+			Labels:           labels,
+			Namespace:        namespace,
+			EntityReferences: reference,
+		},
+	}
+}
+
+// GetCnsVolumeMetadataName returns the concatenated string of guestclusterid and entity id
+func GetCnsVolumeMetadataName(guestClusterID string, entityUID string) string {
+	return guestClusterID + "-" + entityUID
+}
+
+// GetCnsOperatorEntityReference returns the entityReference object from the input parameters
+func GetCnsOperatorEntityReference(name string, namespace string, entitytype CnsOperatorEntityType) CnsOperatorEntityReference {
+	return CnsOperatorEntityReference{
+		EntityType: string(entitytype),
+		EntityName: name,
+		Namespace:  namespace,
+	}
+}
