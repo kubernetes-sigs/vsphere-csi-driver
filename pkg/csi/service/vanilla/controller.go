@@ -409,7 +409,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	var currentSize int64
 	if len(queryResult.Volumes) > 0 {
-		currentSize = queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb
+		currentSize = queryResult.Volumes[0].BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
 	} else {
 		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
 		klog.Error(msg)
