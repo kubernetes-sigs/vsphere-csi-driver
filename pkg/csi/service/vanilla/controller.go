@@ -219,6 +219,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	} else {
 		attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 	}
+
+	if fsType == "" {
+		klog.V(2).Infof("No fstype received. Defaulting to: %s", common.DefaultFsType)
+		fsType = common.DefaultFsType
+	}
 	attributes[common.AttributeFsType] = fsType
 
 	resp := &csi.CreateVolumeResponse{
@@ -299,16 +304,48 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
+
 	klog.V(4).Infof("Found VirtualMachine for node:%q.", req.NodeId)
-	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
 	publishInfo := make(map[string]string, 0)
-	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
-	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+	fsType, ok := req.VolumeContext[common.AttributeFsType]
+	if !ok {
+		fsType = common.DefaultFsType
+		klog.V(3).Infof(fmt.Sprintf("fsType is not set in VolumeContext, use default type: %s", common.DefaultFsType))
+	} else {
+		klog.V(3).Infof(fmt.Sprintf("fsType from VolumeContext: %s", fsType))
+	}
+	// Check whether its a block or file volume
+	if fsType == common.NfsV4FsType {
+		// File Volume
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+		}
+		queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
+		if err != nil {
+			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+			klog.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		if len(queryResult.Volumes) == 0 {
+			msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
+			klog.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		nfsFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails)
+		publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
+		publishInfo[common.FileShareAddress] = nfsFileBackingDetails.Address
+		publishInfo[common.FileShareName] = nfsFileBackingDetails.Name
+	} else {
+		// Block Volume
+		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+		publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+	}
 	resp := &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
 	}

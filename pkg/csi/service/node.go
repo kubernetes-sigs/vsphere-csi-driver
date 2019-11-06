@@ -127,12 +127,12 @@ func (s *service) NodeStageVolume(
 	}
 
 	attributes := req.VolumeContext
-	fsType, _ := attributes[common.AttributeFsType]
-	log.WithField("fsType", fsType).Info("Get fsType from VolumeContext")
-	if fsType == "" {
-		// no fsType is set in VolumeContext, use default "ext4"
+	fsType, ok := attributes[common.AttributeFsType]
+	if !ok {
 		fsType = common.DefaultFsType
 		log.WithField("fsType", fsType).Info("fsType is not set in VolumeContext, use default type")
+	} else {
+		log.WithField("fsType", fsType).Info("Get fsType from VolumeContext")
 	}
 	if len(mnts) == 0 {
 		// Device isn't mounted anywhere, stage the volume
