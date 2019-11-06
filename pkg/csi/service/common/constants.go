@@ -80,6 +80,12 @@ const (
 	// FileVolumeType is the VolumeType for CNS File Share Volume
 	FileVolumeType = "FILE"
 
+	// Name of the CNS File share volume
+	FileShareName = "FileShareName"
+
+	// Address of the CNS File share volume
+	FileShareAddress = "FileShareIPAddress"
+
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
 	// on which CNS is supported.
 	MinSupportedVCenterMajor int = 6
