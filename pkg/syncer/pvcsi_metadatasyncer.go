@@ -37,11 +37,11 @@ func pvcsiVolumeUpdated(resourceType interface{}, volumeHandle string, metadataS
 	// Create CnsVolumeMetaDataSpec based on the resource type
 	switch resource := resourceType.(type) {
 	case *v1.PersistentVolume:
-		entityReference := cnsvolumemetadatav1alpha1.CnsOperatorEntityReference(createEntityReference(string(cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC), resource.Spec.CSI.VolumeHandle, supervisorNamespace))
-		newMetadata = createCnsVolumeMetaDataSpec(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), []string{volumeHandle}, resource.Name, resource.Labels, string(cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV), "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(resource.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC)
+		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, resource.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	case *v1.PersistentVolumeClaim:
-		entityReference := cnsvolumemetadatav1alpha1.CnsOperatorEntityReference(createEntityReference(string(cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV), resource.Spec.VolumeName, resource.Namespace))
-		newMetadata = createCnsVolumeMetaDataSpec(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), []string{volumeHandle}, resource.Name, resource.Labels, string(cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC), resource.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(resource.Spec.VolumeName, resource.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV)
+		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, resource.Labels, resource.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	default:
 	}
 	// Check if cnsvolumemetadata object exists for this entity in the supervisor cluster
@@ -74,7 +74,7 @@ func pvcsiVolumeDeleted(uID string, metadataSyncer *metadataSyncInformer) {
 		klog.Warningf("pvCSI VolumeDeleted: Unable to fetch supervisor namespace. Err: %v", err)
 		return
 	}
-	volumeMetadataName := getCnsVolMetadataName(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, uID)
+	volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, uID)
 	klog.V(4).Infof("pvCSI VolumeDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
 	err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Delete(volumeMetadataName, &metav1.DeleteOptions{})
 	if err != nil {
@@ -82,30 +82,4 @@ func pvcsiVolumeDeleted(uID string, metadataSyncer *metadataSyncInformer) {
 		return
 	}
 	klog.V(2).Infof("pvCSI VolumeDeleted: Successfully deleted CnsVolumeMetadata: %v", volumeMetadataName)
-}
-
-// createCnsVolumeMetaDataSpec creates a CnsVolumeEntityMetaData object from given parameters
-func createCnsVolumeMetaDataSpec(guestClusterID string, uID string, volumeNames []string, entityName string, labels map[string]string, entityType string, namespace string, entityReferences []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference) *cnsvolumemetadatav1alpha1.CnsVolumeMetadata {
-	// Create CnsVolumeMetadata spec
-	return &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            getCnsVolMetadataName(guestClusterID, uID),
-			OwnerReferences: nil,
-			Finalizers:      nil,
-		},
-		Spec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
-			VolumeNames:      volumeNames,
-			GuestClusterID:   guestClusterID,
-			EntityType:       cnsvolumemetadatav1alpha1.CnsOperatorEntityType(entityType),
-			EntityName:       entityName,
-			Labels:           labels,
-			Namespace:        namespace,
-			EntityReferences: entityReferences,
-		},
-	}
-}
-
-//getCnsVolMetadataName returns the concatenated string of guestclusterid and entity id
-func getCnsVolMetadataName(guestClusterID string, entityUID string) string {
-	return guestClusterID + "-" + entityUID
 }

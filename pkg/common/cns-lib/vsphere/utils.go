@@ -72,6 +72,15 @@ func GetContainerCluster(clusterid string, username string, clusterflavor cnstyp
 
 }
 
+// CreateCnsKuberenetesEntityReference returns an  EntityReference object to which the given entity refers to.
+func CreateCnsKuberenetesEntityReference(entityType string, entityName string, namespace string) cnstypes.CnsKubernetesEntityReference {
+	return cnstypes.CnsKubernetesEntityReference{
+		EntityType: entityType,
+		EntityName: entityName,
+		Namespace:  namespace,
+	}
+}
+
 // GetVirtualCenterConfig returns VirtualCenterConfig Object created using vSphere Configuration
 // specified in the argurment.
 func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {

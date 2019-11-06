@@ -29,11 +29,11 @@ import (
 	api "k8s.io/kubernetes/pkg/apis/core"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
-// triggerFullSync triggers full sync
-func triggerFullSync(k8sclient clientset.Interface, metadataSyncer *metadataSyncInformer) {
+// csiFullSync reconciles volume metadata on a vanilla k8s cluster
+// with volume metadata on CNS
+func csiFullSync(k8sclient clientset.Interface, metadataSyncer *metadataSyncInformer) {
 	klog.V(2).Infof("FullSync: start")
 
 	// Get K8s PVs in State "Bound", "Available" or "Released"
@@ -94,25 +94,6 @@ func triggerFullSync(k8sclient clientset.Interface, metadataSyncer *metadataSync
 	klog.V(4).Infof("FullSync: cnsDeletionMap at end of cycle: %v", cnsDeletionMap)
 	klog.V(4).Infof("FullSync: cnsCreationMap at end of cycle: %v", cnsCreationMap)
 	klog.V(2).Infof("FullSync: end")
-}
-
-// getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released state
-func getPVsInBoundAvailableOrReleased(k8sclient clientset.Interface) ([]*v1.PersistentVolume, error) {
-	var pvsInDesiredState []*v1.PersistentVolume
-	// Get all PVs from kubernetes
-	allPVs, err := k8sclient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	for index, pv := range allPVs.Items {
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
-			klog.V(4).Infof("FullSync: pv %v is in state %v", pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
-			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
-				pvsInDesiredState = append(pvsInDesiredState, &allPVs.Items[index])
-			}
-		}
-	}
-	return pvsInDesiredState, nil
 }
 
 // fullSyncCreateVolumes create volumes with given array of createSpec
