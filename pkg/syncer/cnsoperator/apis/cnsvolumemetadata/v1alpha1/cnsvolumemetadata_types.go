@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,8 +26,10 @@ import (
 type CnsVolumeMetadataSpec struct {
 	// VolumeName indicates the unique ID of the volume.
 	// For volumes created in a guest cluster, this will be
-	// “<guestcluster-ID>-<UID>” where UID is the pvc.UUID in SVC
-	VolumeName string `json:"volumename"`
+	// “<guestcluster-ID>-<UID>” where UID is the pvc.UUID in supervisor cluster.
+	// Instances of POD entity type can have multiple volume names.
+	// Instances of PV and PVC entity types will have only one volume name.
+	VolumeNames []string `json:"volumenames"`
 
 	// GuestClusterID indicates the guest cluster ID in which this volume
 	// is referenced.
@@ -34,12 +37,17 @@ type CnsVolumeMetadataSpec struct {
 
 	// EntityType indicates type of entity whose metadata
 	// this instance represents.
-	// Allowed types are PERSISTENT_VOLUME,
-	// PERSISTENT_VOLUME_CLAIM or POD.
-	EntityType string `json:"entitytype"`
+	EntityType CnsOperatorEntityType `json:"entitytype"`
 
 	// EntityName indicates name of the entity in the guest cluster.
 	EntityName string `json:"entityname"`
+
+	// EntityReferences indicate the other entities that this entity refers to.
+	// A Pod in the guest cluster can refers to one or more PVCs in the guest cluster.
+	// A PVC in the guest cluster refers to a PV in the guest cluster.
+	// A PV in the guest cluster refers to a PVC in the supervisor cluster.
+	// This field is mandatory.
+	EntityReferences []CnsOperatorEntityReference `json:"entityreferences"`
 
 	// Labels indicates user labels assigned to the entity
 	// in the guest cluster. Should only be populated if
@@ -94,9 +102,17 @@ type CnsVolumeMetadataList struct {
 	Items           []CnsVolumeMetadata `json:"items"`
 }
 
-// Allowed EntityTypes for CnsVolumeMetadataSpec
+// CnsOperatorEntityType defines the type for entitytype parameter
+// in cnsvolumemetadata API
+type CnsOperatorEntityType cnstypes.CnsKubernetesEntityType
+
+// Allowed CnsOperatorEntityTypes for cnsvolumemetadata API
 const (
-	CnsOperatorEntityTypePVC = string("PERSISTENT_VOLUME_CLAIM")
-	CnsOperatorEntityTypePV  = string("PERSISTENT_VOLUME")
-	CnsOperatorEntityTypePOD = string("POD")
+	CnsOperatorEntityTypePV  = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePV)
+	CnsOperatorEntityTypePVC = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePVC)
+	CnsOperatorEntityTypePOD = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePOD)
 )
+
+// CnsOperatorEntityReference defines the type for entityreference
+// parameter in cnsvolumemetadata API
+type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
