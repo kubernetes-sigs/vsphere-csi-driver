@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 
 	"strconv"
@@ -46,6 +47,8 @@ const (
 	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
 	// EnvGCConfig contains the path to the CSI GC Config
 	EnvGCConfig = "X_CSI_GC_CONFIG"
+	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
+	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
 )
 
 // Errors
@@ -389,4 +392,18 @@ func validateGCConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// GetSupervisorNamespace returns the supervisor namespace in which this guest
+// cluster is deployed
+func GetSupervisorNamespace() (string, error) {
+	const (
+		namespaceFile = DefaultpvCSIProviderPath + "/namespace"
+	)
+	namespace, err := ioutil.ReadFile(namespaceFile)
+	if err != nil {
+		klog.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
+		return "", err
+	}
+	return string(namespace), nil
 }
