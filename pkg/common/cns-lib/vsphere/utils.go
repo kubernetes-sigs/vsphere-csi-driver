@@ -6,15 +6,17 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+
+	"reflect"
+	"strconv"
+	"strings"
+
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"reflect"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"strconv"
-	"strings"
 )
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin

@@ -26,6 +26,7 @@ import (
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/klog"
 	"net"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	cnsoperatorclient "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/client/clientset/versioned/typed/cns/v1alpha1"
 )
@@ -49,8 +50,8 @@ func NewClient() (clientset.Interface, error) {
 func GetRestClientConfig(endpoint string, port string) *restclient.Config {
 	var config *restclient.Config
 	const (
-		tokenFile  = common.DefaultpvCSIProviderPath + "/token"
-		rootCAFile = common.DefaultpvCSIProviderPath + "/ca.crt"
+		tokenFile  = cnsconfig.DefaultpvCSIProviderPath + "/token"
+		rootCAFile = cnsconfig.DefaultpvCSIProviderPath + "/ca.crt"
 	)
 	token, err := ioutil.ReadFile(tokenFile)
 	if err != nil {

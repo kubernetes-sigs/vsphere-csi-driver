@@ -109,7 +109,4 @@ const (
 
 	// VsanMigrateForDecom is the profile param key to set the migrate mode for the volume.
 	VsanMigrateForDecom string = "VSAN/migrateForDecom/migrateForDecom"
-
-	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
-	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
 )

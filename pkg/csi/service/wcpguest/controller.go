@@ -37,6 +37,7 @@ import (
 	"k8s.io/klog"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -67,7 +68,7 @@ func (c *controller) Init(config *config.Config) error {
 	klog.V(2).Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
-	c.supervisorNamespace, err = getNamespace()
+	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace()
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,6 @@ package wcpguest
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -47,20 +46,6 @@ const (
 	// timeout for attach and detach operation for watching on VirtualMachines instances, used unless overridden by user in csi-controller YAML
 	defaultAttacherTimeoutInMin = 4
 )
-
-// getNamespace is the helper function to get the namespace from supervisor cluster where to create pvc/pv
-// for Guest Cluster CSI driver
-func getNamespace() (string, error) {
-	const (
-		namespaceFile = common.DefaultpvCSIProviderPath + "/namespace"
-	)
-	namespace, err := ioutil.ReadFile(namespaceFile)
-	if err != nil {
-		klog.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
-		return "", err
-	}
-	return string(namespace), nil
-}
 
 // validateGuestClusterCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for Guest Cluster CSI driver.
