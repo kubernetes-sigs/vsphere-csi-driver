@@ -20,7 +20,7 @@ import (
 	"sync"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
