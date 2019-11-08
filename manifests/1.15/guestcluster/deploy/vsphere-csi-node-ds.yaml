@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: node-driver-registrar
-        image: vmware/csi-node-driver-registrar/csi-node-driver-registrar:v1.1.0
+        image: vmware.io/csi-node-driver-registrar:<csi_node_driver_registrar_ver>
         lifecycle:
           preStop:
             exec:
@@ -73,7 +73,7 @@ spec:
         - name: device-dir
           mountPath: /dev
       - name: liveness-probe
-        image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
+        image: vmware/csi-livenessprobe/csi-livenessprobe:<csi_livenessprobe_ver>
         args:
         - "--csi-address=$(ADDRESS)"
         imagePullPolicy: "IfNotPresent"
