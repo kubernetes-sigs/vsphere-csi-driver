@@ -32,6 +32,7 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
             - "--leader-election-type=leases"
+          imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -46,7 +47,7 @@ spec:
                 command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
           args:
             - "--v=4"
-          imagePullPolicy: "Always"
+          imagePullPolicy: "IfNotPresent"
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
@@ -74,7 +75,7 @@ spec:
           args:
             - "--v=4"
             - "--leader-election"
-          imagePullPolicy: "Always"
+          imagePullPolicy: "IfNotPresent"
           env:
             - name: X_CSI_FULL_SYNC_INTERVAL_MINUTES
               value: "30"
@@ -93,6 +94,7 @@ spec:
           image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
           args:
             - "--csi-address=$(ADDRESS)"
+          imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -107,6 +109,7 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--enable-leader-election"
             - "--leader-election-type=leases"
+          imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
