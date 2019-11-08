@@ -26,8 +26,17 @@ func IsInvalidCredentialsError(err error) bool {
 	return isInvalidCredentialsError
 }
 
+// IsNotFoundError checks if err is the NotFound fault, if yes then returns true else return false
+func IsNotFoundError(err error) bool {
+	isNotFoundError := false
+	if soap.IsSoapFault(err) {
+		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.NotFound)
+	}
+	return isNotFoundError
+}
+
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject object from given parameters
-func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string, deleteFlag bool, entityType string, namespace string) *cnstypes.CnsKubernetesEntityMetadata {
+func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string, deleteFlag bool, entityType string, namespace string, clusterID string, referredEntity []cnstypes.CnsKubernetesEntityReference) *cnstypes.CnsKubernetesEntityMetadata {
 	// Create new metadata spec
 	var newLabels []types.KeyValue
 	for labelKey, labelVal := range labels {
@@ -45,6 +54,8 @@ func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
 	}
 	entityMetadata.EntityType = entityType
 	entityMetadata.Namespace = namespace
+	entityMetadata.ClusterID = clusterID
+	entityMetadata.ReferredEntity = referredEntity
 	return entityMetadata
 }
 

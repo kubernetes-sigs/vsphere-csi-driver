@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: static-file-share-pv-name
+  annotations:
+    pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
+  labels:
+    "static-pv-label-key": "static-pv-label-value"      # This label is used as selector to bind with volume claim.
+                                                        # This can be any unique key-value to identify PV.
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  csi:
+    driver: "csi.vsphere.vmware.com"
+    fsType: nfs4
+    volumeAttributes:
+      type: "vSphere CNS File Volume"
+    "volumeHandle": "file:236b3e6b-cfb0-4b73-a271-2591b2f31b4c" # vsan file share volume id, note prefix: file is required in the volumeHandle
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: static-file-share-pvc-name
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      static-pv-label-key: static-pv-label-value # This label is used as selector to find matching PV with specified key and value.
+  storageClassName: ""
+---

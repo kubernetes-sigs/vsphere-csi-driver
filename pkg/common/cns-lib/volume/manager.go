@@ -22,8 +22,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
-	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"k8s.io/klog"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
@@ -301,12 +299,9 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
 	task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
 	if err != nil {
-		if soap.IsSoapFault(err) {
-			soapFault := soap.ToSoapFault(err)
-			if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
-				klog.V(2).Infof("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
-				return nil
-			}
+		if cnsvsphere.IsNotFoundError(err) {
+			klog.V(2).Infof("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
+			return nil
 		}
 		klog.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
@@ -434,12 +429,9 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 	task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
 
 	if err != nil {
-		if soap.IsSoapFault(err) {
-			soapFault := soap.ToSoapFault(err)
-			if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
-				klog.Errorf("VolumeID: %q, not found. Cannot expand volume.", volumeID)
-				return errors.New("volume not found")
-			}
+		if cnsvsphere.IsNotFoundError(err) {
+			klog.Errorf("VolumeID: %q, not found. Cannot expand volume.", volumeID)
+			return errors.New("volume not found")
 		}
 		klog.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err

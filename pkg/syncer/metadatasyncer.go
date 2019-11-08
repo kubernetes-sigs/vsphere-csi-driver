@@ -189,16 +189,22 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 
 	// Create updateSpec
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPvc.Name, newPvc.Labels, false, string(cnstypes.CnsKubernetesEntityTypePVC), newPvc.Namespace)
+	var entityReference cnstypes.CnsKubernetesEntityReference
+	entityReference.EntityName = pv.Name
+	entityReference.EntityType = string(cnstypes.CnsKubernetesEntityTypePV)
+	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPvc.Name, newPvc.Labels, false, string(cnstypes.CnsKubernetesEntityTypePVC), newPvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
+
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
 
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor),
-			EntityMetadata:   metadataList,
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        metadataList,
 		},
 	}
 
@@ -240,16 +246,18 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 	// If the PV reclaim policy is retain we need to delete PVC labels
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace)
+	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
 			Id: pv.Spec.CSI.VolumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor),
-			EntityMetadata:   metadataList,
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        metadataList,
 		},
 	}
 
@@ -300,46 +308,89 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), newPv.Namespace)
+	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
-	if oldPv.Status.Phase == v1.VolumeAvailable || newPv.Spec.StorageClassName != "" {
-		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
-			VolumeId: cnstypes.CnsVolumeId{
-				Id: newPv.Spec.CSI.VolumeHandle,
-			},
-			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor),
-				EntityMetadata:   metadataList,
-			},
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && newPv.Spec.StorageClassName == "" {
+		// Static PV is Created
+		var volumeType string
+		if oldPv.Spec.CSI.FSType == common.NfsV4FsType || oldPv.Spec.CSI.FSType == common.NfsFsType {
+			volumeType = common.FileVolumeType
+		} else {
+			volumeType = common.BlockVolumeType
 		}
-
-		klog.V(4).Infof("PVUpdated: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
-			klog.Errorf("PVUpdated: UpdateVolumeMetadata failed with err %v", err)
-		}
-	} else {
-		createSpec := &cnstypes.CnsVolumeCreateSpec{
-			Name:       oldPv.Name,
-			VolumeType: common.BlockVolumeType,
-			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor),
-				EntityMetadata:   metadataList,
-			},
-			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{},
-				BackingDiskId:           oldPv.Spec.CSI.VolumeHandle,
-			},
+		klog.V(4).Infof("PVUpdated: observed static volume provisioning for the PV: %q with volumeType: %q", newPv.Name, volumeType)
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: oldPv.Spec.CSI.VolumeHandle}},
 		}
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
-		klog.V(4).Infof("PVUpdated: vSphere provisioner creating volume %s with create spec %+v", oldPv.Name, spew.Sdump(createSpec))
-		_, err := metadataSyncer.volumeManager.CreateVolume(createSpec)
-
+		queryResult, err := metadataSyncer.volumeManager.QueryVolume(queryFilter)
 		if err != nil {
-			klog.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
+			klog.Errorf("PVUpdated: QueryVolume failed. error: %+v", err)
+			return
+		}
+		if len(queryResult.Volumes) == 0 {
+			klog.V(2).Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
+			// Call CreateVolume for Static Volume Provisioning
+			createSpec := &cnstypes.CnsVolumeCreateSpec{
+				Name:       oldPv.Name,
+				VolumeType: volumeType,
+				Metadata: cnstypes.CnsVolumeMetadata{
+					ContainerCluster:      containerCluster,
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+					EntityMetadata:        metadataList,
+				},
+			}
+
+			if volumeType == common.BlockVolumeType {
+				createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
+					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{},
+					BackingDiskId:           oldPv.Spec.CSI.VolumeHandle,
+				}
+			} else {
+				createSpec.BackingObjectDetails = &cnstypes.CnsNfsFileShareBackingDetails{
+					CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+						BackingFileId: oldPv.Spec.CSI.VolumeHandle,
+					},
+				}
+			}
+			klog.V(4).Infof("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v", oldPv.Name, spew.Sdump(createSpec))
+			_, err := metadataSyncer.volumeManager.CreateVolume(createSpec)
+			if err != nil {
+				klog.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
+			} else {
+				klog.V(2).Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.", oldPv.Spec.CSI.VolumeHandle)
+			}
+			// Volume is successfully created so returning from here.
+			return
+		} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
+			klog.V(2).Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.", oldPv.Spec.CSI.VolumeHandle)
+			// Volume is already present in the CNS, so continue with the UpdateVolumeMetadata
+		} else {
+			klog.V(2).Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.", oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
+			// unknown Volume is returned from the CNS, so returning from here.
+			return
 		}
 	}
+	// call UpdateVolumeMetadata for all other cases
+	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: newPv.Spec.CSI.VolumeHandle,
+		},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        metadataList,
+		},
+	}
+
+	klog.V(4).Infof("PVUpdated: Calling UpdateVolumeMetadata for volume %q with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
+		klog.Errorf("PVUpdated: UpdateVolumeMetadata failed with err %v", err)
+	}
+	klog.V(4).Infof("PVUpdated: UpdateVolumeMetadata succeed for the volume %q with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 }
 
 // pvDeleted deletes volume metadata on VC when volume has been deleted on K8s cluster
@@ -361,22 +412,48 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		klog.V(3).Infof("PVDeleted: Volume deletion will be handled by Controller")
 		return
 	}
-
-	if pv.Spec.ClaimRef == nil || (pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete) {
-		klog.V(4).Infof("PVDeleted: Setting DeleteDisk to false")
-		deleteDisk = false
-	} else {
-		// We set delete disk=true for the case where PV status is failed after deletion of pvc
-		// In this case, metadatasyncer will remove the volume
-		klog.V(4).Infof("PVDeleted: Setting DeleteDisk to true")
-		deleteDisk = true
-	}
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
-	klog.V(4).Infof("PVDeleted: vSphere provisioner deleting volume %v with delete disk %v", pv, deleteDisk)
-	if err := metadataSyncer.volumeManager.DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
-		klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
-		return
+
+	if pv.Spec.CSI.FSType == common.NfsV4FsType || pv.Spec.CSI.FSType == common.NfsFsType {
+		// TODO: Query CNS and Check if this is the last entity reference for the Volume, if Yes then call delete with
+		// deleteDisk set to true.
+		// Make sure to follow similar logic in the full sync.
+		klog.V(4).Infof("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to delete volume metadata references for PV: %q", pv.Name)
+		var metadataList []cnstypes.BaseCnsEntityMetadata
+		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
+
+		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: pv.Spec.CSI.VolumeHandle,
+			},
+			Metadata: cnstypes.CnsVolumeMetadata{
+				ContainerCluster:      containerCluster,
+				ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+				EntityMetadata:        metadataList,
+			},
+		}
+
+		klog.V(4).Infof("PVDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
+			klog.Errorf("PVDeleted: UpdateVolumeMetadata failed with err %v", err)
+		}
+	} else {
+		if pv.Spec.ClaimRef == nil || pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete {
+			klog.V(4).Infof("PVDeleted: Setting DeleteDisk to false")
+			deleteDisk = false
+		} else {
+			// We set delete disk=true for the case where PV status is failed after deletion of pvc
+			// In this case, metadatasyncer will remove the volume
+			klog.V(4).Infof("PVDeleted: Setting DeleteDisk to true")
+			deleteDisk = true
+		}
+		klog.V(4).Infof("PVDeleted: vSphere CSI Driver is deleting volume %v with delete disk %v", pv, deleteDisk)
+		if err := metadataSyncer.volumeManager.DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
+			klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
+		}
 	}
 }
 
@@ -457,19 +534,31 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 
 			// Verify if pv is vsphere csi volume
 			if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
-				klog.V(3).Infof("Not a Vsphere CSI Volume")
+				klog.V(3).Infof("Not a vSphere CSI Volume")
 				continue
 			}
 			var metadataList []cnstypes.BaseCnsEntityMetadata
-			podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace)
+			var podMetadata *cnstypes.CnsKubernetesEntityMetadata
+			if deleteFlag == false {
+				var entityReference cnstypes.CnsKubernetesEntityReference
+				entityReference.EntityName = pvc.Name
+				entityReference.EntityType = string(cnstypes.CnsKubernetesEntityTypePVC)
+				entityReference.Namespace = pvc.Namespace
+				podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
+			} else {
+				podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+			}
 			metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
+			containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+
 			updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 				VolumeId: cnstypes.CnsVolumeId{
 					Id: pv.Spec.CSI.VolumeHandle,
 				},
 				Metadata: cnstypes.CnsVolumeMetadata{
-					ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor),
-					EntityMetadata:   metadataList,
+					ContainerCluster:      containerCluster,
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+					EntityMetadata:        metadataList,
 				},
 			}
 
