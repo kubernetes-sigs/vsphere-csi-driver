@@ -25,7 +25,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: csi-attacher
-          image: vmware/csi-attacher/csi-attacher:v1.1.1
+          image: vmware/csi-attacher/csi-attacher:<csi_attacher_ver>
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -91,7 +91,7 @@ spec:
             name: pvcsi-config-volume
             readOnly: true
         - name: liveness-probe
-          image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
+          image: vmware/csi-livenessprobe/csi-livenessprobe:<csi_livenessprobe_ver>
           args:
             - "--csi-address=$(ADDRESS)"
           imagePullPolicy: "IfNotPresent"
@@ -102,7 +102,7 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: csi-provisioner
-          image: vmware/csi-provisioner/csi-provisioner:v1.2.1_vmware.2
+          image: vmware/csi-provisioner/csi-provisioner:<csi_provisioner_ver>
           args:
             - "--v=4"
             - "--timeout=300s"
