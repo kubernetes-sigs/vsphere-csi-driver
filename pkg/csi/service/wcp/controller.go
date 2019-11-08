@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -55,8 +56,8 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
 	klog.Infof("Initializing WCP CSI controller")
-	// Get VirtualCenterManager instance and validate version
 	var err error
+	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
 		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
@@ -133,7 +134,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	// Get shared datastores for the Kubernetes cluster
 	sharedDatastores, err := getSharedDatastores(ctx, c)
-	volumeID, err := common.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeID, err := common.CreateVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
 		klog.Error(msg)

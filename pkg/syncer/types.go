@@ -19,6 +19,7 @@ package syncer
 import (
 	"sync"
 
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -77,6 +78,7 @@ type (
 )
 
 type metadataSyncInformer struct {
+	clusterFlavor      cnstypes.CnsClusterFlavor
 	volumeManager      volumes.Manager
 	host               string
 	cnsOperatorClient  *cnsoperatorclient.CnsV1alpha1Client
