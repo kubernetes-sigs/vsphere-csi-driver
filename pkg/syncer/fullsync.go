@@ -197,21 +197,27 @@ func fullSyncUpdateVolumes(updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpe
 
 // buildCnsUpdateMetadataList build metadata list for given PV
 // metadata list may include PV metadata, PVC metadata and POD metadata
-func buildCnsUpdateMetadataList(pv *v1.PersistentVolume, pvToPVCMap pvcMap, pvcToPodMap podMap) []cnstypes.BaseCnsEntityMetadata {
+func buildCnsUpdateMetadataList(pv *v1.PersistentVolume, pvToPVCMap pvcMap, pvcToPodMap podMap, clusterID string) []cnstypes.BaseCnsEntityMetadata {
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 
 	// get pv metadata
-	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, pv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), pv.Namespace)
+	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, pv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), pv.Namespace, clusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	if pvc, ok := pvToPVCMap[pv.Name]; ok {
 		// get pvc metadata
-		pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace)
+		var pvEntityReference cnstypes.CnsKubernetesEntityReference
+		pvEntityReference.EntityName = pv.Name
+		pvEntityReference.EntityType = string(cnstypes.CnsKubernetesEntityTypePV)
+		pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, clusterID, []cnstypes.CnsKubernetesEntityReference{pvEntityReference})
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
 		key := pvc.Namespace + "/" + pvc.Name
 		if pod, ok := pvcToPodMap[key]; ok {
 			// get pod metadata
-			podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, false, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace)
+			var pvcEntityReference cnstypes.CnsKubernetesEntityReference
+			pvcEntityReference.EntityName = pvc.Name
+			pvcEntityReference.EntityType = string(cnstypes.CnsKubernetesEntityTypePVC)
+			podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, false, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, clusterID, []cnstypes.CnsKubernetesEntityReference{pvcEntityReference})
 			metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 		}
 	}
@@ -246,7 +252,7 @@ func buildVolumeMap(pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsV
 			if err == nil && queryResult != nil && len(queryResult.Volumes) > 0 {
 				if &queryResult.Volumes[0].Metadata != nil {
 					cnsMetadata := queryResult.Volumes[0].Metadata.EntityMetadata
-					metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap)
+					metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 					k8sPVMap[pv.Spec.CSI.VolumeHandle] = getCnsUpdateOperationType(metadataList, cnsMetadata, pv.Name)
 				} else {
 					// metadata does not exist in CNS cache even the volume has an entry in CNS cache
@@ -322,7 +328,7 @@ func constructCnsCreateSpec(pvList []*v1.PersistentVolume, pvToPVCMap pvcMap, pv
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec
 	for _, pv := range pvList {
 		// Create new metadata spec
-		metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap)
+		metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		// volume exist in K8S, but not in CNS cache, need to create this volume
 		createSpec := cnstypes.CnsVolumeCreateSpec{
 			Name:       pv.Name,
@@ -347,7 +353,7 @@ func constructCnsUpdateSpec(pvUpdateList []*v1.PersistentVolume, pvToPVCMap pvcM
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 	for _, pv := range pvUpdateList {
 		// Create new metadata spec with delete flag false
-		metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap)
+		metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		// volume exist in K8S and CNS cache, but metadata is different, need to update this volume
 		updateSpec := cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
@@ -372,7 +378,7 @@ func constructCnsUpdateSpecWithPVCToBeDeleted(pvUpdateList []*v1.PersistentVolum
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 
 	for _, pv := range pvUpdateList {
-		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeleteClaimOperation)
+		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeleteClaimOperation, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		// volume exist in K8S and CNS cache, but PVC metadata does not exist in K8S
 		// need to delete PVC entries for this volume
 		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
@@ -388,7 +394,7 @@ func constructCnsUpdateSpecWithPodToBeDeleted(pvUpdateList []*v1.PersistentVolum
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 
 	for _, pv := range pvUpdateList {
-		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeletePodOperation)
+		updateSpec := buildCnsMetadataSpecMarkedForDelete(pv, updateVolumeWithDeletePodOperation, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		// volume exist in K8S and CNS cache, but Pod metadata does not exist in K8S
 		// need to delete Pod entries for this volume
 		updateSpec.Metadata.ContainerCluster = cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
@@ -499,15 +505,15 @@ func getCnsUpdateOperationType(pvMetadataList []cnstypes.BaseCnsEntityMetadata, 
 // buildCnsMetadataSpecMarkedForDelete builds metadata list for a volume
 // where PVC and/or Pod entries need to be deleted from CNS
 // and returns the update spec to be passed to CNS
-func buildCnsMetadataSpecMarkedForDelete(pv *v1.PersistentVolume, operationType string) cnstypes.CnsVolumeMetadataUpdateSpec {
+func buildCnsMetadataSpecMarkedForDelete(pv *v1.PersistentVolume, operationType string, cluserId string) cnstypes.CnsVolumeMetadataUpdateSpec {
 	// Create new metadata spec with delete flag true
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	if _, ok := cnsVolumeToPvcMap[pv.Name]; ok && operationType == updateVolumeWithDeleteClaimOperation {
-		pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(cnsVolumeToPvcMap[pv.Name], nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), cnsVolumeToEntityNamespaceMap[pv.Name])
+		pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(cnsVolumeToPvcMap[pv.Name], nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), cnsVolumeToEntityNamespaceMap[pv.Name], cluserId, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 	}
 	if _, ok := cnsVolumeToPodMap[pv.Name]; ok {
-		podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(cnsVolumeToPodMap[pv.Name], nil, true, string(cnstypes.CnsKubernetesEntityTypePOD), cnsVolumeToEntityNamespaceMap[pv.Name])
+		podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(cnsVolumeToPodMap[pv.Name], nil, true, string(cnstypes.CnsKubernetesEntityTypePOD), cnsVolumeToEntityNamespaceMap[pv.Name], cluserId, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 	}
 
