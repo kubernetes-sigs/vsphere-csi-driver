@@ -49,11 +49,12 @@ func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
 }
 
 // GetContainerCluster creates ContainerCluster object from given parameters
-func GetContainerCluster(clusterid string, username string) cnstypes.CnsContainerCluster {
+func GetContainerCluster(clusterid string, username string, clusterflavor cnstypes.CnsClusterFlavor) cnstypes.CnsContainerCluster {
 	return cnstypes.CnsContainerCluster{
-		ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-		ClusterId:   clusterid,
-		VSphereUser: username,
+		ClusterType:   string(cnstypes.CnsClusterTypeKubernetes),
+		ClusterId:     clusterid,
+		VSphereUser:   username,
+		ClusterFlavor: string(clusterflavor),
 	}
 
 }

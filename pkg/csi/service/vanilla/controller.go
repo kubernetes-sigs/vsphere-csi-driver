@@ -67,8 +67,8 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
 	klog.Infof("Initializing CNS controller")
-	// Get VirtualCenterManager instance and validate version
 	var err error
+	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
 		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
@@ -94,6 +94,7 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("Failed to get vcenter. err=%v", err)
 		return err
 	}
+
 	// Check vCenter API Version
 	if err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion); err != nil {
 		klog.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
@@ -206,7 +207,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
-	volumeID, err := common.CreateVolumeUtil(ctx, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeID, err := common.CreateVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
 		klog.Error(msg)

@@ -64,9 +64,9 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
-	// connect to the CSI controller in supervisor cluster
 	klog.V(2).Infof("Initializing WCPGC CSI controller")
 	var err error
+	// connect to the CSI controller in supervisor cluster
 	c.supervisorNamespace, err = getNamespace()
 	if err != nil {
 		return err
