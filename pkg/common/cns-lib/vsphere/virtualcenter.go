@@ -85,13 +85,8 @@ type VirtualCenterConfig struct {
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
 	DatacenterPaths []string
-}
-
-func (vcc *VirtualCenterConfig) String() string {
-	return fmt.Sprintf("VirtualCenterConfig [Scheme: %v, Host: %v, Port: %v, "+
-		"Username: %v, Password: %v, Insecure: %v, RoundTripperCount: %v, "+
-		"DatacenterPaths: %v]", vcc.Scheme, vcc.Host, vcc.Port, vcc.Username,
-		vcc.Password, vcc.Insecure, vcc.RoundTripperCount, vcc.DatacenterPaths)
+	// TargetDatastoreUrlsForFile represents paths of datastores on the virtual center.
+	TargetvSANFileShareDatastoreURLs []string
 }
 
 // clientMutex is used for exclusive connection creation.

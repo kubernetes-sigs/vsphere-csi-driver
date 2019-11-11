@@ -6,7 +6,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
@@ -72,6 +71,12 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	var targetDatastoreUrlsForFile []string
+
+	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs) != "" {
+		targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs, ",")
+	}
+
 	vcConfig := &VirtualCenterConfig{
 		Host:            host,
 		Port:            port,
@@ -79,9 +84,23 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 		Password:        cfg.VirtualCenter[host].Password,
 		Insecure:        cfg.VirtualCenter[host].InsecureFlag,
 		DatacenterPaths: strings.Split(cfg.VirtualCenter[host].Datacenters, ","),
+		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 	}
 	for idx := range vcConfig.DatacenterPaths {
 		vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+	}
+
+	// validate if target file volume datastores present are vsan datastores
+	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
+		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
+		if (vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "") {
+			return nil, errors.New("Invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
+		}
+		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
+			err = errors.New("Non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
+			return nil, err
+		}
+		// TODO: Enhance here to verify if file service is enabled on vsan datastore or not.
 	}
 	return vcConfig, nil
 }
