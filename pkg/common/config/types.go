@@ -66,6 +66,8 @@ type VirtualCenterConfig struct {
 	InsecureFlag bool `gcfg:"insecure-flag"`
 	// Datacenter in which VMs are located.
 	Datacenters string `gcfg:"datacenters"`
+	// Target datastore urls for provisioning file volumes.
+	TargetvSANFileShareDatastoreURLs string `gcfg:"targetvSANFileShareDatastoreURLs"`
 }
 
 // GCConfig contains information used by guest cluster to access a supervisor
