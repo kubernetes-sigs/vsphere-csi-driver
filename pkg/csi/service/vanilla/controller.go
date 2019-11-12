@@ -150,7 +150,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		StoragePolicyName: storagePolicyName,
 	}
 
-	if isFileVolumeRequest(req.GetVolumeCapabilities()) {
+	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
 		createVolumeSpec.VolumeType = common.FileVolumeType
 	} else {
 		createVolumeSpec.VolumeType = common.BlockVolumeType

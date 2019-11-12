@@ -75,21 +75,40 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	return labelsMap
 }
 
-// IsValidVolumeCapabilities is the helper function to validate capabilities of volume.
-func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
-	hasSupport := func(cap *csi.VolumeCapability) bool {
-		for _, c := range VolumeCaps {
-			if c.GetMode() == cap.AccessMode.GetMode() {
-				return true
+// IsFileVolumeRequest checks whether the request is to create a CNS file volume.
+func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
+	for _, cap := range v {
+		if fstype := strings.ToLower(cap.GetMount().GetFsType()); (fstype == NfsV4FsType || fstype == NfsFsType) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateVolumeCapabilities validates the access mode in given volume capabilities in validAccessModes.
+func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessModes []csi.VolumeCapability_AccessMode) bool {
+	// Validate if all capabilities of the volume
+	// are supported.
+	for _, volCap := range volCaps {
+		found := false
+		for _, validAccessMode := range validAccessModes {
+			if volCap.AccessMode.GetMode() == validAccessMode.GetMode() {
+				found = true
+				break
 			}
 		}
-		return false
-	}
-	foundAll := true
-	for _, c := range volCaps {
-		if !hasSupport(c) {
-			foundAll = false
+		if !found {
+			return false
 		}
 	}
-	return foundAll
+	return true
+}
+
+// IsValidVolumeCapabilities helps validate the given volume capabilities based on volume type.
+func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
+	if IsFileVolumeRequest(volCaps) {
+		return validateVolumeCapabilities(volCaps, FileVolumeCaps);
+	} else {
+		return validateVolumeCapabilities(volCaps, BlockVolumeCaps);
+	}
 }
