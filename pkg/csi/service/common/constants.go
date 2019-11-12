@@ -64,8 +64,11 @@ const (
 	// during mount if user does not specify the filesystem type in the Storage Class
 	DefaultFsType = "ext4"
 
-	// NfsV4FsType represents NFS4 version
-	NfsV4FsType = "nfsv4"
+	// NfsV4FsType represents nfs4 mount type
+	NfsV4FsType = "nfs4"
+
+	// NfsFsType represents nfs mount type
+	NfsFsType = "nfs"
 
 	//ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f

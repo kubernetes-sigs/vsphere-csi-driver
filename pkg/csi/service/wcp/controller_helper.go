@@ -55,6 +55,10 @@ func validateWCPCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 			return status.Error(codes.InvalidArgument, msg)
 		}
 	}
+	// Fail file volume creation
+	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
+		return status.Error(codes.InvalidArgument, "File volume not supported.")
+	}
 	return common.ValidateCreateVolumeRequest(req)
 }
 
