@@ -69,13 +69,13 @@ type CnsVolumeMetadataSpec struct {
 // CnsVolumeMetadataStatus defines the observed state of CnsVolumeMetadata
 // +k8s:openapi-gen=true
 type CnsVolumeMetadataStatus struct {
-	// The last error encountered during update operation, if any.
+	// The last error encountered, per volume, during update operation.
 	// This field must only be set by the entity completing the update
 	// operation, i.e. the CNS Operator.
 	// This string may be logged, so it should not contain sensitive
 	// information.
 	// +optional
-	ErrorMessage string `json:"errormessage,omitempty"`
+	VolumeStatus []CnsVolumeMetadataVolumeStatus `json:"volumestatus,omitempty"`
 }
 
 // +genclient
@@ -105,6 +105,15 @@ type CnsVolumeMetadataList struct {
 // CnsOperatorEntityType defines the type for entitytype parameter
 // in cnsvolumemetadata API
 type CnsOperatorEntityType cnstypes.CnsKubernetesEntityType
+
+// CnsVolumeMetadataVolumeStatus defines the status of the last
+// update operation on CNS for the given volume.
+// Error message will be empty if no error was encountered.
+type CnsVolumeMetadataVolumeStatus struct {
+	VolumeName   string `json:"volumename"`
+	Updated      bool   `json:"updated"`
+	ErrorMessage string `json:"errormessage,omitempty"`
+}
 
 // Allowed CnsOperatorEntityTypes for cnsvolumemetadata API
 const (
@@ -148,5 +157,14 @@ func GetCnsOperatorEntityReference(name string, namespace string, entitytype Cns
 		EntityType: string(entitytype),
 		EntityName: name,
 		Namespace:  namespace,
+	}
+}
+
+// GetCnsOperatorVolumeStatus returns a CnsVolumeMetadataVolumeStatus object from input parameters
+func GetCnsOperatorVolumeStatus(volumeName string, errorMessage string) CnsVolumeMetadataVolumeStatus {
+	return CnsVolumeMetadataVolumeStatus{
+		VolumeName:   volumeName,
+		Updated:      false,
+		ErrorMessage: errorMessage,
 	}
 }
