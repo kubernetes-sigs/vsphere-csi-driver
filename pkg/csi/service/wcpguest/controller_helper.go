@@ -88,6 +88,10 @@ func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error
 		msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
 		return status.Error(codes.InvalidArgument, msg)
 	}
+	// Fail file volume creation
+	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
+		return status.Error(codes.InvalidArgument, "File volume not supported.")
+	}
 	return common.ValidateCreateVolumeRequest(req)
 }
 
