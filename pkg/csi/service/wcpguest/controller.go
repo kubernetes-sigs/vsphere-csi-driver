@@ -253,7 +253,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 		defer watchVirtualMachine.Stop()
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
-		for diskUUID != "" {
+		for diskUUID == "" {
 			// blocking wait for update event
 			klog.V(4).Infof(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
 			event := <-watchVirtualMachine.ResultChan()
@@ -281,7 +281,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				klog.V(4).Infof(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
 			}
 		}
-		klog.V(4).Infof(fmt.Sprintf("disk UUID is set for the volume: %q ", req.VolumeId))
+		klog.V(4).Infof(fmt.Sprintf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId))
 	}
 
 	//return PublishContext with diskUUID of the volume attached to node.
