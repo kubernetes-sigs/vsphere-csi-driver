@@ -72,7 +72,7 @@ func (s *service) NodeStageVolume(
 		"diskID": diskID,
 	}
 
-	log.WithFields(f).Debug("checking if volume is attached")
+	log.WithFields(f).Debug("checking if volume is attached with diskID: %v", diskID)
 	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
 		return nil, err
@@ -763,7 +763,6 @@ func getDiskPath(id string, files []os.FileInfo) (string, error) {
 	} else {
 		devs = files
 	}
-
 	targetDisk := blockPrefix + id
 
 	for _, f := range devs {
