@@ -134,7 +134,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	// Get shared datastores for the Kubernetes cluster
 	sharedDatastores, err := getSharedDatastores(ctx, c)
-	volumeID, err := common.CreateVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
 		klog.Error(msg)

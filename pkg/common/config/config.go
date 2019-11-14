@@ -187,11 +187,11 @@ func FromEnv(cfg *Config) error {
 				targetFSDatastores = ""
 			}
 			cfg.VirtualCenter[vcenter] = &VirtualCenterConfig{
-				User:         username,
-				Password:     password,
-				VCenterPort:  port,
-				InsecureFlag: insecureFlag,
-				Datacenters:  datacenters,
+				User:                             username,
+				Password:                         password,
+				VCenterPort:                      port,
+				InsecureFlag:                     insecureFlag,
+				Datacenters:                      datacenters,
 				TargetvSANFileShareDatastoreURLs: targetFSDatastores,
 			}
 		}
