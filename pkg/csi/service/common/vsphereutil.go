@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
-// CreateVolumeUtil is the helper function to create CNS volume
-func CreateVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (string, error) {
+// CreateBlockVolumeUtil is the helper function to create CNS block volume.
+func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (string, error) {
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
 		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
@@ -52,19 +52,8 @@ func CreateVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlav
 	}
 	var datastores []vim25types.ManagedObjectReference
 	if spec.DatastoreURL == "" {
-		if spec.VolumeType == FileVolumeType {
-			// Get only vSAN datastores for file volume
-			// TODO: check whether vsan file service is enabled or not
-			datastores, err = vc.GetVsanDatastores(ctx)
-			if err != nil {
-				klog.Errorf("Failed to eliminate non-vsan datastores with error %+v", err)
-				return "", err
-			}
-		} else {
-			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
-			datastores = getDatastoreMoRefs(sharedDatastores)
-		}
-
+		//  If DatastoreURL is not specified in StorageClass, get all shared datastores
+		datastores = getDatastoreMoRefs(sharedDatastores)
 	} else {
 		// Check datastore specified in the StorageClass should be shared datastore across all nodes.
 
@@ -141,9 +130,108 @@ func CreateVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlav
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	if createSpec.VolumeType == FileVolumeType {
-		vSANFileCreateSpec := &cnstypes.CnsVSANFileCreateSpec{
+	klog.V(4).Infof("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	volumeID, err := manager.VolumeManager.CreateVolume(createSpec)
+	if err != nil {
+		klog.Errorf("Failed to create disk %s with error %+v", spec.Name, err)
+		return "", err
+	}
+	return volumeID.Id, nil
+}
+
+// CreateFileVolumeUtil is the helper function to create CNS file volume.
+func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec) (string, error) {
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		return "", err
+	}
+	if spec.StoragePolicyName != "" {
+		// Get Storage Policy ID from Storage Policy Name
+		err = vc.ConnectPbm(ctx)
+		if err != nil {
+			klog.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+			return "", err
+		}
+		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.StoragePolicyName)
+		if err != nil {
+			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.StoragePolicyName, err)
+			return "", err
+		}
+	}
+	var datastores []vim25types.ManagedObjectReference
+	if spec.DatastoreURL == "" {
+		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
+			datastores, err = vc.GetVsanDatastores(ctx)
+			if err != nil {
+				klog.Errorf("Failed to get vSAN datastores with error %+v", err)
+				return "", err
+			}
+			// TODO: Validate that file service is enabled on the datastores. Assuming that all vSAN datastores
+			// have file services enabled for now.
+		} else {
+			// If DatastoreURL is not specified in StorageClass, get all datastores from TargetvSANFileShareDatastoreURLs
+			// in vcenter configuration.
+			for _, TargetvSANFileShareDatastoreURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
+				if err != nil {
+					klog.Errorf("Failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
+					return "", err
+				}
+				datastores = append(datastores, datastoreMoref)
+			}
+		}
+
+	} else {
+		// If datastoreUrl is set in storage class, then check the allowed list is empty.
+		// If true, create the file volume on the datastoreUrl set in storage class.
+		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
+			datastoreMoref, err := getDatastore(ctx, vc, spec.DatastoreURL)
+			if err != nil {
+				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.DatastoreURL, err)
+				return "", err
+			}
+			datastores = append(datastores, datastoreMoref)
+		} else {
+			// If datastoreUrl is set in storage class, then check if this is in the allowed list.
+			found := false
+			for _, targetVSANFSDsUrl := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+				if spec.DatastoreURL == targetVSANFSDsUrl {
+					found = true
+					break
+				}
+			}
+			if !found {
+				msg := fmt.Sprintf("Datastore URL %q specified in storage class is not in the allowed list %+v",
+					spec.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
+				klog.Error(msg)
+				return "", errors.New(msg)
+			}
+			datastoreMoref, err := getDatastore(ctx, vc, spec.DatastoreURL)
+			if err != nil {
+				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.DatastoreURL, err)
+				return "", err
+			}
+			datastores = append(datastores, datastoreMoref)
+		}
+	}
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor)
+	containerClusterArray = append(containerClusterArray, containerCluster)
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       spec.Name,
+		VolumeType: spec.VolumeType,
+		Datastores: datastores,
+		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
+			CapacityInMb: spec.CapacityMB,
+		},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
 			SoftQuotaInMb: spec.CapacityMB,
+			// TODO: Address rootSquash task
 			Permission: []vsanfstypes.VsanFileShareNetPermission{
 				{
 					Ips:         "*",
@@ -151,14 +239,19 @@ func CreateVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlav
 					AllowRoot:   true,
 				},
 			},
+		},
+	}
+	if spec.StoragePolicyID != "" {
+		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
+			ProfileId: spec.StoragePolicyID,
 		}
-		createSpec.CreateSpec = vSANFileCreateSpec
+		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	klog.V(4).Infof("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	klog.V(4).Infof("vSphere CNS driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(createSpec)
 	if err != nil {
-		klog.Errorf("Failed to create disk %s with error %+v", spec.Name, err)
+		klog.Errorf("Failed to create file volume %q with error %+v", spec.Name, err)
 		return "", err
 	}
 	return volumeID.Id, nil
@@ -243,4 +336,25 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 		datastoreMoRefs = append(datastoreMoRefs, datastore.Reference())
 	}
 	return datastoreMoRefs
+}
+
+// Helper function to get DatastoreMoRef for given datastoreUrl in the given virtual center.
+func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl string) (vim25types.ManagedObjectReference, error) {
+	datacenters, err := vc.GetDatacenters(ctx)
+	if err != nil {
+		return vim25types.ManagedObjectReference{}, err
+	}
+	var datastoreObj *vsphere.Datastore
+	for _, datacenter := range datacenters {
+		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreUrl)
+		if err != nil {
+			klog.Warningf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+				datastoreUrl, datacenter.InventoryPath, vc.Config.Host, err)
+		} else {
+			return datastoreObj.Reference(), nil
+		}
+	}
+
+	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreUrl, vc)
+	return vim25types.ManagedObjectReference{}, errors.New(msg)
 }

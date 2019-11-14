@@ -109,16 +109,151 @@ func (c *controller) Init(config *config.Config) error {
 	return nil
 }
 
-// CreateVolume is creating CNS Volume using volume request specified
-// in CreateVolumeRequest
-func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+// createBlockVolume creates a block volume based on the CreateVolumeRequest.
+func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 
-	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	err := validateVanillaCreateVolumeRequest(req)
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	var datastoreURL string
+	var storagePolicyName string
+	var fsType string
+
+	// Support case insensitive parameters
+	for paramName := range req.Parameters {
+		param := strings.ToLower(paramName)
+		if param == common.AttributeDatastoreURL {
+			datastoreURL = req.Parameters[paramName]
+		} else if param == common.AttributeStoragePolicyName {
+			storagePolicyName = req.Parameters[paramName]
+		} else if param == common.AttributeFsType {
+			fsType = req.Parameters[common.AttributeFsType]
+		}
+	}
+	var createVolumeSpec = common.CreateVolumeSpec{
+		CapacityMB:        volSizeMB,
+		Name:              req.Name,
+		DatastoreURL:      datastoreURL,
+		StoragePolicyName: storagePolicyName,
+		VolumeType:        common.BlockVolumeType,
+	}
+
+	var err error
+	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	var datastoreTopologyMap = make(map[string][]map[string]string)
+
+	// Get accessibility
+	topologyRequirement := req.GetAccessibilityRequirements()
+	if topologyRequirement != nil {
+		// Get shared accessible datastores for matching topology requirement
+		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
+			// if zone and region label (vSphere category names) not specified in the config secret, then return
+			// NotFound error.
+			errMsg := fmt.Sprintf("Zone/Region vsphere category names not specified in the vsphere config secret")
+			klog.Errorf(errMsg)
+			return nil, status.Error(codes.NotFound, errMsg)
+		}
+		sharedDatastores, datastoreTopologyMap, err := c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
+		if err != nil || len(sharedDatastores) == 0 {
+			msg := fmt.Sprintf("Failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
+			klog.Errorf(msg)
+			return nil, status.Error(codes.NotFound, msg)
+		}
+		klog.V(4).Infof("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
+		if createVolumeSpec.DatastoreURL != "" {
+			// Check datastoreURL specified in the storageclass is accessible from topology
+			isDataStoreAccessible := false
+			for _, sharedDatastore := range sharedDatastores {
+				if sharedDatastore.Info.Url == createVolumeSpec.DatastoreURL {
+					isDataStoreAccessible = true
+					break
+				}
+			}
+			if !isDataStoreAccessible {
+				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
+					createVolumeSpec.DatastoreURL, topologyRequirement)
+				klog.Errorf(errMsg)
+				return nil, status.Error(codes.InvalidArgument, errMsg)
+			}
+		}
+
+	} else {
+		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
+		if err != nil || len(sharedDatastores) == 0 {
+			msg := fmt.Sprintf("Failed to get shared datastores in kubernetes cluster. Error: %+v", err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
-		klog.Errorf("Failed to validate Create Volume Request with err: %v", err)
-		return nil, err
+		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	attributes := make(map[string]string)
+	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+
+	if fsType == "" {
+		klog.V(2).Infof("No fstype received. Defaulting to: %s", common.DefaultFsType)
+		fsType = common.DefaultFsType
+	}
+	attributes[common.AttributeFsType] = fsType
+
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      volumeID,
+			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
+			VolumeContext: attributes,
+		},
+	}
+
+	// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
+	var volumeAccessibleTopology = make(map[string]string)
+	if len(datastoreTopologyMap) > 0 {
+		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: volumeIds,
+		}
+		queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
+		if err != nil {
+			klog.Errorf("QueryVolume failed for volumeID: %s", volumeID)
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if len(queryResult.Volumes) > 0 {
+			// Find datastore topology from the retrieved datastoreURL
+			datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
+			klog.V(3).Infof("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
+			if len(datastoreAccessibleTopology) > 0 {
+				rand.Seed(time.Now().Unix())
+				volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
+				klog.V(3).Infof("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
+			}
+		}
+	}
+	if len(volumeAccessibleTopology) != 0 {
+		volumeTopology := &csi.Topology{
+			Segments: volumeAccessibleTopology,
+		}
+		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+	}
+	return resp, nil
+}
+
+// createFileVolume creates a file volume based on the CreateVolumeRequest.
+func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+
+	// Fail the create workflow if topology requirements are set.
+	if req.GetAccessibilityRequirements() != nil {
+		msg := "Volume topology is not supported for file volumes."
+		klog.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 
 	// Volume Size - Default is 10 GiB
@@ -149,80 +284,20 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		Name:              req.Name,
 		DatastoreURL:      datastoreURL,
 		StoragePolicyName: storagePolicyName,
+		VolumeType:        common.FileVolumeType,
 	}
 
-	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
-		createVolumeSpec.VolumeType = common.FileVolumeType
-	} else {
-		createVolumeSpec.VolumeType = common.BlockVolumeType
-	}
-
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	var datastoreTopologyMap = make(map[string][]map[string]string)
-
-	// Get accessibility
-	topologyRequirement := req.GetAccessibilityRequirements()
-	if topologyRequirement != nil && createVolumeSpec.VolumeType == common.BlockVolumeType {
-		// Get shared accessible datastores for matching topology requirement
-		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
-			// if zone and region label (vSphere category names) not specified in the config secret, then return
-			// NotFound error.
-			errMsg := fmt.Sprintf("Zone/Region vsphere category names not specified in the vsphere config secret")
-			klog.Errorf(errMsg)
-			return nil, status.Error(codes.NotFound, errMsg)
-		}
-		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
-		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
-			klog.Errorf(msg)
-			return nil, status.Error(codes.NotFound, msg)
-		}
-		klog.V(4).Infof("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
-		if createVolumeSpec.DatastoreURL != "" {
-			// Check datastoreURL specified in the storageclass is accessible from topology
-			isDataStoreAccessible := false
-			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == createVolumeSpec.DatastoreURL {
-					isDataStoreAccessible = true
-					break
-				}
-			}
-			if !isDataStoreAccessible {
-				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
-					createVolumeSpec.DatastoreURL, topologyRequirement)
-				klog.Errorf(errMsg)
-				return nil, status.Error(codes.InvalidArgument, errMsg)
-			}
-		}
-
-	} else {
-		// TODO: Make sure for VolumeType = File, we do not need to find shared datastore accessible to all node VM.
-		// This is being addressed in https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/issues/1
-
-		// Get shared datastores for the Kubernetes cluster
-		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
-		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in kubernetes cluster. Error: %+v", err)
-			klog.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	}
-	volumeID, err := common.CreateVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeID, err := common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-
-	if createVolumeSpec.VolumeType == common.BlockVolumeType {
-		attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
-	} else {
-		attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
-	}
+	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 
 	if fsType == "" {
-		klog.V(2).Infof("No fstype received. Defaulting to: %s", common.DefaultFsType)
+		klog.V(2).Infof("No fstype received. Defaulting to: %q", common.DefaultFsType)
 		fsType = common.DefaultFsType
 	}
 	attributes[common.AttributeFsType] = fsType
@@ -234,39 +309,26 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			VolumeContext: attributes,
 		},
 	}
-
-	if createVolumeSpec.VolumeType == common.BlockVolumeType {
-		// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
-		var volumeAccessibleTopology = make(map[string]string)
-		if len(datastoreTopologyMap) > 0 {
-			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: volumeIds,
-			}
-			queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
-			if err != nil {
-				klog.Errorf("QueryVolume failed for volumeID: %s", volumeID)
-				return nil, status.Error(codes.Internal, err.Error())
-			}
-			if len(queryResult.Volumes) > 0 {
-				// Find datastore topology from the retrieved datastoreURL
-				datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
-				klog.V(3).Infof("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
-				if len(datastoreAccessibleTopology) > 0 {
-					rand.Seed(time.Now().Unix())
-					volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-					klog.V(3).Infof("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
-				}
-			}
-		}
-		if len(volumeAccessibleTopology) != 0 {
-			volumeTopology := &csi.Topology{
-				Segments: volumeAccessibleTopology,
-			}
-			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
-		}
-	}
 	return resp, nil
+}
+
+// CreateVolume is creating CNS Volume using volume request specified
+// in CreateVolumeRequest
+func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+
+	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
+	err := validateVanillaCreateVolumeRequest(req)
+	if err != nil {
+		klog.Errorf("Failed to validate Create Volume Request with err: %v", err)
+		return nil, err
+	}
+
+	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
+		return c.createFileVolume(ctx, req)
+	} else {
+		return c.createBlockVolume(ctx, req)
+	}
 }
 
 // CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest

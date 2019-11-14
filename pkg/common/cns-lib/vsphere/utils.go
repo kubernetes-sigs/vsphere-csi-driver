@@ -79,12 +79,12 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	}
 
 	vcConfig := &VirtualCenterConfig{
-		Host:            host,
-		Port:            port,
-		Username:        cfg.VirtualCenter[host].User,
-		Password:        cfg.VirtualCenter[host].Password,
-		Insecure:        cfg.VirtualCenter[host].InsecureFlag,
-		DatacenterPaths: strings.Split(cfg.VirtualCenter[host].Datacenters, ","),
+		Host:                             host,
+		Port:                             port,
+		Username:                         cfg.VirtualCenter[host].User,
+		Password:                         cfg.VirtualCenter[host].Password,
+		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
+		DatacenterPaths:                  strings.Split(cfg.VirtualCenter[host].Datacenters, ","),
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 	}
 	for idx := range vcConfig.DatacenterPaths {
@@ -94,7 +94,7 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	// validate if target file volume datastores present are vsan datastores
 	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
 		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
-		if (vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "") {
+		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
 			return nil, errors.New("Invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
 		}
 		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {

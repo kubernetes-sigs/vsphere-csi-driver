@@ -1,0 +1,11 @@
+export E2E_TEST_CONF_FILE="/root/csi/src/sigs.k8s.io/vsphere-csi-driver/e2eTest.conf"
+export KUBECONFIG="~/.kube/config"
+export K8S_VANILLA_ENVIRONMENT=true
+export VOLUME_OPS_SCALE=5
+export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/vsan:5240ba1c561887cc-d01067529c35bc1e/"
+export NONSHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5d9d4f7c-990ba8fa-61de-02004debe5c5/"
+export DESTINATION_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/c01b5499-4ec4a445/"
+export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
+export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="LocalDatastoresPolicy"
+export FULL_SYNC_WAIT_TIME=350
+export USER=root
