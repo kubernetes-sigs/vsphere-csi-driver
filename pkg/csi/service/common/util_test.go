@@ -26,7 +26,7 @@ func TestIsFileVolumeRequestForBlock(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"ext4",
+					FsType: "ext4",
 				},
 			},
 		},
@@ -40,8 +40,7 @@ func TestIsFileVolumeRequestForBlockWithUnsetFsType(t *testing.T) {
 	volCap := []*csi.VolumeCapability{
 		{
 			AccessType: &csi.VolumeCapability_Mount{
-				Mount: &csi.VolumeCapability_MountVolume{
-				},
+				Mount: &csi.VolumeCapability_MountVolume{},
 			},
 		},
 	}
@@ -50,13 +49,12 @@ func TestIsFileVolumeRequestForBlockWithUnsetFsType(t *testing.T) {
 	}
 }
 
-
 func TestIsFileVolumeRequestForFile(t *testing.T) {
 	volCap := []*csi.VolumeCapability{
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"nfs4",
+					FsType: "nfs4",
 				},
 			},
 		},
@@ -69,7 +67,7 @@ func TestIsFileVolumeRequestForFile(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"nfs",
+					FsType: "nfs",
 				},
 			},
 		},
@@ -85,11 +83,11 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"ext4",
+					FsType: "ext4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
 			},
 		},
 	}
@@ -100,11 +98,10 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 	volCap = []*csi.VolumeCapability{
 		{
 			AccessType: &csi.VolumeCapability_Mount{
-				Mount: &csi.VolumeCapability_MountVolume{
-				},
+				Mount: &csi.VolumeCapability_MountVolume{},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
 			},
 		},
 	}
@@ -119,11 +116,11 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"ext4",
+					FsType: "ext4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 			},
 		},
 	}
@@ -136,11 +133,11 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"ext4",
+					FsType: "ext4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
 			},
 		},
 	}
@@ -153,11 +150,11 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"ext4",
+					FsType: "ext4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
 			},
 		},
 	}
@@ -172,11 +169,11 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"nfs4",
+					FsType: "nfs4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 			},
 		},
 	}
@@ -189,11 +186,11 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"nfs",
+					FsType: "nfs",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
 			},
 		},
 	}
@@ -206,11 +203,11 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType:"nfs4",
+					FsType: "nfs4",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode:csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
 			},
 		},
 	}
@@ -254,4 +251,3 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 }
-

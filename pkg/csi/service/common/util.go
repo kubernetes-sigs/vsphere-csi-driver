@@ -78,7 +78,7 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 // IsFileVolumeRequest checks whether the request is to create a CNS file volume.
 func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
 	for _, cap := range v {
-		if fstype := strings.ToLower(cap.GetMount().GetFsType()); (fstype == NfsV4FsType || fstype == NfsFsType) {
+		if fstype := strings.ToLower(cap.GetMount().GetFsType()); fstype == NfsV4FsType || fstype == NfsFsType {
 			return true
 		}
 	}
@@ -107,8 +107,8 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessMode
 // IsValidVolumeCapabilities helps validate the given volume capabilities based on volume type.
 func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 	if IsFileVolumeRequest(volCaps) {
-		return validateVolumeCapabilities(volCaps, FileVolumeCaps);
+		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
 	} else {
-		return validateVolumeCapabilities(volCaps, BlockVolumeCaps);
+		return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
 	}
 }
