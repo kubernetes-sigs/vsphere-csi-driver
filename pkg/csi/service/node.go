@@ -72,7 +72,7 @@ func (s *service) NodeStageVolume(
 		"diskID": diskID,
 	}
 
-	log.WithFields(f).Debug("checking if volume is attached with diskID: %v", diskID)
+	log.WithFields(f).Debugf("checking if volume is attached with diskID: %s", diskID)
 	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
 		return nil, err
