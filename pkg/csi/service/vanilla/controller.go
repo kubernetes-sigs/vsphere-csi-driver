@@ -122,7 +122,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	var datastoreURL string
 	var storagePolicyName string
-	var fsType string
 
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
@@ -131,8 +130,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			datastoreURL = req.Parameters[paramName]
 		} else if param == common.AttributeStoragePolicyName {
 			storagePolicyName = req.Parameters[paramName]
-		} else if param == common.AttributeFsType {
-			fsType = req.Parameters[common.AttributeFsType]
 		}
 	}
 	var createVolumeSpec = common.CreateVolumeSpec{
@@ -198,12 +195,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
-
-	if fsType == "" {
-		klog.V(2).Infof("No fstype received. Defaulting to: %s", common.DefaultFsType)
-		fsType = common.DefaultFsType
-	}
-	attributes[common.AttributeFsType] = fsType
 
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
@@ -326,9 +317,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
 		return c.createFileVolume(ctx, req)
-	} else {
-		return c.createBlockVolume(ctx, req)
 	}
+	return c.createBlockVolume(ctx, req)
 }
 
 // CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
@@ -370,15 +360,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	klog.V(4).Infof("Found VirtualMachine for node:%q.", req.NodeId)
 	publishInfo := make(map[string]string, 0)
-	fsType, ok := req.VolumeContext[common.AttributeFsType]
-	if !ok {
-		fsType = common.DefaultFsType
-		klog.V(3).Infof(fmt.Sprintf("fsType is not set in VolumeContext, use default type: %s", common.DefaultFsType))
-	} else {
-		klog.V(3).Infof(fmt.Sprintf("fsType from VolumeContext: %s", fsType))
-	}
 	// Check whether its a block or file volume
-	if fsType == common.NfsV4FsType {
+	if common.IsFileVolumeRequest([]*csi.VolumeCapability{req.GetVolumeCapability()}) {
 		// File Volume
 		queryFilter := cnstypes.CnsQueryFilter{
 			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
