@@ -1,10 +1,10 @@
 kind: StorageClass
 apiVersion: storage.k8s.io/v1
 metadata:
-  name: example-vanilla-block-sc
+  name: example-vanilla-file-sc
   annotations:
     storageclass.kubernetes.io/is-default-class: "false"
 provisioner: csi.vsphere.vmware.com
 parameters:
   storagepolicyname: "vSAN Default Storage Policy"  #Optional Parameter
-  fstype: "nfsv4"
+  csi.storage.k8s.io/fstype: "nfs4"

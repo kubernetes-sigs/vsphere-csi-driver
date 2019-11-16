@@ -8,4 +8,4 @@ provisioner: csi.vsphere.vmware.com
 parameters:
   datastoreurl: "ds:///vmfs/volumes/vsan:52cdfa80721ff516-ea1e993113acfc77/" #Optional Parameter
   storagepolicyname: "vSAN Default Storage Policy"  #Optional Parameter
-  fstype: "ext4" #Optional Parameter
+  csi.storage.k8s.io/fstype: "ext4" #Optional Parameter

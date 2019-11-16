@@ -77,12 +77,34 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 
 // IsFileVolumeRequest checks whether the request is to create a CNS file volume.
 func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
-	for _, cap := range v {
-		if fstype := strings.ToLower(cap.GetMount().GetFsType()); fstype == NfsV4FsType || fstype == NfsFsType {
+	for _, capability := range v {
+		if fstype := strings.ToLower(GetVolumeCapabilityFsType(capability)); fstype == NfsV4FsType || fstype == NfsFsType {
 			return true
 		}
 	}
 	return false
+}
+
+// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability. Defaults to DefaultFsType when empty.
+func GetVolumeCapabilityFsType(capability *csi.VolumeCapability) string {
+	fsType := strings.ToLower(capability.GetMount().GetFsType())
+	klog.V(4).Infof("FsType received from Volume Capability: %s", fsType)
+	if fsType == "" {
+		klog.V(2).Infof("No fstype received in Volume Capability. Defaulting to: %s", DefaultFsType)
+		fsType = DefaultFsType
+	}
+	return fsType
+}
+
+// IsVolumeReadOnly checks the access mode in Volume Capability and decides if volume is readonly or not
+func IsVolumeReadOnly(capability *csi.VolumeCapability) bool {
+	accMode := capability.GetAccessMode().GetMode()
+	ro := false
+	if accMode == csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY ||
+		accMode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY {
+		ro = true
+	}
+	return ro
 }
 
 // validateVolumeCapabilities validates the access mode in given volume capabilities in validAccessModes.
@@ -108,7 +130,6 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessMode
 func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 	if IsFileVolumeRequest(volCaps) {
 		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
-	} else {
-		return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
 	}
+	return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
 }
