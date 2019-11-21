@@ -195,7 +195,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	var err error
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
@@ -323,7 +323,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	var err error
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
@@ -479,7 +479,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
@@ -519,7 +519,7 @@ func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client cl
 	var err error
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
@@ -596,7 +596,7 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
@@ -754,7 +754,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	var err error
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
