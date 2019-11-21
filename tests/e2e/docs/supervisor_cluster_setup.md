@@ -39,6 +39,9 @@
 
 ![WCP non shared DS 3](images/non-shared_ds_policy_step_2.png)
 
+### Fetch the shared-vsphere-datastore-url from VC
+![WCP_non_shared_DS_4](images/shared_vsphere_datastore_url.png)
+
 ## Running e2e Tests
 
 The section outlines how to set the env variable for running e2e test.
@@ -74,6 +77,8 @@ datacenters should be comma separated if deployed on multi-datacenters
     export CLUSTER_FLAVOR="WORKLOAD"
     export GINKGO_FOCUS="csi-supervisor"
     export SVC_NAMESPACE="e2e-test-namespace"
+    # Set the SHARED_VSPHERE_DATASTORE_URL to the url fetched from the Vcenter as mentioned in the steps above
+    export SHARED_VSPHERE_DATASTORE_URL="<shared-vsphere-datastore-url>"
 
 ### To run full sync test, need do extra following steps
 
