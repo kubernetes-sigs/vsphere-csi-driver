@@ -198,14 +198,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "",  storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -277,14 +277,14 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -374,7 +374,7 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pvs []*v1.PersistentVolume
 		for i := 0; i < numberOfPVC; i++ {
-			pvc, err := createPVC(client, namespace, nil, "", sc)
+			pvc, err := createPVC(client, namespace, nil, "", sc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
 			pvList, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)

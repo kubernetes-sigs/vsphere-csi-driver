@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] Data Persistence", func(
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] Data Persistence", func(
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

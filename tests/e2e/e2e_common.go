@@ -79,6 +79,8 @@ const (
 	envK8SMaster1IP                            = "K8S_MASTER1_IP"
 	envK8SMaster2IP                            = "K8S_MASTER2_IP"
 	envK8SMaster3IP                            = "K8S_MASTER3_IP"
+	nfs4FSType                                 = "nfs4"
+
 )
 
 const (
