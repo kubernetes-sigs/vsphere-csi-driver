@@ -119,6 +119,7 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("Failed to initialize nodeMgr. err=%v", err)
 		return err
 	}
+	go cnsvolume.ClearTaskInfoObjects()
 	return nil
 }
 

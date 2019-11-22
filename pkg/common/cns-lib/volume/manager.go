@@ -19,14 +19,24 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-
-	"github.com/davecgh/go-spew/spew"
 	"k8s.io/klog"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+)
+
+const (
+	// defaultTaskCleanupIntervalInMinutes is default interval for cleaning up expired create volume tasks
+	// TODO: This timeout will be configurable in future releases
+	defaultTaskCleanupIntervalInMinutes = 1
+
+	// defaultOpsExpirationTimeInHours is expiration time for create volume operations
+	// TODO: This timeout will be configurable in future releases
+	defaultOpsExpirationTimeInHours = 1
 )
 
 // Manager provides functionality to manage volumes.
@@ -54,10 +64,18 @@ var (
 	managerInstance *defaultManager
 	// onceForManager is used for initializing the Manager singleton.
 	onceForManager sync.Once
+	volumeTaskMap  = make(map[string]createVolumeTaskDetails)
 )
+
+// createVolumeTaskDetails contains taskInfo object and expiration time
+type createVolumeTaskDetails struct {
+	taskinfo       *vim25types.TaskInfo
+	expirationTime time.Time
+}
 
 // GetManager returns the Manager singleton.
 func GetManager(vc *cnsvsphere.VirtualCenter) Manager {
+
 	onceForManager.Do(func() {
 		klog.V(1).Infof("Initializing volume.defaultManager...")
 		managerInstance = &defaultManager{
@@ -71,6 +89,24 @@ func GetManager(vc *cnsvsphere.VirtualCenter) Manager {
 // DefaultManager provides functionality to manage volumes.
 type defaultManager struct {
 	virtualCenter *cnsvsphere.VirtualCenter
+}
+
+// ClearTaskInfoObjects is a go routine which runs in the background to clean up expired taskInfo objects from volumeTaskMap
+func ClearTaskInfoObjects() {
+	// At a frequency of every 1 minute, check if there are expired taskInfo objects and delete them from the volumeTaskMap
+	ticker := time.NewTicker(time.Duration(defaultTaskCleanupIntervalInMinutes) * time.Minute)
+	for range ticker.C {
+		for k, v := range volumeTaskMap {
+			// Get the time difference between current time and the expiration time from the volumeTaskMap
+			diff := v.expirationTime.Sub(time.Now())
+			// Checking if the expiration time has elapsed
+			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
+				// If one of the parameters in the time object is negative, it means the entry has to be deleted
+				klog.V(4).Infof("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[k].taskinfo, k)
+				delete(volumeTaskMap, k)
+			}
+		}
+	}
 }
 
 // CreateVolume creates a new volume given its spec.
@@ -101,18 +137,28 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 	// Construct the CNS VolumeCreateSpec list
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
 	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
+	var taskInfo *vim25types.TaskInfo
 	// Call the CNS CreateVolume
-	task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
-	if err != nil {
-		klog.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-		return nil, err
+	taskDetailsInMap, ok := volumeTaskMap[spec.Name]
+	if ok {
+		taskInfo = taskDetailsInMap.taskinfo
+		klog.V(2).Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", spec.Name, taskInfo)
+	} else {
+		task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
+		if err != nil {
+			klog.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		// Get the taskInfo
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		if err != nil {
+			klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
+		volumeTaskMap[spec.Name] = createVolumeTaskDetails{taskInfo, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
 	}
-	// Get the taskInfo
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
-		klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-		return nil, err
-	}
+
 	klog.V(2).Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
 	// Get the taskResult
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
@@ -129,6 +175,9 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
+		// Remove the taskInfo object associated with the volume name when the current task fails.
+		//  This is needed to ensure the sub-sequent create volume call from the external provisioner invokes Create Volume
+		delete(volumeTaskMap, spec.Name)
 		msg := fmt.Sprintf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		klog.Error(msg)
 		return nil, errors.New(msg)
@@ -255,14 +304,11 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
 		return err
 	}
-
 	if taskResult == nil {
 		klog.Errorf("taskResult is empty for DetachVolume task: %q, opId: %q", taskInfo.Task.Value, taskInfo.ActivationId)
 		return errors.New("taskResult is empty")
 	}
-
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-
 	if volumeOperationRes.Fault != nil {
 		// Volume is already attached to VM
 		diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
@@ -332,7 +378,6 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 		klog.Errorf("taskResult is empty for DeleteVolume task: %q, opID: %q", taskInfo.Task.Value, taskInfo.ActivationId)
 		return errors.New("taskResult is empty")
 	}
-
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
@@ -367,7 +412,6 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 		klog.V(4).Infof("Update VSphereUser from %s to %s", spec.Metadata.ContainerCluster.VSphereUser, s.UserName)
 		spec.Metadata.ContainerCluster.VSphereUser = s.UserName
 	}
-
 	var cnsUpdateSpecList []cnstypes.CnsVolumeMetadataUpdateSpec
 	cnsUpdateSpec := cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
@@ -395,7 +439,6 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
 		return err
 	}
-
 	if taskResult == nil {
 		klog.Errorf("taskResult is empty for UpdateVolume task: %q, opId: %q", taskInfo.Task.Value, taskInfo.ActivationId)
 		return errors.New("taskResult is empty")
@@ -423,7 +466,6 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 		klog.Errorf("ConnectCns failed with err: %+v", err)
 		return err
 	}
-
 	// Construct the CNS ExtendSpec list
 	var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
 	cnsExtendSpec := cnstypes.CnsVolumeExtendSpec{
@@ -433,11 +475,9 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 		CapacityInMb: size,
 	}
 	cnsExtendSpecList = append(cnsExtendSpecList, cnsExtendSpec)
-
 	// Call the CNS ExtendVolume
 	klog.V(2).Infof("Calling CnsClient.ExtendVolume: VolumeID [%q] Size [%d] cnsExtendSpecList [%#v]", volumeID, size, cnsExtendSpecList)
 	task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
-
 	if err != nil {
 		if cnsvsphere.IsNotFoundError(err) {
 			klog.Errorf("VolumeID: %q, not found. Cannot expand volume.", volumeID)
@@ -464,7 +504,6 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 		klog.Errorf("TaskResult is empty for ExtendVolume task: %q, opID: %q", taskInfo.Task.Value, taskInfo.ActivationId)
 		return errors.New("taskResult is empty")
 	}
-
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		msg := fmt.Sprintf("failed to extend volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
@@ -472,7 +511,6 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 		return errors.New(msg)
 	}
 	klog.V(2).Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
-
 	return nil
 }
 
