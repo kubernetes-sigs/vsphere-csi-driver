@@ -88,6 +88,7 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
+	go cnsvolume.ClearTaskInfoObjects()
 	return nil
 }
 
