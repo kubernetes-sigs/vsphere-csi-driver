@@ -557,3 +557,25 @@ func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
+
+// CreateService creates a k8s service as described in the service.yaml present in the manifest path and returns that
+// service to the caller
+func CreateService(ns string, c clientset.Interface) *v1.Service {
+	svcManifestFilePath := filepath.Join(manifestPath, "service.yaml")
+	framework.Logf("Parsing service from %v", svcManifestFilePath)
+	svc, err := manifest.SvcFromManifest(svcManifestFilePath)
+	framework.ExpectNoError(err)
+
+	_, err = c.CoreV1().Services(ns).Create(svc)
+	framework.ExpectNoError(err)
+	return svc
+}
+
+// GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml file present in the manifest path
+func GetStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
+	ssManifestFilePath := filepath.Join(manifestPath, "statefulset.yaml")
+	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
+	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
+	framework.ExpectNoError(err)
+	return ss
+}
