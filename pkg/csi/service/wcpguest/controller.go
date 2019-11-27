@@ -254,6 +254,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		defer watchVirtualMachine.Stop()
+
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
 		for diskUUID == "" {
 			// blocking wait for update event
@@ -261,9 +262,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				// TODO: Verify if this condition is triggered continuously when watchVirtualMachine times out
-				klog.V(4).Infof("Event %v was not for VirtualMachine type", event)
-				continue
+				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+				klog.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
 			}
 			klog.V(4).Infof(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
 			for _, volume := range vm.Status.Volumes {
@@ -363,9 +364,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 		if !ok {
-			// TODO: Verify if this condition is triggered continuously when watchVirtualMachine times out
-			klog.V(4).Infof("Event %v was not for VirtualMachine type", event)
-			continue
+			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", newVirtualMachine.Name)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
 		isVolumeDetached = true
 		for _, volume := range vm.Status.Volumes {
@@ -373,7 +374,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				klog.V(4).Infof(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, newVirtualMachine.Name))
 				isVolumeDetached = false
 				if volume.Attached == true && volume.Error != "" {
-					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, newVirtualMachine.Name, err)
+					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, newVirtualMachine.Name, volume.Error)
 					klog.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)
 				}
@@ -382,6 +383,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 
 	}
+	klog.V(2).Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
