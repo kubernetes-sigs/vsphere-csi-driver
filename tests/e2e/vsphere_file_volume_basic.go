@@ -36,7 +36,7 @@ const (
 	testVolumeType = "FILE"
 )
 
-var _ = ginkgo.Describe("[csi-vanilla] [csi-file] Basic Testing for File Volume", func() {
+var _ = ginkgo.Describe("[csi-vanilla] [csi-file] Basic Testing", func() {
 	f := framework.NewDefaultFramework("file-volume-basic")
 	var (
 		client    clientset.Interface
@@ -56,19 +56,35 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-file] Basic Testing for File Volume"
 			Test to verify dynamic provisioning with ReadWriteMany access mode, when no storage policy is offered
 
 			1. Create StorageClass with fsType as "nfs4"
-	    	2. Create a PVC with "ReadWriteMany" using the SC from above
-	    	3. Wait for PVC to be Bound
-	    	4. Get the VolumeID from PV
-	    	5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify
-	           Name, Capacity, VolumeType, Health matches
-	    	6. Verify if VolumeID is created on one of the VSAN datastores from list of datacenters provided in vsphere.conf
-	    	7. Delete PVC
-	    	8. Delete Storage class
+		    	2. Create a PVC with "ReadWriteMany" using the SC from above
+		    	3. Wait for PVC to be Bound
+		    	4. Get the VolumeID from PV
+		    	5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify
+		           Name, Capacity, VolumeType, Health matches
+		    	6. Verify if VolumeID is created on one of the VSAN datastores from list of datacenters provided in vsphere.conf
+		    	7. Delete PVC
+		    	8. Delete Storage class
 	*/
 	ginkgo.It("[csi-file] verify dynamic provisioning with ReadWriteMany access mode, when no storage policy is offered", func() {
 		invokeTestForCreateFileVolume(f, client, namespace, v1.ReadWriteMany)
 	})
 
+	/*
+			Test to verify dynamic provisioning with ReadOnlyMany access mode, when no storage policy is offered
+
+			1. Create StorageClass with fsType as "nfs4"
+		    	2. Create a PVC with "ReadOnlyMany" using the SC from above
+		    	3. Wait for PVC to be Bound
+		    	4. Get the VolumeID from PV
+		    	5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify
+		           Name, Capacity, VolumeType, Health matches
+		    	6. Verify if VolumeID is created on one of the VSAN datastores from list of datacenters provided in vsphere.conf
+		    	7. Delete PVC
+		    	8. Delete Storage class
+	*/
+	ginkgo.It("[csi-file] verify dynamic provisioning with ReadOnlyMany access mode, when no storage policy is offered", func() {
+		invokeTestForCreateFileVolume(f, client, namespace, v1.ReadOnlyMany)
+	})
 })
 
 func invokeTestForCreateFileVolume(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
