@@ -279,7 +279,7 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) (string, error) {
-	klog.V(4).Infof("vSphere CNS driver is attaching volume: %s to node vm: %s", volumeID, vm.InventoryPath)
+	klog.V(4).Infof("vSphere CNS driver is attaching volume: %s to node vm: %q", volumeID, vm.InventoryPath)
 	diskUUID, err := manager.VolumeManager.AttachVolume(vm, volumeID)
 	if err != nil {
 		klog.Errorf("Failed to attach disk %s with err %+v", volumeID, err)
