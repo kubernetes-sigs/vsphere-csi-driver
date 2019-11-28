@@ -17,8 +17,10 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"golang.org/x/net/context"
@@ -85,13 +87,17 @@ func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
 	return false
 }
 
-// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability. Defaults to DefaultFsType when empty.
+// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability. Defaults to DefaultFsType when empty for mount volumes.
 func GetVolumeCapabilityFsType(capability *csi.VolumeCapability) string {
 	fsType := strings.ToLower(capability.GetMount().GetFsType())
-	klog.V(4).Infof("FsType received from Volume Capability: %s", fsType)
+	klog.V(4).Infof("FsType received from Volume Capability: %q", fsType)
 	if fsType == "" {
-		klog.V(2).Infof("No fstype received in Volume Capability. Defaulting to: %s", DefaultFsType)
-		fsType = DefaultFsType
+		// Defaulting fstype for mount volumes only. Block volumes will still have fstype as empty.
+		if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Mount); ok {
+			klog.V(2).Infof("No fstype received in Volume Capability for mount volume. Defaulting to: %s",
+				DefaultFsType)
+			fsType = DefaultFsType
+		}
 	}
 	return fsType
 }
@@ -132,4 +138,34 @@ func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
 	}
 	return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
+}
+
+// IsFileVolumeMount loops through the list of mount points and
+// checks if the target path mount point is a file volume type or not
+// Returns an error if the target path is not found in the mount points
+func IsFileVolumeMount(target string, mnts []gofsutil.Info) (bool, error) {
+	for _, m := range mnts {
+		if m.Path == target {
+			if m.Type == NfsFsType || m.Type == NfsV4FsType {
+				klog.V(4).Info("IsFileVolumeMount: Found file volume")
+				return true, nil
+			}
+			klog.V(4).Info("IsFileVolumeMount: Found block volume")
+			return false, nil
+		}
+	}
+	// Target path mount point not found in list of mounts
+	return false, fmt.Errorf("could not find target path %q in list of mounts", target)
+}
+
+// IsTargetInMounts checks if the given target path is present in list of mount points
+func IsTargetInMounts(target string, mnts []gofsutil.Info) bool {
+	for _, m := range mnts {
+		if m.Path == target {
+			klog.V(4).Infof("Found target %q in list of mounts", target)
+			return true
+		}
+	}
+	klog.V(4).Infof("Target %q not found in list of mounts", target)
+	return false
 }
