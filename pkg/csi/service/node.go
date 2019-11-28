@@ -103,13 +103,13 @@ func (s *service) NodeStageVolume(
 		klog.V(4).Info("NodeStageVolume: Volume detected as a mount volume")
 		params.fsType, params.mntFlags, err = ensureMountVol(volCap)
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, err
 		}
 
 		// Check that staging path is created by CO and is a directory
 		params.stagingTarget = req.GetStagingTargetPath()
-		if err = verifyTargetDir(params.stagingTarget); err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+		if _, err = verifyTargetDir(params.stagingTarget, true); err != nil {
+			return nil, err
 		}
 	}
 
@@ -129,7 +129,7 @@ func nodeStageBlockVolume(
 	pubCtx := req.GetPublishContext()
 	diskID, err := getDiskID(pubCtx)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, err
 	}
 	klog.V(4).Infof("NodeStageVolume: volID %q, published context %+v, diskID %q",
 		params.volID, pubCtx, diskID)
@@ -142,7 +142,7 @@ func nodeStageBlockVolume(
 	klog.V(4).Infof("NodeStageVolume: Checking if volume is attached with diskID: %v", diskID)
 	volPath, err := verifyVolumeAttached(diskID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, err
 	}
 	klog.V(4).Infof("NodeStageVolume: Disk %q attached at %q", diskID, volPath)
 
@@ -292,62 +292,109 @@ func (s *service) NodeUnstageVolume(
 	klog.V(4).Infof("NodeUnstageVolume: called with args %+v", *req)
 
 	volID := req.GetVolumeId()
-
-	target := req.GetStagingTargetPath()
-	if err := verifyTargetDir(target); err != nil {
+	stagingTarget := req.GetStagingTargetPath()
+	dirExists, err := verifyTargetDir(stagingTarget, false)
+	if err != nil {
 		return nil, err
 	}
+	// This will take care of idempotent requests
+	if !dirExists {
+		klog.V(4).Infof("NodeUnstageVolume: Target path %q does not exist. Assuming unstage is complete.", stagingTarget)
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	// Fetch all the mount points
+	mnts, err := gofsutil.GetMounts(context.Background())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not retrieve existing mount points: %q",
+			err.Error())
+	}
+	klog.V(4).Infof("NodeUnstageVolume: node mounts %+v", mnts)
+
+	var isMounted bool
+	// Figure out if the target path is a file or block volume path
+	isFileMount, err := common.IsFileVolumeMount(stagingTarget, mnts)
+	// NOTE: IsFileVolumeMount will only return an error when the target path is not present in mount points.
+	// This is only possible in raw block volume case.
+	if !isFileMount || err != nil {
+		// Block volume
+		isMounted, err = isBlockVolumeMounted(volID, stagingTarget)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Check if the volume is already unstaged
+		isMounted = common.IsTargetInMounts(stagingTarget, mnts)
+	}
+
+	// Volume is still mounted. Unstage the volume
+	if isMounted {
+		klog.V(4).Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
+		if err := gofsutil.Unmount(context.Background(), stagingTarget); err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"Error unmounting stagingTarget: %s", err.Error())
+		}
+		klog.V(4).Infof("Unmount successful for target %q for volume %q", stagingTarget, volID)
+	}
+	return &csi.NodeUnstageVolumeResponse{}, nil
+}
+
+// isBlockVolumeMounted checks if the block volume is properly mounted or not.
+// If yes, then the calling function proceeds to unmount the volume
+func isBlockVolumeMounted(
+	volID string,
+	stagingTargetPath string) (
+	bool, error) {
 
 	// Look up block device mounted to target
 	// BlockVolume: Here we are relying on the fact that the CO is required to
 	// have created the staging path per the spec, even for BlockVolumes. Even
 	// though we don't use the staging path for block, the fact nothing will be
 	// mounted still indicates that unstaging is done.
-	dev, err := getDevFromMount(target)
+	dev, err := getDevFromMount(stagingTargetPath)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"error getting block device for volume: %s, err: %s",
+		return false, status.Errorf(codes.Internal,
+			"isBlockVolumeMounted: error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
 
+	// No device found
 	if dev == nil {
 		// Nothing is mounted, so unstaging is already done
-		return &csi.NodeUnstageVolumeResponse{}, nil
+		klog.V(4).Infof("isBlockVolumeMounted: No device found. Assuming Unstage is "+
+			"already done for volume %q and target path %q", volID, stagingTargetPath)
+		// For raw block volumes, we do not get a device attached to the stagingTargetPath. This path is just a dummy.
+		return false, nil
 	}
 
 	f := log.Fields{
 		"volID":  volID,
 		"path":   dev.FullPath,
 		"block":  dev.RealDev,
-		"target": target,
+		"target": stagingTargetPath,
 	}
-
 	log.WithFields(f).Debug("found device")
 
 	// Get mounts for device
 	mnts, err := gofsutil.GetDevMounts(context.Background(), dev.RealDev)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %s",
+		return false, status.Errorf(codes.Internal,
+			"isBlockVolumeMounted: could not reliably determine existing mount status: %s",
 			err.Error())
 	}
 
-	// device is mounted. Should only be mounted to target
+	// device is mounted more than once. Should only be mounted to target
 	if len(mnts) > 1 {
-		return nil, status.Errorf(codes.Internal,
-			"volume: %s appears mounted in multiple places", volID)
+		return false, status.Errorf(codes.Internal,
+			"isBlockVolumeMounted: volume: %s appears mounted in multiple places", volID)
 	}
 
 	// Since we looked up the block volume from the target path, we assume that
 	// the one existing mount is from the block to the target
-
-	// unstage this
-	if err := gofsutil.Unmount(context.Background(), target); err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Error unmounting target: %s", err.Error())
-	}
-
-	return &csi.NodeUnstageVolumeResponse{}, nil
+	klog.V(4).Infof("isBlockVolumeMounted: Found single mount point for volume %q and target %q",
+		volID, stagingTargetPath)
+	return true, nil
 }
 
 func (s *service) NodePublishVolume(
@@ -374,13 +421,13 @@ func (s *service) NodePublishVolume(
 	if !common.IsFileVolumeRequest([]*csi.VolumeCapability{volCap}) {
 		params.diskID, err = getDiskID(req.GetPublishContext())
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, err
 		}
 
 		klog.V(4).Infof("Checking if volume %q is attached to disk %q", params.volID, params.diskID)
 		volPath, err := verifyVolumeAttached(params.diskID)
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, err
 		}
 
 		// Get underlying block device
@@ -412,8 +459,10 @@ func (s *service) NodeUnpublishVolume(
 	klog.V(4).Infof("NodeUnpublishVolume: called with args %+v", *req)
 
 	volID := req.GetVolumeId()
-
 	target := req.GetTargetPath()
+
+	// Verify if the path exists
+	// NOTE: For raw block volumes, this path is a file. In all other cases, it is a directory
 	_, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -421,13 +470,63 @@ func (s *service) NodeUnpublishVolume(
 			return &csi.NodeUnpublishVolumeResponse{}, nil
 		}
 		return nil, status.Errorf(codes.Internal,
-			"failed to stat target, err: %s", err.Error())
+			"failed to stat target, err: %q", err.Error())
 	}
 
+	// Fetch all the mount points
+	mnts, err := gofsutil.GetMounts(context.Background())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not retrieve existing mount points: %q",
+			err.Error())
+	}
+	klog.V(4).Infof("NodeUnpublishVolume: node mounts %+v", mnts)
+
+	// Check if the volume is already unpublished
+	// Also validates if path is a mounted directory or not
+	isPresent := common.IsTargetInMounts(target, mnts)
+	if !isPresent {
+		klog.V(4).Infof("Target %s not present in mount points. Assuming it is already unpublished.", target)
+		return &csi.NodeUnpublishVolumeResponse{}, nil
+	}
+
+	// Figure out if the target path is a file or block volume
+	isFileMount, _ := common.IsFileVolumeMount(target, mnts)
+	isPublished := true
+	if !isFileMount {
+		isPublished, err = isBlockVolumePublished(volID, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if isPublished {
+		klog.V(4).Infof("Attempting to unmount target %q for volume %q", target, volID)
+		if err := gofsutil.Unmount(ctx, target); err != nil {
+			mssg := fmt.Sprintf("Error unmounting target %q for volume %q. %q", target, volID, err.Error())
+			klog.V(4).Info(mssg)
+			return nil, status.Error(codes.Internal, mssg)
+		}
+		klog.V(4).Infof("Unmount successful for target %q for volume %q", target, volID)
+		// The SP is supposed to delete the files/directory it created in this target path
+		if err := rmpath(target); err != nil {
+			klog.V(4).Infof("Failed to delete the target path %q", target)
+			return nil, err
+		}
+		klog.V(4).Infof("Target path  %q successfully deleted", target)
+	}
+	return &csi.NodeUnpublishVolumeResponse{}, nil
+}
+
+// isBlockVolumePublished checks if the device backing block volume exists.
+func isBlockVolumePublished(
+	volID string,
+	target string) (
+	bool, error) {
 	// Look up block device mounted to target
 	dev, err := getDevFromMount(target)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
+		return false, status.Errorf(codes.Internal,
 			"error getting block device for volume: %s, err: %s",
 			volID, err.Error())
 	}
@@ -435,36 +534,17 @@ func (s *service) NodeUnpublishVolume(
 	if dev == nil {
 		// Nothing is mounted, so unpublish is already done. However, we also know
 		// that the target path exists, and it is our job to remove it.
+		klog.V(4).Infof("isBlockVolumePublished: No device found. Assuming Unpublish is "+
+			"already complete for volume %q and target path %q", volID, target)
 		if err := rmpath(target); err != nil {
-			return nil, err
+			mssg := fmt.Sprintf("Failed to delete the target path %q. Error: %q", target, err.Error())
+			klog.V(4).Info(mssg)
+			return false, status.Errorf(codes.Internal, mssg)
 		}
-		return &csi.NodeUnpublishVolumeResponse{}, nil
+		klog.V(4).Infof("isBlockVolumePublished: Target path %q successfully deleted", target)
+		return false, nil
 	}
-
-	// get mounts
-	// Check if device is already unmounted
-	mnts, err := gofsutil.GetMounts(ctx)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %s",
-			err.Error())
-	}
-
-	for _, m := range mnts {
-		if m.Source == dev.RealDev || m.Device == dev.RealDev {
-			if m.Path == target {
-				if err := gofsutil.Unmount(ctx, target); err != nil {
-					return nil, status.Errorf(codes.Internal,
-						"Error unmounting target: %s", err.Error())
-				}
-				if err := rmpath(target); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	return &csi.NodeUnpublishVolumeResponse{}, nil
+	return true, nil
 }
 
 func (s *service) NodeGetVolumeStats(
@@ -686,7 +766,7 @@ func publishMountVol(
 	// Extract fs details
 	_, mntFlags, err := ensureMountVol(req.GetVolumeCapability())
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, err
 	}
 
 	// We are responsible for creating target dir, per spec
@@ -698,8 +778,8 @@ func publishMountVol(
 	klog.V(4).Infof("PublishMountVolume: Created target path %q", params.target)
 
 	// Verify if the Staging path already exists
-	if err := verifyTargetDir(params.stagingTarget); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	if _, err := verifyTargetDir(params.stagingTarget, true); err != nil {
+		return nil, err
 	}
 
 	// get block device mounts
@@ -827,7 +907,7 @@ func publishFileVol(
 	// Extract mount details
 	_, mntFlags, err := ensureMountVol(req.GetVolumeCapability())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, err
 	}
 
 	// We are responsible for creating target dir, per spec
@@ -839,8 +919,8 @@ func publishFileVol(
 	klog.V(4).Infof("PublishFileVolume: Created target path %q", params.target)
 
 	// Verify if the Staging path already exists
-	if err := verifyTargetDir(params.stagingTarget); err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+	if _, err := verifyTargetDir(params.stagingTarget, true); err != nil {
+		return nil, err
 	}
 
 	mnts, err := gofsutil.GetMounts(context.Background())
@@ -977,32 +1057,40 @@ func verifyVolumeAttached(diskID string) (string, error) {
 	return volPath, nil
 }
 
-func verifyTargetDir(target string) error {
+// verifyTargetDir checks if the target path is not empty, exists and is a directory
+// if targetShouldExist is set to false, then verifyTargetDir returns (false, nil) if the path does not exist.
+// if targetShouldExist is set to true, then verifyTargetDir returns (false, err) if the path does not exist.
+func verifyTargetDir(target string, targetShouldExist bool) (bool, error) {
 	if target == "" {
-		return status.Error(codes.InvalidArgument,
+		return false, status.Error(codes.InvalidArgument,
 			"target path required")
 	}
 
 	tgtStat, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return status.Errorf(codes.FailedPrecondition,
-				"target: %s not pre-created", target)
+			if targetShouldExist {
+				// target path does not exist but targetShouldExist is set to true
+				return false, status.Errorf(codes.FailedPrecondition,
+					"target: %s not pre-created", target)
+			}
+			// target path does not exist but targetShouldExist is set to false, so no error
+			return false, nil
 		}
-		return status.Errorf(codes.Internal,
+		return false, status.Errorf(codes.Internal,
 			"failed to stat target, err: %s", err.Error())
 	}
 
 	// This check is mandated by the spec, but this would/should fail if the
-	// volume has a block accessType. Maybe staging isn't intended to be used
-	// with block? That would make sense you cannot share the volume for block.
+	// volume has a block accessType as we get a file for raw block volumes
+	// during NodePublish/Unpublish. Do not use this function for Publish/Unpublish
 	if !tgtStat.IsDir() {
-		return status.Errorf(codes.FailedPrecondition,
+		return false, status.Errorf(codes.FailedPrecondition,
 			"existing path: %s is not a directory", target)
 	}
 
 	klog.V(4).Infof("Target path %s verification complete", target)
-	return nil
+	return true, nil
 }
 
 // mkdir creates the directory specified by path if needed.
@@ -1137,11 +1225,25 @@ func getDevFromMount(target string) (*Device, error) {
 		return nil, err
 	}
 
+	// example for RAW block device
+	// Device:udev
+	// Path:/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/pvc-098a7585-109c-11ea-94c1-005056825b1f
+	// Source:/dev/sdb
+	// Type:devtmpfs
+	// Opts:[rw relatime]}
+
+	// example for Mounted block device
+	// Device:/dev/sdb
+	// Path:/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount
+	// Source:/var/lib/kubelet/plugins/kubernetes.io/csi/pv/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/globalmount
+	// Type:ext4
+	// Opts:[rw relatime]
+
 	for _, m := range mnts {
 		if m.Path == target {
 			// something is mounted to target, get underlying disk
 			d := m.Device
-			if m.Device == "devtmpfs" {
+			if m.Device == "udev" {
 				d = m.Source
 			}
 			dev, err := getDevice(d)
