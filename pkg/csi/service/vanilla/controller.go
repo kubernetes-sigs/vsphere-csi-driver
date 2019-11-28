@@ -256,7 +256,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	var datastoreURL string
 	var storagePolicyName string
-	var fsType string
 
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
@@ -265,8 +264,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			datastoreURL = req.Parameters[paramName]
 		} else if param == common.AttributeStoragePolicyName {
 			storagePolicyName = req.Parameters[paramName]
-		} else if param == common.AttributeFsType {
-			fsType = req.Parameters[common.AttributeFsType]
 		}
 	}
 
@@ -286,12 +283,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
-
-	if fsType == "" {
-		klog.V(2).Infof("No fstype received. Defaulting to: %q", common.DefaultFsType)
-		fsType = common.DefaultFsType
-	}
-	attributes[common.AttributeFsType] = fsType
 
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{

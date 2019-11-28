@@ -97,11 +97,14 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 		Username:                         cfg.VirtualCenter[host].User,
 		Password:                         cfg.VirtualCenter[host].Password,
 		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
-		DatacenterPaths:                  strings.Split(cfg.VirtualCenter[host].Datacenters, ","),
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 	}
-	for idx := range vcConfig.DatacenterPaths {
-		vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+
+	if (strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "") {
+		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
+		for idx := range vcConfig.DatacenterPaths {
+			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+		}
 	}
 
 	// validate if target file volume datastores present are vsan datastores
