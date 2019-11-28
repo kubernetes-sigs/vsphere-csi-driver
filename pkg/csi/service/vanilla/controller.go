@@ -483,6 +483,20 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
+	klog.V(4).Infof("volumeID: %q volume type: %q.", volumeID, queryResult.Volumes[0].VolumeType)
+	// TODO(xyang): ControllerExpandVolumeRequest does not have VolumeCapability in
+	// CSI 1.1.0 so we can't find out the fstype from that and determine
+	// whether it is a file volume. VolumeCapability is added to ControllerExpandVolumeRequest
+	// in CSI 1.2.0 but resizer sidecar is not released yet to support that. Currently
+	// the latest resizer is v0.3.0 which supports CSI 1.1.0. When VolumeCapability
+	// becomes available in ControllerExpandVolumeRequest, we should use that to find out
+	// whether it is a file volume and do the validation in validateVanillaControllerExpandVolumeRequest.
+	if queryResult.Volumes[0].VolumeType != common.BlockVolumeType {
+		msg := fmt.Sprintf("volume type for volumeID %q is %q. Volume expansion is only supported for block volume type.", volumeID, queryResult.Volumes[0].VolumeType)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Unimplemented, msg)
+	}
+
 	if currentSize >= volSizeMB {
 		klog.Infof("Volume size %d is greater than or equal to the requested size %d for volumeID: %q", currentSize, volSizeMB, volumeID)
 	} else {
