@@ -182,6 +182,19 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	ginkgo.It("Verify volume expansion can happen multiple times", func() {
 		invokeTestForExpandVolumeMultipleTimes(f, client, namespace, "", storagePolicyName, profileID)
 	})
+
+	// Test to verify volume expansion is not supported for file volume
+
+	// Steps
+	// 1. Create StorageClass with allowVolumeExpansion set to true.
+	// 2. Create File Volume PVC which uses the StorageClass created in step 1.
+	// 3. Wait for PV to be provisioned.
+	// 4. Wait for PVC's status to become Bound.
+	// 5. Modify PVC's size to a bigger size.
+	// 6. Verify if the PVC expansion fails.
+	ginkgo.It("Verify file volume expansion is not supported", func() {
+		invokeTestForUnsupportedFileVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
+	})
 })
 
 func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
@@ -867,6 +880,59 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+}
+
+func invokeTestForUnsupportedFileVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
+	ginkgo.By(fmt.Sprintf("Invoking Test for Unsupported File Volume Expansion"))
+	scParameters := make(map[string]string)
+	scParameters[scParamsFsType] = nfs4FSType
+	// Create Storage class and PVC
+	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion is true and filesystem type is nfs4FSType")
+	var storageclass *storagev1.StorageClass
+	var pvclaim *v1.PersistentVolumeClaim
+	var err error
+
+	// Create a StorageClass that sets allowVolumeExpansion to true
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, v1.ReadWriteMany)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	// Waiting for PVC to be bound
+	var pvclaims []*v1.PersistentVolumeClaim
+	pvclaims = append(pvclaims, pvclaim)
+	ginkgo.By("Waiting for all claims to be in bound state")
+	//persistentvolumes
+	_, err = framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Modify PVC spec to trigger volume expansion
+	// Expect to fail as file volume expansion is not supported
+	ginkgo.By("Verify expanding file volume pvc is not supported")
+	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+	newSize := currentPvcSize.DeepCopy()
+	newSize.Add(resource.MustParse("1Gi"))
+	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+
+	newPVC, err := expandPVCSize(pvclaim, newSize, client)
+	framework.ExpectNoError(err, "While updating pvc for more size")
+	pvclaim = newPVC
+	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+	if pvcSize.Cmp(newSize) != 0 {
+		framework.Failf("error updating pvc size %q", pvclaim.Name)
+	}
+
+	ginkgo.By("Verify if controller resize failed")
+	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	gomega.Expect(err).To(gomega.HaveOccurred())
 }
 
 // expandPVCSize expands PVC size
