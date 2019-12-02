@@ -48,15 +48,23 @@ func (nodes *Nodes) Initialize() error {
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(k8sclient)
-	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nil, nodes.nodeDelete)
+	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nodes.nodeUpdate, nodes.nodeDelete)
 	nodes.informMgr.Listen()
 	return nil
 }
 
 func (nodes *Nodes) nodeAdd(obj interface{}) {
+	nodes.nodeRegister(obj)
+}
+
+func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
+	nodes.nodeRegister(newObj)
+}
+
+func (nodes *Nodes) nodeRegister(obj interface{}) {
 	node, ok := obj.(*v1.Node)
 	if node == nil || !ok {
-		klog.Warningf("nodeAdd: unrecognized object %+v", obj)
+		klog.Warningf("nodeRegister: unrecognized object %+v", obj)
 		return
 	}
 	err := nodes.cnsNodeManager.RegisterNode(common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
