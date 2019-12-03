@@ -104,8 +104,10 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		Name:       spec.Name,
 		VolumeType: spec.VolumeType,
 		Datastores: datastores,
-		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
-			CapacityInMb: spec.CapacityMB,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: spec.CapacityMB,
+			},
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
@@ -222,8 +224,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		Name:       spec.Name,
 		VolumeType: spec.VolumeType,
 		Datastores: datastores,
-		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
-			CapacityInMb: spec.CapacityMB,
+		BackingObjectDetails: &cnstypes.CnsNfsFileShareBackingDetails{
+			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+					CapacityInMb: spec.CapacityMB,
+				},
+			},
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
