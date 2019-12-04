@@ -381,7 +381,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			}
 		}
 		if !nfsv4AccessPointFound {
-			msg := fmt.Sprintf("Failed to get NFSv4 access point for volume: %q." +
+			msg := fmt.Sprintf("Failed to get NFSv4 access point for volume: %q."+
 				" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
 			klog.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)

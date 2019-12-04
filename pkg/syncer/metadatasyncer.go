@@ -19,6 +19,7 @@ package syncer
 import (
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"os"
 	"reflect"
 	"strconv"
@@ -120,7 +121,7 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 		stopFullSync := make(chan bool, 1)
 		<-(stopFullSync)
 	}
-	
+
 	// Set up kubernetes resource listeners for metadata syncer
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
@@ -152,7 +153,6 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 	klog.V(2).Infof("Initialized metadata syncer")
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	<-(stopCh)
-
 	return nil
 }
 
@@ -416,6 +416,34 @@ func updatePodMetadata(pod *v1.Pod, metadataSyncer *metadataSyncInformer, delete
 
 // csiPVCUpdated updates volume metadata for PVC objects on the VC in Vanilla k8s and supervisor cluster
 func csiPVCUpdated(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
+	volumeFound := false
+	// Following wait poll is required to avoid race condition between pvcUpdated and pvUpdated
+	// This helps avoid race condition between pvUpdated and pvcUpdated handlers when static PV and PVC is created almost
+	// at the same time using single YAML file.
+	err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: pv.Spec.CSI.VolumeHandle}},
+		}
+		queryResult, err := metadataSyncer.volumeManager.QueryVolume(queryFilter)
+		if err != nil {
+			klog.Warningf("PVCUpdated: Failed to query volume metadata for volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
+			return false, err
+		}
+		if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == pv.Spec.CSI.VolumeHandle {
+			klog.Infof("PVCUpdated: volume %q found", pv.Spec.CSI.VolumeHandle)
+			volumeFound = true
+		}
+		return volumeFound, nil
+	})
+	if err != nil {
+		klog.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. err: %+v", err)
+		return
+	}
+	if !volumeFound {
+		// volumeFound will be false when wait poll times out
+		klog.Errorf("PVCUpdated: volume: %q is not marked as the container volume. Skipping PVC entity metadata update.", pv.Spec.CSI.VolumeHandle)
+		return
+	}
 	// Create updateSpec
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
@@ -572,9 +600,6 @@ func csiPVDeleted(pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer)
 	defer volumeOperationsLock.Unlock()
 
 	if pv.Spec.CSI.FSType == common.NfsV4FsType || pv.Spec.CSI.FSType == common.NfsFsType {
-		// TODO: Query CNS and Check if this is the last entity reference for the Volume, if Yes then call delete with
-		// deleteDisk set to true.
-		// Make sure to follow similar logic in the full sync.
 		klog.V(4).Infof("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
 		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
@@ -595,7 +620,29 @@ func csiPVDeleted(pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer)
 		klog.V(4).Infof("PVDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
 			klog.Errorf("PVDeleted: UpdateVolumeMetadata failed with err %v", err)
+			return
 		}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{
+				{
+					Id: pv.Spec.CSI.VolumeHandle,
+				},
+			},
+		}
+		queryResult, err := metadataSyncer.volumeManager.QueryVolume(queryFilter)
+		if err != nil {
+			klog.Errorf("PVDeleted: Failed to query volume metadata for volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
+			return
+		}
+		if queryResult != nil && len(queryResult.Volumes) == 1 && len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {
+			klog.V(2).Infof("PVDeleted: Volume: %q is not in use by any other entity. Removing CNS tag.", pv.Spec.CSI.VolumeHandle)
+			err := metadataSyncer.volumeManager.DeleteVolume(pv.Spec.CSI.VolumeHandle, false)
+			if err != nil {
+				klog.Errorf("PVDeleted: Failed to delete volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
+				return
+			}
+		}
+
 	} else {
 		if pv.Spec.ClaimRef == nil || pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete {
 			klog.V(4).Infof("PVDeleted: Setting DeleteDisk to false")
