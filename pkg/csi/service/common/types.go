@@ -59,14 +59,14 @@ type Manager struct {
 
 // CreateVolumeSpec is the Volume Spec used by CSI driver
 type CreateVolumeSpec struct {
-	Name            string
-	ScParams        *StorageClassParams
+	Name     string
+	ScParams *StorageClassParams
 	// TODO: Move this StorageClassParams
 	StoragePolicyID string
 	CapacityMB      int64
 	// TODO: Move this StorageClassParams
-	AffineToHost    string
-	VolumeType      string
+	AffineToHost string
+	VolumeType   string
 }
 
 // StorageClassParams represents the storage class parameterss

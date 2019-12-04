@@ -6,6 +6,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
+	"k8s.io/klog"
 
 	"reflect"
 	"strconv"
@@ -69,7 +71,6 @@ func GetContainerCluster(clusterid string, username string, clusterflavor cnstyp
 		VSphereUser:   username,
 		ClusterFlavor: string(clusterflavor),
 	}
-
 }
 
 // CreateCnsKuberenetesEntityReference returns an  EntityReference object to which the given entity refers to.
@@ -152,12 +153,14 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	return labelsMap
 }
 
-// CompareKubernetesMetadata compares the whole cnskubernetesEntityMetadata from two given parameters
-func CompareKubernetesMetadata(pvMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
-	if (pvMetaData.EntityName != cnsMetaData.EntityName) || (pvMetaData.Delete != cnsMetaData.Delete) || (pvMetaData.Namespace != cnsMetaData.Namespace) {
+// CompareKubernetesMetadata compares the whole CnsKubernetesEntityMetadata from two given parameters
+func CompareKubernetesMetadata(k8sMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
+	klog.V(5).Infof("CompareKubernetesMetadata called with k8spvMetaData: %+v \n and cnsMetaData: %+v \n", spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
+	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) || (k8sMetaData.Namespace != cnsMetaData.Namespace) {
 		return false
 	}
-	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(pvMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
+	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
+	klog.V(5).Infof("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
 	if !labelsMatch {
 		return false
 	}

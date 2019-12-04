@@ -59,9 +59,9 @@ type VirtualCenter struct {
 	// PbmClient represents the govmomi PBM Client instance.
 	PbmClient *pbm.Client
 	// CnsClient represents the CNS client instance.
-	CnsClient       *cns.Client
+	CnsClient *cns.Client
 	// VsanClient represents the VSAN client instance.
-	VsanClient *vsan.Client
+	VsanClient      *vsan.Client
 	credentialsLock sync.Mutex
 }
 
@@ -259,7 +259,7 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 	}
 	// Recreate VSAN client if created using timed out VC Client
 	if vc.VsanClient != nil {
-		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err !=nil {
+		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
 			klog.Errorf("Failed to create vsan client with err: %v", err)
 			return err
 		}
