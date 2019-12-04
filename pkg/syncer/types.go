@@ -31,29 +31,9 @@ import (
 const (
 	// default interval for csi full sync, used unless overridden by user in csi-controller YAML
 	defaultFullSyncIntervalInMin = 30
-
-	// Constants for specifying operation that needs to be performed on CNS volume
-	// Create the volume on CNS
-	createVolumeOperation = "createVolume"
-	// Update the volume entries on CNS
-	updateVolumeOperation = "updateVolume"
-	// Delete the PVC entry and Pod entry (if it exists) on CNS
-	updateVolumeWithDeleteClaimOperation = "updateVolumeWithDeleteClaim"
-	// Delete the Pod entry on CNS
-	updateVolumeWithDeletePodOperation = "updateVolumeWithDeletePod"
 )
 
 var (
-	// Create a mapping of CNS volume to Pod name
-	// as this mapping does not exist in K8s
-	// in case a Pod entry needs to be deleted from CNS cache
-	cnsVolumeToPodMap map[string]string
-	// Create a mapping of CNS volume to Pvc name
-	cnsVolumeToPvcMap map[string]string
-	// Create a mapping of CNS volume to entity Namespace name
-	// Here entity can be either PVC or Pod - both will
-	// belong to the same namespace
-	cnsVolumeToEntityNamespaceMap map[string]string
 	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is deleted from CNS
@@ -74,7 +54,7 @@ type (
 	// Maps K8s PV names to respective PVC object
 	pvcMap = map[string]*v1.PersistentVolumeClaim
 	// Maps K8s PVC name to respective Pod object
-	podMap = map[string]*v1.Pod
+	podMap = map[string][]*v1.Pod
 )
 
 type metadataSyncInformer struct {

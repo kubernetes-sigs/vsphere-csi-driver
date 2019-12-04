@@ -383,7 +383,6 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 			pvclaims = append(pvclaims, pvc)
 			pvs = append(pvs, pvList[0])
 		}
-
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
@@ -445,14 +444,12 @@ var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
 		// cleanup
 		for _, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
 		}
 
 		for _, pv := range pvs {
 			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-			err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
 		}
 	})
 
