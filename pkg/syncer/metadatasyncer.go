@@ -517,7 +517,7 @@ func csiPVUpdated(newPv *v1.PersistentVolume, oldPv *v1.PersistentVolume, metada
 					BackingDiskId:           oldPv.Spec.CSI.VolumeHandle,
 				}
 			} else {
-				createSpec.BackingObjectDetails = &cnstypes.CnsNfsFileShareBackingDetails{
+				createSpec.BackingObjectDetails = &cnstypes.CnsVsanFileShareBackingDetails{
 					CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
 						BackingFileId: oldPv.Spec.CSI.VolumeHandle,
 					},
