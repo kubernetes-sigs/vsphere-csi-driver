@@ -16,8 +16,8 @@ Install instructions for the CSI driver are available here:
 
 The CSI driver container images are available here:
 
-* <https://hub.docker.com/r/vmware/vsphere-block-csi-driver>
-* <https://hub.docker.com/r/vmware/volume-metadata-syncer>
+* gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
+* gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.1
 
 ## Contributing
 
