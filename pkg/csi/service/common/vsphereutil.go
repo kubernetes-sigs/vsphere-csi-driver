@@ -26,7 +26,6 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
 	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -39,21 +38,21 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
-	if spec.StoragePolicyName != "" {
+	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
 		err = vc.ConnectPbm(ctx)
 		if err != nil {
 			klog.Errorf("Error occurred while connecting to PBM, err: %+v", err)
 			return "", err
 		}
-		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.StoragePolicyName)
+		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.StoragePolicyName, err)
+			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
-	if spec.DatastoreURL == "" {
+	if spec.ScParams.DatastoreURL == "" {
 		//  If DatastoreURL is not specified in StorageClass, get all shared datastores
 		datastores = getDatastoreMoRefs(sharedDatastores)
 	} else {
@@ -71,13 +70,13 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		isSharedDatastoreURL := false
 		var datastoreObj *vsphere.Datastore
 		for _, datacenter := range datacenters {
-			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.DatastoreURL)
+			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Warningf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+				klog.Warningf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
 			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == spec.DatastoreURL {
+				if sharedDatastore.Info.Url == spec.ScParams.DatastoreURL {
 					isSharedDatastoreURL = true
 					break
 				}
@@ -87,14 +86,14 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			}
 		}
 		if datastoreObj == nil {
-			errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not found.", spec.DatastoreURL)
+			errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not found.", spec.ScParams.DatastoreURL)
 			klog.Errorf(errMsg)
 			return "", errors.New(errMsg)
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
 		} else {
-			errMsg := fmt.Sprintf("Datastore: %s specified in the storage class is not accessible to all nodes.", spec.DatastoreURL)
+			errMsg := fmt.Sprintf("Datastore: %s specified in the storage class is not accessible to all nodes.", spec.ScParams.DatastoreURL)
 			klog.Errorf(errMsg)
 			return "", errors.New(errMsg)
 		}
@@ -150,22 +149,22 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
-	if spec.StoragePolicyName != "" {
+	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
 		err = vc.ConnectPbm(ctx)
 		if err != nil {
 			klog.Errorf("Error occurred while connecting to PBM, err: %+v", err)
 			return "", err
 		}
-		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.StoragePolicyName)
+		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.StoragePolicyName, err)
+			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
 	var allVsanDatastores []mo.Datastore
-	if spec.DatastoreURL == "" {
+	if spec.ScParams.DatastoreURL == "" {
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			allVsanDatastores, err = vc.GetVsanDatastores(ctx)
 			if err != nil {
@@ -210,9 +209,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		// If datastoreUrl is set in storage class, then check the allowed list is empty.
 		// If true, create the file volume on the datastoreUrl set in storage class.
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
-			datastoreMoref, err := getDatastore(ctx, vc, spec.DatastoreURL)
+			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.DatastoreURL, err)
+				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -220,20 +219,20 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			// If datastoreUrl is set in storage class, then check if this is in the allowed list.
 			found := false
 			for _, targetVSANFSDsUrl := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-				if spec.DatastoreURL == targetVSANFSDsUrl {
+				if spec.ScParams.DatastoreURL == targetVSANFSDsUrl {
 					found = true
 					break
 				}
 			}
 			if !found {
 				msg := fmt.Sprintf("Datastore URL %q specified in storage class is not in the allowed list %+v",
-					spec.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
+					spec.ScParams.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
 				klog.Error(msg)
 				return "", errors.New(msg)
 			}
-			datastoreMoref, err := getDatastore(ctx, vc, spec.DatastoreURL)
+			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.DatastoreURL, err)
+				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -246,7 +245,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		Name:       spec.Name,
 		VolumeType: spec.VolumeType,
 		Datastores: datastores,
-		BackingObjectDetails: &cnstypes.CnsNfsFileShareBackingDetails{
+		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
 			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
 				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
 					CapacityInMb: spec.CapacityMB,
@@ -259,14 +258,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		},
 		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
 			SoftQuotaInMb: spec.CapacityMB,
-			// TODO: Address rootSquash task
-			Permission: []vsanfstypes.VsanFileShareNetPermission{
-				{
-					Ips:         "*",
-					Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
-					AllowRoot:   true,
-				},
-			},
+			Permission:    spec.ScParams.NetPermissions,
 		},
 	}
 	if spec.StoragePolicyID != "" {
@@ -453,7 +445,7 @@ func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context
 		for _, cluster := range clusterComputeResource {
 			// Get the cluster config to know if file service is enabled on it or not.
 			config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
-			if (err != nil) {
+			if err != nil {
 				klog.Errorf("Failed to get the vsan cluster config. error: %+v", err)
 				return nil, err
 			}

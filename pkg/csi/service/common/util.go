@@ -17,7 +17,10 @@ limitations under the License.
 package common
 
 import (
+	"errors"
 	"fmt"
+	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+	"strconv"
 	"strings"
 
 	"github.com/akutz/gofsutil"
@@ -168,4 +171,109 @@ func IsTargetInMounts(target string, mnts []gofsutil.Info) bool {
 	}
 	klog.V(4).Infof("Target %q not found in list of mounts", target)
 	return false
+}
+
+// ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API call back
+// to StorageClassParams structure.
+func ParseStorageClassParams(params map[string]string) (*StorageClassParams, error) {
+	scParams := &StorageClassParams{
+		DatastoreURL:      "",
+		StoragePolicyName: "",
+		NetPermissions:    make([]vsanfstypes.VsanFileShareNetPermission, 0),
+	}
+
+	var netPermissionsMap = make(map[string]*vsanfstypes.VsanFileShareNetPermission)
+	for param, value := range params {
+		if param == AttributeDatastoreURL {
+			scParams.DatastoreURL = value
+		} else if param == AttributeStoragePolicyName {
+			scParams.StoragePolicyName = value
+		} else if strings.HasPrefix(param, AllowRoot) || strings.HasPrefix(param, Permission) ||
+			strings.HasPrefix(param, IPs) {
+			// The param can have an optional "." followed by a string to group the net permissions.
+			// Examples: These params are grouped into a net permission.
+			// 		"allowroot.1"
+			//		"permission.1"
+			//		"ips.1"
+			splitParam := strings.Split(param, ".")
+			if len(splitParam) == 0 || len(splitParam) > 2 {
+				klog.V(2).Infof("Ignoring unsupported param: %q", param)
+				continue
+			}
+			if len(splitParam) > 0 && splitParam[0] != AllowRoot && splitParam[0] != Permission && splitParam[0] != IPs {
+				klog.V(2).Infof("Ignoring unsupported param: %q", param)
+				continue
+			}
+			err := updatePermissionsMap(splitParam, netPermissionsMap, value)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, errors.New(fmt.Sprintf("Invalid param: %q and value: %q", param, value))
+		}
+	}
+	for _, value := range netPermissionsMap {
+		scParams.NetPermissions = append(scParams.NetPermissions, *value)
+	}
+	return scParams, nil
+}
+
+// GetDefaultNetPermission returns the default file share net permission.
+func GetDefaultNetPermission() *vsanfstypes.VsanFileShareNetPermission {
+	return &vsanfstypes.VsanFileShareNetPermission{
+		AllowRoot:   true,
+		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
+		Ips:         "*",
+	}
+}
+
+// updatePermissionsMap updates the splitParam permission in the permissions map
+func updatePermissionsMap(splitParam []string, permissions map[string]*vsanfstypes.VsanFileShareNetPermission, value string) error {
+	splitLen := len(splitParam)
+
+	var perm *vsanfstypes.VsanFileShareNetPermission
+	var ok bool
+	var err error
+	if splitLen == 1 {
+		// splitLen is 1 for cases where the specified params are "allowroot", "permission" and "ips".
+		// Use a special key "#" for these params.
+		if perm, ok = permissions["#"]; !ok {
+			// Create net permissions with defaults which will be overwritten
+			// based on the storage class params later.
+			perm = GetDefaultNetPermission()
+			permissions["#"] = perm
+		}
+	} else {
+		if perm, ok = permissions[splitParam[1]]; !ok {
+			// Create net permissions with defaults which will be overwritten
+			// based on the storage class params later.
+			perm = GetDefaultNetPermission()
+			permissions[splitParam[1]] = perm
+		}
+	}
+	if splitParam[0] == AllowRoot {
+		perm.AllowRoot, err = strconv.ParseBool(value)
+		if err != nil {
+			return errors.New(fmt.Sprintf("Invalid allowroot value: %q", value))
+		}
+	} else if splitParam[0] == Permission {
+		perm.Permissions, err = validatePermissions(vsanfstypes.VsanFileShareAccessType(value))
+		if err != nil {
+			return err
+		}
+	} else if splitParam[0] == IPs {
+		perm.Ips = value
+	}
+
+	return nil
+}
+
+// validatePermissions validates whether the input permission is valid.
+func validatePermissions(permission vsanfstypes.VsanFileShareAccessType) (vsanfstypes.VsanFileShareAccessType, error) {
+	if permission == vsanfstypes.VsanFileShareAccessTypeREAD_ONLY ||
+		permission == vsanfstypes.VsanFileShareAccessTypeREAD_WRITE ||
+		permission == vsanfstypes.VsanFileShareAccessTypeNO_ACCESS {
+		return permission, nil
+	}
+	return "", errors.New(fmt.Sprintf("Invalid permission %q", permission))
 }

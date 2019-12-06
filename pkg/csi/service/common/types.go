@@ -18,6 +18,7 @@ package common
 
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -58,11 +59,19 @@ type Manager struct {
 
 // CreateVolumeSpec is the Volume Spec used by CSI driver
 type CreateVolumeSpec struct {
-	Name              string
+	Name            string
+	ScParams        *StorageClassParams
+	// TODO: Move this StorageClassParams
+	StoragePolicyID string
+	CapacityMB      int64
+	// TODO: Move this StorageClassParams
+	AffineToHost    string
+	VolumeType      string
+}
+
+// StorageClassParams represents the storage class parameterss
+type StorageClassParams struct {
+	DatastoreURL      string
 	StoragePolicyName string
-	StoragePolicyID   string
-	Datastore         string
-	CapacityMB        int64
-	AffineToHost      string
-	VolumeType        string
+	NetPermissions    []types.VsanFileShareNetPermission
 }

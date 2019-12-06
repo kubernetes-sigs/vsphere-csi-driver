@@ -83,11 +83,11 @@ const (
 	// FileVolumeType is the VolumeType for CNS File Share Volume
 	FileVolumeType = "FILE"
 
-	// Name of the CNS File share volume
-	FileShareName = "FileShareName"
+	// Key for NFSv4 access point
+	Nfsv4AccessPointKey = "NFSv4.1"
 
-	// Address of the CNS File share volume
-	FileShareAddress = "FileShareIPAddress"
+	// NFSv4 access point of file volume
+	Nfsv4AccessPoint = "Nfsv4AccessPoint"
 
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
 	// on which CNS is supported.
@@ -112,4 +112,13 @@ const (
 
 	// VsanDatastoreType is the string to identify datastore type as vsan.
 	VsanDatastoreType string = "vsan"
+
+	// Whether the root access should be allowed on a file volume
+	AllowRoot string = "allowroot"
+
+	// Permission to be set in the file volume
+	Permission string = "permission"
+
+	// Client IP address, IP range or IP subnet
+	IPs string = "ips"
 )

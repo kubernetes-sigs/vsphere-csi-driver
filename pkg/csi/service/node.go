@@ -270,7 +270,10 @@ func nodeStageFileVolume(
 	}
 	if !mounted {
 		// NFS Mount on Node
-		mntSrc := filepath.Join(pubCtx["FileShareIPAddress"]+":", pubCtx["FileShareName"])
+		mntSrc, ok := pubCtx[common.Nfsv4AccessPoint]
+		if !ok {
+			return nil, status.Error(codes.Internal, "NFSv4 accesspoint not set in publish context")
+		}
 		klog.V(4).Infof("NodeStageVolume: Attempting to mount File Volume %q at %q with mount flags %v",
 			mntSrc, params.stagingTarget, params.mntFlags)
 		if err := gofsutil.Mount(ctx, mntSrc, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {

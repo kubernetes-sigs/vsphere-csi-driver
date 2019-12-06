@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -134,27 +133,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	var datastoreURL string
-	var storagePolicyName string
-
-	// Support case insensitive parameters
-	for paramName := range req.Parameters {
-		param := strings.ToLower(paramName)
-		if param == common.AttributeDatastoreURL {
-			datastoreURL = req.Parameters[paramName]
-		} else if param == common.AttributeStoragePolicyName {
-			storagePolicyName = req.Parameters[paramName]
-		}
+	scParams, err := common.ParseStorageClassParams(req.Parameters)
+	if err != nil {
+		klog.Errorf("Parsing storage class parameters failed with error: %+v", err)
+		return nil, err
 	}
 	var createVolumeSpec = common.CreateVolumeSpec{
-		CapacityMB:        volSizeMB,
-		Name:              req.Name,
-		DatastoreURL:      datastoreURL,
-		StoragePolicyName: storagePolicyName,
-		VolumeType:        common.BlockVolumeType,
+		CapacityMB: volSizeMB,
+		Name:       req.Name,
+		ScParams:   scParams,
+		VolumeType: common.BlockVolumeType,
 	}
 
-	var err error
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	var datastoreTopologyMap = make(map[string][]map[string]string)
 
@@ -176,18 +166,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, status.Error(codes.NotFound, msg)
 		}
 		klog.V(4).Infof("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
-		if createVolumeSpec.DatastoreURL != "" {
+		if createVolumeSpec.ScParams.DatastoreURL != "" {
 			// Check datastoreURL specified in the storageclass is accessible from topology
 			isDataStoreAccessible := false
 			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == createVolumeSpec.DatastoreURL {
+				if sharedDatastore.Info.Url == createVolumeSpec.ScParams.DatastoreURL {
 					isDataStoreAccessible = true
 					break
 				}
 			}
 			if !isDataStoreAccessible {
 				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
-					createVolumeSpec.DatastoreURL, topologyRequirement)
+					createVolumeSpec.ScParams.DatastoreURL, topologyRequirement)
 				klog.Errorf(errMsg)
 				return nil, status.Error(codes.InvalidArgument, errMsg)
 			}
@@ -268,25 +258,22 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	var datastoreURL string
-	var storagePolicyName string
+	scParams, err := common.ParseStorageClassParams(req.Parameters)
+	if err != nil {
+		klog.Errorf("Parsing storage class parameters failed with error: %+v", err)
+		return nil, err
+	}
 
-	// Support case insensitive parameters
-	for paramName := range req.Parameters {
-		param := strings.ToLower(paramName)
-		if param == common.AttributeDatastoreURL {
-			datastoreURL = req.Parameters[paramName]
-		} else if param == common.AttributeStoragePolicyName {
-			storagePolicyName = req.Parameters[paramName]
-		}
+	// If no network permissions are defined, add the default.
+	if len(scParams.NetPermissions) == 0 {
+		scParams.NetPermissions = append(scParams.NetPermissions, *common.GetDefaultNetPermission())
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
-		CapacityMB:        volSizeMB,
-		Name:              req.Name,
-		DatastoreURL:      datastoreURL,
-		StoragePolicyName: storagePolicyName,
-		VolumeType:        common.FileVolumeType,
+		CapacityMB: volSizeMB,
+		Name:       req.Name,
+		ScParams:   scParams,
+		VolumeType: common.FileVolumeType,
 	}
 
 	volumeID, err := common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
@@ -382,10 +369,23 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			klog.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
-		nfsFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails)
+
+		vSANFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 		publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
-		publishInfo[common.FileShareAddress] = nfsFileBackingDetails.Address
-		publishInfo[common.FileShareName] = nfsFileBackingDetails.Name
+		nfsv4AccessPointFound := false
+		for _, kv := range vSANFileBackingDetails.AccessPoints {
+			if kv.Key == common.Nfsv4AccessPointKey {
+				publishInfo[common.Nfsv4AccessPoint] = kv.Value
+				nfsv4AccessPointFound = true
+				break
+			}
+		}
+		if !nfsv4AccessPointFound {
+			msg := fmt.Sprintf("Failed to get NFSv4 access point for volume: %q." +
+				" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 	} else {
 		// Block Volume
 		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
