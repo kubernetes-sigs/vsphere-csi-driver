@@ -129,6 +129,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		CapacityMB:      volSizeMB,
 		Name:            req.Name,
 		StoragePolicyID: storagePolicyID,
+		ScParams:        &common.StorageClassParams{},
 		AffineToHost:    affineToHost,
 		VolumeType:      common.BlockVolumeType,
 	}

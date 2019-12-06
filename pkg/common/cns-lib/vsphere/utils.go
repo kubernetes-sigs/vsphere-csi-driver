@@ -109,7 +109,7 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 	}
 
-	if (strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "") {
+	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
 		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
 			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
