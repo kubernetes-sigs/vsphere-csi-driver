@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"os"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 
@@ -116,6 +117,37 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, when no storage policy is offered", func() {
 		testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f, client, namespace, v1.ReadOnlyMany)
 	})
+
+	/*
+		Verify dynamic volume provisioning fails for VSAN datastore specified in "sc.datastoreUrl" but doesn't VSAN FS enabled.
+	    1. Create StorageClass with fsType as "nfs4" and "datastoreUrl"
+        2. Create a PVC with "ReadWriteMany" using the SC from above
+        3. Expect the PVC to fail.
+        4. Verify the error message returned on PVC failure is correct.
+        5. Delete PVC
+        6. Delete Storage class
+	*/
+	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore specified in sc.datastoreUrl but doesn't have VSAN FS enabled", func() {
+		datastoreURL := os.Getenv(envFileServiceDisabledSharedDatastoreURL)
+		if datastoreURL == "" {
+			ginkgo.Skip("env variable FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL is not set, skip the test")
+		}
+		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, datastoreURL)
+	})
+
+	/*
+		Verify dynamic volume provisioning fails for VSAN datastore in the datacenter but doesn't VSAN FS enabled.
+	    1. Create StorageClass with fsType as "nfs4"
+		2. Create a PVC with "ReadWriteMany" using the SC from above
+        3. Expect the PVC to fail.
+        4. Verify the error message returned on PVC failure is correct.
+        5. Delete PVC
+        6. Delete Storage class
+	*/
+	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore in datacenter doesn't have VSAN FS enabled", func() {
+		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, "")
+	})
+
 })
 
 func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
@@ -278,6 +310,40 @@ func testHelperForCreateFileVolumeWithoutValidVSANDatastoreUrlInSC(f *framework.
 	}()
 
 	ginkgo.By("Expect claim to fail provisioning volume without valid VSAN datastore specified in storage class")
+	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+	gomega.Expect(err).To(gomega.HaveOccurred())
+	expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
+	fmt.Println(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+	isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
+
+}
+
+func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
+	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
+	scParameters := make(map[string]string)
+	scParameters["fstype"] = nfs4FSType
+	// Create Storage class and PVC
+	ginkgo.By(fmt.Sprintf("Creating Storage Class With fstype %s and datastoreURL:%s", nfs4FSType, datastoreURL))
+	var storageclass *storagev1.StorageClass
+	var pvclaim *v1.PersistentVolumeClaim
+	var err error
+
+	if datastoreURL != "" {
+		scParameters[scParamDatastoreURL] = datastoreURL
+	}
+	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Expect claim fails to provision volume when file service is disabled")
 	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 	expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
