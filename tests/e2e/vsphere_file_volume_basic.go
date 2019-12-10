@@ -17,13 +17,11 @@ limitations under the License.
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -184,36 +182,6 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework,
 
 	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
 	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
-}
-
-// isDatastoreBelongsToDatacenterSpecifiedInConfig checks whether the given datastoreURL belongs to the datacenter specified in the vSphere.conf file
-func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
-	var datacenters []string
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	finder := find.NewFinder(e2eVSphere.Client.Client, false)
-	cfg, err := getConfig()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// TODO: handle empty datacenter field in vsphere.conf
-	dcList := strings.Split(cfg.Global.Datacenters, ",")
-	for _, dc := range dcList {
-		dcName := strings.TrimSpace(dc)
-		if dcName != "" {
-			datacenters = append(datacenters, dcName)
-		}
-	}
-	for _, dc := range datacenters {
-		defaultDatacenter, _ := finder.Datacenter(ctx, dc)
-		finder.SetDatacenter(defaultDatacenter)
-		defaultDatastore, err := getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
-		if defaultDatastore != nil && err == nil {
-			return true
-		}
-	}
-
-	// loop through all datacenters specified in conf file, and cannot find this given datastore
-	return false
-
 }
 
 func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
