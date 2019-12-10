@@ -579,3 +579,33 @@ func GetStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
 	framework.ExpectNoError(err)
 	return ss
 }
+
+// isDatastoreBelongsToDatacenterSpecifiedInConfig checks whether the given datastoreURL belongs to the datacenter specified in the vSphere.conf file
+func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
+	var datacenters []string
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+	for _, dc := range datacenters {
+		defaultDatacenter, _ := finder.Datacenter(ctx, dc)
+		finder.SetDatacenter(defaultDatacenter)
+		defaultDatastore, err := getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+		if defaultDatastore != nil && err == nil {
+			return true
+		}
+	}
+
+	// loop through all datacenters specified in conf file, and cannot find this given datastore
+	return false
+
+}
