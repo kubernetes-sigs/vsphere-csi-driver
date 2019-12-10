@@ -115,10 +115,12 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(clusterFlavor cns
 		}
 	}()
 
-	stopFullSync := make(chan bool, 1)
-	// TODO: Remove channel when pvcsi metadata syncer is implemented
-	<-(stopFullSync)
-
+	// TODO: Remove channel when pvcsi metadata syncer is completely implemented
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		stopFullSync := make(chan bool, 1)
+		<-(stopFullSync)
+	}
+	
 	// Set up kubernetes resource listeners for metadata syncer
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
