@@ -18,9 +18,9 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
-	"os"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 
@@ -119,13 +119,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	})
 
 	/*
-		Verify dynamic volume provisioning fails for VSAN datastore specified in "sc.datastoreUrl" but doesn't VSAN FS enabled.
-	    1. Create StorageClass with fsType as "nfs4" and "datastoreUrl"
-        2. Create a PVC with "ReadWriteMany" using the SC from above
-        3. Expect the PVC to fail.
-        4. Verify the error message returned on PVC failure is correct.
-        5. Delete PVC
-        6. Delete Storage class
+			Verify dynamic volume provisioning fails for VSAN datastore specified in "sc.datastoreUrl" but doesn't VSAN FS enabled.
+		    1. Create StorageClass with fsType as "nfs4" and "datastoreUrl"
+	        2. Create a PVC with "ReadWriteMany" using the SC from above
+	        3. Expect the PVC to fail.
+	        4. Verify the error message returned on PVC failure is correct.
+	        5. Delete PVC
+	        6. Delete Storage class
 	*/
 	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore specified in sc.datastoreUrl but doesn't have VSAN FS enabled", func() {
 		datastoreURL := os.Getenv(envFileServiceDisabledSharedDatastoreURL)
@@ -136,13 +136,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	})
 
 	/*
-		Verify dynamic volume provisioning fails for VSAN datastore in the datacenter but doesn't VSAN FS enabled.
-	    1. Create StorageClass with fsType as "nfs4"
-		2. Create a PVC with "ReadWriteMany" using the SC from above
-        3. Expect the PVC to fail.
-        4. Verify the error message returned on PVC failure is correct.
-        5. Delete PVC
-        6. Delete Storage class
+			Verify dynamic volume provisioning fails for VSAN datastore in the datacenter but doesn't VSAN FS enabled.
+		    1. Create StorageClass with fsType as "nfs4"
+			2. Create a PVC with "ReadWriteMany" using the SC from above
+	        3. Expect the PVC to fail.
+	        4. Verify the error message returned on PVC failure is correct.
+	        5. Delete PVC
+	        6. Delete Storage class
 	*/
 	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore in datacenter doesn't have VSAN FS enabled", func() {
 		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, "")
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass
@@ -233,7 +233,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework,
 func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass
@@ -302,7 +302,7 @@ func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, c
 func testHelperForCreateFileVolumeWithoutValidVSANDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass
