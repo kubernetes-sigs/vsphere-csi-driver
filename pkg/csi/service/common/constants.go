@@ -109,4 +109,7 @@ const (
 
 	// VsanMigrateForDecom is the profile param key to set the migrate mode for the volume.
 	VsanMigrateForDecom string = "VSAN/migrateForDecom/migrateForDecom"
+
+	// VsanDatastoreType is the string to identify datastore type as vsan.
+	VsanDatastoreType string = "vsan"
 )

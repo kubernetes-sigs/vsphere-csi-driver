@@ -26,6 +26,7 @@ import (
 
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vsan"
 
 	csictx "github.com/rexray/gocsi/context"
 	"gitlab.eng.vmware.com/hatchway/govmomi"
@@ -59,6 +60,8 @@ type VirtualCenter struct {
 	PbmClient *pbm.Client
 	// CnsClient represents the CNS client instance.
 	CnsClient       *cns.Client
+	// VsanClient represents the VSAN client instance.
+	VsanClient *vsan.Client
 	credentialsLock sync.Mutex
 }
 
@@ -254,6 +257,13 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			return err
 		}
 	}
+	// Recreate VSAN client if created using timed out VC Client
+	if vc.VsanClient != nil {
+		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err !=nil {
+			klog.Errorf("Failed to create vsan client with err: %v", err)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -347,14 +357,14 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 }
 
 // GetVsanDatastores returns all the vsan datastore exists in the vc inventory
-func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]types.ManagedObjectReference, error) {
+func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore, error) {
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
 		klog.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 
-	var vsanDatastores []types.ManagedObjectReference
+	var vsanDatastores []mo.Datastore
 	for _, dc := range datacenters {
 		finder := find.NewFinder(dc.Datacenter.Client(), false)
 		finder.SetDatacenter(dc.Datacenter)
@@ -379,7 +389,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]types.Managed
 
 		for _, dsMo := range dsMoList {
 			if dsMo.Summary.Type == "vsan" {
-				vsanDatastores = append(vsanDatastores, dsMo.Reference())
+				vsanDatastores = append(vsanDatastores, dsMo)
 			}
 		}
 	}

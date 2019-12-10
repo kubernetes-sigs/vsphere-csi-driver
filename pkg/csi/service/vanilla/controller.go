@@ -18,6 +18,7 @@ package vanilla
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -93,6 +94,19 @@ func (c *controller) Init(config *config.Config) error {
 	if err != nil {
 		klog.Errorf("Failed to get vcenter. err=%v", err)
 		return err
+	}
+	// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
+	dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, ctx, c.manager)
+	if err != nil {
+		klog.Errorf("File service enablement validation failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
+	}
+	for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+		isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
+		if !isFSEnabled {
+			msg := fmt.Sprintf("File service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+			klog.Errorf(msg)
+			return errors.New(msg)
+		}
 	}
 
 	// Check vCenter API Version
