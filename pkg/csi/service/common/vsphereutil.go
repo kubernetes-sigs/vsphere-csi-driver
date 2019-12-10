@@ -19,10 +19,12 @@ package common
 import (
 	"errors"
 	"fmt"
-
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	"gitlab.eng.vmware.com/hatchway/govmomi/property"
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
@@ -162,15 +164,35 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
+	var allVsanDatastores []mo.Datastore
 	if spec.DatastoreURL == "" {
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
-			datastores, err = vc.GetVsanDatastores(ctx)
+			allVsanDatastores, err = vc.GetVsanDatastores(ctx)
 			if err != nil {
 				klog.Errorf("Failed to get vSAN datastores with error %+v", err)
 				return "", err
 			}
-			// TODO: Validate that file service is enabled on the datastores. Assuming that all vSAN datastores
-			// have file services enabled for now.
+			var vsanDatastoreUrls []string
+			for _, datastore := range allVsanDatastores {
+				vsanDatastoreUrls = append(vsanDatastoreUrls, datastore.Summary.Url)
+			}
+			fsEnabledMap, err := IsFileServiceEnabled(vsanDatastoreUrls, ctx, manager)
+			if err != nil {
+				klog.Errorf("Failed to get if file service is enabled on vsan datastores with error %+v", err)
+				return "", err
+			}
+			for _, vsanDatastore := range allVsanDatastores {
+				if val, ok := fsEnabledMap[vsanDatastore.Summary.Url]; ok {
+					if val {
+						datastores = append(datastores, vsanDatastore.Reference())
+					}
+				}
+			}
+			if len(datastores) == 0 {
+				msg := "No file service enabled vsan datastore is present in the environment."
+				klog.Error(msg)
+				return "", errors.New(msg)
+			}
 		} else {
 			// If DatastoreURL is not specified in StorageClass, get all datastores from TargetvSANFileShareDatastoreURLs
 			// in vcenter configuration.
@@ -363,4 +385,101 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl s
 
 	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreUrl, vc)
 	return vim25types.ManagedObjectReference{}, errors.New(msg)
+}
+
+// IsFileServiceEnabled checks if file sevice is enabled on the specified datastoreUrls.
+func IsFileServiceEnabled(datastoreUrls []string, ctx context.Context, manager *Manager) (map[string]bool, error) {
+	// Compute this map during controller init. Re use the map every other time.
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		return nil, err
+	}
+	err = vc.ConnectVsan(ctx)
+	if err != nil {
+		klog.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
+		return nil, err
+	}
+	// This gets the datastore to file service enabled map for all the vsan datastores.
+	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(vc, ctx)
+	if err != nil {
+		klog.Errorf("Failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
+		return nil, err
+	}
+	// Now create a map of datastores which are queried in the method.
+	dsToFSEnabledMapToReturn := make(map[string]bool)
+	for _, datastoreUrl := range datastoreUrls {
+		if val, ok := dsToFileServiceEnabledMap[datastoreUrl]; ok {
+			if !val {
+				msg := fmt.Sprintf("File service is not enabled on the datastore: %s", datastoreUrl)
+				klog.V(4).Infof(msg)
+				dsToFSEnabledMapToReturn[datastoreUrl] = false
+			} else {
+				msg := fmt.Sprintf("File service is enabled on the datastore: %s", datastoreUrl)
+				klog.V(4).Infof(msg)
+				dsToFSEnabledMapToReturn[datastoreUrl] = true
+			}
+		} else {
+			msg := fmt.Sprintf("Datastore URL %s is not present in datacenters specified in config.", datastoreUrl)
+			klog.V(4).Infof(msg)
+			dsToFSEnabledMapToReturn[datastoreUrl] = false
+		}
+	}
+	return dsToFSEnabledMapToReturn, nil
+}
+
+// Creates a map of vsan datastores to file service status (enabled/disabled).
+func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context) (map[string]bool, error) {
+	klog.V(4).Infof("Computing the cluster to file service status (enabled/disabled) map.")
+	datacenters, err := vc.GetDatacenters(ctx)
+	if err != nil {
+		klog.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		return nil, err
+	}
+
+	dsToFileServiceEnabledMap := make(map[string]bool)
+	for _, datacenter := range datacenters {
+		finder := find.NewFinder(datacenter.Datacenter.Client(), false)
+		finder.SetDatacenter(datacenter.Datacenter)
+		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+		if err != nil {
+			klog.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
+			return nil, err
+		}
+
+		pc := property.DefaultCollector(datacenter.Client())
+		properties := []string{"info", "summary"}
+		// Get all the vsan datastores from the clusters and add it to map.
+		for _, cluster := range clusterComputeResource {
+			// Get the cluster config to know if file service is enabled on it or not.
+			config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
+			if (err != nil) {
+				klog.Errorf("Failed to get the vsan cluster config. error: %+v", err)
+				return nil, err
+			}
+
+			var dsList []vim25types.ManagedObjectReference
+			var dsMoList []mo.Datastore
+			datastores, err := cluster.Datastores(ctx)
+			if err != nil {
+				klog.Errorf("Error occurred while getting datastores from clusters. error: %+v", err)
+				return nil, err
+			}
+			for _, datastore := range datastores {
+				dsList = append(dsList, datastore.Reference())
+			}
+			err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+			if err != nil {
+				klog.Errorf("Failed to get Datastore managed objects from datastore objects."+
+					" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
+				return nil, err
+			}
+			for _, dsMo := range dsMoList {
+				if dsMo.Summary.Type == VsanDatastoreType {
+					dsToFileServiceEnabledMap[dsMo.Info.GetDatastoreInfo().Url] = config.FileServiceConfig.Enabled
+				}
+			}
+		}
+	}
+	return dsToFileServiceEnabledMap, nil
 }

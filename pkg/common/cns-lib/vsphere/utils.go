@@ -126,7 +126,6 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 			err = errors.New("Non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
 			return nil, err
 		}
-		// TODO: Enhance here to verify if file service is enabled on vsan datastore or not.
 	}
 	return vcConfig, nil
 }
