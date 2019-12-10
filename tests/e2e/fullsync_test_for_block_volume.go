@@ -69,12 +69,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 	)
 
 	const (
-		fcdName                   = "BasicStaticFCD"
-		stopVsanHealthOperation   = "stop"
-		startVsanHealthOperation  = "start"
-		sshdPort                  = "22"
-		numberOfPVC               = 5
-		vsanHealthServiceWaitTime = 15
+		numberOfPVC = 5
 	)
 
 	ginkgo.BeforeEach(func() {
