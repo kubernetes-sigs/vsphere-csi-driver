@@ -46,7 +46,7 @@ const (
 	pollTimeout                                = 5 * time.Minute
 	pollTimeoutShort                           = 1 * time.Minute / 2
 	scParamStoragePolicyID                     = "StoragePolicyId"
-	scParamsFsType                             = "csi.storage.k8s.io/fstype"
+	scParamFsType                              = "csi.storage.k8s.io/fstype"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
@@ -82,6 +82,11 @@ const (
 	envK8SMaster2IP                            = "K8S_MASTER2_IP"
 	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 	nfs4FSType                                 = "nfs4"
+	fcdName                                    = "BasicStaticFCD"
+	stopVsanHealthOperation                    = "stop"
+	startVsanHealthOperation                   = "start"
+	sshdPort                                   = "22"
+	vsanHealthServiceWaitTime                  = 15
 )
 
 const (

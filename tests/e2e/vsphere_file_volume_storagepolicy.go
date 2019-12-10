@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 func testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, storagePolicyName string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s storagePolicy %s", accessMode, storagePolicyName))
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 
 	if storagePolicyName != "" {
 		scParameters[scParamStoragePolicyName] = storagePolicyName
