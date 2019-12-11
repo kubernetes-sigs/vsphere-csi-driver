@@ -30,7 +30,7 @@ import (
 func pvcsiVolumeUpdated(resourceType interface{}, volumeHandle string, metadataSyncer *metadataSyncInformer) {
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace()
 	if err != nil {
-		klog.Warningf("pvCSI VolumeUpdated: Unable to fetch supervisor namespace. Err: %v", err)
+		klog.Errorf("pvCSI VolumeUpdated: Unable to fetch supervisor namespace. Err: %v", err)
 		return
 	}
 	var newMetadata *cnsvolumemetadatav1alpha1.CnsVolumeMetadata
@@ -71,7 +71,7 @@ func pvcsiVolumeUpdated(resourceType interface{}, volumeHandle string, metadataS
 func pvcsiVolumeDeleted(uID string, metadataSyncer *metadataSyncInformer) {
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace()
 	if err != nil {
-		klog.Warningf("pvCSI VolumeDeleted: Unable to fetch supervisor namespace. Err: %v", err)
+		klog.Errorf("pvCSI VolumeDeleted: Unable to fetch supervisor namespace. Err: %v", err)
 		return
 	}
 	volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, uID)
@@ -82,4 +82,47 @@ func pvcsiVolumeDeleted(uID string, metadataSyncer *metadataSyncInformer) {
 		return
 	}
 	klog.V(2).Infof("pvCSI VolumeDeleted: Successfully deleted CnsVolumeMetadata: %v", volumeMetadataName)
+}
+
+// pvcsiUpdatePod creates/deletes cnsvolumemetadata for POD entities on the supervisor cluster when pod has been created/deleted on the guest cluster
+func pvcsiUpdatePod(pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace()
+	if err != nil {
+		klog.Errorf("pvCSI PODUpdatedDeleted: Unable to fetch supervisor namespace. Err: %v", err)
+		return
+	}
+	var entityReferences []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference
+	var volumes []string
+	// Iterate through volumes attached to pod
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil {
+			valid, pv, pvc := IsValidVolume(volume, pod, metadataSyncer)
+			if valid == true {
+				entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Name, pvc.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC))
+				volumes = append(volumes, pv.Spec.CSI.VolumeHandle)
+			}
+		}
+	}
+	if len(volumes) > 0 {
+		if deleteFlag == false {
+			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pod.GetUID()), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
+			klog.V(4).Infof("pvCSI PodUpdated: Invoking create CnsVolumeMetadata : %v", newMetadata)
+			_, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(newMetadata)
+			if err != nil {
+				klog.Errorf("pvCSI PodUpdated: Failed to create CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
+				return
+			}
+			klog.V(2).Infof("pvCSI PodUpdated: Successfully created CnsVolumeMetadata: %v", newMetadata.Name)
+		} else {
+			volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pod.GetUID()))
+			klog.V(4).Infof("pvCSI PodDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
+			err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Delete(volumeMetadataName, &metav1.DeleteOptions{})
+			if err != nil {
+				klog.Errorf("pvCSI PodDeleted: Failed to delete CnsVolumeMetadata: %v. Error: %v", volumeMetadataName, err)
+				return
+			}
+			klog.V(2).Infof("pvCSI PodDeleted: Successfully deleted CnsVolumeMetadata: %v", volumeMetadataName)
+		}
+	}
+	return
 }
