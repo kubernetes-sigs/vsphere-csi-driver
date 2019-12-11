@@ -19,8 +19,9 @@ spec:
         node-role.kubernetes.io/master: ""
       tolerations:
         - operator: "Exists"
-          key: node-role.kubernetes.io/master
           effect: NoSchedule
+        - operator: "Exists"
+          effect: NoExecute
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
