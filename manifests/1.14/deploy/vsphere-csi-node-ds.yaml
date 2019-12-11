@@ -118,3 +118,8 @@ spec:
       - name: device-dir
         hostPath:
           path: /dev
+      tolerations:
+        - effect: NoExecute
+          operator: Exists
+        - effect: NoSchedule
+          operator: Exists
