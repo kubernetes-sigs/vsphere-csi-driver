@@ -184,6 +184,7 @@ func ParseStorageClassParams(params map[string]string) (*StorageClassParams, err
 
 	var netPermissionsMap = make(map[string]*vsanfstypes.VsanFileShareNetPermission)
 	for param, value := range params {
+		param = strings.ToLower(param)
 		if param == AttributeDatastoreURL {
 			scParams.DatastoreURL = value
 		} else if param == AttributeStoragePolicyName {
