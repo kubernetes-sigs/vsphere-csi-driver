@@ -162,10 +162,10 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
 		err = fmt.Errorf("Wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -261,10 +261,10 @@ func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, c
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsNfsFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
 		err = fmt.Errorf("Wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
