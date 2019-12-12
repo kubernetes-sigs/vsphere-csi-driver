@@ -87,16 +87,24 @@ func (s *service) NodeStageVolume(
 	*csi.NodeStageVolumeResponse, error) {
 
 	klog.V(4).Infof("NodeStageVolume: called with args %+v", *req)
+
+	volumeID := req.GetVolumeId()
+	volCap := req.GetVolumeCapability()
+	// Check for block volume or file share
+	if common.IsFileVolumeRequest([]*csi.VolumeCapability{volCap}) {
+		klog.V(2).Infof("NodeStageVolume: Volume %q detected as a file share volume. Ignoring staging for file volumes.", volumeID)
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
+
 	var err error
 	params := nodeStageParams{
-		volID: req.GetVolumeId(),
+		volID: volumeID,
 		// Retrieve accessmode - RO/RW
 		ro: common.IsVolumeReadOnly(req.GetVolumeCapability()),
 	}
 	// TODO: Verify if volume exists and return a NotFound error in negative scenario
 
-	// Check if this is a MountVolume or BlockVolume
-	volCap := req.GetVolumeCapability()
+	// Check if this is a MountVolume or Raw BlockVolume
 	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Mount); ok {
 		// Mount Volume
 		// Extract mount volume details
@@ -112,12 +120,7 @@ func (s *service) NodeStageVolume(
 			return nil, err
 		}
 	}
-
-	// Check for block volume or file share
-	if !common.IsFileVolumeRequest([]*csi.VolumeCapability{volCap}) {
-		return nodeStageBlockVolume(ctx, req, params)
-	}
-	return nodeStageFileVolume(ctx, req, params)
+	return nodeStageBlockVolume(ctx, req, params)
 }
 
 func nodeStageBlockVolume(
@@ -229,73 +232,30 @@ func nodeStageBlockVolume(
 	return nil, nil
 }
 
-func nodeStageFileVolume(
-	ctx context.Context,
-	req *csi.NodeStageVolumeRequest,
-	params nodeStageParams) (
-	*csi.NodeStageVolumeResponse, error) {
-	// File Share Volume
-	klog.V(4).Infof("NodeStageVolume: File Share volume detected")
-
-	pubCtx := req.GetPublishContext()
-	// Check if file share is already mounted
-	mnts, err := gofsutil.GetMounts(context.Background())
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not retrieve existing mount points: %q",
-			err.Error())
-	}
-	klog.V(4).Infof("NodeStageVolume: node mounts %+v", mnts)
-
-	// Loop through all the mounts and filter using target path
-	mounted := false
-	for _, m := range mnts {
-		if m.Path == params.stagingTarget {
-			mounted = true
-			rwo := "rw"
-			if params.ro {
-				rwo = "ro"
-				params.mntFlags = append(params.mntFlags, "ro")
-			}
-			klog.V(4).Infof("NodeStageVolume: Mount options %v for %q - %q", m.Opts, m.Source, m.Path)
-			if contains(m.Opts, rwo) {
-				//TODO make sure that all the mount options match
-				klog.V(4).Infof("NodeStageVolume: File volume already mounted at %q with the right privileges: %q",
-					params.stagingTarget, rwo)
-				return &csi.NodeStageVolumeResponse{}, nil
-			}
-			return nil, status.Error(codes.AlreadyExists,
-				"access mode conflicts with existing mount")
-		}
-	}
-	if !mounted {
-		// NFS Mount on Node
-		mntSrc, ok := pubCtx[common.Nfsv4AccessPoint]
-		if !ok {
-			return nil, status.Error(codes.Internal, "NFSv4 accesspoint not set in publish context")
-		}
-		klog.V(4).Infof("NodeStageVolume: Attempting to mount File Volume %q at %q with mount flags %v",
-			mntSrc, params.stagingTarget, params.mntFlags)
-		if err := gofsutil.Mount(ctx, mntSrc, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {
-			return nil, status.Errorf(codes.Internal,
-				"error with mount during staging: %q",
-				err.Error())
-		}
-		klog.V(4).Infof("NodeStageVolume: File volume %q successfully mounted at %q",
-			mntSrc, params.stagingTarget)
-		return &csi.NodeStageVolumeResponse{}, nil
-	}
-	return nil, nil
-}
-
 func (s *service) NodeUnstageVolume(
 	ctx context.Context,
 	req *csi.NodeUnstageVolumeRequest) (
 	*csi.NodeUnstageVolumeResponse, error) {
 	klog.V(4).Infof("NodeUnstageVolume: called with args %+v", *req)
 
-	volID := req.GetVolumeId()
 	stagingTarget := req.GetStagingTargetPath()
+	// Fetch all the mount points
+	mnts, err := gofsutil.GetMounts(context.Background())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"could not retrieve existing mount points: %q",
+			err.Error())
+	}
+	klog.V(4).Infof("NodeUnstageVolume: node mounts %+v", mnts)
+	// Figure out if the target path is present in mounts or not - Unstage is not required for file volumes
+	// NOTE: Raw block support might get broken due to this, will be fixed later
+	targetFound := common.IsTargetInMounts(stagingTarget, mnts)
+	if !targetFound {
+		klog.V(4).Infof("NodeUnstageVolume: Target path %q is not mounted. Skipping unstage.", stagingTarget)
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	volID := req.GetVolumeId()
 	dirExists, err := verifyTargetDir(stagingTarget, false)
 	if err != nil {
 		return nil, err
@@ -306,29 +266,10 @@ func (s *service) NodeUnstageVolume(
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	// Fetch all the mount points
-	mnts, err := gofsutil.GetMounts(context.Background())
+	// Block volume
+	isMounted, err := isBlockVolumeMounted(volID, stagingTarget)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not retrieve existing mount points: %q",
-			err.Error())
-	}
-	klog.V(4).Infof("NodeUnstageVolume: node mounts %+v", mnts)
-
-	var isMounted bool
-	// Figure out if the target path is a file or block volume path
-	isFileMount, err := common.IsFileVolumeMount(stagingTarget, mnts)
-	// NOTE: IsFileVolumeMount will only return an error when the target path is not present in mount points.
-	// This is only possible in raw block volume case.
-	if !isFileMount || err != nil {
-		// Block volume
-		isMounted, err = isBlockVolumeMounted(volID, stagingTarget)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// Check if the volume is already unstaged
-		isMounted = common.IsTargetInMounts(stagingTarget, mnts)
+		return nil, err
 	}
 
 	// Volume is still mounted. Unstage the volume
@@ -511,6 +452,7 @@ func (s *service) NodeUnpublishVolume(
 			return nil, status.Error(codes.Internal, mssg)
 		}
 		klog.V(4).Infof("Unmount successful for target %q for volume %q", target, volID)
+		// TODO Use a go routine here. The deletion of target path might not be a good reason to error out
 		// The SP is supposed to delete the files/directory it created in this target path
 		if err := rmpath(target); err != nil {
 			klog.V(4).Infof("Failed to delete the target path %q", target)
@@ -772,7 +714,7 @@ func publishMountVol(
 		return nil, err
 	}
 
-	// We are responsible for creating target dir, per spec
+	// We are responsible for creating target dir, per spec, if not already present
 	_, err = mkdir(params.target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
@@ -846,7 +788,7 @@ func publishBlockVol(
 	*csi.NodePublishVolumeResponse, error) {
 	klog.V(4).Infof("PublishBlockVolume called with args: %+v", params)
 
-	// We are responsible for creating target file, per spec
+	// We are responsible for creating target file, per spec, if not already present
 	_, err := mkfile(params.target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
@@ -908,12 +850,12 @@ func publishFileVol(
 	klog.V(4).Infof("PublishFileVolume called with args: %+v", params)
 
 	// Extract mount details
-	_, mntFlags, err := ensureMountVol(req.GetVolumeCapability())
+	fsType, mntFlags, err := ensureMountVol(req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
 
-	// We are responsible for creating target dir, per spec
+	// We are responsible for creating target dir, per spec, if not already present
 	_, err = mkdir(params.target)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
@@ -921,11 +863,7 @@ func publishFileVol(
 	}
 	klog.V(4).Infof("PublishFileVolume: Created target path %q", params.target)
 
-	// Verify if the Staging path already exists
-	if _, err := verifyTargetDir(params.stagingTarget, true); err != nil {
-		return nil, err
-	}
-
+	// Check if target already mounted
 	mnts, err := gofsutil.GetMounts(context.Background())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
@@ -953,18 +891,24 @@ func publishFileVol(
 		}
 	}
 
-	// Do the bind mount to publish the volume
+	// Check for read-only flag on Pod pvc spec
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
 	}
-	klog.V(4).Infof("PublishFileVolume: Attempting to bind mount %q to %q with mount flags %v",
-		params.stagingTarget, params.target, mntFlags)
-	if err := gofsutil.BindMount(ctx, params.stagingTarget, params.target, mntFlags...); err != nil {
+	// Retrieve the file share access point from publish context
+	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
+	if !ok {
+		return nil, status.Error(codes.Internal, "NFSv4 accesspoint not set in publish context")
+	}
+	// Directly mount the file share volume to the pod. No bind mount required.
+	klog.V(4).Infof("PublishFileVolume: Attempting to mount %q to %q with fstype %q and mountflags %v",
+		mntSrc, params.target, fsType, mntFlags)
+	if err := gofsutil.Mount(ctx, mntSrc, params.target, fsType, mntFlags...); err != nil {
 		return nil, status.Errorf(codes.Internal,
 			"error publish volume to target path: %q",
 			err.Error())
 	}
-	klog.V(4).Infof("PublishFileVolume: Bind mount successful to path %q", params.target)
+	klog.V(4).Infof("PublishFileVolume: Mount successful to path %q", params.target)
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
