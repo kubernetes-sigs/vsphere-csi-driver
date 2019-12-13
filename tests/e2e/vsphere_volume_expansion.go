@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Volume Expansion Test", func() {
 func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for Volume Expansion"))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
@@ -315,7 +315,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for Volume Expansion 2"))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
@@ -471,7 +471,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = false")
@@ -511,7 +511,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for Invalid Online Volume Expansion"))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion is true")
 	var storageclass *storagev1.StorageClass
@@ -588,7 +588,7 @@ func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client cl
 
 func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
@@ -746,7 +746,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test to verify Multiple Volume Expansions on the same volume"))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = ext4FSType
+	scParameters[scParamsFsType] = ext4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass

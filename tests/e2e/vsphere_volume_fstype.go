@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("[csi-vanilla] Volume Filesystem Type Test", func() {
 func invokeTestForFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for fstype: %s", fstype))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = fstype
+	scParameters[scParamsFsType] = fstype
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With Fstype")
 	var storageclass *storagev1.StorageClass
@@ -146,7 +146,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 
 func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, storagePolicyName string, profileID string) {
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = fstype
+	scParameters[scParamsFsType] = fstype
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With Invalid Fstype")

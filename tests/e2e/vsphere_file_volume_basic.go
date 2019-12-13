@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-file] Basic Testing", func() {
 func testHelperForCreateFileVolumeWithNoDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = nfs4FSType
+	scParameters[scParamsFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass
@@ -219,7 +219,7 @@ func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
 func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = nfs4FSType
+	scParameters[scParamsFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass
@@ -288,7 +288,7 @@ func testHelperForCreateFileVolumeWithDatastoreUrlInSC(f *framework.Framework, c
 func testHelperForCreateFileVolumeWithoutValidVSANDatastoreUrlInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", accessMode))
 	scParameters := make(map[string]string)
-	scParameters["fstype"] = nfs4FSType
+	scParameters[scParamsFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class With nfs4")
 	var storageclass *storagev1.StorageClass

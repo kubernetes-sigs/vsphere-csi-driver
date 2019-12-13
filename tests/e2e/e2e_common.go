@@ -45,6 +45,7 @@ const (
 	pollTimeout                                = 5 * time.Minute
 	pollTimeoutShort                           = 1 * time.Minute / 2
 	scParamStoragePolicyID                     = "StoragePolicyId"
+	scParamsFsType                             = "csi.storage.k8s.io/fstype"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
