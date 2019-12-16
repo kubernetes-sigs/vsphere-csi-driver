@@ -209,6 +209,8 @@ func ParseStorageClassParams(params map[string]string) (*StorageClassParams, err
 			if err != nil {
 				return nil, err
 			}
+		} else if param == AttributeFsType {
+			klog.Warning("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 		} else {
 			return nil, errors.New(fmt.Sprintf("Invalid param: %q and value: %q", param, value))
 		}

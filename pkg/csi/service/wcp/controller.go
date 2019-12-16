@@ -111,15 +111,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
 	var storagePolicyID string
-	var fsType string
+
 	var affineToHost string
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
 		if param == common.AttributeStoragePolicyID {
 			storagePolicyID = req.Parameters[paramName]
-		} else if param == common.AttributeFsType {
-			fsType = req.Parameters[common.AttributeFsType]
 		} else if param == common.AttributeAffineToHost {
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
 		}
@@ -143,7 +141,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
-	attributes[common.AttributeFsType] = fsType
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
