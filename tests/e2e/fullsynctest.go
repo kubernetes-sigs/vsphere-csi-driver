@@ -49,7 +49,7 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-vanilla] full-sync-test", func() {
+var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
 	var (
 		client              clientset.Interface

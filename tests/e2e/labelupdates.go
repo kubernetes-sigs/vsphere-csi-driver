@@ -52,7 +52,7 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-vanilla] label-updates", func() {
+var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
 	var (
 		client              clientset.Interface

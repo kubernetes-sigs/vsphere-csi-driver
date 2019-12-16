@@ -42,7 +42,7 @@ import (
 	5. Invoke CNS Query API and validate datastore URL value changed correctly
 */
 
-var _ = ginkgo.Describe("[csi-vanilla] Relocate detached volume ", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() {
 	f := framework.NewDefaultFramework("svmotion-detached-disk")
 	var (
 		client          clientset.Interface
