@@ -52,7 +52,7 @@ const (
 	9. Delete the storage class.
 */
 
-var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] statefulset", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	var (
 		namespace         string

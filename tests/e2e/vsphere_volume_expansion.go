@@ -39,7 +39,7 @@ import (
 	storage_utils "k8s.io/kubernetes/test/e2e/storage/utils"
 )
 
-var _ = ginkgo.Describe("[csi-vanilla] Volume Expansion Test", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	f := framework.NewDefaultFramework("volume-expansion")
 	var (
 		client            clientset.Interface

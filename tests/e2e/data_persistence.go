@@ -46,7 +46,7 @@ import (
 
 */
 
-var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] Data Persistence", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence", func() {
 	f := framework.NewDefaultFramework("e2e-data-persistence")
 	var (
 		client            clientset.Interface

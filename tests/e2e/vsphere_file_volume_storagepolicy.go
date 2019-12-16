@@ -30,7 +30,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-vanilla] [csi-file] File Volume Provision Testing With Storage Policy", func() {
+var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With Storage Policy", func() {
 	f := framework.NewDefaultFramework("file-volume-basic")
 	var (
 		client    clientset.Interface
@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-file] File Volume Provision Testing 
 		                7. Delete PVC
 		                8. Delete storage policy
 	*/
-	ginkgo.It("[csi-file] verify dynamic provisioning with ReadWriteMany access mode, when storage policy is offered", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, when storage policy is offered", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f, client, namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores)
 	})
