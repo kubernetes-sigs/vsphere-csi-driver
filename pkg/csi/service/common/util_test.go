@@ -279,6 +279,20 @@ func isStorageClassParamsEqual(expected *StorageClassParams, actual *StorageClas
 	return true
 }
 
+func TestParseStorageClassParamsWithDeprecatedFSType(t *testing.T) {
+	params := map[string]string{
+		"fstype": "ext4",
+	}
+	expectedScParams := &StorageClassParams{}
+	actualScParams, err := ParseStorageClassParams(params)
+	if err != nil {
+		t.Errorf("Failed to parse params: %+v", params)
+	}
+	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
+		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
+	}
+}
+
 func TestParseStorageClassParamsWithNoNetPermissionParams(t *testing.T) {
 	params := map[string]string{
 		AttributeDatastoreURL:      "ds1",
