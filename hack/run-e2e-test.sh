@@ -29,11 +29,11 @@ fi
 export KUBECONFIG=$HOME/.kube/config
 
 # Running the e2e test.
-# If $GINKGO_FOCUS not set, run "csi-vanilla" by default.
+# If $GINKGO_FOCUS not set, run "csi-block-vanilla" by default.
 FOCUS=${GINKGO_FOCUS:-}
 if [ -z "$FOCUS" ]
 then
-    FOCUS="csi-vanilla"
+    FOCUS="csi-block-vanilla"
 fi
 ginkgo -v --focus="$FOCUS" tests/e2e
 
