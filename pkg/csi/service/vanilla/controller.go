@@ -243,12 +243,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 // createFileVolume creates a file volume based on the CreateVolumeRequest.
 func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-
-	// Fail the create workflow if topology requirements are set.
+	// ignore TopologyRequirement for file volume provisioning
 	if req.GetAccessibilityRequirements() != nil {
-		msg := "Volume topology is not supported for file volumes."
-		klog.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+		klog.V(2).Info("Ignoring TopologyRequirement for file volume")
 	}
 
 	// Volume Size - Default is 10 GiB
