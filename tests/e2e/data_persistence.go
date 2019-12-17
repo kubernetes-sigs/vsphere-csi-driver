@@ -141,11 +141,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		} else {
 			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
 			time.Sleep(supervisorClusterOperationsTimeout)
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
+			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
@@ -177,10 +177,20 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		framework.DeletePodWithWait(f, client, pod)
-		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		if vanillaCluster {
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		} else {
+			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+			time.Sleep(supervisorClusterOperationsTimeout)
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+		}
 	})
 })
 
