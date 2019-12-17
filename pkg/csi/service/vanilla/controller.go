@@ -159,7 +159,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			klog.Errorf(errMsg)
 			return nil, status.Error(codes.NotFound, errMsg)
 		}
-		sharedDatastores, datastoreTopologyMap, err := c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
+		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
 			msg := fmt.Sprintf("Failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 			klog.Errorf(msg)
