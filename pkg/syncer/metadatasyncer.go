@@ -429,10 +429,6 @@ func podDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 		return
 	}
 
-	if pod.Status.Phase == v1.PodPending {
-		return
-	}
-
 	klog.V(3).Infof("PodDeleted: Pod %s calling updatePodMetadata", pod.Name)
 	// Update pod metadata
 	if errorList := updatePodMetadata(pod, metadataSyncer, true); len(errorList) > 0 {
