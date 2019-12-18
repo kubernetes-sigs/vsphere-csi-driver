@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -215,6 +216,18 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	*statefulSet.Spec.Replicas = 1
 	_, err = client.AppsV1().StatefulSets(namespace).Create(statefulSet)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return statefulSet
+}
+
+// updateStatefulSetReplica helps to update the replica for a statefulset
+func updateStatefulSetReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.StatefulSet {
+	statefulSet, err := client.AppsV1().StatefulSets(namespace).Get(name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	*statefulSet.Spec.Replicas = count
+	_, err = client.AppsV1().StatefulSets(namespace).Update(statefulSet)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Waiting for update operation on statefulset to take effect")
+	time.Sleep(1 * time.Minute)
 	return statefulSet
 }
 

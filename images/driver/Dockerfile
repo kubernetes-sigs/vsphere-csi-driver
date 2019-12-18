@@ -16,7 +16,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.12.6
+ARG GOLANG_IMAGE=golang:1.12.10
 
 # This build arg allows the specification of a custom base image.
 ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v0.2.1-10-gb2fb75e
@@ -39,7 +39,7 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-ENV GOPROXY ${GOPROXY:-}
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
 
 ################################################################################

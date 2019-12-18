@@ -25,10 +25,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
-)
 
-var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Statefulset", func() {
+var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
@@ -106,7 +104,11 @@ var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-S
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+<<<<<<< HEAD
 		e2elog.Logf("Deleting all statefulset in namespace: %v", namespace)
+=======
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+>>>>>>> 1d139964e78d1c7a81351977f789c416ca25133b
 		framework.DeleteAllStatefulSets(client, namespace)
 	})
 

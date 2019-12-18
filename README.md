@@ -1,41 +1,23 @@
 # Container Storage Interface (CSI) driver for vSphere
 
-This repository provides tools and scripts for building and testing `csi-vsphere`.
-The driver is an **alpha** state and should not be used in production.
+This repository provides tools and scripts for building and testing the vSphere CSI provider. This driver is in a stable `GA` state and is suitable for production use. It currently requires vSphere 6.7 U3 or higher in order to operate.
 
-On Kubernetes, the CSI driver is for use in conjunction with the out of tree vSphere
-[CCM](https://github.com/kubernetes/cloud-provider-vsphere).
+The CSI driver, when used on Kubernetes, also requires the use of the out-of-tree vSphere Cloud Provider Interface [CPI](https://github.com/kubernetes/cloud-provider-vsphere).
 
-The driver has been tested with Kubernetes 1.13 and 1.14, but due to internal K8s API
-changes during that cycle, an upgrade path for using `csi-vsphere` while moving from
-1.13 to 1.14 has not been documented.
+The driver has been tested with, and is supported on, K8s 1.14 and above.
 
-## Building the CSI driver
+## Installation
 
-This section outlines how to build the driver with and without Docker.
+Install instructions for the CSI driver are available here:
 
-### Building locally
+* <https://cloud-provider-vsphere.sigs.k8s.io/tutorials/kubernetes-on-vsphere-with-kubeadm.html>
 
-Build locally with the following command:
+## CSI Driver Images
 
-```shell
-$ git clone https://github.com/kubernetes-sigs/vsphere-csi-driver && \
-  make -C vsphere-csi-driver
-```
+The CSI driver container images are available here:
 
-The project uses [Go modules](https://github.com/golang/go/wiki/Modules) and:
-
-* Requires Go 1.11+
-* Should not be cloned into the `$GOPATH`
-
-### Building with Docker
-
-It is also possible to build the driver with Docker in order to ensure a clean build environment:
-
-```shell
-$ git clone https://github.com/kubernetes-sigs/vsphere-csi-driver && \
-  make -C vsphere-csi-driver build-with-docker
-```
+* gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
+* gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.1
 
 ## Contributing
 

@@ -29,7 +29,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-Multiple-Zones", func() {
+var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Multiple-Zones", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client               clientset.Interface
@@ -81,7 +81,11 @@ var _ = ginkgo.Describe("[csi-block-e2e-zone] Topology-Aware-Provisioning-With-M
 		1. Create a Storage Class with multiple valid regions and zones specified in “AllowedTopologies”
 		2. Create a PVC using above SC
 		3. Wait for PVC to be in bound phase
+<<<<<<< HEAD
 		4. Verify PV is created in zone and region that has shared accessible datastores acorss all nodes in this zone/region
+=======
+		4. Verify PV is created in zone and region that has shared accessible datastores across all nodes in this zone/region
+>>>>>>> 1d139964e78d1c7a81351977f789c416ca25133b
 		5. Create a Pod attached to the above PV
 		6. Verify Pod is scheduled on node located within the specified zone and region
 		7. Delete Pod and wait for disk to be detached

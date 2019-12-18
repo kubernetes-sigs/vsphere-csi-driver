@@ -32,7 +32,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog"
-
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -353,18 +352,23 @@ func (s *service) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
-	nodeID, err := os.Hostname()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"Unable to retrieve Node ID, err: %s", err)
+	nodeID := os.Getenv("NODE_NAME")
+	if nodeID == "" {
+		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
 	var cfg *cnsconfig.Config
 	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
-	cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			klog.V(2).Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+			return &csi.NodeGetInfoResponse{
+				NodeId: nodeID,
+			}, nil
+		}
 		klog.Errorf("Failed to read cnsconfig. Error: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -372,6 +376,7 @@ func (s *service) NodeGetInfo(
 	topology := &csi.Topology{}
 
 	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
+		klog.V(2).Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 		if err != nil {
 			klog.Errorf("Failed to get VirtualCenterConfig from cns config. err=%v", err)

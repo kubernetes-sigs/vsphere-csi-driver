@@ -69,7 +69,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		fcdName                  = "BasicStaticFCD"
 		stopVsanHealthOperation  = "stop"
 		startVsanHealthOperation = "start"
-		vcenterPort              = "22"
+		sshdPort                 = "22"
 		numberOfPVC              = 5
 	)
 
@@ -140,7 +140,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -187,7 +187,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		pv := pvs[0]
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -267,7 +267,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		}
 		gomega.Expect(datastore).NotTo(gomega.BeNil())
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -328,7 +328,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		}
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -384,8 +384,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		// cleanup
 		for _, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_ = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
 		}
 
 		for _, pv := range pvs {
@@ -439,7 +438,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -524,7 +523,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + vcenterPort
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopVsanHealthOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -553,7 +552,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("Bring down syncer pod and verify PV metadata is created in CNS", func() {
+	ginkgo.It("Scale down csi driver statefulset and verify PV metadata is created in CNS", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -584,13 +583,9 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
-		statefulsetTester := framework.NewStatefulSetTester(client)
-		statefulset := statefulsetTester.GetStatefulSet(kubeSystemNamespace, syncerStatefulsetName)
-		replicas := *(statefulset.Spec.Replicas)
-		ginkgo.By(fmt.Sprintf("Kill syncer statefulset by scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaleDownErr := statefulsetTester.Scale(statefulset, replicas-1)
-		gomega.Expect(scaleDownErr).NotTo(gomega.HaveOccurred())
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas-1)
+		ginkgo.By("Scaling down the csi driver to zero replica")
+		statefulSet := updateStatefulSetReplica(client, 0, vSphereCSIControllerPodNamePrefix, kubeSystemNamespace)
+		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver statefulset:%s to zero replicas", statefulSet.Name))
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
@@ -599,11 +594,9 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Recreate syncer statefulset by scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleUpErr := statefulsetTester.Scale(statefulset, replicas)
-		gomega.Expect(scaleUpErr).NotTo(gomega.HaveOccurred())
-		statefulsetTester.WaitForStatusReplicas(statefulset, replicas)
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
+		ginkgo.By("Scaling up the csi driver to one replica")
+		statefulSet = updateStatefulSetReplica(client, 1, vSphereCSIControllerPodNamePrefix, kubeSystemNamespace)
+		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver statefulset:%s to one replica", statefulSet.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)

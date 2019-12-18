@@ -24,13 +24,13 @@ spec:
         - operator: "Exists"
           key: node-role.kubernetes.io/master
           effect: NoSchedule
-      hostNetwork: true
+      dnsPolicy: "Default"
       containers:
         - name: csi-attacher
           image: quay.io/k8scsi/csi-attacher:v1.1.1
           args:
             - "--v=4"
-            - "--timeout=60s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
           env:
             - name: ADDRESS
@@ -39,7 +39,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: vmware/vsphere-block-csi-driver:v1.0.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
           lifecycle:
             preStop:
               exec:
@@ -60,6 +60,18 @@ spec:
               readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
         - name: liveness-probe
           image: quay.io/k8scsi/livenessprobe:v1.1.0
           args:
@@ -71,12 +83,12 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
-          image: vmware/volume-metadata-syncer:v1.0.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.1
           args:
             - "--v=2"
           imagePullPolicy: "Always"
           env:
-            - name: X_CSI_FULL_SYNC_INTERVAL_MINUTES
+            - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
@@ -85,10 +97,10 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v1.2.1
+          image: quay.io/k8scsi/csi-provisioner:v1.2.2
           args:
             - "--v=4"
-            - "--timeout=60s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
             - "--strict-topology"

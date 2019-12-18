@@ -100,6 +100,9 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	for idx := range vcConfig.DatacenterPaths {
 		vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 	}
+	if len(cfg.Global.CAFile) > 0 && !cfg.Global.InsecureFlag {
+		vcConfig.CAFile = cfg.Global.CAFile
+	}
 	return vcConfig, nil
 }
 
