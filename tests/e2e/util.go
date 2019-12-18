@@ -88,6 +88,40 @@ func getNodeUUID(client clientset.Interface, nodeName string) string {
 	return vmUUID
 }
 
+// getVMUUIDFromNodeName returns the vmUUID for a given node vm and datacenter
+func getVMUUIDFromNodeName(nodeName string) (string, error) {
+	var datacenters []string
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+	var vm *object.VirtualMachine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, dc := range datacenters {
+		dataCenter, err := finder.Datacenter(ctx, dc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		finder := find.NewFinder(dataCenter.Client(), false)
+		finder.SetDatacenter(dataCenter)
+		vm, err = finder.VirtualMachine(ctx, nodeName)
+		if err != nil {
+			continue
+		}
+		vmUUID := vm.UUID(ctx)
+		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+		ginkgo.By(fmt.Sprintf("VM UUID is: %s for node: %s", vmUUID, nodeName))
+		return vmUUID, nil
+	}
+	return "", err
+}
+
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the one is CNS cache
 func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeClaimName string, PersistentVolumeName string, PodName string) error {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
@@ -608,4 +642,18 @@ func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
 	// loop through all datacenters specified in conf file, and cannot find this given datastore
 	return false
 
+}
+func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
+	var svcClient clientset.Interface
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(pvcName, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	return true
 }

@@ -83,7 +83,7 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 		datacenter := object.NewDatacenter(vs.Client.Client, dc.Reference())
 		s := object.NewSearchIndex(vs.Client.Client)
 		vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
-		instanceUUID := !vanillaCluster
+		instanceUUID := !(vanillaCluster || guestCluster)
 		vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
 
 		if err != nil || vmMoRef == nil {
@@ -121,7 +121,12 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 // This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
 func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, volumeID string, nodeName string) (bool, error) {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		vmUUID := getNodeUUID(client, nodeName)
+		var vmUUID string
+		if vanillaCluster {
+			vmUUID = getNodeUUID(client, nodeName)
+		} else {
+			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+		}
 		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if !diskAttached {
