@@ -29,8 +29,13 @@ type Config struct {
 		Password string `gcfg:"password"`
 		// vCenter port.
 		VCenterPort string `gcfg:"port"`
-		// True if vCenter uses self-signed cert.
+		// Specifies whether to verify the server's certificate chain. Set to true to
+		// skip verification.
 		InsecureFlag bool `gcfg:"insecure-flag"`
+		// Specifies the path to a CA certificate in PEM format. This has no effect if
+		// InsecureFlag is enabled. Optional; if not configured, the system's CA
+		// certificates will be used.
+		CAFile string `gcfg:"ca-file"`
 		// Datacenter in which Node VMs are located.
 		Datacenters string `gcfg:"datacenters"`
 	}
