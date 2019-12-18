@@ -46,7 +46,7 @@ import (
 
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data Persistence", func() {
 	f := framework.NewDefaultFramework("e2e-data-persistence")
 	var (
 		client            clientset.Interface
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
-		} else {
+		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -83,6 +83,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyName
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -96,6 +100,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
+		if guestCluster {
+			// svcPVCName refers to PVC Name in the supervisor cluster
+			svcPVCName := volumeID
+			volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+		}
 		defer func() {
 			err := framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -114,16 +125,18 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		defer cancel()
 		if vanillaCluster {
 			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
-		} else {
+		} else if supervisorCluster {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		}
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		var volumeFiles []string
 		// Create an empty file on the mounted volumes on the pod
@@ -133,12 +146,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		framework.DeletePodWithWait(f, client, pod)
-		if vanillaCluster {
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		} else {
+		if supervisorCluster {
 			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
 			time.Sleep(supervisorClusterOperationsTimeout)
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
@@ -146,6 +154,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 			defer cancel()
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+		} else {
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
@@ -158,14 +171,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		defer cancel()
 		if vanillaCluster {
 			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
-		} else {
+		} else if supervisorCluster {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
 
@@ -177,12 +193,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		framework.DeletePodWithWait(f, client, pod)
-		if vanillaCluster {
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		} else {
+		if supervisorCluster {
 			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
 			time.Sleep(supervisorClusterOperationsTimeout)
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
@@ -190,6 +201,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] Data Persistence",
 			defer cancel()
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+		} else {
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}
 	})
 })

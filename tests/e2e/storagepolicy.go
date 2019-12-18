@@ -173,48 +173,48 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), fmt.Sprintf("storage policy verification failed"))
-	// TODO: Remove this check when attach/detach is implemented on guest clusters
-	if !guestCluster {
-		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		var vmUUID string
-		var exists bool
-		nodeName := pod.Spec.NodeName
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
+	ginkgo.By("Creating pod to attach PV to the node")
+	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var vmUUID string
+	var exists bool
+	nodeName := pod.Spec.NodeName
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if supervisorCluster {
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else if vanillaCluster {
+		vmUUID = getNodeUUID(client, nodeName)
+	} else {
+		vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+	}
+	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err = framework.DeletePodWithWait(f, client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if supervisorCluster {
+		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+		time.Sleep(supervisorClusterOperationsTimeout)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if vanillaCluster {
-			vmUUID = getNodeUUID(client, nodeName)
-		} else if supervisorCluster {
-			annotations := pod.Annotations
-			vmUUID, exists = annotations[vmUUIDLabel]
-			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, nodeName))
+	} else {
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", volumeID, nodeName))
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
-
-		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = framework.DeletePodWithWait(f, client, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if vanillaCluster {
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", volumeID, nodeName))
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
-		} else if supervisorCluster {
-			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
-			time.Sleep(supervisorClusterOperationsTimeout)
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, nodeName))
-		}
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
 	}
 }
 
