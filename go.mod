@@ -62,7 +62,7 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191016202444-5037bc71c2f8
-	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20191219220134-533be235944d
+	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20191220191310-2ac7ed31c085
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/zap v1.10.0 // indirect
