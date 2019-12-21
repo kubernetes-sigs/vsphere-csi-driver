@@ -231,7 +231,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 				}
 			}
 		}
-
+		replicas = 0
+		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
+		_, scaledownErr = statefulsetTester.Scale(statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		statefulsetTester.WaitForStatusReplicas(statefulset, replicas)
+		ssPodsAfterScaleDown = statefulsetTester.GetPodList(statefulset)
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
 	})
 	/*
 		Test performs following operations
@@ -398,7 +404,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 				}
 			}
 		}
-
+		replicas = 0
+		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
+		_, scaledownErr = statefulsetTester.Scale(statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		statefulsetTester.WaitForStatusReplicas(statefulset, replicas)
+		ssPodsAfterScaleDown = statefulsetTester.GetPodList(statefulset)
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
 	})
 })
 
