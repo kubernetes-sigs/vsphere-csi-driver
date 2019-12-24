@@ -123,11 +123,13 @@ func getVMUUIDFromNodeName(nodeName string) (string, error) {
 }
 
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the one is CNS cache
-func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeClaimName string, PersistentVolumeName string, PodName string) error {
+func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeClaimName string, PersistentVolumeName string,
+	PodName string, Labels ...types.KeyValue) error {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return err
 	}
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
 		return fmt.Errorf("Failed to query cns volume %s", volumeID)
 	}
@@ -139,6 +141,28 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeCla
 			return fmt.Errorf("entity PV with name %s not found for volume %s", PersistentVolumeName, volumeID)
 		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" && kubernetesMetadata.EntityName != PersistentVolumeClaimName {
 			return fmt.Errorf("entity PVC with name %s not found for volume %s", PersistentVolumeClaimName, volumeID)
+		}
+	}
+	labelMap := make(map[string]string)
+	for _, e := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		if e == nil {
+			continue
+		}
+		if e.GetCnsEntityMetadata().Labels == nil {
+			continue
+		}
+		for _, al := range e.GetCnsEntityMetadata().Labels {
+			// these are the actual labels in the provisioned PV. populate them in the label map
+			labelMap[al.Key] = al.Value
+		}
+		for _, el := range Labels {
+			// Traverse through the slice of expected labels and see if all of them are present in the label map
+			if val, ok := labelMap[el.Key]; ok {
+				gomega.Expect(el.Value == val).To(gomega.BeTrue(),
+					fmt.Sprintf("Actual label Value of the statically provisioned PV is %s but expected is %s", val, el.Value))
+			} else {
+				return fmt.Errorf("label(%s:%s) is expected in the provisioned PV but its not found", el.Key, el.Value)
+			}
 		}
 	}
 	ginkgo.By(fmt.Sprintf("successfully verified metadata of the volume %q", volumeID))
