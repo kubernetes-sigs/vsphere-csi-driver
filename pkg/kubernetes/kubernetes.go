@@ -64,10 +64,7 @@ func GetRestClientConfig(endpoint string, port string) *restclient.Config {
 	config = &restclient.Config{
 		Host: "https://" + net.JoinHostPort(endpoint, port),
 		TLSClientConfig: restclient.TLSClientConfig{
-			// TODO: remove this flag after https://jira.eng.vmware.com/browse/VKAL-2595 is solved
-			Insecure: true,
-			// TODO: add the CAFile back once the insecure flag is removed.
-			//CAFile: rootCAFile,
+			CAFile: rootCAFile,
 		},
 		BearerToken: string(token),
 	}
