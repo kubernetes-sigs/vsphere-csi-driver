@@ -412,20 +412,39 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		klog.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	node, err := c.nodeMgr.GetNodeByName(req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
 	}
-	err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+	queryResult, err := c.manager.VolumeManager.QueryVolume(queryFilter)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
+		msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
 		klog.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
-	resp := &csi.ControllerUnpublishVolumeResponse{}
-	return resp, nil
+	if len(queryResult.Volumes) == 0 {
+		msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
+		klog.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+	if queryResult.Volumes[0].VolumeType != common.FileVolumeType {
+		node, err := c.nodeMgr.GetNodeByName(req.NodeId)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+			klog.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
+			klog.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	} else {
+		klog.V(4).Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
+	}
+
+	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 // ControllerExpandVolume expands a volume.
