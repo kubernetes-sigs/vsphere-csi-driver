@@ -536,6 +536,7 @@ func (s *service) NodeGetInfo(
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		return &csi.NodeGetInfoResponse{
 			NodeId:             nodeId,
+			MaxVolumesPerNode:  60,
 			AccessibleTopology: &csi.Topology{},
 		}, nil
 	}
@@ -610,6 +611,7 @@ func (s *service) NodeGetInfo(
 
 	return &csi.NodeGetInfoResponse{
 		NodeId:             nodeId,
+		MaxVolumesPerNode:  60,
 		AccessibleTopology: topology,
 	}, nil
 }
