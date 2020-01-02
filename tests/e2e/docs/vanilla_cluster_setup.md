@@ -27,9 +27,13 @@ The section outlines how to set the env variable for running e2e test.
     password = "<PASSWORD>"
     port = "443"
     datacenters = "<Datacenter_Name>"
+    targetvSANFileShareDatastoreURLs = "<comma separated datastore URLs>" # Optional parameter
 
-* Please update the `hostname` and `datacenters` as per your testbed configuration.
-datacenters should be comma separated if deployed on multi-datacenters
+* Please update the `hostname` and `datacenters` as per your testbed configuration. 
+`datacenters` should be comma separated if deployed on multi-datacenters
+* `targetvSANFileShareDatastoreURLs` is an optional parameter. It contains a comma separated 
+list of datastore URLs where you want to deploy file share volumes. Retrieve this value from the
+ secret named `vsphere-config-secret` in your testbed.
 
 ### Copy contents of ~/.kube/config from master node to your e2e test environment
 
