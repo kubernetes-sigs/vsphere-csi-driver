@@ -641,7 +641,21 @@ func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
 
 	// loop through all datacenters specified in conf file, and cannot find this given datastore
 	return false
+}
 
+func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) bool {
+	cfg, err := getConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	datastoreURL = strings.TrimSpace(datastoreURL)
+	targetDatastoreUrls := strings.Split(cfg.Global.TargetvSANFileShareDatastoreURLs, ",")
+	for _, dsURL := range targetDatastoreUrls {
+		dsURL = strings.TrimSpace(dsURL)
+		if datastoreURL == dsURL {
+			return true
+		}
+	}
+	return false
 }
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	var svcClient clientset.Interface
