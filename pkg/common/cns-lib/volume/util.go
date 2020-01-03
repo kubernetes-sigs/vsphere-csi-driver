@@ -23,10 +23,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
-const (
-	CNSVolumeResourceInUseFaultMessage = "The resource 'volume' is in use."
-)
-
 func validateManager(m *defaultManager) error {
 	if m.virtualCenter == nil {
 		klog.Error(
