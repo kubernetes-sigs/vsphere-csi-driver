@@ -17,13 +17,16 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"k8s.io/klog"
+	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+
+	"github.com/davecgh/go-spew/spew"
+	"k8s.io/klog"
 )
 
 // Manager provides functionality to manage volumes.
@@ -126,8 +129,9 @@ func (m *defaultManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnst
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		klog.Errorf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return nil, errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		msg := fmt.Sprintf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		klog.Error(msg)
+		return nil, errors.New(msg)
 	}
 	klog.V(2).Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", spec.Name, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
 	return &cnstypes.CnsVolumeId{
@@ -187,8 +191,10 @@ func (m *defaultManager) AttachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		if volumeOperationRes.Fault.LocalizedMessage == CNSVolumeResourceInUseFaultMessage {
-			// Volume is already attached to VM
+		_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
+		if isResourceInUseFault {
+			klog.V(2).Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q", volumeID, vm.String())
+			// check if volume is already attached to the requested node
 			diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
 			if err != nil {
 				return "", err
@@ -197,8 +203,9 @@ func (m *defaultManager) AttachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 				return diskUUID, nil
 			}
 		}
-		klog.Errorf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q", volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return "", errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		msg := fmt.Sprintf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q", volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		klog.Error(msg)
+		return "", errors.New(msg)
 	}
 	diskUUID := interface{}(taskResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
 	klog.V(2).Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q", volumeID, taskInfo.ActivationId, vm.String(), diskUUID)
@@ -268,8 +275,9 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 				volumeID, vm)
 			return nil
 		} else {
-			klog.Errorf("failed to detach cns volume:%q from node vm: %+v. fault: %q, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+			msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. fault: %q, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			klog.Error(msg)
+			return errors.New(msg)
 		}
 	}
 	klog.V(2).Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q", volumeID, taskInfo.ActivationId, vm.String())
@@ -327,8 +335,9 @@ func (m *defaultManager) DeleteVolume(volumeID string, deleteDisk bool) error {
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		klog.Errorf("Failed to delete volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		klog.Error(msg)
+		return errors.New(msg)
 	}
 	klog.V(2).Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	return nil
@@ -393,8 +402,9 @@ func (m *defaultManager) UpdateVolumeMetadata(spec *cnstypes.CnsVolumeMetadataUp
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		klog.Errorf("Failed to update volume. updateSpec: %q, fault: %q, opID: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		msg := fmt.Sprintf("failed to update volume. updateSpec: %q, fault: %q, opID: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		klog.Error(msg)
+		return errors.New(msg)
 	}
 	klog.V(2).Infof("UpdateVolumeMetadata: Volume metadata updated successfully. volumeID: %q, opId: %q", spec.VolumeId.Id, taskInfo.ActivationId)
 	return nil
@@ -457,8 +467,9 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		klog.Errorf("Failed to extend volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		return errors.New(volumeOperationRes.Fault.LocalizedMessage)
+		msg := fmt.Sprintf("failed to extend volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		klog.Error(msg)
+		return errors.New(msg)
 	}
 	klog.V(2).Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 
