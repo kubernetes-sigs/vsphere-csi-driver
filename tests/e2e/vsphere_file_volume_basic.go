@@ -372,7 +372,7 @@ func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework, clien
 	var err error
 
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 
 	// Create Storage class and PVC
 	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %s", accessMode, nfs4FSType))
