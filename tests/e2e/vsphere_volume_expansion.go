@@ -885,7 +885,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 func invokeTestForUnsupportedFileVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for Unsupported File Volume Expansion"))
 	scParameters := make(map[string]string)
-	scParameters[scParamsFsType] = nfs4FSType
+	scParameters[scParamFsType] = nfs4FSType
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion is true and filesystem type is nfs4FSType")
 	var storageclass *storagev1.StorageClass
