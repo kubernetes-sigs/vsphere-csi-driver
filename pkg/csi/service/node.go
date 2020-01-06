@@ -525,6 +525,13 @@ func (s *service) NodeGetCapabilities(
 	}, nil
 }
 
+/*
+	NodeGetInfo RPC returns the NodeGetInfoResponse with mandatory fields `NodeId` and `AccessibleTopology`.
+	However, for sending `MaxVolumesPerNode` in the response, it is not straight forward since vSphere CSI
+	driver supports both block and file volume. For block volume, max volumes to be attached is deterministic
+	by inspecting SCSI controllers of the VM, but for file volume, this is not deterministic.
+	We can not set this limit on MaxVolumesPerNode, since single driver is used for both block and file volumes.
+*/
 func (s *service) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
@@ -536,7 +543,6 @@ func (s *service) NodeGetInfo(
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		return &csi.NodeGetInfoResponse{
 			NodeId:             nodeId,
-			MaxVolumesPerNode:  60,
 			AccessibleTopology: &csi.Topology{},
 		}, nil
 	}
@@ -611,7 +617,6 @@ func (s *service) NodeGetInfo(
 
 	return &csi.NodeGetInfoResponse{
 		NodeId:             nodeId,
-		MaxVolumesPerNode:  60,
 		AccessibleTopology: topology,
 	}, nil
 }
