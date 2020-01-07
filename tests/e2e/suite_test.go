@@ -37,14 +37,13 @@ func init() {
 		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 		os.Setenv(kubeconfigEnvVar, kubeconfig)
 	}
-
-	framework.HandleFlags()
 	framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	setClusterFlavor(clusterFlavor)
 }
 
 func TestE2E(t *testing.T) {
+	framework.HandleFlags()
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CNS CSI Driver End-to-End Tests")
 }

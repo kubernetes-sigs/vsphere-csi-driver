@@ -70,7 +70,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     4.ssh root@<vc-ip-address> "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 
 ## Requirements
-Go version: 1.12
+Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
 
