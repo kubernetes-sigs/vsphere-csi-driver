@@ -54,7 +54,7 @@ SSH keys need to be configured properley for all three master nodes of K8S clust
     export GINKGO_FOCUS="csi-multi-master-block-e2e"
 
 ## Requirements
-Go version: 1.12
+Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
 
