@@ -105,7 +105,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL="Region-2-shared-datastore-storage-url"
 
 ## Requirements
-Go version: 1.12
+Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
 

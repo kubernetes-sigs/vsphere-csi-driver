@@ -61,7 +61,7 @@ require (
 	github.com/thecodeteam/gosync v0.1.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191016202444-5037bc71c2f8
+	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69
 	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20191220191310-2ac7ed31c085
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
@@ -69,10 +69,9 @@ require (
 	golang.org/x/crypto v0.0.0-20190404164418-38d8ce5564a5 // indirect
 	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a // indirect
-	golang.org/x/sys v0.0.0-20190405154228-4b34438f7a67 // indirect
+	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
 	golang.org/x/text v0.3.1-0.20180807135948-17ff2d5776d2 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
-	golang.org/x/tools v0.0.0-20191205215504-7b8c8591a921 // indirect
 	google.golang.org/appengine v1.5.0 // indirect
 	google.golang.org/genproto v0.0.0-20190404172233-64821d5d2107 // indirect
 	google.golang.org/grpc v1.19.1
