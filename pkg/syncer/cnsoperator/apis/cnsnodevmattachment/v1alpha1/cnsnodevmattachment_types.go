@@ -23,6 +23,9 @@ import (
 const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier
 	AttributeFirstClassDiskUUID = "diskUUID"
+
+	// AttributeCnsVolumeId represents the volume ID in CNS.
+	AttributeCnsVolumeId = "cnsVolumeId"
 )
 
 // CnsNodeVmAttachmentSpec defines the desired state of CnsNodeVmAttachment
@@ -45,6 +48,7 @@ type CnsNodeVmAttachmentStatus struct {
 	// operation, i.e. the CNS Operator.
 	Attached bool `json:"attached"`
 
+	// Before successful attach, this field is populated with CNS volume ID.
 	// Upon successful attach, this field is populated with any information
 	// returned by the attach operation. This field must only be set by the entity
 	// completing the attach operation, i.e. the CNS Operator

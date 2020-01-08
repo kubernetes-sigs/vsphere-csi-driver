@@ -24,7 +24,7 @@ import (
 
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -120,16 +120,6 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, nil
 	}
 
-	volumeName := instance.Spec.VolumeName
-	volumeID, err := getVolumeID(ctx, r.client, volumeName, instance.Namespace)
-	if err != nil {
-		klog.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
-			volumeName, request.Name, request.Namespace, err)
-		instance.Status.Error = err.Error()
-		updateCnsNodeVmAttachment(ctx, r.client, instance)
-		return reconcile.Result{}, err
-	}
-
 	vcdcMap, err := getVCDatacentersFromConfig(r.configInfo.Cfg)
 	if err != nil {
 		klog.Errorf("Failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
@@ -168,19 +158,43 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, err
 	}
 	if !instance.Status.Attached && instance.DeletionTimestamp == nil {
+		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
+		if err != nil {
+			klog.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
+				instance.Spec.VolumeName, request.Name, request.Namespace, err)
+			instance.Status.Error = err.Error()
+			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			return reconcile.Result{}, err
+		}
 		cnsFinalizerExists := false
-		// Check if finalizer already exists
+		// Check if finalizer already exists.
 		for _, finalizer := range instance.Finalizers {
 			if finalizer == cnsoperatortypes.CNSFinalizer {
 				cnsFinalizerExists = true
+				break
 			}
 		}
-		// Update CnsNodeVmAttachment instance with finalizer
+		// Update finalizer and attachmentMetadata together in CnsNodeVmAttachment.
 		if !cnsFinalizerExists {
+			// Add finalizer.
 			instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
+			/*
+				Add the CNS volume ID in the attachment metadata. This is used later to detach the CNS volume on
+				deletion of CnsNodeVmAttachment instance. Note that the supervisor PVC can be deleted due to following:
+				1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226) where DeleteVolume
+				   could be invoked in pvcsi before ControllerUnpublishVolume. This causes supervisor PVC to be deleted.
+				2. Supervisor namespace user deletes PVC used by a guest cluster.
+				3. Supervisor namespace is deleted
+				Basically, we cannot rely on the existence of PVC in supervisor cluster for detaching the volume from
+				guest cluster VM. So, the logic stores the CNS volume ID in attachmentMetadata itself which is used
+				during detach.
+			*/
+			attachmentMetadata := make(map[string]string)
+			attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeId] = volumeID
+			instance.Status.AttachmentMetadata = attachmentMetadata
 			err = updateCnsNodeVmAttachment(ctx, r.client, instance)
 			if err != nil {
-				klog.Errorf("Failed to update CnsNodeVmAttachment instance: %q with finalizer on namespace: %q. Error: %+v",
+				klog.Errorf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
 				return reconcile.Result{}, err
 			}
@@ -211,10 +225,8 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		} else {
 			// Update CnsNodeVmAttachment instance with attached status set to true
 			// and attachment metadata
-			attachmentMetadata := make(map[string]string)
-			attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeFirstClassDiskUUID] = diskUUID
+			instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeFirstClassDiskUUID] = diskUUID
 			instance.Status.Attached = true
-			instance.Status.AttachmentMetadata = attachmentMetadata
 			// Clear the error message
 			instance.Status.Error = ""
 		}
@@ -229,12 +241,19 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 	}
 
 	if instance.DeletionTimestamp != nil {
+		var cnsVolumeId string
+		var ok bool
+		if cnsVolumeId, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeId]; !ok {
+			errMsg := fmt.Sprintf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v", instance.Status.AttachmentMetadata)
+			klog.Error(errMsg)
+			return reconcile.Result{}, errors.New(errMsg)
+		}
 		klog.V(4).Infof("vSphere CNS driver is detaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
-			volumeID, nodeVM, request.Name, request.Namespace)
-		detachErr := volumes.GetManager(vcenter).DetachVolume(nodeVM, volumeID)
+			cnsVolumeId, nodeVM, request.Name, request.Namespace)
+		detachErr := volumes.GetManager(vcenter).DetachVolume(nodeVM, cnsVolumeId)
 		if detachErr != nil {
 			klog.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
-				volumeID, nodeVM, request.Name, request.Namespace, detachErr)
+				cnsVolumeId, nodeVM, request.Name, request.Namespace, detachErr)
 			// Update CnsNodeVmAttachment instance with detach error message
 			instance.Status.Error = detachErr.Error()
 		} else {
