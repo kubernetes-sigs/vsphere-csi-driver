@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+
 	"github.com/davecgh/go-spew/spew"
 	"k8s.io/klog"
 
@@ -35,6 +36,15 @@ func IsNotFoundError(err error) bool {
 	isNotFoundError := false
 	if soap.IsSoapFault(err) {
 		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.NotFound)
+	}
+	return isNotFoundError
+}
+
+// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault, if yes then returns true else return false
+func IsManagedObjectNotFound(err error) bool {
+	isNotFoundError := false
+	if soap.IsSoapFault(err) {
+		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
 	}
 	return isNotFoundError
 }

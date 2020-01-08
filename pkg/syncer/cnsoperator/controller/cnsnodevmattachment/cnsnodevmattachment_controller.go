@@ -24,7 +24,7 @@ import (
 
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -36,10 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -149,15 +148,15 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		VirtualCenterHost: host,
 	}
 	nodeUUID := instance.Spec.NodeUUID
-	nodeVM, err := r.nodeManager.GetNode(nodeUUID, dc)
-	if err != nil {
-		klog.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
-			nodeUUID, request.Name, request.Namespace, err)
-		instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
-		updateCnsNodeVmAttachment(ctx, r.client, instance)
-		return reconcile.Result{}, err
-	}
 	if !instance.Status.Attached && instance.DeletionTimestamp == nil {
+		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+		if err != nil {
+			klog.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+				nodeUUID, request.Name, request.Namespace, err)
+			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
+			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			return reconcile.Result{}, err
+		}
 		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
 		if err != nil {
 			klog.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
@@ -241,6 +240,16 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 	}
 
 	if instance.DeletionTimestamp != nil {
+		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+		if err != nil {
+			klog.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+				nodeUUID, request.Name, request.Namespace, err)
+			// TODO : Need to check for VirtualMachine CRD instance existence.
+			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
+			removeFinalizerFromCRDInstance(instance, request)
+			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			return reconcile.Result{}, nil
+		}
 		var cnsVolumeId string
 		var ok bool
 		if cnsVolumeId, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeId]; !ok {
@@ -252,18 +261,18 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			cnsVolumeId, nodeVM, request.Name, request.Namespace)
 		detachErr := volumes.GetManager(vcenter).DetachVolume(nodeVM, cnsVolumeId)
 		if detachErr != nil {
+			if vsphere.IsManagedObjectNotFound(detachErr) {
+				klog.Errorf("Found a managed object not found fault for vm: %+v", nodeVM)
+				removeFinalizerFromCRDInstance(instance, request)
+				updateCnsNodeVmAttachment(ctx, r.client, instance)
+				return reconcile.Result{}, nil
+			}
 			klog.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				cnsVolumeId, nodeVM, request.Name, request.Namespace, detachErr)
 			// Update CnsNodeVmAttachment instance with detach error message
 			instance.Status.Error = detachErr.Error()
 		} else {
-			for i, finalizer := range instance.Finalizers {
-				if finalizer == cnsoperatortypes.CNSFinalizer {
-					klog.V(4).Infof("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
-						cnsoperatortypes.CNSFinalizer, request.Name, request.Namespace)
-					instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
-				}
-			}
+			removeFinalizerFromCRDInstance(instance, request)
 		}
 		err = updateCnsNodeVmAttachment(ctx, r.client, instance)
 		if err != nil {
@@ -274,6 +283,17 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, detachErr
 	}
 	return reconcile.Result{}, nil
+}
+
+// removeFinalizerFromCRDInstance will  remove the CNS Finalizer = cns.vmware.com, from a given nodevmattachment instance
+func removeFinalizerFromCRDInstance(instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, request reconcile.Request) {
+	for i, finalizer := range instance.Finalizers {
+		if finalizer == cnsoperatortypes.CNSFinalizer {
+			klog.V(4).Infof("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
+				cnsoperatortypes.CNSFinalizer, request.Name, request.Namespace)
+			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
+		}
+	}
 }
 
 // getVCDatacenterFromConfig returns datacenter registered for each vCenter
