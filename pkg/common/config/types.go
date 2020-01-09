@@ -79,4 +79,6 @@ type GCConfig struct {
 	Port string `gcfg:"port"`
 	// Guest Cluster UID
 	ManagedClusterUID string `gcfg:"managedcluster-uid"`
+	// Guest Cluster Name
+	ManagedClusterName string `gcfg:"managedcluster-name"`
 }
