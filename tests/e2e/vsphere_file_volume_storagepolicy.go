@@ -47,80 +47,76 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 	})
 
 	/*
-						Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
-
-						1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
-		                2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
-		                3. Create a PVC with "ReadWriteMany" using the SC from above
-		                4. Wait for PVC to be Bound
-		                5. Get the VolumeID from PV
-		                6. Verify using CNS Query API if VolumeID retrieved from PV is present.
-		                   Also verify
-		                   Name, Capacity, VolumeType, Health, Policy matches
-		                   Verify if VolumeID is created on one of the VSAN datastores (compliant with storage policy) from list of datacenters provided in vsphere.conf
-		                   Also verify if VolumeID is created with expected storage policy
-		                7. Delete PVC
-		                8. Delete storage policy
+		Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
+		1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
+		2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
+		3. Create a PVC with "ReadWriteMany" using the SC from above
+		4. Wait for PVC to be Bound
+		5. Get the VolumeID from PV
+		6. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify
+		   Name, Capacity, VolumeType, Health, Policy matches
+		   Verify if VolumeID is created on one of the VSAN datastores (compliant with storage policy) from list of datacenters provided in vsphere.conf
+		   Also verify if VolumeID is created with expected storage policy
+		7. Delete PVC
+		8. Delete storage policy
 	*/
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, when storage policy is offered", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f, client, namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, true)
+		testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f, client, namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, true)
 	})
 
 	/*
-						Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
-
-						1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
-		                2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
-		                3. Create a PVC with "ReadWriteMany" using the SC from above
-		                4. Wait for PVC to be Bound
-		                5. Get the VolumeID from PV
-		                6. Verify using CNS Query API if VolumeID retrieved from PV is present.
-		                   Also verify
-		                   Name, Capacity, VolumeType, Health, Policy matches
-		                   Also verify if VolumeID is created with expected storage policy
-		                7. Delete PVC
-		                8. Delete storage policy
+		Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
+		1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
+		2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
+		3. Create a PVC with "ReadWriteMany" using the SC from above
+		4. Wait for PVC to be Bound
+		5. Get the VolumeID from PV
+		6. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify
+		   Name, Capacity, VolumeType, Health, Policy matches
+		   Also verify if VolumeID is created with expected storage policy
+		7. Delete PVC
+		8. Delete storage policy
 	*/
 
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, when storage policy is offered and datacenters is not specified in conf file", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f, client, namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, false)
+		testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f, client, namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, false)
 	})
 
 	/*
-						Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
-
-						1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
-		                2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
-		                3. Create a PVC with "ReadOnlyMany" using the SC from above
-		                4. Wait for PVC to be Bound
-		                5. Get the VolumeID from PV
-		                6. Verify using CNS Query API if VolumeID retrieved from PV is present.
-		                   Also verify
-		                   Name, Capacity, VolumeType, Health, Policy matches
-		                   Verify if VolumeID is created on one of the VSAN datastores (compliant with storage policy) from list of datacenters provided in vsphere.conf
-		                   Also verify if VolumeID is created with expected storage policy
-		                7. Delete PVC
-		                8. Delete storage policy
+		Verify dynamic volume provisioning works with storage policy having compliant VSAN datastores only
+		1. Create a storage policy having compliant VSAN datastores with VSANFS enabled from list of datacenters where K8s nodes are deployed on
+		2. Create StorageClass with fsType as "nfs4" and storagePolicy created in step1
+		3. Create a PVC with "ReadOnlyMany" using the SC from above
+		4. Wait for PVC to be Bound
+		5. Get the VolumeID from PV
+		6. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify
+		   Name, Capacity, VolumeType, Health, Policy matches
+		   Verify if VolumeID is created on one of the VSAN datastores (compliant with storage policy) from list of datacenters provided in vsphere.conf
+		   Also verify if VolumeID is created with expected storage policy
+		7. Delete PVC
+		8. Delete storage policy
 	*/
 
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, when storage policy is offered", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f, client, namespace, v1.ReadOnlyMany, storagePolicyNameForSharedDatastores, true)
+		testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f, client, namespace, v1.ReadOnlyMany, storagePolicyNameForSharedDatastores, true)
 	})
 })
 
-func testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, storagePolicyName string, checkDatastoreBelongToDatacenter bool) {
+func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, storagePolicyName string, checkDatastoreBelongToDatacenter bool) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s storagePolicy %s", accessMode, storagePolicyName))
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = nfs4FSType
-
 	if storagePolicyName != "" {
 		scParameters[scParamStoragePolicyName] = storagePolicyName
 	}
 	// Create Storage class and PVC
-	ginkgo.By("Creating Storage Class with nfs4")
+	ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
@@ -144,10 +140,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f *fra
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
@@ -161,17 +154,17 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f *fra
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
-		err = fmt.Errorf("Wrong disk size provisioned")
+		err = fmt.Errorf("wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	ginkgo.By("Verifying volume type specified in PVC is honored")
 	if queryResult.Volumes[0].VolumeType != testVolumeType {
-		err = fmt.Errorf("Volume type is not %q", testVolumeType)
+		err = fmt.Errorf("volume type is not %q", testVolumeType)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	// TODO: Verify HealthStauts is shown "Healthy", currently, only after 1 hour, the health status of newly created
+	// TODO: Verify HealthStatus is shown "Healthy", currently, only after 1 hour, the health status of newly created
 	// volume will change from "Unknown" to "Healthy"
 
 	// Verify if VolumeID is created on the VSAN datastores
@@ -183,7 +176,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreUrlInSCWithStoragePolicy(f *fra
 	}
 
 	// Verify the volume is provisioned using specified storage policy
-	storagePolicyId := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-	gomega.Expect(storagePolicyId == queryResult.Volumes[0].StoragePolicyId).To(gomega.BeTrue(), fmt.Sprintf("Storage policy verification failed. Actual storage policy: %q does not match with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyId))
+	storagePolicyID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+	gomega.Expect(storagePolicyID == queryResult.Volumes[0].StoragePolicyId).To(gomega.BeTrue(), fmt.Sprintf("Storage policy verification failed. Actual storage policy: %q does not match with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID))
 
 }

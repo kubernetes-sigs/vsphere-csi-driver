@@ -643,6 +643,16 @@ func isDatastoreBelongsToDatacenterSpecifiedInConfig(datastoreURL string) bool {
 	return false
 }
 
+func getTargetvSANFileShareDatastoreURLsFromConfig() []string {
+	var targetDsURLs []string
+	cfg, err := getConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if cfg.Global.TargetvSANFileShareDatastoreURLs != "" {
+		targetDsURLs = strings.Split(cfg.Global.TargetvSANFileShareDatastoreURLs, ",")
+	}
+	return targetDsURLs
+}
+
 func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) bool {
 	cfg, err := getConfig()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
