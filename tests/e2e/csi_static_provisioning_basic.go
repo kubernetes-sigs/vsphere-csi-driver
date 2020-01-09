@@ -35,7 +35,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-block-vanilla] Basic Static Provisioning", func() {
+var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
 
 	var (
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Basic Static Provisioning", func() 
 		10. Delete PVC.
 		11. Verify PV is deleted automatically.
 	*/
-	ginkgo.It("Verify basic static provisioning workflow", func() {
+	ginkgo.It("[csi-block-vanilla] Verify basic static provisioning workflow", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
