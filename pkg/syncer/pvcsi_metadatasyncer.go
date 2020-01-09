@@ -38,10 +38,10 @@ func pvcsiVolumeUpdated(resourceType interface{}, volumeHandle string, metadataS
 	switch resource := resourceType.(type) {
 	case *v1.PersistentVolume:
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(resource.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC)
-		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, resource.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, resource.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	case *v1.PersistentVolumeClaim:
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(resource.Spec.VolumeName, resource.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV)
-		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, resource.Labels, resource.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle}, metadataSyncer.configInfo.Cfg.GC, string(resource.GetUID()), resource.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, resource.Labels, resource.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	default:
 	}
 	// Check if cnsvolumemetadata object exists for this entity in the supervisor cluster
@@ -105,7 +105,7 @@ func pvcsiUpdatePod(pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFla
 	}
 	if len(volumes) > 0 {
 		if deleteFlag == false {
-			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pod.GetUID()), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
+			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes, metadataSyncer.configInfo.Cfg.GC, string(pod.GetUID()), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			klog.V(4).Infof("pvCSI PodUpdated: Invoking create CnsVolumeMetadata : %v", newMetadata)
 			_, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(newMetadata)
 			if err != nil {

@@ -17,12 +17,13 @@ limitations under the License.
 package syncer
 
 import (
-	"k8s.io/api/core/v1"
+	"reflect"
+
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
-	"reflect"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
@@ -141,7 +142,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 
 		// Get the cnsvolumemetadata object for this pv and add it to the return list
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pv.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC)
-		pvObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pv.UID), pv.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		pvObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pv.UID), pv.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 		returnList.Items = append(returnList.Items, *pvObject)
 
 		// Get the cnsvolumemetadata object for pvc bound to this pv and add it to the return list
@@ -152,7 +153,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 				return err
 			}
 			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV)
-			pvcObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pvc.UID), pvc.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+			pvcObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 			returnList.Items = append(returnList.Items, *pvcObject)
 			pvcToVolumeName[pvc.Name] = pv.Spec.CSI.VolumeHandle
 		}
@@ -181,7 +182,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 		}
 		if len(volumeNames) > 0 {
 			klog.V(4).Infof("Pod %q claims vsphere volumes %v", pod.Name, volumeNames)
-			podObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID, string(pod.UID), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
+			podObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pod.UID), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			returnList.Items = append(returnList.Items, *podObject)
 		}
 	}
