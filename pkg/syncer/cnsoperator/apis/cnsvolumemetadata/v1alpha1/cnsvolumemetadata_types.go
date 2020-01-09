@@ -19,6 +19,9 @@ package v1alpha1
 import (
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	config "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 )
 
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
@@ -127,16 +130,15 @@ const (
 type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
 
 // CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the input parameters
-func CreateCnsVolumeMetadataSpec(volumeHandle []string, clusterid string, uid string, name string, entityType CnsOperatorEntityType, labels map[string]string, namespace string, reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
+func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig, uid string, name string, entityType CnsOperatorEntityType, labels map[string]string, namespace string, reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
 	return &CnsVolumeMetadata{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: GetCnsVolumeMetadataName(clusterid, uid),
-			// TODO: add owner
-			OwnerReferences: nil,
+			Name:            GetCnsVolumeMetadataName(gcConfig.ManagedClusterUID, uid),
+			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion, cnsoperatortypes.GCKind, gcConfig.ManagedClusterName, gcConfig.ManagedClusterUID)},
 		},
 		Spec: CnsVolumeMetadataSpec{
 			VolumeNames:      volumeHandle,
-			GuestClusterID:   clusterid,
+			GuestClusterID:   gcConfig.ManagedClusterUID,
 			EntityType:       entityType,
 			EntityName:       name,
 			Labels:           labels,
@@ -166,5 +168,19 @@ func GetCnsOperatorVolumeStatus(volumeName string, errorMessage string) CnsVolum
 		VolumeName:   volumeName,
 		Updated:      false,
 		ErrorMessage: errorMessage,
+	}
+}
+
+// GetCnsVolumeMetadataOwnerReference returns the owner reference object from the input parameters
+func GetCnsVolumeMetadataOwnerReference(apiVersion string, kind string, clusterName string, clusterUID string) metav1.OwnerReference {
+	bController := true
+	bOwnerDeletion := true
+	return metav1.OwnerReference{
+		APIVersion:         apiVersion,
+		Controller:         &bController,
+		BlockOwnerDeletion: &bOwnerDeletion,
+		Kind:               kind,
+		Name:               clusterName,
+		UID:                types.UID(clusterUID),
 	}
 }

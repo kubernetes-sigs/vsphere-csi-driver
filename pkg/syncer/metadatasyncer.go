@@ -17,11 +17,12 @@ limitations under the License.
 package syncer
 
 import (
-	"k8s.io/apimachinery/pkg/util/wait"
 	"os"
 	"reflect"
 	"strconv"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
