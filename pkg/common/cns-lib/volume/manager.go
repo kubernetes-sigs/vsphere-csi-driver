@@ -287,9 +287,29 @@ func (m *defaultManager) DetachVolume(vm *cnsvsphere.VirtualMachine, volumeID st
 	// Call the CNS DetachVolume
 	task, err := m.virtualCenter.CnsClient.DetachVolume(ctx, cnsDetachSpecList)
 	if err != nil {
-		klog.Errorf("CNS DetachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-		return err
+		if cnsvsphere.IsNotFoundError(err) {
+			// Detach failed with NotFound error, check if the volume is already detached
+			klog.V(2).Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
+			diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+			if err != nil {
+				klog.Errorf("DetachVolume: CNS Detach has failed with err: %q. Unable to check if volume: %q is already detached from vm: %+v",
+					err, volumeID, vm)
+				return err
+			} else if diskUUID == "" {
+				klog.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
+					volumeID, vm)
+				return nil
+			} else {
+				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %q", volumeID, vm, err)
+				klog.Error(msg)
+				return errors.New(msg)
+			}
+		} else {
+			klog.Errorf("CNS DetachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return err
+		}
 	}
+
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil {
