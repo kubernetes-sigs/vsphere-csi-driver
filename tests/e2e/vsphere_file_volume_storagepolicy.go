@@ -127,10 +127,6 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
-	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
 
 	// Waiting for PVC to be bound
 	var pvclaims []*v1.PersistentVolumeClaim
@@ -141,6 +137,8 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
