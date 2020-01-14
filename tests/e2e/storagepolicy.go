@@ -132,6 +132,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
+	var svcPVCName string // PVC Name in the Supervisor Cluster
 	var err error
 	// decide which test setup is available to run
 	if vanillaCluster {
@@ -165,7 +166,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	ginkgo.By("Verifying if volume is provisioned using specified storage policy")
 	if guestCluster {
 		// svcPVCName refers to PVC Name in the supervisor cluster
-		svcPVCName := volumeID
+		svcPVCName = volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 	}
@@ -215,6 +216,11 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
+		if guestCluster {
+			ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		}
 	}
 }
 
