@@ -10,26 +10,29 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
-
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-
+	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	v1 "k8s.io/api/core/v1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -704,4 +707,48 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 		return false
 	}
 	return true
+}
+
+// verifyCRDInSupervisor is a helper method to check if a given crd is created/deleted in the supervisor cluster
+// This method will fetch the List of CRD Objects for a given crdName, Version and Group and then
+// verifies if the given expectedInstanceName exist in the list
+func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var instanceFound bool
+	for _, crd := range list.Items {
+		if crdName == "cnsnodevmattachments" {
+			instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSNodeVMAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+
+		}
+		if crdName == "cnsvolumemetadatas" {
+			instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+		}
+	}
+	if isCreated {
+		gomega.Expect(instanceFound).To(gomega.BeTrue())
+	} else {
+		gomega.Expect(instanceFound).To(gomega.BeFalse())
+	}
 }
