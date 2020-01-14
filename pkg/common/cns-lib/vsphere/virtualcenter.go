@@ -176,44 +176,40 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 	return client.SessionManager.LoginByToken(client.Client.WithHeader(ctx, header))
 }
 
-// Connect establishes connection with vSphere with existing credentials if session doesn't exist.
-// If credentials are invalid then it fetches latest credential from credential store and connects with it.
+// Connect establishes a new connection with vSphere with updated credentials
+// If credentials are invalid then it fails the connection.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
-	err := vc.connect(ctx)
-	if err == nil {
-		return nil
-	}
-	if !IsInvalidCredentialsError(err) {
-		klog.Errorf("Cannot connect to vCenter with err: %v", err)
-		return err
-	}
-	klog.V(2).Infof("Invalid credentials. Cannot connect to server %q. "+
-		"Fetching credentials from secret.", vc.Config.Host)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
-
 	cfg, err := cnsconfig.GetCnsconfig(cfgPath)
 	if err != nil {
 		klog.Errorf("Failed to read config with err: %v", err)
 		return err
 	}
-	vcenterconfig, err := GetVirtualCenterConfig(cfg)
+	updatedVCConfig, err := GetVirtualCenterConfig(cfg)
 	if err != nil {
 		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
-	vc.UpdateCredentials(vcenterconfig.Username, vcenterconfig.Password)
-	return vc.connect(ctx)
+	var requestNewSession bool
+	if (vc.Config.Username != updatedVCConfig.Username) || (vc.Config.Password != updatedVCConfig.Password) {
+		vc.UpdateCredentials(updatedVCConfig.Username, updatedVCConfig.Password)
+		requestNewSession = true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Set up the vc connection
+	err = vc.connect(ctx, requestNewSession)
+	if err != nil {
+		klog.Errorf("Cannot connect to vCenter with err: %v", err)
+	}
+	return err
 }
 
 // connect creates a connection to the virtual center host.
-func (vc *VirtualCenter) connect(ctx context.Context) error {
+func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 
@@ -227,15 +223,17 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		return nil
 	}
 
-	// If session hasn't expired, nothing to do.
-	sessionMgr := session.NewManager(vc.Client.Client)
-	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
-	// Nil is returned if the session is not authenticated or timed out.
-	if userSession, err := sessionMgr.UserSession(ctx); err != nil {
-		klog.Errorf("Failed to obtain user session with err: %v", err)
-		return err
-	} else if userSession != nil {
-		return nil
+	if !requestNewSession {
+		// If session hasn't expired, nothing to do.
+		sessionMgr := session.NewManager(vc.Client.Client)
+		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
+		// Nil is returned if the session is not authenticated or timed out.
+		if userSession, err := sessionMgr.UserSession(ctx); err != nil {
+			klog.Errorf("Failed to obtain user session with err: %v", err)
+			return err
+		} else if userSession != nil {
+			return nil
+		}
 	}
 	// If session has expired, create a new instance.
 	klog.Warning("Creating a new client session as the existing session isn't valid or not authenticated")
