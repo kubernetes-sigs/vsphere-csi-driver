@@ -57,6 +57,7 @@ const (
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
+	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	vsanhealthServiceName                      = "vsan-health"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
@@ -87,6 +88,10 @@ const (
 	startVsanHealthOperation                   = "start"
 	sshdPort                                   = "22"
 	vsanHealthServiceWaitTime                  = 15
+	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
+	crdCNSVolumeMetadata                       = "cnsvolumemetadatas"
+	crdGroup                                   = "cns.vmware.com"
+	crdVersion                                 = "v1alpha1"
 )
 
 const (

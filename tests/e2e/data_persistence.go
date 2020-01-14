@@ -53,6 +53,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		namespace         string
 		scParameters      map[string]string
 		storagePolicyName string
+		svcPVCName        string // PVC Name in the Supervisor Cluster
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		volumeID := pv.Spec.CSI.VolumeHandle
 		if guestCluster {
 			// svcPVCName refers to PVC Name in the supervisor cluster
-			svcPVCName := volumeID
+			svcPVCName = volumeID
 			volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		}
@@ -133,6 +134,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 		}
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -159,6 +161,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if guestCluster {
+				ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+				verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+			}
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
@@ -180,6 +187,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		} else {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 		}
 		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -206,6 +214,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if guestCluster {
+				ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+				verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+			}
 		}
 	})
 })
