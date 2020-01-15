@@ -213,7 +213,7 @@ func buildCnsMetadataList(pv *v1.PersistentVolume, pvToPVCMap pvcMap, pvcToPodMa
 	metadataList = append(metadataList, pvMetadata)
 	if pvc, ok := pvToPVCMap[pv.Name]; ok {
 		// get pvc metadata
-		pvEntityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
+		pvEntityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "", clusterID)
 		pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, clusterID, []cnstypes.CnsKubernetesEntityReference{pvEntityReference})
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
@@ -221,7 +221,7 @@ func buildCnsMetadataList(pv *v1.PersistentVolume, pvToPVCMap pvcMap, pvcToPodMa
 		if pods, ok := pvcToPodMap[key]; ok {
 			for _, pod := range pods {
 				// get pod metadata
-				pvcEntityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+				pvcEntityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, clusterID)
 				podMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, false, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, clusterID, []cnstypes.CnsKubernetesEntityReference{pvcEntityReference})
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 			}

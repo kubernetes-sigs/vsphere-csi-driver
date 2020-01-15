@@ -287,7 +287,11 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 
 	var entityReferences []cnstypes.CnsKubernetesEntityReference
 	for _, reference := range instance.Spec.EntityReferences {
-		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(reference.EntityType, reference.EntityName, reference.Namespace))
+		clusterid := reference.ClusterID
+		if instance.Spec.EntityType == cnsv1alpha1.CnsOperatorEntityTypePV {
+			clusterid = r.configInfo.Cfg.Global.ClusterID
+		}
+		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(reference.EntityType, reference.EntityName, reference.Namespace, clusterid))
 	}
 
 	var metadataList []cnstypes.BaseCnsEntityMetadata
@@ -376,12 +380,28 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 		if len(req.Spec.VolumeNames) != 1 || len(req.Spec.EntityReferences) != 1 {
 			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME instances")
 		}
+		for _, reference := range req.Spec.EntityReferences {
+			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePVC) {
+				err = errors.NewBadRequest("PERSISTENT_VOLUME instances can only refer to PERSISTENT_VOLUME_CLAIM instances")
+			}
+			if reference.ClusterID != "" {
+				err = errors.NewBadRequest("EntityReferences.ClusterID should be empty for PERSISTENT_VOLUME instances")
+			}
+		}
 	case cnsv1alpha1.CnsOperatorEntityTypePVC:
 		if req.Spec.Namespace == "" {
 			err = errors.NewBadRequest("Namespace should be set for PERSISTENT_VOLUME_CLAIM instances")
 		}
 		if len(req.Spec.VolumeNames) != 1 || len(req.Spec.EntityReferences) != 1 {
 			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME_CLAIM instances")
+		}
+		for _, reference := range req.Spec.EntityReferences {
+			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePV) {
+				err = errors.NewBadRequest("PERSISTENT_VOLUME_CLAIM instances can only refer to PERSISTENT_VOLUME instances")
+			}
+			if reference.ClusterID == "" {
+				err = errors.NewBadRequest("EntityReferences.ClusterID should not be empty for PERSISTENT_VOLUME_CLAIM instances")
+			}
 		}
 	case cnsv1alpha1.CnsOperatorEntityTypePOD:
 		if req.Spec.Namespace == "" {
@@ -392,6 +412,14 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 		}
 		if len(req.Spec.VolumeNames) == 0 || len(req.Spec.EntityReferences) == 0 {
 			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length greater than 0 for POD instances")
+		}
+		for _, reference := range req.Spec.EntityReferences {
+			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePVC) {
+				err = errors.NewBadRequest("POD instances can only refer to PERSISTENT_VOLUME_CLAIM instances")
+			}
+			if reference.ClusterID == "" {
+				err = errors.NewBadRequest("EntityReferences.ClusterID should not be empty for POD instances")
+			}
 		}
 	default:
 		err = errors.NewBadRequest(fmt.Sprintf("Invalid entity type %q", req.Spec.EntityType))

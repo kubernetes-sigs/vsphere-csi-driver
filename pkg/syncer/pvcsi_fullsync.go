@@ -141,7 +141,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 		volumeNames = append(volumeNames, pv.Spec.CSI.VolumeHandle)
 
 		// Get the cnsvolumemetadata object for this pv and add it to the return list
-		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pv.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC)
+		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pv.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, "")
 		pvObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pv.UID), pv.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "", []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 		returnList.Items = append(returnList.Items, *pvObject)
 
@@ -152,7 +152,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 				klog.Errorf("FullSync: Failed to get PVC %q from guest cluster. Err: %v", pvc.Name, err)
 				return err
 			}
-			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV)
+			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID)
 			pvcObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 			returnList.Items = append(returnList.Items, *pvcObject)
 			pvcToVolumeName[pvc.Name] = pv.Spec.CSI.VolumeHandle
@@ -177,7 +177,7 @@ func createCnsVolumeMetadataList(k8sclient clientset.Interface, metadataSyncer *
 				klog.V(4).Infof("FullSync: PVC %q claimed by Pod %q is not a CSI vSphere Volume", volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Name)
 				continue
 			}
-			entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC))
+			entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID))
 			volumeNames = append(volumeNames, volumeName)
 		}
 		if len(volumeNames) > 0 {
