@@ -393,7 +393,7 @@ func csiPVCUpdated(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metad
 	}
 	// Create updateSpec
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
+	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
@@ -617,7 +617,7 @@ func csiUpdatePod(pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag 
 				var metadataList []cnstypes.BaseCnsEntityMetadata
 				var podMetadata *cnstypes.CnsKubernetesEntityMetadata
 				if deleteFlag == false {
-					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)

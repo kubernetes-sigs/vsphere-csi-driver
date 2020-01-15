@@ -84,11 +84,12 @@ func GetContainerCluster(clusterid string, username string, clusterflavor cnstyp
 }
 
 // CreateCnsKuberenetesEntityReference returns an  EntityReference object to which the given entity refers to.
-func CreateCnsKuberenetesEntityReference(entityType string, entityName string, namespace string) cnstypes.CnsKubernetesEntityReference {
+func CreateCnsKuberenetesEntityReference(entityType string, entityName string, namespace string, clusterid string) cnstypes.CnsKubernetesEntityReference {
 	return cnstypes.CnsKubernetesEntityReference{
 		EntityType: entityType,
 		EntityName: entityName,
 		Namespace:  namespace,
+		ClusterID:  clusterid,
 	}
 }
 
