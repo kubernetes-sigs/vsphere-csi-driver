@@ -20,7 +20,7 @@ import (
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	config "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 )
 
@@ -49,6 +49,10 @@ type CnsVolumeMetadataSpec struct {
 	// A Pod in the guest cluster can refers to one or more PVCs in the guest cluster.
 	// A PVC in the guest cluster refers to a PV in the guest cluster.
 	// A PV in the guest cluster refers to a PVC in the supervisor cluster.
+	// A Pod/PVC in the guest cluster refering to a PVC/PV respectively in the guest
+	// cluster must set the ClusterID field.
+	// A PV in the guest cluster refering to a PVC in the supervisor cluster must leave
+	// the ClusterID field unset.
 	// This field is mandatory.
 	EntityReferences []CnsOperatorEntityReference `json:"entityreferences"`
 
@@ -154,11 +158,12 @@ func GetCnsVolumeMetadataName(guestClusterID string, entityUID string) string {
 }
 
 // GetCnsOperatorEntityReference returns the entityReference object from the input parameters
-func GetCnsOperatorEntityReference(name string, namespace string, entitytype CnsOperatorEntityType) CnsOperatorEntityReference {
+func GetCnsOperatorEntityReference(name string, namespace string, entitytype CnsOperatorEntityType, clusterid string) CnsOperatorEntityReference {
 	return CnsOperatorEntityReference{
 		EntityType: string(entitytype),
 		EntityName: name,
 		Namespace:  namespace,
+		ClusterID:  clusterid,
 	}
 }
 
