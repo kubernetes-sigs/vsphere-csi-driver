@@ -188,11 +188,11 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	certificate, err := tls.X509KeyPair([]byte(username), []byte(password))
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to load X509 key pair. Error: %+v", err))
+		return nil, fmt.Errorf("Failed to load X509 key pair. Error: %+v", err)
 	}
 	tokens, err := sts.NewClient(ctx, client)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to create STS client. err: %+v", err))
+		return nil, fmt.Errorf("Failed to create STS client. err: %+v", err)
 	}
 	req := sts.TokenRequest{
 		Certificate: &certificate,
@@ -200,7 +200,7 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	signer, err := tokens.Issue(ctx, req)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to issue SAML token. err: %+v", err))
+		return nil, fmt.Errorf("Failed to issue SAML token. err: %+v", err)
 	}
 	return signer, nil
 }

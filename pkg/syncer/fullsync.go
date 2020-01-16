@@ -116,24 +116,24 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	}
 	for _, createSpec := range createSpecArray {
 		// Create volume if present in currentK8sPVMap
-		var volumeId string
+		var volumeID string
 		if createSpec.VolumeType == common.BlockVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil {
-			volumeId = createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId
+			volumeID = createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId
 		} else if createSpec.VolumeType == common.FileVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails) != nil {
-			volumeId = createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).BackingFileId
+			volumeID = createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).BackingFileId
 		} else {
 			log.Warnf("Skipping createSpec: %+v as VolumeType is not known or BackingObjectDetails is either nil or not typecastable  ", spew.Sdump(createSpec))
 			continue
 		}
-		if _, existsInK8s := currentK8sPVMap[volumeId]; existsInK8s {
-			log.Debugf("FullSync: Calling CreateVolume for volume id: %q with createSpec %+v", volumeId, spew.Sdump(createSpec))
+		if _, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
+			log.Debugf("FullSync: Calling CreateVolume for volume id: %q with createSpec %+v", volumeID, spew.Sdump(createSpec))
 			_, err := metadataSyncer.volumeManager.CreateVolume(ctx, &createSpec)
 			if err != nil {
 				log.Warnf("FullSync: Failed to create volume with the spec: %+v. Err: %+v", spew.Sdump(createSpec), err)
 				continue
 			}
 		}
-		delete(cnsCreationMap, volumeId)
+		delete(cnsCreationMap, volumeID)
 	}
 
 }
