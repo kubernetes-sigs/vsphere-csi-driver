@@ -8,13 +8,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// LogLevel represents the level for the log.
 type LogLevel string
 
 const (
+	// ProductionLogLevel is the level for the production log.
 	ProductionLogLevel  LogLevel = "PRODUCTION"
+	// DevelopmentLogLevel is the level for development log
 	DevelopmentLogLevel LogLevel = "DEVELOPMENT"
+	// EnvLoggerLevel is the level for the environment log
 	EnvLoggerLevel               = "LOGGER_LEVEL"
-	LogCtxIdKey                  = "TraceId"
+	// LogCtxIDKey holds the TraceId for log
+	LogCtxIDKey                  = "TraceId"
 )
 
 var defaultLogLevel LogLevel
@@ -49,14 +54,14 @@ func GetLogger(ctx context.Context) *zap.SugaredLogger {
 
 // NewContextWithLogger returns a new child context with context UUID set using key CtxId
 func NewContextWithLogger(ctx context.Context) context.Context {
-	newCtx := withFields(ctx, zap.String(LogCtxIdKey, uuid.New().String()))
+	newCtx := withFields(ctx, zap.String(LogCtxIDKey, uuid.New().String()))
 	return newCtx
 }
 
 // GetNewContextWithLogger creates a new context with context UUID and logger set
 // func returns both context and logger to the caller.
 func GetNewContextWithLogger() (context.Context, *zap.SugaredLogger) {
-	newCtx := withFields(context.Background(), zap.String(LogCtxIdKey, uuid.New().String()))
+	newCtx := withFields(context.Background(), zap.String(LogCtxIDKey, uuid.New().String()))
 	return newCtx, GetLogger(newCtx)
 }
 

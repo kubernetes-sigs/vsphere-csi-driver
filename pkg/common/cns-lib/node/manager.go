@@ -29,8 +29,8 @@ import (
 var (
 	// ErrNodeNotFound is returned when a node isn't found.
 	ErrNodeNotFound = errors.New("node wasn't found")
-	// ErrEmptyProviderId is returned when it is observed that provider id is not set on the kubernetes cluster
-	ErrEmptyProviderId = errors.New("node with empty providerId present in the cluster")
+	// ErrEmptyProviderID is returned when it is observed that provider id is not set on the kubernetes cluster
+	ErrEmptyProviderID = errors.New("node with empty providerId present in the cluster")
 )
 
 // Manager provides functionality to manage nodes.
@@ -205,7 +205,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 			}
 			if k8snodeUUID == "" {
 				log.Errorf("Node: %q with empty providerId found in the cluster. aborting get all nodes", nodeName)
-				err = ErrEmptyProviderId
+				err = ErrEmptyProviderID
 				return true
 			}
 			m.nodeNameToUUID.Store(nodeName, k8snodeUUID)

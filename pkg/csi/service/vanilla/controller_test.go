@@ -326,7 +326,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	profileId, err := pc.ProfileIDByName(ctx, params[common.AttributeStoragePolicyName])
+	profileID, err := pc.ProfileIDByName(ctx, params[common.AttributeStoragePolicyName])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +347,8 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
 	}
 
-	if queryResult.Volumes[0].StoragePolicyId != profileId {
-		t.Fatalf("Failed to match volume policy ID: %s", profileId)
+	if queryResult.Volumes[0].StoragePolicyId != profileID {
+		t.Fatalf("Failed to match volume policy ID: %s", profileID)
 	}
 
 	// QueryAll
@@ -576,17 +576,17 @@ func TestCompleteControllerFlow(t *testing.T) {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
 	}
 
-	var NodeId string
+	var NodeID string
 	if v := os.Getenv("VSPHERE_K8S_NODE"); v != "" {
-		NodeId = v
+		NodeID = v
 	} else {
-		NodeId = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Name
+		NodeID = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Name
 	}
 
 	// Attach
 	reqControllerPublishVolume := &csi.ControllerPublishVolumeRequest{
 		VolumeId:         volID,
-		NodeId:           NodeId,
+		NodeId:           NodeID,
 		VolumeCapability: capabilities[0],
 		Readonly:         false,
 	}
@@ -601,7 +601,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	//Detach
 	reqControllerUnpublishVolume := &csi.ControllerUnpublishVolumeRequest{
 		VolumeId: volID,
-		NodeId:   NodeId,
+		NodeId:   NodeID,
 	}
 	t.Log(fmt.Sprintf("ControllerUnpublishVolume will be called with req +%v", *reqControllerUnpublishVolume))
 	_, err = ct.controller.ControllerUnpublishVolume(ctx, reqControllerUnpublishVolume)

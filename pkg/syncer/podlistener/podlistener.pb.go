@@ -9,8 +9,8 @@ It is generated from these files:
 	podlistener.proto
 
 It has these top-level messages:
-	PodListenerRequest
-	PodListenerResponse
+	Request
+	Response
 */
 package podlistener
 
@@ -37,31 +37,46 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type PodListenerRequest struct {
+// Request is the request for podListener. Each request has one
+// volumeID and NodeName.
+type Request struct {
 	// The volumeID that needs to be attached to the node.
 	VolumeID string `protobuf:"bytes,1,opt,name=volumeID" json:"volumeID,omitempty"`
 	// Name of the node where the Pod is running.
 	NodeName string `protobuf:"bytes,2,opt,name=nodeName" json:"nodeName,omitempty"`
 }
 
-func (m *PodListenerRequest) Reset()                    { *m = PodListenerRequest{} }
-func (m *PodListenerRequest) String() string            { return proto.CompactTextString(m) }
-func (*PodListenerRequest) ProtoMessage()               {}
-func (*PodListenerRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+// Reset resets the Request
+func (m *Request) Reset()         { *m = Request{} }
+func (m *Request) String() string { return proto.CompactTextString(m) }
 
-type PodListenerResponse struct {
+// ProtoMessage returns none
+func (*Request) ProtoMessage() {}
+
+// Descriptor returns fileDescriptor0, int{0}
+func (*Request) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+
+// Response is the response for podListener. Each response has one
+// VmuuidAnnotation.
+type Response struct {
 	// VM UUID annotation of the pod.
 	VmuuidAnnotation string `protobuf:"bytes,1,opt,name=vmuuidAnnotation" json:"vmuuidAnnotation,omitempty"`
 }
 
-func (m *PodListenerResponse) Reset()                    { *m = PodListenerResponse{} }
-func (m *PodListenerResponse) String() string            { return proto.CompactTextString(m) }
-func (*PodListenerResponse) ProtoMessage()               {}
-func (*PodListenerResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+// Reset resets the Response
+func (m *Response) Reset()         { *m = Response{} }
+func (m *Response) String() string { return proto.CompactTextString(m) }
+
+// ProtoMessage returns none
+func (*Response) ProtoMessage() {}
+
+// Descriptor returns fileDescriptor0, int{1}
+func (*Response) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
 
 func init() {
-	proto.RegisterType((*PodListenerRequest)(nil), "podlistener.PodListenerRequest")
-	proto.RegisterType((*PodListenerResponse)(nil), "podlistener.PodListenerResponse")
+	proto.RegisterType((*Request)(nil), "podlistener.Request")
+	proto.RegisterType((*Response)(nil), "podlistener.Response")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -72,9 +87,8 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// Client API for PodListener service
-
-type PodListenerClient interface {
+// Client is the Client API for PodListener service
+type Client interface {
 	//
 	// GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
 	// Retrieves the PVC name and Namespace from the PV spec.
@@ -87,19 +101,20 @@ type PodListenerClient interface {
 	// The annotation might not be available immediately when the Pod is created.
 	// So polling the Pod periodically every pollInterval seconds to check if annotation is available.
 	// If annotation is not available after a timeout period, the function errors out.
-	GetPodVMUUIDAnnotation(ctx context.Context, in *PodListenerRequest, opts ...grpc.CallOption) (*PodListenerResponse, error)
+	GetPodVMUUIDAnnotation(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
 }
 
 type podListenerClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewPodListenerClient(cc *grpc.ClientConn) PodListenerClient {
+// NewPodListenerClient returns a new podListener Client
+func NewPodListenerClient(cc *grpc.ClientConn) Client {
 	return &podListenerClient{cc}
 }
 
-func (c *podListenerClient) GetPodVMUUIDAnnotation(ctx context.Context, in *PodListenerRequest, opts ...grpc.CallOption) (*PodListenerResponse, error) {
-	out := new(PodListenerResponse)
+func (c *podListenerClient) GetPodVMUUIDAnnotation(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
 	err := grpc.Invoke(ctx, "/podlistener.PodListener/GetPodVMUUIDAnnotation", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -107,9 +122,8 @@ func (c *podListenerClient) GetPodVMUUIDAnnotation(ctx context.Context, in *PodL
 	return out, nil
 }
 
-// Server API for PodListener service
-
-type PodListenerServer interface {
+// Server is the Server API for PodListener service
+type Server interface {
 	//
 	// GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
 	// Retrieves the PVC name and Namespace from the PV spec.
@@ -122,38 +136,40 @@ type PodListenerServer interface {
 	// The annotation might not be available immediately when the Pod is created.
 	// So polling the Pod periodically every pollInterval seconds to check if annotation is available.
 	// If annotation is not available after a timeout period, the function errors out.
-	GetPodVMUUIDAnnotation(context.Context, *PodListenerRequest) (*PodListenerResponse, error)
+	GetPodVMUUIDAnnotation(context.Context, *Request) (*Response, error)
 }
 
-func RegisterPodListenerServer(s *grpc.Server, srv PodListenerServer) {
-	s.RegisterService(&_PodListener_serviceDesc, srv)
+// RegisterPodListenerServer registers the PodListenerServer to the server by given Server and PodListener Server.
+func RegisterPodListenerServer(s *grpc.Server, srv Server) {
+	s.RegisterService(&_PodListenerServiceDesc, srv)
 }
 
-func _PodListener_GetPodVMUUIDAnnotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PodListenerRequest)
+
+func _PodListenerGetPodVMUUIDAnnotationHandler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Request)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PodListenerServer).GetPodVMUUIDAnnotation(ctx, in)
+		return srv.(Server).GetPodVMUUIDAnnotation(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
 		FullMethod: "/podlistener.PodListener/GetPodVMUUIDAnnotation",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PodListenerServer).GetPodVMUUIDAnnotation(ctx, req.(*PodListenerRequest))
+		return srv.(Server).GetPodVMUUIDAnnotation(ctx, req.(*Request))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-var _PodListener_serviceDesc = grpc.ServiceDesc{
+var _PodListenerServiceDesc = grpc.ServiceDesc{
 	ServiceName: "podlistener.PodListener",
-	HandlerType: (*PodListenerServer)(nil),
+	HandlerType: (*Server)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "GetPodVMUUIDAnnotation",
-			Handler:    _PodListener_GetPodVMUUIDAnnotation_Handler,
+			Handler:    _PodListenerGetPodVMUUIDAnnotationHandler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -49,6 +49,7 @@ var (
 	}
 )
 
+// NodeManagerInterface provides functionality to manage nodes.
 type NodeManagerInterface interface {
 	Initialize(ctx context.Context) error
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)

@@ -104,7 +104,7 @@ func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeN
 
 	// Call GetPodVMUUIDAnnotation method on the client stub
 	res, err := client.GetPodVMUUIDAnnotation(ctx,
-		&podlistener.PodListenerRequest{
+		&podlistener.Request{
 			VolumeID: volumeID,
 			NodeName: nodeName,
 		})

@@ -16,7 +16,7 @@ limitations under the License.
 
 // NOTE: Boilerplate only.  Ignore this file.
 
-// Package v1alpha1 contains API Schema definitions for the cns v1alpha1 API group
+// Package apis v1alpha1 contains API Schema definitions for the cns v1alpha1 API group
 // +k8s:deepcopy-gen=package,register
 // +groupName=cns.vmware.com
 package apis
@@ -32,12 +32,14 @@ import (
 var (
 	// SchemeGroupVersion is group version used to register these objects
 	SchemeGroupVersion        = schema.GroupVersion{Group: "cns.vmware.com", Version: "v1alpha1"}
-	CnsNodeVmAttachmentPlural = "cnsnodevmattachments"
-
+	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
+	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
+	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
 )
 
 var (
+	// SchemeBuilder is the builder used to register these objects
 	SchemeBuilder      runtime.SchemeBuilder
 	localSchemeBuilder = &SchemeBuilder
 )
