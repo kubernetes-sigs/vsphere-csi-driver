@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	// VolumeCaps represents how the volume could be accessed.
+	// BlockVolumeCaps represents how the block volume could be accessed.
 	// CNS block volumes support only SINGLE_NODE_WRITER where the volume is
 	// attached to a single node at any given time.
 	BlockVolumeCaps = []csi.VolumeCapability_AccessMode{
@@ -34,6 +34,7 @@ var (
 		},
 	}
 
+	// FileVolumeCaps represents how the file volume could be accessed.
 	// CNS file volumes supports MULTI_NODE_READER_ONLY, MULTI_NODE_SINGLE_WRITER
 	// and MULTI_NODE_MULTI_WRITER
 	FileVolumeCaps = []csi.VolumeCapability_AccessMode{

@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -223,7 +222,7 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string) (*St
 		} else if param == AttributeFsType {
 			log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 		} else {
-			return nil, errors.New(fmt.Sprintf("Invalid param: %q and value: %q", param, value))
+			return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
 		}
 	}
 	for _, value := range netPermissionsMap {
@@ -268,7 +267,7 @@ func updatePermissionsMap(splitParam []string, permissions map[string]*vsanfstyp
 	if splitParam[0] == AllowRoot {
 		perm.AllowRoot, err = strconv.ParseBool(value)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Invalid allowroot value: %q", value))
+			return fmt.Errorf("Invalid allowroot value: %q", value)
 		}
 	} else if splitParam[0] == Permission {
 		perm.Permissions, err = validatePermissions(vsanfstypes.VsanFileShareAccessType(value))
@@ -289,7 +288,7 @@ func validatePermissions(permission vsanfstypes.VsanFileShareAccessType) (vsanfs
 		permission == vsanfstypes.VsanFileShareAccessTypeNO_ACCESS {
 		return permission, nil
 	}
-	return "", errors.New(fmt.Sprintf("Invalid permission %q", permission))
+	return "", fmt.Errorf("Invalid permission %q", permission)
 }
 
 // GetConfigPath returns ConfigPath depending on the environment variable specified and the cluster flavor set

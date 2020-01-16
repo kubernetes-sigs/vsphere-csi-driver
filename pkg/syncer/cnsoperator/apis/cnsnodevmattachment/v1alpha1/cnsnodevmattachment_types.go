@@ -24,8 +24,8 @@ const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier
 	AttributeFirstClassDiskUUID = "diskUUID"
 
-	// AttributeCnsVolumeId represents the volume ID in CNS.
-	AttributeCnsVolumeId = "cnsVolumeId"
+	// AttributeCnsVolumeID represents the volume ID in CNS.
+	AttributeCnsVolumeID = "cnsVolumeId"
 )
 
 // CnsNodeVmAttachmentSpec defines the desired state of CnsNodeVmAttachment
@@ -64,9 +64,10 @@ type CnsNodeVmAttachmentStatus struct {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// CnsNodeVmAttachment is the Schema for the cnsnodevmattachments API
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
+
+// CnsNodeVmAttachment is the Schema for the cnsnodevmattachments API
 type CnsNodeVmAttachment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -27,7 +27,7 @@ import (
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
 // +k8s:openapi-gen=true
 type CnsVolumeMetadataSpec struct {
-	// VolumeName indicates the unique ID of the volume.
+	// VolumeNames indicates the unique ID of the volume.
 	// For volumes created in a guest cluster, this will be
 	// “<guestcluster-ID>-<UID>” where UID is the pvc.UUID in supervisor cluster.
 	// Instances of POD entity type can have multiple volume names.

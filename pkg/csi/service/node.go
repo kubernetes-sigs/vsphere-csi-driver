@@ -535,13 +535,13 @@ func (s *service) NodeGetInfo(
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	nodeId := os.Getenv("NODE_NAME")
-	if nodeId == "" {
+	nodeID := os.Getenv("NODE_NAME")
+	if nodeID == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		return &csi.NodeGetInfoResponse{
-			NodeId:             nodeId,
+			NodeId:             nodeID,
 			AccessibleTopology: &csi.Topology{},
 		}, nil
 	}
@@ -583,7 +583,7 @@ func (s *service) NodeGetInfo(
 			log.Errorf("Failed to get system uuid for node VM")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeId)
+		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
 		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
 		if err != nil || nodeVM == nil {
 			log.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
@@ -603,7 +603,7 @@ func (s *service) NodeGetInfo(
 			log.Errorf("Failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeId)
+		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
 		if zone != "" && region != "" {
 			accessibleTopology = make(map[string]string)
 			accessibleTopology[csitypes.LabelRegionFailureDomain] = region
@@ -615,7 +615,7 @@ func (s *service) NodeGetInfo(
 	}
 
 	return &csi.NodeGetInfoResponse{
-		NodeId:             nodeId,
+		NodeId:             nodeID,
 		AccessibleTopology: topology,
 	}, nil
 }

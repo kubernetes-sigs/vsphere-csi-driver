@@ -57,7 +57,7 @@ func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeMana
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
-	return &ReconcileCnsNodeVmAttachment{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, nodeManager: cnsnode.GetManager(ctx)}
+	return &ReconcileCnsNodeVMAttachment{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, nodeManager: cnsnode.GetManager(ctx)}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -83,11 +83,11 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// blank assignment to verify that ReconcileCnsNodeVmAttachment implements reconcile.Reconciler
-var _ reconcile.Reconciler = &ReconcileCnsNodeVmAttachment{}
+// blank assignment to verify that ReconcileCnsNodeVMAttachment implements reconcile.Reconciler
+var _ reconcile.Reconciler = &ReconcileCnsNodeVMAttachment{}
 
-// ReconcileCnsNodeVmAttachment reconciles a CnsNodeVmAttachment object
-type ReconcileCnsNodeVmAttachment struct {
+// ReconcileCnsNodeVMAttachment reconciles a CnsNodeVmAttachment object
+type ReconcileCnsNodeVMAttachment struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client        client.Client
@@ -97,12 +97,12 @@ type ReconcileCnsNodeVmAttachment struct {
 	nodeManager   cnsnode.Manager
 }
 
-// Reconcile reads that state of the cluster for a CnsNodeVmAttachment object and makes changes based on the state read
-// and what is in the CnsNodeVmAttachment.Spec
+// Reconcile reads that state of the cluster for a CnsNodeVMAttachment object and makes changes based on the state read
+// and what is in the CnsNodeVMAttachment.Spec
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -123,7 +123,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, err
 	}
 
-	// If the CnsNodeVmAttachment instance is already attached and
+	// If the CnsNodeVMAttachment instance is already attached and
 	// not deleted by the user, remove the instance from the queue.
 	if instance.Status.Attached && instance.DeletionTimestamp == nil {
 		return reconcile.Result{}, nil
@@ -134,7 +134,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		log.Errorf("Failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		instance.Status.Error = err.Error()
-		updateCnsNodeVmAttachment(ctx, r.client, instance)
+		updateCnsNodeVMAttachment(ctx, r.client, instance)
 		return reconcile.Result{}, err
 	}
 	var host, dcMoref string
@@ -164,7 +164,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			log.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
 			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
-			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			updateCnsNodeVMAttachment(ctx, r.client, instance)
 			return reconcile.Result{}, err
 		}
 		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
@@ -172,7 +172,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			log.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			updateCnsNodeVMAttachment(ctx, r.client, instance)
 			return reconcile.Result{}, err
 		}
 		cnsFinalizerExists := false
@@ -183,13 +183,13 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 				break
 			}
 		}
-		// Update finalizer and attachmentMetadata together in CnsNodeVmAttachment.
+		// Update finalizer and attachmentMetadata together in CnsNodeVMAttachment.
 		if !cnsFinalizerExists {
 			// Add finalizer.
 			instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
 			/*
 				Add the CNS volume ID in the attachment metadata. This is used later to detach the CNS volume on
-				deletion of CnsNodeVmAttachment instance. Note that the supervisor PVC can be deleted due to following:
+				deletion of CnsNodeVMAttachment instance. Note that the supervisor PVC can be deleted due to following:
 				1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226) where DeleteVolume
 				   could be invoked in pvcsi before ControllerUnpublishVolume. This causes supervisor PVC to be deleted.
 				2. Supervisor namespace user deletes PVC used by a guest cluster.
@@ -199,9 +199,9 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 				during detach.
 			*/
 			attachmentMetadata := make(map[string]string)
-			attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeId] = volumeID
+			attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID] = volumeID
 			instance.Status.AttachmentMetadata = attachmentMetadata
-			err = updateCnsNodeVmAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
 				log.Errorf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
@@ -218,7 +218,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		}
 
 		if !cnsFinalizerExists {
-			// Read the CnsNodeVmAttachment instance again because the instance is already modified
+			// Read the CnsNodeVMAttachment instance again because the instance is already modified
 			err = r.client.Get(ctx, request.NamespacedName, instance)
 			if err != nil {
 				log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
@@ -229,10 +229,10 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 		}
 
 		if attachErr != nil {
-			// Update CnsNodeVmAttachment instance with attach error message
+			// Update CnsNodeVMAttachment instance with attach error message
 			instance.Status.Error = attachErr.Error()
 		} else {
-			// Update CnsNodeVmAttachment instance with attached status set to true
+			// Update CnsNodeVMAttachment instance with attached status set to true
 			// and attachment metadata
 			instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeFirstClassDiskUUID] = diskUUID
 			instance.Status.Attached = true
@@ -240,7 +240,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			instance.Status.Error = ""
 		}
 
-		err = updateCnsNodeVmAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
 			log.Errorf("Failed to update attach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
@@ -257,34 +257,34 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 			// TODO : Need to check for VirtualMachine CRD instance existence.
 			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
 			removeFinalizerFromCRDInstance(ctx, instance, request)
-			updateCnsNodeVmAttachment(ctx, r.client, instance)
+			updateCnsNodeVMAttachment(ctx, r.client, instance)
 			return reconcile.Result{}, nil
 		}
-		var cnsVolumeId string
+		var cnsVolumeID string
 		var ok bool
-		if cnsVolumeId, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeId]; !ok {
+		if cnsVolumeID, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID]; !ok {
 			errMsg := fmt.Sprintf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v", instance.Status.AttachmentMetadata)
 			log.Error(errMsg)
 			return reconcile.Result{}, errors.New(errMsg)
 		}
 		log.Debugf("vSphere CNS driver is detaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
-			cnsVolumeId, nodeVM, request.Name, request.Namespace)
-		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeId)
+			cnsVolumeID, nodeVM, request.Name, request.Namespace)
+		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
 			if vsphere.IsManagedObjectNotFound(detachErr) {
 				log.Errorf("Found a managed object not found fault for vm: %+v", nodeVM)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
-				updateCnsNodeVmAttachment(ctx, r.client, instance)
+				updateCnsNodeVMAttachment(ctx, r.client, instance)
 				return reconcile.Result{}, nil
 			}
 			log.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
-				cnsVolumeId, nodeVM, request.Name, request.Namespace, detachErr)
-			// Update CnsNodeVmAttachment instance with detach error message
+				cnsVolumeID, nodeVM, request.Name, request.Namespace, detachErr)
+			// Update CnsNodeVMAttachment instance with detach error message
 			instance.Status.Error = detachErr.Error()
 		} else {
 			removeFinalizerFromCRDInstance(ctx, instance, request)
 		}
-		err = updateCnsNodeVmAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
 			log.Errorf("Failed to update detach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
@@ -295,7 +295,7 @@ func (r *ReconcileCnsNodeVmAttachment) Reconcile(request reconcile.Request) (rec
 	return reconcile.Result{}, nil
 }
 
-// removeFinalizerFromCRDInstance will  remove the CNS Finalizer = cns.vmware.com, from a given nodevmattachment instance
+// removeFinalizerFromCRDInstance will remove the CNS Finalizer = cns.vmware.com, from a given nodevmattachment instance
 func removeFinalizerFromCRDInstance(ctx context.Context, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, request reconcile.Request) {
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
@@ -349,7 +349,8 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	return pv.Spec.CSI.VolumeHandle, nil
 }
 
-func updateCnsNodeVmAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
+
+func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {

@@ -48,7 +48,7 @@ const (
 	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
 	AttributeStoragePolicyID = "storagepolicyid"
 
-	// AttributeSupervisorStorageClas represents name of the Storage Class
+	// AttributeSupervisorStorageClass represents name of the Storage Class
 	// For example: StorageClassName: "silver"
 	AttributeSupervisorStorageClass = "svstorageclass"
 
@@ -83,10 +83,10 @@ const (
 	// FileVolumeType is the VolumeType for CNS File Share Volume
 	FileVolumeType = "FILE"
 
-	// Key for NFSv4 access point
+	// Nfsv4AccessPointKey is the key for NFSv4 access point
 	Nfsv4AccessPointKey = "NFSv4.1"
 
-	// NFSv4 access point of file volume
+	// Nfsv4AccessPoint is the access point of file volume
 	Nfsv4AccessPoint = "Nfsv4AccessPoint"
 
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
@@ -97,7 +97,7 @@ const (
 	// on which CNS is supported.
 	MinSupportedVCenterMinor int = 7
 
-	// MinSupportedVCenterMajor is the minimum, major version of vCenter
+	// MinSupportedVCenterPatch is the minimum patch version of vCenter
 	// on which CNS is supported.
 	MinSupportedVCenterPatch int = 3
 
@@ -113,12 +113,12 @@ const (
 	// VsanDatastoreType is the string to identify datastore type as vsan.
 	VsanDatastoreType string = "vsan"
 
-	// Whether the root access should be allowed on a file volume
+	// AllowRoot decides Whether the root access should be allowed on a file volume
 	AllowRoot string = "allowroot"
 
 	// Permission to be set in the file volume
 	Permission string = "permission"
 
-	// Client IP address, IP range or IP subnet
+	// IPs is Client IP address, IP range or IP subnet
 	IPs string = "ips"
 )

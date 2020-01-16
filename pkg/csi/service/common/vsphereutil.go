@@ -221,8 +221,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		} else {
 			// If datastoreUrl is set in storage class, then check if this is in the allowed list.
 			found := false
-			for _, targetVSANFSDsUrl := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-				if spec.ScParams.DatastoreURL == targetVSANFSDsUrl {
+			for _, targetVSANFSDsURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+				if spec.ScParams.DatastoreURL == targetVSANFSDsURL {
 					found = true
 					break
 				}
@@ -366,8 +366,8 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 	return datastoreMoRefs
 }
 
-// Helper function to get DatastoreMoRef for given datastoreUrl in the given virtual center.
-func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl string) (vim25types.ManagedObjectReference, error) {
+// Helper function to get DatastoreMoRef for given datastoreURL in the given virtual center.
+func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL string) (vim25types.ManagedObjectReference, error) {
 	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
@@ -375,16 +375,16 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl s
 	}
 	var datastoreObj *vsphere.Datastore
 	for _, datacenter := range datacenters {
-		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreUrl)
+		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreURL)
 		if err != nil {
 			log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
-				datastoreUrl, datacenter.InventoryPath, vc.Config.Host, err)
+				datastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
 			return datastoreObj.Reference(), nil
 		}
 	}
 
-	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreUrl, vc)
+	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
 	return vim25types.ManagedObjectReference{}, errors.New(msg)
 }
 
@@ -410,21 +410,21 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *
 	}
 	// Now create a map of datastores which are queried in the method.
 	dsToFSEnabledMapToReturn := make(map[string]bool)
-	for _, datastoreUrl := range datastoreUrls {
-		if val, ok := dsToFileServiceEnabledMap[datastoreUrl]; ok {
+	for _, datastoreURL := range datastoreUrls {
+		if val, ok := dsToFileServiceEnabledMap[datastoreURL]; ok {
 			if !val {
-				msg := fmt.Sprintf("File service is not enabled on the datastore: %s", datastoreUrl)
+				msg := fmt.Sprintf("File service is not enabled on the datastore: %s", datastoreURL)
 				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreUrl] = false
+				dsToFSEnabledMapToReturn[datastoreURL] = false
 			} else {
-				msg := fmt.Sprintf("File service is enabled on the datastore: %s", datastoreUrl)
+				msg := fmt.Sprintf("File service is enabled on the datastore: %s", datastoreURL)
 				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreUrl] = true
+				dsToFSEnabledMapToReturn[datastoreURL] = true
 			}
 		} else {
-			msg := fmt.Sprintf("Datastore URL %s is not present in datacenters specified in config.", datastoreUrl)
+			msg := fmt.Sprintf("Datastore URL %s is not present in datacenters specified in config.", datastoreURL)
 			log.Debugf(msg)
-			dsToFSEnabledMapToReturn[datastoreUrl] = false
+			dsToFSEnabledMapToReturn[datastoreURL] = false
 		}
 	}
 	return dsToFSEnabledMapToReturn, nil

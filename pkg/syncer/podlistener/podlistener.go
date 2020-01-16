@@ -94,7 +94,7 @@ func InitPodListenerService(ctx context.Context) error {
 /*
  * GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation interface method
  */
-func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
+func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req *Request) (*Response, error) {
 	var (
 		vmuuid   string
 		err      error
@@ -142,7 +142,7 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 		return nil, fmt.Errorf(errMsg)
 	}
 	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s", vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
-	response := PodListenerResponse{VmuuidAnnotation: vmuuid}
+	response := Response{VmuuidAnnotation: vmuuid}
 	return &response, nil
 }
 

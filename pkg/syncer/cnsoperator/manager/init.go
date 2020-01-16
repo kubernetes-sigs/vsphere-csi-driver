@@ -71,9 +71,9 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 
-	// Create CnsNodeVMAttachment CRD
+	// Create CnsNodeVmAttachment CRD
 	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVmAttachmentPlural, crdKind)
+	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVMAttachmentPlural, crdKind)
 	if err != nil {
 		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err

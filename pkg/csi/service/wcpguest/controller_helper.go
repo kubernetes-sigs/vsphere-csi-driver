@@ -66,9 +66,8 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 		if paramName != common.AttributeSupervisorStorageClass {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid GC CSI parameter", param)
 			return status.Error(codes.InvalidArgument, msg)
-		} else {
-			supervisorStorageClass = req.Parameters[param]
 		}
+		supervisorStorageClass = req.Parameters[param]
 	}
 	// Validate if the req contains non-empty common.AttributeSupervisorStorageClass
 	if supervisorStorageClass == "" {
@@ -154,9 +153,8 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 			if pvc.Status.Phase == v1.ClaimBound {
 				log.Infof("PersistentVolumeClaim %s found on namespace %s and phase=%s (%v)", pvcName, ns, v1.ClaimBound, time.Since(start))
 				return true, nil
-			} else {
-				log.Debugf("PersistentVolumeClaim %s found on namespace %s but phase is %s instead of %s.", pvcName, ns, pvc.Status.Phase, v1.ClaimBound)
 			}
+			log.Debugf("PersistentVolumeClaim %s found on namespace %s but phase is %s instead of %s.", pvcName, ns, pvc.Status.Phase, v1.ClaimBound)
 		}
 	}
 	return false, fmt.Errorf("PersistentVolumeClaim %v on namespace %s not in phase %s within %v", pvcName, ns, v1.ClaimBound, timeout)

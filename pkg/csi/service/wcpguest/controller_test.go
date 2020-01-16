@@ -97,7 +97,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func createVolume(ct *controllerTest, ctx context.Context, reqCreate *csi.CreateVolumeRequest, response chan *csi.CreateVolumeResponse, error chan error) {
+func createVolume(ctx context.Context, ct *controllerTest, reqCreate *csi.CreateVolumeRequest, response chan *csi.CreateVolumeResponse, error chan error) {
 	defer close(response)
 	defer close(error)
 	res, err := ct.controller.CreateVolume(ctx, reqCreate)
@@ -143,7 +143,7 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 		response := make(chan *csi.CreateVolumeResponse)
 		error := make(chan error)
 
-		go createVolume(ct, ctx, reqCreate, response, error)
+		go createVolume(ctx, ct, reqCreate, response, error)
 		time.Sleep(1 * time.Second)
 		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(testSupervisorPVCName, metav1.GetOptions{})
 		pvc.Status.Phase = "Bound"
