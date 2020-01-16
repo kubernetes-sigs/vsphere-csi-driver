@@ -270,7 +270,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	// Return if labels are unchanged
-	if oldPv.Status.Phase == v1.VolumeAvailable && reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
+	if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) && reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
 		klog.V(3).Infof("PVUpdated: PV labels have not changed")
 		return
 	}
