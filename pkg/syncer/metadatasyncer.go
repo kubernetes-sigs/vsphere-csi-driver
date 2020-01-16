@@ -22,11 +22,13 @@ import (
 	"strconv"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -169,8 +171,24 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	// Get pv object attached to pvc
 	pv, err := metadataSyncer.pvLister.Get(newPvc.Spec.VolumeName)
 	if pv == nil || err != nil {
-		klog.Errorf("PVCUpdated: Error getting Persistent Volume for pvc %s in namespace %s with err: %v", newPvc.Name, newPvc.Namespace, err)
-		return
+		if !apierrors.IsNotFound(err) {
+			klog.Errorf("PVCUpdated: Error getting Persistent Volume for pvc %s in namespace %s with err: %v", newPvc.Name, newPvc.Namespace, err)
+			return
+		} else {
+			klog.V(2).Infof("PVCUpdated: PV with name %s not found using PV Lister. Querying API server to get PV Info", newPvc.Spec.VolumeName)
+			// Create the kubernetes client from config
+			k8sClient, err := k8s.NewClient()
+			if err != nil {
+				klog.Errorf("PVCUpdated: Creating Kubernetes client failed. Err: %v", err)
+				return
+			}
+			pv, err = k8sClient.CoreV1().PersistentVolumes().Get(newPvc.Spec.VolumeName, metav1.GetOptions{})
+			if err != nil {
+				klog.Errorf("PVCUpdated: Error getting Persistent Volume %s from API server with err: %v", newPvc.Spec.VolumeName, err)
+				return
+			}
+			klog.V(4).Infof("PVCUpdated: Found Persistent Volume %s from API server", newPvc.Spec.VolumeName)
+		}
 	}
 
 	// Verify if pv is vsphere csi volume

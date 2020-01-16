@@ -51,12 +51,14 @@ require (
 	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69
 	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20191220191310-2ac7ed31c085
 	go.etcd.io/bbolt v1.3.3 // indirect
+	golang.org/x/lint v0.0.0-20190313153728-d0100b6bd8b3 // indirect
 	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
 	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
+	honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc // indirect
 	k8s.io/api v0.17.0
 	k8s.io/apiextensions-apiserver v0.0.0-20190918201827-3de75813f604
 	k8s.io/apimachinery v0.17.1-beta.0
