@@ -20,11 +20,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/uuid"
 	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/simulator"
@@ -34,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
-
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -114,6 +115,16 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconf
 	cfg.Global.User = s.URL.User.Username()
 	cfg.Global.Password, _ = s.URL.User.Password()
 	cfg.Global.Datacenters = "DC0"
+
+	// Write values to test_vsphere.conf
+	os.Setenv("X_CSI_VSPHERE_CLOUD_CONFIG", "test_vsphere.conf")
+	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort))
+	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	cfg.VirtualCenter = make(map[string]*cnsconfig.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &cnsconfig.VirtualCenterConfig{
 		User:         cfg.Global.User,
@@ -248,7 +259,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	// Create a test volume
 	createSpec := cnstypes.CnsVolumeCreateSpec{
 		DynamicData: vimtypes.DynamicData{},
-		Name:        testVolumeName,
+		Name:        testPVCName,
 		VolumeType:  testVolumeType,
 		Datastores:  dsList,
 		Metadata: cnstypes.CnsVolumeMetadata{
@@ -297,8 +308,9 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	newLabel[testPVLabelName] = testPVLabelValue
 
 	// Test pvUpdate workflow for dynamic provisioning of Volume
-	oldPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumeAvailable, "")
-	newPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	oldPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumeAvailable, "")
+	newPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -314,15 +326,17 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	err = volumeManager.DeleteVolume(volumeID.Id, false)
 
 	// Create PV on K8S with VolumeHandle of recently deleted Volume
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvcName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvUpdate workflow on VC for static provisioning of Volume
 	// pvUpdate should create the volume on vc for static provisioning
-	oldPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumePending, "")
-	newPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName = testVolumeName + "-" + uuid.New().String()
+	oldPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumePending, "")
+	newPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -339,14 +353,15 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	oldPVCLabel := make(map[string]string)
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(namespace, oldPVCLabel, pv.Name)
+	pvcName = testPVCName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, oldPVCLabel, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvcUpdate workflow on VC
-	oldPvc := getPersistentVolumeClaimSpec(testNamespace, oldPVCLabel, pv.Name)
-	newPvc := getPersistentVolumeClaimSpec(testNamespace, newPVCLabel, pv.Name)
+	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, oldPVCLabel, pv.Name)
+	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name)
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
@@ -473,7 +488,7 @@ func verifyUpdateOperation(queryResult *cnstypes.CnsQueryResult, volumeID string
 }
 
 // getPersistentVolumeSpec creates PV volume spec with given Volume Handle, Reclaim Policy, Labels and Phase
-func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
+func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
 	var pv *v1.PersistentVolume
 	var claimRef *v1.ObjectReference
 	if claimRefName != "" {
@@ -487,7 +502,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:              testVolumeName,
+			Name:              volumeName,
 			Generation:        0,
 			CreationTimestamp: metav1.Time{},
 		},
@@ -522,7 +537,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 }
 
 // getPersistentVolumeClaimSpec gets vsphere persistent volume spec with given selector labels.
-func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
+func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
 	var (
 		pvc *v1.PersistentVolumeClaim
 	)
@@ -533,7 +548,7 @@ func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pv
 			APIVersion: "",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:              testPVCName,
+			Name:              pvcName,
 			Namespace:         namespace,
 			Generation:        0,
 			CreationTimestamp: metav1.Time{},
@@ -639,7 +654,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	// Create PV in K8S with VolumeHandle of recently deleted Volume
 	pvLabel := make(map[string]string)
 	pvLabel[testPVLabelName] = testPVLabelValue
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
@@ -648,13 +664,14 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	namespace := testNamespace
 	pvcLabel := make(map[string]string)
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(namespace, pvcLabel, pv.Name)
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// allocate pvc claimRef for PV spec
-	pv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
+	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
 	}

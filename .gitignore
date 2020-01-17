@@ -1,6 +1,11 @@
 # Ignore the generated kind-config yaml.
 /test/integration/kind-config.yaml
 
+# Ignore the unit-test conf files
+/pkg/csi/service/vanilla/test_vsphere.conf
+/pkg/csi/service/wcp/test_vsphere.conf
+/pkg/syncer/test_vsphere.conf
+
 # Ignore the build output.
 /.build
 
