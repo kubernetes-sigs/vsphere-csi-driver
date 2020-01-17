@@ -20,12 +20,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"sync"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/uuid"
 	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
@@ -48,7 +50,7 @@ import (
 )
 
 const (
-	testVolumeName  = "test-volume"
+	testVolumeName  = "test-pvc"
 	testClusterName = "test-cluster"
 )
 
@@ -86,6 +88,16 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	cfg.Global.User = s.URL.User.Username()
 	cfg.Global.Password, _ = s.URL.User.Password()
 	cfg.Global.Datacenters = "DC0"
+
+	// Write values to test_vsphere.conf
+	os.Setenv("X_CSI_VSPHERE_CLOUD_CONFIG", "test_vsphere.conf")
+	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort))
+	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
 		User:         cfg.Global.User,
@@ -272,6 +284,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 
 func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	// Create context
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -297,7 +310,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
+		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
@@ -310,7 +323,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-	// Varify the volume has been create with corresponding storage policy ID
+	// Verify the volume has been create with corresponding storage policy ID
 	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
 	if err != nil {
 		t.Fatal(err)
@@ -400,7 +413,7 @@ func TestExtendVolume(t *testing.T) {
 	}
 
 	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
+		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
@@ -525,7 +538,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
+		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
