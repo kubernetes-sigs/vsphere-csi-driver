@@ -16,20 +16,22 @@ package vsphere
 
 import (
 	"context"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi/pbm"
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // ConnectPbm creates a PBM client for the virtual center.
 func (vc *VirtualCenter) ConnectPbm(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
+		log.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.PbmClient == nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
-			klog.Errorf("Failed to create pbm client with err: %v", err)
+			log.Errorf("Failed to create pbm client with err: %v", err)
 			return err
 		}
 	}
@@ -38,8 +40,9 @@ func (vc *VirtualCenter) ConnectPbm(ctx context.Context) error {
 
 // DisconnectPbm destroys the PBM client for the virtual center.
 func (vc *VirtualCenter) DisconnectPbm(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
 	if vc.PbmClient == nil {
-		klog.V(1).Info("PbmClient wasn't connected, ignoring")
+		log.Info("PbmClient wasn't connected, ignoring")
 	} else {
 		vc.PbmClient = nil
 	}
@@ -48,9 +51,10 @@ func (vc *VirtualCenter) DisconnectPbm(ctx context.Context) error {
 
 // GetStoragePolicyIDByName gets storage policy ID by name.
 func (vc *VirtualCenter) GetStoragePolicyIDByName(ctx context.Context, storagePolicyName string) (string, error) {
+	log := logger.GetLogger(ctx)
 	storagePolicyID, err := vc.PbmClient.ProfileIDByName(ctx, storagePolicyName)
 	if err != nil {
-		klog.Errorf("Failed to get StoragePolicyID from StoragePolicyName %s with err: %v", storagePolicyName, err)
+		log.Errorf("Failed to get StoragePolicyID from StoragePolicyName %s with err: %v", storagePolicyName, err)
 		return "", err
 	}
 	return storagePolicyID, nil

@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"gopkg.in/gcfg.v1"
 )
@@ -106,10 +107,11 @@ func getEnvKeyValue(match string, partial bool) (string, string, error) {
 // obtained from environment variables. If an environment variable is set
 // for a property that's already initialized, the environment variable's value
 // takes precedence.
-func FromEnv(cfg *Config) error {
+func FromEnv(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("Config object cannot be nil")
 	}
+	log := logger.GetLogger(ctx)
 	//Init
 	if cfg.VirtualCenter == nil {
 		cfg.VirtualCenter = make(map[string]*VirtualCenterConfig)
@@ -134,7 +136,7 @@ func FromEnv(cfg *Config) error {
 	if v := os.Getenv("VSPHERE_INSECURE"); v != "" {
 		InsecureFlag, err := strconv.ParseBool(v)
 		if err != nil {
-			klog.Errorf("Failed to parse VSPHERE_INSECURE: %s", err)
+			log.Errorf("Failed to parse VSPHERE_INSECURE: %s", err)
 		} else {
 			cfg.Global.InsecureFlag = InsecureFlag
 		}
@@ -207,7 +209,7 @@ func FromEnv(cfg *Config) error {
 			Datacenters:  cfg.Global.Datacenters,
 		}
 	}
-	err := validateConfig(cfg)
+	err := validateConfig(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -215,34 +217,35 @@ func FromEnv(cfg *Config) error {
 	return nil
 }
 
-func validateConfig(cfg *Config) error {
+func validateConfig(ctx context.Context, cfg *Config) error {
+	log := logger.GetLogger(ctx)
 	//Fix default global values
 	if cfg.Global.VCenterPort == "" {
 		cfg.Global.VCenterPort = DefaultVCenterPort
 	}
 	// Must have at least one vCenter defined
 	if len(cfg.VirtualCenter) == 0 {
-		klog.Error(ErrMissingVCenter)
+		log.Error(ErrMissingVCenter)
 		return ErrMissingVCenter
 	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
-		klog.V(4).Infof("Initializing vc server %s", vcServer)
+		log.Debugf("Initializing vc server %s", vcServer)
 		if vcServer == "" {
-			klog.Error(ErrInvalidVCenterIP)
+			log.Error(ErrInvalidVCenterIP)
 			return ErrInvalidVCenterIP
 		}
 
 		if vcConfig.User == "" {
 			vcConfig.User = cfg.Global.User
 			if vcConfig.User == "" {
-				klog.Errorf("vcConfig.User is empty for vc %s!", vcServer)
+				log.Errorf("vcConfig.User is empty for vc %s!", vcServer)
 				return ErrUsernameMissing
 			}
 		}
 		if vcConfig.Password == "" {
 			vcConfig.Password = cfg.Global.Password
 			if vcConfig.Password == "" {
-				klog.Errorf("vcConfig.Password is empty for vc %s!", vcServer)
+				log.Errorf("vcConfig.Password is empty for vc %s!", vcServer)
 				return ErrPasswordMissing
 			}
 		}
@@ -265,7 +268,7 @@ func validateConfig(cfg *Config) error {
 
 // ReadConfig parses vSphere cloud config file and stores it into VSphereConfig.
 // Environment variables are also checked
-func ReadConfig(config io.Reader) (*Config, error) {
+func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
 		return nil, fmt.Errorf("no vSphere cloud provider config file given")
 	}
@@ -274,33 +277,34 @@ func ReadConfig(config io.Reader) (*Config, error) {
 		return nil, err
 	}
 	// Env Vars should override config file entries if present
-	if err := FromEnv(cfg); err != nil {
+	if err := FromEnv(ctx, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
 // GetCnsconfig returns Config from specified config file path
-func GetCnsconfig(cfgPath string) (*Config, error) {
-	klog.V(4).Infof("GetCnsconfig called with cfgPath: %s", cfgPath)
+func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("GetCnsconfig called with cfgPath: %s", cfgPath)
 	var cfg *Config
 	//Read in the vsphere.conf if it exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		// config from Env var only
 		cfg = &Config{}
-		if err := FromEnv(cfg); err != nil {
-			klog.Errorf("Error reading vsphere.conf\n")
+		if err := FromEnv(ctx, cfg); err != nil {
+			log.Errorf("Error reading vsphere.conf\n")
 			return cfg, err
 		}
 	} else {
 		config, err := os.Open(cfgPath)
 		if err != nil {
-			klog.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
 			return cfg, err
 		}
-		cfg, err = ReadConfig(config)
+		cfg, err = ReadConfig(ctx, config)
 		if err != nil {
-			klog.Errorf("Failed to parse config. Err: %v", err)
+			log.Errorf("Failed to parse config. Err: %v", err)
 			return cfg, err
 		}
 	}
@@ -311,7 +315,7 @@ func GetCnsconfig(cfgPath string) (*Config, error) {
 // obtained from environment variables. If an environment variable is set
 // for a property that's already initialized, the environment variable's value
 // takes precedence.
-func FromEnvToGC(cfg *Config) error {
+func FromEnvToGC(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("Config object cannot be nil")
 	}
@@ -328,7 +332,7 @@ func FromEnvToGC(cfg *Config) error {
 	if cfg.GC.Port == "" {
 		cfg.GC.Port = DefaultGCPort
 	}
-	err := validateGCConfig(cfg)
+	err := validateGCConfig(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -337,7 +341,7 @@ func FromEnvToGC(cfg *Config) error {
 
 // ReadGCConfig parses gc config file and stores it into GCConfig.
 // Environment variables are also checked
-func ReadGCConfig(config io.Reader) (*Config, error) {
+func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
 		return nil, fmt.Errorf("Guest Cluster config file is not present")
 	}
@@ -346,32 +350,33 @@ func ReadGCConfig(config io.Reader) (*Config, error) {
 		return nil, err
 	}
 	// Env Vars should override config file entries if present
-	if err := FromEnvToGC(cfg); err != nil {
+	if err := FromEnvToGC(ctx, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
 // GetGCconfig returns Config from specified config file path
-func GetGCconfig(cfgPath string) (*Config, error) {
-	klog.V(4).Infof("Get Guest Cluster config called with cfgPath: %s", cfgPath)
+func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Get Guest Cluster config called with cfgPath: %s", cfgPath)
 	var cfg *Config
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		// config from Env var only
 		cfg = &Config{}
-		if err := FromEnvToGC(cfg); err != nil {
-			klog.Errorf("Error reading guest cluster configuration file. Err: %v", err)
+		if err := FromEnvToGC(ctx, cfg); err != nil {
+			log.Errorf("Error reading guest cluster configuration file. Err: %v", err)
 			return cfg, err
 		}
 	} else {
 		config, err := os.Open(cfgPath)
 		if err != nil {
-			klog.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
 			return cfg, err
 		}
-		cfg, err = ReadGCConfig(config)
+		cfg, err = ReadGCConfig(ctx, config)
 		if err != nil {
-			klog.Errorf("Failed to parse config. Err: %v", err)
+			log.Errorf("Failed to parse config. Err: %v", err)
 			return cfg, err
 		}
 	}
@@ -379,29 +384,29 @@ func GetGCconfig(cfgPath string) (*Config, error) {
 }
 
 // validateGCConfig validates the Guest Cluster config contains all the necessary fields
-func validateGCConfig(cfg *Config) error {
-
+func validateGCConfig(ctx context.Context, cfg *Config) error {
+	log := logger.GetLogger(ctx)
 	if cfg.GC.Endpoint == "" {
-		klog.Error(ErrMissingEndpoint)
+		log.Error(ErrMissingEndpoint)
 		return ErrMissingEndpoint
 	}
 	if cfg.GC.ManagedClusterUID == "" {
-		klog.Error(ErrMissingManagedClusterUID)
+		log.Error(ErrMissingManagedClusterUID)
 		return ErrMissingManagedClusterUID
 	}
-
 	return nil
 }
 
 // GetSupervisorNamespace returns the supervisor namespace in which this guest
 // cluster is deployed
-func GetSupervisorNamespace() (string, error) {
+func GetSupervisorNamespace(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
 	const (
 		namespaceFile = DefaultpvCSIProviderPath + "/namespace"
 	)
 	namespace, err := ioutil.ReadFile(namespaceFile)
 	if err != nil {
-		klog.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
+		log.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
 		return "", err
 	}
 	return string(namespace), nil

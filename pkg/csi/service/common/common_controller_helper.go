@@ -17,25 +17,28 @@ limitations under the License.
 package common
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
 )
 
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
-func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
+func ValidateCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
+	log := logger.GetLogger(ctx)
 	// Volume Name
 	volName := req.GetName()
 	if len(volName) == 0 {
 		msg := "Volume name is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	// Validate Volume Capabilities
@@ -43,7 +46,7 @@ func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	if len(volCaps) == 0 {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not provided")
 	}
-	if !IsValidVolumeCapabilities(volCaps) {
+	if !IsValidVolumeCapabilities(ctx, volCaps) {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
 	}
 	return nil
@@ -52,11 +55,12 @@ func ValidateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 // ValidateDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
-func ValidateDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
+func ValidateDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRequest) error {
+	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Errorf(codes.InvalidArgument, msg)
 	}
 	return nil
@@ -65,15 +69,16 @@ func ValidateDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
 // ValidateControllerPublishVolumeRequest is the helper function to validate
 // ControllerPublishVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
-func ValidateControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
+func ValidateControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if len(req.NodeId) == 0 {
 		msg := "Node ID is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	volCap := req.GetVolumeCapability()
@@ -81,7 +86,7 @@ func ValidateControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequ
 		return status.Error(codes.InvalidArgument, "Volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
-	if !IsValidVolumeCapabilities(caps) {
+	if !IsValidVolumeCapabilities(ctx, caps) {
 		return status.Error(codes.InvalidArgument, "Volume capability not supported")
 	}
 	return nil
@@ -90,15 +95,16 @@ func ValidateControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequ
 // ValidateControllerUnpublishVolumeRequest is the helper function to validate
 // ControllerUnpublishVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
-func ValidateControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
+func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
+	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if len(req.NodeId) == 0 {
 		msg := "Node ID is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	return nil
@@ -137,19 +143,20 @@ func CheckAPI(version string) error {
 // ValidateControllerExpandVolumeRequest is the helper function to validate
 // ControllerExpandVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
-func ValidateControllerExpandVolumeRequest(req *csi.ControllerExpandVolumeRequest) error {
+func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+	log := logger.GetLogger(ctx)
 	// check for required parameters
 	if len(req.GetVolumeId()) == 0 {
 		msg := "volume id is a required parameter"
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if req.GetCapacityRange() == nil {
 		msg := "capacity range is a required parameter."
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
 		msg := "capacity ranges values cannot be negative"
-		klog.Error(msg)
+		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
 

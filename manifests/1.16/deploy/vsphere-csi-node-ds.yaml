@@ -40,7 +40,7 @@ spec:
         - name: registration-dir
           mountPath: /registration
       - name: vsphere-csi-node
-        image: <your docker registry>/vsphere-csi-driver:latest
+        image: vmware/vsphere-csi:<vsphere_csi_ver>
         imagePullPolicy: "Always"
         env:
         - name: NODE_NAME
@@ -57,8 +57,8 @@ spec:
           value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
         - name: X_CSI_DEBUG
           value: "true"
-        args:
-          - "--v=4"
+        - name: LOGGER_LEVEL
+          value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
         securityContext:
           privileged: true
           capabilities:

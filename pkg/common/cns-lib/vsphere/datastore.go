@@ -17,11 +17,12 @@ package vsphere
 import (
 	"context"
 	"fmt"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // Datastore holds Datastore and Datacenter information.
@@ -44,11 +45,12 @@ func (di DatastoreInfo) String() string {
 
 // GetDatastoreURL returns the URL of datastore
 func (ds *Datastore) GetDatastoreURL(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
 	var dsMo mo.Datastore
 	pc := property.DefaultCollector(ds.Client())
 	err := pc.RetrieveOne(ctx, ds.Datastore.Reference(), []string{"summary"}, &dsMo)
 	if err != nil {
-		klog.Errorf("Failed to retrieve datastore summary property: %v", err)
+		log.Errorf("Failed to retrieve datastore summary property: %v", err)
 		return "", err
 	}
 	return dsMo.Summary.Url, nil

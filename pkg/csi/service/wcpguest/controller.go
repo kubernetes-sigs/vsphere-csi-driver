@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
@@ -34,8 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
-
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -65,23 +65,28 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
-	klog.V(2).Infof("Initializing WCPGC CSI controller")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
-	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace()
+	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		return err
 	}
 	c.managedClusterUID = config.GC.ManagedClusterUID
-	restClientConfig := k8s.GetRestClientConfig(config.GC.Endpoint, config.GC.Port)
-	c.supervisorClient, err = k8s.NewSupervisorClient(restClientConfig)
+	restClientConfig := k8s.GetRestClientConfig(ctx, config.GC.Endpoint, config.GC.Port)
+	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
-		klog.Errorf("Failed to create supervisorClient. Error: %+v", err)
+		log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 		return err
 	}
-	c.vmOperatorClient, err = k8s.NewVMOperatorClient(restClientConfig)
+	c.vmOperatorClient, err = k8s.NewVMOperatorClient(ctx, restClientConfig)
 	if err != nil {
-		klog.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+		log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
 	return nil
@@ -91,11 +96,14 @@ func (c *controller) Init(config *config.Config) error {
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	err := validateGuestClusterCreateVolumeRequest(req)
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateVolume: called with args %+v", *req)
+	err := validateGuestClusterCreateVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	// Get PVC name and disk size for the supervisor cluster
@@ -124,23 +132,23 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if errors.IsNotFound(err) {
 			diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
 			claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
-			klog.V(4).Infof("PVC claim spec is %+v", spew.Sdump(claim))
+			log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(claim)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
-				klog.Error(msg)
+				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 		} else {
 			msg := fmt.Sprintf("Failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
-			klog.Error(msg)
+			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
-	isBound, err := isPVCInSupervisorClusterBound(c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin())*time.Minute)
+	isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 	if !isBound {
 		msg := fmt.Sprintf("Failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
@@ -158,25 +166,28 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
-	klog.V(4).Infof("DeleteVolume: called with args: %+v", *req)
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("DeleteVolume: called with args: %+v", *req)
 	var err error
-	err = validateGuestClusterDeleteVolumeRequest(req)
+	err = validateGuestClusterDeleteVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for Delete Volume Request: %+v has failed. Error: %+v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(req.VolumeId, nil)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			klog.V(4).Infof("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
+			log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
 			return &csi.DeleteVolumeResponse{}, nil
 		}
 		msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	klog.V(2).Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
+	log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -184,11 +195,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateGuestClusterControllerPublishVolumeRequest(req)
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerPublishVolume: called with args %+v", *req)
+	err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -196,10 +210,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	klog.V(4).Infof("Found virtualMachine instance for node: %q", req.NodeId)
+	log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
 	oldvirtualMachine := virtualMachine.DeepCopy()
 
 	// Check if volume is already present in the virtualMachine.Spec.Volumes
@@ -207,7 +221,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	var diskUUID string
 	for _, volume := range virtualMachine.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == req.VolumeId {
-			klog.V(2).Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+			log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
 			isVolumePresentInSpec = true
 			break
 		}
@@ -219,7 +233,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if volume.Name == req.VolumeId && volume.Attached == true && volume.DiskUuid != "" {
 				diskUUID = volume.DiskUuid
 				isVolumeAttached = true
-				klog.V(2).Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
+				log.Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
 				break
 			}
 		}
@@ -232,17 +246,17 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			},
 		}
 		virtualMachine.Spec.Volumes = append(oldvirtualMachine.Spec.Volumes, vmvolumes)
-		_, err := patchVirtualMachineVolumes(c.vmOperatorClient, oldvirtualMachine, virtualMachine)
+		_, err := patchVirtualMachineVolumes(ctx, c.vmOperatorClient, oldvirtualMachine, virtualMachine)
 		if err != nil {
 			msg := fmt.Sprintf("failed to patch virtualMachine %q with Error: %+v", virtualMachine.Name, err)
-			klog.Error(msg)
+			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
 
 	// volume is not attached, so wait until volume is attached and DiskUuid is set
 	if !isVolumeAttached {
-		timeoutSeconds := int64(getAttacherTimeoutInMin() * 60)
+		timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 		watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
 			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
 			ResourceVersion: virtualMachine.ResourceVersion,
@@ -250,7 +264,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		})
 		if err != nil {
 			msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
-			klog.Error(msg)
+			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		defer watchVirtualMachine.Stop()
@@ -258,24 +272,24 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
 		for diskUUID == "" {
 			// blocking wait for update event
-			klog.V(4).Infof(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
+			log.Debugf(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
 				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				klog.Error(msg)
+				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
-			klog.V(4).Infof(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
+			log.Debugf(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
 			for _, volume := range vm.Status.Volumes {
 				if volume.Name == req.VolumeId {
 					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
 						diskUUID = volume.DiskUuid
-						klog.V(2).Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q", volume.DiskUuid, volume.Name, vm.Name)
+						log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q", volume.DiskUuid, volume.Name, vm.Name)
 					} else {
 						if volume.Error != "" {
 							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q", volume.Error, volume.Name, vm.Name)
-							klog.Error(msg)
+							log.Error(msg)
 							return nil, status.Errorf(codes.Internal, msg)
 						}
 					}
@@ -283,10 +297,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 			}
 			if diskUUID == "" {
-				klog.V(4).Infof(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
+				log.Debugf(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
 			}
 		}
-		klog.V(4).Infof(fmt.Sprintf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId))
+		log.Debugf(fmt.Sprintf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId))
 	}
 
 	//return PublishContext with diskUUID of the volume attached to node.
@@ -303,11 +317,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateGuestClusterControllerUnpublishVolumeRequest(req)
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+	err := validateGuestClusterControllerUnpublishVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 
@@ -316,20 +333,20 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	oldVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	klog.V(4).Infof("Found VirtualMachine for node: %q.", req.NodeId)
+	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	newVirtualMachine := oldVirtualMachine.DeepCopy()
 
 	// Remove volume for virtual machine spec, if it exists
 	for index, volume := range newVirtualMachine.Spec.Volumes {
 		if volume.Name == req.VolumeId {
-			klog.V(4).Infof("Removing volume %q from VirtualMachine %q", volume.Name, newVirtualMachine.Name)
+			log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, newVirtualMachine.Name)
 			newVirtualMachine.Spec.Volumes = append(newVirtualMachine.Spec.Volumes[:index], newVirtualMachine.Spec.Volumes[index+1:]...)
-			if _, err = patchVirtualMachineVolumes(c.vmOperatorClient, oldVirtualMachine, newVirtualMachine); err != nil {
+			if _, err = patchVirtualMachineVolumes(ctx, c.vmOperatorClient, oldVirtualMachine, newVirtualMachine); err != nil {
 				msg := fmt.Sprintf("Failed to patch VirtualMachine %q with Error: %+v", newVirtualMachine.Name, err)
-				klog.Error(msg)
+				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 			break
@@ -337,7 +354,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
-	timeoutSeconds := int64(getAttacherTimeoutInMin() * 60)
+	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
 		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(newVirtualMachine.Name)}).String(),
 		ResourceVersion: oldVirtualMachine.ResourceVersion,
@@ -345,12 +362,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to watch VirtualMachine %q with Error: %v", newVirtualMachine.Name, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if watchVirtualMachine == nil {
 		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", newVirtualMachine.Name)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 
 	}
@@ -359,23 +376,23 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	// Loop until the volume is removed from virtualmachine status
 	isVolumeDetached := false
 	for !isVolumeDetached {
-		klog.V(4).Infof(fmt.Sprintf("Waiting for update on VirtualMachine: %q", newVirtualMachine.Name))
+		log.Debugf(fmt.Sprintf("Waiting for update on VirtualMachine: %q", newVirtualMachine.Name))
 		// Block on update events
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 		if !ok {
 			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", newVirtualMachine.Name)
-			klog.Error(msg)
+			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		isVolumeDetached = true
 		for _, volume := range vm.Status.Volumes {
 			if volume.Name == req.VolumeId {
-				klog.V(4).Infof(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, newVirtualMachine.Name))
+				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, newVirtualMachine.Name))
 				isVolumeDetached = false
 				if volume.Attached == true && volume.Error != "" {
 					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, newVirtualMachine.Name, volume.Error)
-					klog.Error(msg)
+					log.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)
 				}
 				break
@@ -383,7 +400,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 
 	}
-	klog.V(2).Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
+	log.Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
@@ -391,10 +408,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
 
-	klog.V(4).Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+	log := logger.GetLogger(ctx)
+	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(volCaps) {
+	if common.IsValidVolumeCapabilities(ctx, volCaps) {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -405,21 +423,27 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
-	klog.V(4).Infof("ListVolumes: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ListVolumes: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
 
-	klog.V(4).Infof("GetCapacity: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("GetCapacity: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
 
-	klog.V(4).Infof("ControllerGetCapabilities: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
@@ -436,28 +460,34 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 
 func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (
 	*csi.CreateSnapshotResponse, error) {
-
-	klog.V(4).Infof("CreateSnapshot: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateSnapshot: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
 	*csi.DeleteSnapshotResponse, error) {
-
-	klog.V(4).Infof("DeleteSnapshot: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("DeleteSnapshot: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
 
-	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ControllerExpandVolume expands a volume.
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
-	klog.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }

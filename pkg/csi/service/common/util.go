@@ -19,15 +19,16 @@ package common
 import (
 	"errors"
 	"fmt"
-	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	"strconv"
 	"strings"
+
+	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"golang.org/x/net/context"
-	"k8s.io/klog"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
@@ -35,14 +36,15 @@ import (
 // Before returning VirtualCenter object, vcenter connection is established if session doesn't exist.
 func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCenter, error) {
 	var err error
-	vcenter, err := manager.VcenterManager.GetVirtualCenter(manager.VcenterConfig.Host)
+	log := logger.GetLogger(ctx)
+	vcenter, err := manager.VcenterManager.GetVirtualCenter(ctx, manager.VcenterConfig.Host)
 	if err != nil {
-		klog.Errorf("Failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("Failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	err = vcenter.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("Failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	return vcenter, nil
@@ -81,9 +83,9 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 }
 
 // IsFileVolumeRequest checks whether the request is to create a CNS file volume.
-func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
+func IsFileVolumeRequest(ctx context.Context, v []*csi.VolumeCapability) bool {
 	for _, capability := range v {
-		if fstype := strings.ToLower(GetVolumeCapabilityFsType(capability)); fstype == NfsV4FsType || fstype == NfsFsType {
+		if fstype := strings.ToLower(GetVolumeCapabilityFsType(ctx, capability)); fstype == NfsV4FsType || fstype == NfsFsType {
 			return true
 		}
 	}
@@ -91,13 +93,14 @@ func IsFileVolumeRequest(v []*csi.VolumeCapability) bool {
 }
 
 // GetVolumeCapabilityFsType retrieves fstype from VolumeCapability. Defaults to DefaultFsType when empty for mount volumes.
-func GetVolumeCapabilityFsType(capability *csi.VolumeCapability) string {
+func GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
+	log := logger.GetLogger(ctx)
 	fsType := strings.ToLower(capability.GetMount().GetFsType())
-	klog.V(4).Infof("FsType received from Volume Capability: %q", fsType)
+	log.Debugf("FsType received from Volume Capability: %q", fsType)
 	if fsType == "" {
 		// Defaulting fstype for mount volumes only. Block volumes will still have fstype as empty.
 		if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Mount); ok {
-			klog.V(2).Infof("No fstype received in Volume Capability for mount volume. Defaulting to: %s",
+			log.Infof("No fstype received in Volume Capability for mount volume. Defaulting to: %s",
 				DefaultFsType)
 			fsType = DefaultFsType
 		}
@@ -136,8 +139,8 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessMode
 }
 
 // IsValidVolumeCapabilities helps validate the given volume capabilities based on volume type.
-func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
-	if IsFileVolumeRequest(volCaps) {
+func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapability) bool {
+	if IsFileVolumeRequest(ctx, volCaps) {
 		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
 	}
 	return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
@@ -146,14 +149,15 @@ func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 // IsFileVolumeMount loops through the list of mount points and
 // checks if the target path mount point is a file volume type or not
 // Returns an error if the target path is not found in the mount points
-func IsFileVolumeMount(target string, mnts []gofsutil.Info) (bool, error) {
+func IsFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
+	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
 		if m.Path == target {
 			if m.Type == NfsFsType || m.Type == NfsV4FsType {
-				klog.V(4).Info("IsFileVolumeMount: Found file volume")
+				log.Debug("IsFileVolumeMount: Found file volume")
 				return true, nil
 			}
-			klog.V(4).Info("IsFileVolumeMount: Found block volume")
+			log.Debug("IsFileVolumeMount: Found block volume")
 			return false, nil
 		}
 	}
@@ -162,20 +166,22 @@ func IsFileVolumeMount(target string, mnts []gofsutil.Info) (bool, error) {
 }
 
 // IsTargetInMounts checks if the given target path is present in list of mount points
-func IsTargetInMounts(target string, mnts []gofsutil.Info) bool {
+func IsTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
+	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
 		if m.Path == target {
-			klog.V(4).Infof("Found target %q in list of mounts", target)
+			log.Debugf("Found target %q in list of mounts", target)
 			return true
 		}
 	}
-	klog.V(4).Infof("Target %q not found in list of mounts", target)
+	log.Debugf("Target %q not found in list of mounts", target)
 	return false
 }
 
 // ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API call back
 // to StorageClassParams structure.
-func ParseStorageClassParams(params map[string]string) (*StorageClassParams, error) {
+func ParseStorageClassParams(ctx context.Context, params map[string]string) (*StorageClassParams, error) {
+	log := logger.GetLogger(ctx)
 	scParams := &StorageClassParams{
 		DatastoreURL:      "",
 		StoragePolicyName: "",
@@ -198,11 +204,11 @@ func ParseStorageClassParams(params map[string]string) (*StorageClassParams, err
 			//		"ips.1"
 			splitParam := strings.Split(param, ".")
 			if len(splitParam) == 0 || len(splitParam) > 2 {
-				klog.V(2).Infof("Ignoring unsupported param: %q", param)
+				log.Infof("Ignoring unsupported param: %q", param)
 				continue
 			}
 			if len(splitParam) > 0 && splitParam[0] != AllowRoot && splitParam[0] != Permission && splitParam[0] != IPs {
-				klog.V(2).Infof("Ignoring unsupported param: %q", param)
+				log.Infof("Ignoring unsupported param: %q", param)
 				continue
 			}
 			err := updatePermissionsMap(splitParam, netPermissionsMap, value)
@@ -210,7 +216,7 @@ func ParseStorageClassParams(params map[string]string) (*StorageClassParams, err
 				return nil, err
 			}
 		} else if param == AttributeFsType {
-			klog.Warning("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+			log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 		} else {
 			return nil, errors.New(fmt.Sprintf("Invalid param: %q and value: %q", param, value))
 		}

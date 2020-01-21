@@ -21,9 +21,10 @@ import (
 	"flag"
 	"os"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"k8s.io/klog"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -39,18 +40,21 @@ var (
 
 // main for vsphere syncer
 func main() {
-	klog.InitFlags(nil)
-	flag.Parse()
 
 	// run will be executed if this instance is elected as the leader
 	// or if leader election is not enabled
 	var run func(ctx context.Context)
 	var err error
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	configInfo, err := types.InitConfigInfo(clusterFlavor)
+	configInfo, err := types.InitConfigInfo(ctx, clusterFlavor)
 	if err != nil {
-		klog.Errorf("Failed to initialize the configInfo. Err: %+v", err)
+		log.Errorf("Failed to initialize the configInfo. Err: %+v", err)
 		os.Exit(1)
 	}
 
@@ -59,29 +63,29 @@ func main() {
 	// PodListener should run on every node where csi controller can run.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
-			if err := podlistener.InitPodListenerService(); err != nil {
-				klog.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)
+			if err := podlistener.InitPodListenerService(ctx); err != nil {
+				log.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)
 				os.Exit(1)
 			}
 		}()
 	}
 
 	// Initialize syncer components that are dependant on the outcome of leader election, if enabled.
-	run = initSyncerComponents(clusterFlavor, configInfo)
+	run = initSyncerComponents(ctx, clusterFlavor, configInfo)
 
 	if !*enableLeaderElection {
 		run(context.TODO())
 	} else {
-		k8sClient, err := k8s.NewClient()
+		k8sClient, err := k8s.NewClient(ctx)
 		if err != nil {
-			klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
+			log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 			os.Exit(1)
 		}
 		lockName := "vsphere-syncer"
 		le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
 
 		if err := le.Run(); err != nil {
-			klog.Fatalf("Error initializing leader election: %v", err)
+			log.Fatalf("Error initializing leader election: %v", err)
 		}
 	}
 }
@@ -89,20 +93,21 @@ func main() {
 // initSyncerComponents initializes syncer components that are dependant on the leader election algorithm.
 // This function is only called by the leader instance of vsphere-syncer, if enabled.
 // TODO: Change name from initSyncerComponents to init<Name>Components where <Name> will be the name of this container
-func initSyncerComponents(clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) func(ctx context.Context) {
+func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) func(ctx context.Context) {
 	return func(ctx context.Context) {
+		log := logger.GetLogger(ctx)
 		// Initialize CNS Operator for Supervisor clusters
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
 				if err := manager.InitCnsOperator(configInfo); err != nil {
-					klog.Errorf("Error initializing Cns Operator. Error: %+v", err)
+					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
 					os.Exit(1)
 				}
 			}()
 		}
-		syncer := syncer.NewInformer()
-		if err := syncer.InitMetadataSyncer(clusterFlavor, configInfo); err != nil {
-			klog.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
+		syncerInformer := syncer.NewInformer()
+		if err := syncerInformer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
+			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)
 		}
 	}

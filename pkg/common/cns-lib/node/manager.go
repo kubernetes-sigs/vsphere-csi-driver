@@ -19,8 +19,9 @@ import (
 	"errors"
 	"sync"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -35,26 +36,26 @@ var (
 // Manager provides functionality to manage nodes.
 type Manager interface {
 	// SetKubernetesClient sets kubernetes client for node manager
-	SetKubernetesClient(clientset.Interface)
+	SetKubernetesClient(client clientset.Interface)
 	// RegisterNode registers a node given its UUID, name.
-	RegisterNode(nodeUUID string, nodeName string) error
+	RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error
 	// DiscoverNode discovers a registered node given its UUID. This method
 	// scans all virtual centers registered on the VirtualCenterManager for a
 	// virtual machine with the given UUID.
-	DiscoverNode(nodeUUID string) error
+	DiscoverNode(ctx context.Context, nodeUUID string) error
 	// GetNode refreshes and returns the VirtualMachine for a registered node
 	// given its UUID. If datacenter is present, GetNode will search within this
 	// datacenter given its UUID. If not, it will search in all registered datacenters.
-	GetNode(nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error)
+	GetNode(ctx context.Context, nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error)
 	// GetNodeByName refreshes and returns the VirtualMachine for a registered node
 	// given its name.
-	GetNodeByName(nodeName string) (*vsphere.VirtualMachine, error)
+	GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
 	// GetAllNodes refreshes and returns VirtualMachine for all registered
 	// nodes. If nodes are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
-	GetAllNodes() ([]*vsphere.VirtualMachine, error)
+	GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMachine, error)
 	// UnregisterNode unregisters a registered node given its name.
-	UnregisterNode(nodeName string) error
+	UnregisterNode(ctx context.Context, nodeName string) error
 }
 
 // Metadata represents node metadata.
@@ -68,13 +69,14 @@ var (
 )
 
 // GetManager returns the Manager singleton.
-func GetManager() Manager {
+func GetManager(ctx context.Context) Manager {
 	onceForManager.Do(func() {
-		klog.V(1).Info("Initializing node.defaultManager...")
+		log := logger.GetLogger(ctx)
+		log.Info("Initializing node.defaultManager...")
 		managerInstance = &defaultManager{
 			nodeVMs: sync.Map{},
 		}
-		klog.V(1).Info("node.defaultManager initialized")
+		log.Info("node.defaultManager initialized")
 	})
 	return managerInstance
 }
@@ -95,109 +97,114 @@ func (m *defaultManager) SetKubernetesClient(client clientset.Interface) {
 }
 
 // RegisterNode registers a node with node manager using its UUID, name.
-func (m *defaultManager) RegisterNode(nodeUUID string, nodeName string) error {
+func (m *defaultManager) RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error {
+	log := logger.GetLogger(ctx)
 	m.nodeNameToUUID.Store(nodeName, nodeUUID)
-	klog.V(2).Infof("Successfully registered node: %q with nodeUUID %q", nodeName, nodeUUID)
-	err := m.DiscoverNode(nodeUUID)
+	log.Infof("Successfully registered node: %q with nodeUUID %q", nodeName, nodeUUID)
+	err := m.DiscoverNode(ctx, nodeUUID)
 	if err != nil {
-		klog.Errorf("Failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)
+		log.Errorf("Failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)
 		return err
 	}
-	klog.V(2).Infof("Successfully discovered node: %q with nodeUUID %q", nodeName, nodeUUID)
+	log.Infof("Successfully discovered node: %q with nodeUUID %q", nodeName, nodeUUID)
 	return nil
 }
 
 // DiscoverNode discovers a registered node given its UUID from vCenter.
 // If node is not found in the vCenter for the given UUID, for ErrVMNotFound is returned to the caller
-func (m *defaultManager) DiscoverNode(nodeUUID string) error {
-	vm, err := vsphere.GetVirtualMachineByUUID(nodeUUID, false)
+func (m *defaultManager) DiscoverNode(ctx context.Context, nodeUUID string) error {
+	log := logger.GetLogger(ctx)
+	vm, err := vsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 	if err != nil {
-		klog.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+		log.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
 		return err
 	}
 	m.nodeVMs.Store(nodeUUID, vm)
-	klog.V(2).Infof("Successfully discovered node with nodeUUID %s in vm %v", nodeUUID, vm)
+	log.Infof("Successfully discovered node with nodeUUID %s in vm %v", nodeUUID, vm)
 	return nil
 }
 
 // GetNodeByName refreshes and returns the VirtualMachine for a registered node
 // given its name.
-func (m *defaultManager) GetNodeByName(nodeName string) (*vsphere.VirtualMachine, error) {
+func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
 	if !found {
-		klog.Errorf("Node not found with nodeName %s", nodeName)
+		log.Errorf("Node not found with nodeName %s", nodeName)
 		return nil, ErrNodeNotFound
 	}
 	if nodeUUID != nil && nodeUUID.(string) != "" {
-		return m.GetNode(nodeUUID.(string), nil)
+		return m.GetNode(ctx, nodeUUID.(string), nil)
 	}
-	klog.V(2).Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
-	k8snodeUUID, err := k8s.GetNodeVMUUID(m.k8sClient, nodeName)
+	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
+	k8snodeUUID, err := k8s.GetNodeVMUUID(ctx, m.k8sClient, nodeName)
 	if err != nil {
-		klog.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+		log.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
 		return nil, err
 	}
 	m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
-	return m.GetNode(k8snodeUUID, nil)
+	return m.GetNode(ctx, k8snodeUUID, nil)
 
 }
 
 // GetNode refreshes and returns the VirtualMachine for a registered node
 // given its UUID
-func (m *defaultManager) GetNode(nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error) {
+func (m *defaultManager) GetNode(ctx context.Context, nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	vmInf, discovered := m.nodeVMs.Load(nodeUUID)
 	if !discovered {
-		klog.V(2).Infof("Node hasn't been discovered yet with nodeUUID %s", nodeUUID)
+		log.Infof("Node hasn't been discovered yet with nodeUUID %s", nodeUUID)
 		var vm *vsphere.VirtualMachine
 		var err error
 		if dc != nil {
 			vm, err = dc.GetVirtualMachineByUUID(context.TODO(), nodeUUID, false)
 			if err != nil {
-				klog.Errorf("Failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
+				log.Errorf("Failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
 				return nil, err
 			}
 			m.nodeVMs.Store(nodeUUID, vm)
 		} else {
-			if err = m.DiscoverNode(nodeUUID); err != nil {
-				klog.Errorf("Failed to discover node with nodeUUID %s with err: %v", nodeUUID, err)
+			if err = m.DiscoverNode(ctx, nodeUUID); err != nil {
+				log.Errorf("Failed to discover node with nodeUUID %s with err: %v", nodeUUID, err)
 				return nil, err
 			}
 
 			vmInf, _ = m.nodeVMs.Load(nodeUUID)
 			vm = vmInf.(*vsphere.VirtualMachine)
 		}
-		klog.V(2).Infof("Node was successfully discovered with nodeUUID %s in vm %v", nodeUUID, vm)
+		log.Infof("Node was successfully discovered with nodeUUID %s in vm %v", nodeUUID, vm)
 		return vm, nil
 	}
 
 	vm := vmInf.(*vsphere.VirtualMachine)
-	klog.V(1).Infof("Renewing virtual machine %v with nodeUUID %q", vm, nodeUUID)
+	log.Debugf("Renewing virtual machine %v with nodeUUID %q", vm, nodeUUID)
 
-	if err := vm.Renew(true); err != nil {
-		klog.Errorf("Failed to renew VM %v with nodeUUID %q with err: %v", vm, nodeUUID, err)
+	if err := vm.Renew(ctx, true); err != nil {
+		log.Errorf("Failed to renew VM %v with nodeUUID %q with err: %v", vm, nodeUUID, err)
 		return nil, err
 	}
 
-	klog.V(4).Infof("VM %v was successfully renewed with nodeUUID %q", vm, nodeUUID)
+	log.Debugf("VM %v was successfully renewed with nodeUUID %q", vm, nodeUUID)
 	return vm, nil
 }
 
 // GetAllNodes refreshes and returns VirtualMachine for all registered nodes.
-func (m *defaultManager) GetAllNodes() ([]*vsphere.VirtualMachine, error) {
+func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	var vms []*vsphere.VirtualMachine
 	var err error
 	reconnectedHosts := make(map[string]bool)
 
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
-			klog.V(2).Infof("Empty node UUID observed for the node: %q", nodeName)
-			k8snodeUUID, err := k8s.GetNodeVMUUID(m.k8sClient, nodeName.(string))
+			log.Infof("Empty node UUID observed for the node: %q", nodeName)
+			k8snodeUUID, err := k8s.GetNodeVMUUID(ctx, m.k8sClient, nodeName.(string))
 			if err != nil {
-				klog.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+				log.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
 				return true
 			}
 			if k8snodeUUID == "" {
-				klog.Errorf("Node: %q with empty providerId found in the cluster. aborting get all nodes", nodeName)
+				log.Errorf("Node: %q with empty providerId found in the cluster. aborting get all nodes", nodeName)
 				err = ErrEmptyProviderId
 				return true
 			}
@@ -215,7 +222,7 @@ func (m *defaultManager) GetAllNodes() ([]*vsphere.VirtualMachine, error) {
 		// possibly return a nil value for that key.
 		// See https://golang.org/pkg/sync/#Map.Range for more info.
 		if vmInf == nil {
-			klog.Warningf("VM instance was nil, ignoring with nodeUUID %v", nodeUUIDInf)
+			log.Warnf("VM instance was nil, ignoring with nodeUUID %v", nodeUUIDInf)
 			return true
 		}
 
@@ -223,20 +230,20 @@ func (m *defaultManager) GetAllNodes() ([]*vsphere.VirtualMachine, error) {
 		vm := vmInf.(*vsphere.VirtualMachine)
 
 		if reconnectedHosts[vm.VirtualCenterHost] {
-			klog.V(3).Infof("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)
-			err = vm.Renew(false)
+			log.Debugf("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)
+			err = vm.Renew(ctx, false)
 		} else {
-			klog.V(3).Infof("Renewing VM %v with new connection: nodeUUID %s", vm, nodeUUID)
-			err = vm.Renew(true)
+			log.Debugf("Renewing VM %v with new connection: nodeUUID %s", vm, nodeUUID)
+			err = vm.Renew(ctx, true)
 			reconnectedHosts[vm.VirtualCenterHost] = true
 		}
 
 		if err != nil {
-			klog.Errorf("Failed to renew VM %v with nodeUUID %s, aborting get all nodes", vm, nodeUUID)
+			log.Errorf("Failed to renew VM %v with nodeUUID %s, aborting get all nodes", vm, nodeUUID)
 			return false
 		}
 
-		klog.V(3).Infof("Updated VM %v for node with nodeUUID %s", vm, nodeUUID)
+		log.Debugf("Updated VM %v for node with nodeUUID %s", vm, nodeUUID)
 		vms = append(vms, vm)
 		return true
 	})
@@ -248,14 +255,15 @@ func (m *defaultManager) GetAllNodes() ([]*vsphere.VirtualMachine, error) {
 }
 
 // UnregisterNode unregisters a registered node given its name.
-func (m *defaultManager) UnregisterNode(nodeName string) error {
+func (m *defaultManager) UnregisterNode(ctx context.Context, nodeName string) error {
+	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
 	if !found {
-		klog.Errorf("Node wasn't found, failed to unregister node: %q  err: %v", nodeName)
+		log.Errorf("Node wasn't found, failed to unregister node: %q  err: %v", nodeName)
 		return ErrNodeNotFound
 	}
 	m.nodeNameToUUID.Delete(nodeName)
 	m.nodeVMs.Delete(nodeUUID)
-	klog.V(2).Infof("Successfully unregistered node with nodeName %s", nodeName)
+	log.Infof("Successfully unregistered node with nodeName %s", nodeName)
 	return nil
 }

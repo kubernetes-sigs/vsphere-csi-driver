@@ -21,12 +21,13 @@ import (
 	"fmt"
 	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"k8s.io/klog"
 )
 
 // DatastoreInfoProperty refers to the property name info for the Datastore
@@ -47,11 +48,12 @@ func (dc *Datacenter) String() string {
 
 // GetDatastoreByURL returns the *Datastore instance given its URL.
 func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string) (*Datastore, error) {
+	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(dc.Datacenter.Client(), false)
 	finder.SetDatacenter(dc.Datacenter)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		klog.Errorf("Failed to get all the datastores. err: %+v", err)
+		log.Errorf("Failed to get all the datastores. err: %+v", err)
 		return nil, err
 	}
 	var dsList []types.ManagedObjectReference
@@ -64,7 +66,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 	properties := []string{DatastoreInfoProperty}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		klog.Errorf("Failed to get Datastore managed objects from datastore objects."+
+		log.Errorf("Failed to get Datastore managed objects from datastore objects."+
 			" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
 		return nil, err
 	}
@@ -75,7 +77,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 		}
 	}
 	err = fmt.Errorf("Couldn't find Datastore given URL %q", datastoreURL)
-	klog.Error(err)
+	log.Error(err)
 	return nil, err
 }
 
@@ -85,14 +87,15 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 // If instanceUUID is set to false, then UUID is BIOS UUID.
 //  - In this case, this function searches for virtual machines whose BIOS UUID matches the given uuid.
 func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool) (*VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	uuid = strings.ToLower(strings.TrimSpace(uuid))
 	searchIndex := object.NewSearchIndex(dc.Datacenter.Client())
 	svm, err := searchIndex.FindByUuid(ctx, dc.Datacenter, uuid, true, &instanceUUID)
 	if err != nil {
-		klog.Errorf("Failed to find VM given uuid %s with err: %v", uuid, err)
+		log.Errorf("Failed to find VM given uuid %s with err: %v", uuid, err)
 		return nil, err
 	} else if svm == nil {
-		klog.Errorf("Couldn't find VM given uuid %s", uuid)
+		log.Errorf("Couldn't find VM given uuid %s", uuid)
 		return nil, ErrVMNotFound
 	}
 	vm := &VirtualMachine{
@@ -109,29 +112,30 @@ func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context, uuid string, 
 // If the given context is canceled, the processing will be stopped as soon as
 // possible, and the channels will be closed before returning.
 func asyncGetAllDatacenters(ctx context.Context, dcsChan chan<- *Datacenter, errChan chan<- error) {
+	log := logger.GetLogger(ctx)
 	defer close(dcsChan)
 	defer close(errChan)
 
-	for _, vc := range GetVirtualCenterManager().GetAllVirtualCenters() {
+	for _, vc := range GetVirtualCenterManager(ctx).GetAllVirtualCenters() {
 		// If the context was canceled, we stop looking for more Datacenters.
 		select {
 		case <-ctx.Done():
 			err := ctx.Err()
-			klog.V(2).Infof("Context was done, returning with err: %v", err)
+			log.Infof("Context was done, returning with err: %v", err)
 			errChan <- err
 			return
 		default:
 		}
 
 		if err := vc.Connect(ctx); err != nil {
-			klog.Errorf("Failed connecting to VC %q with err: %v", vc.Config.Host, err)
+			log.Errorf("Failed connecting to VC %q with err: %v", vc.Config.Host, err)
 			errChan <- err
 			return
 		}
 
 		dcs, err := vc.GetDatacenters(ctx)
 		if err != nil {
-			klog.Errorf("Failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
+			log.Errorf("Failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
 			errChan <- err
 			return
 		}
@@ -141,11 +145,11 @@ func asyncGetAllDatacenters(ctx context.Context, dcsChan chan<- *Datacenter, err
 			select {
 			case <-ctx.Done():
 				err := ctx.Err()
-				klog.V(2).Infof("Context was done, returning with err: %v", err)
+				log.Infof("Context was done, returning with err: %v", err)
 				errChan <- err
 				return
 			default:
-				klog.V(2).Infof("Publishing datacenter %v", dc)
+				log.Infof("Publishing datacenter %v", dc)
 				dcsChan <- dc
 			}
 		}
@@ -173,11 +177,12 @@ func AsyncGetAllDatacenters(ctx context.Context, buffSize int) (<-chan *Datacent
 
 // GetVMMoList gets the VM Managed Objects with the given properties from the VM object
 func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachine, properties []string) ([]mo.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	var vmMoList []mo.VirtualMachine
 	var vmRefs []types.ManagedObjectReference
 	if len(vmObjList) < 1 {
 		msg := fmt.Sprintf("VirtualMachine Object list is empty")
-		klog.Errorf(msg+": %v", vmObjList)
+		log.Errorf(msg+": %v", vmObjList)
 		return nil, fmt.Errorf(msg)
 	}
 
@@ -187,7 +192,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	pc := property.DefaultCollector(dc.Client())
 	err := pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {
-		klog.Errorf("Failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v", vmObjList, properties, err)
+		log.Errorf("Failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v", vmObjList, properties, err)
 		return nil, err
 	}
 	return vmMoList, nil
@@ -196,11 +201,12 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 // GetAllDatastores gets the datastore URL to DatastoreInfo map for all the datastores in
 // the datacenter.
 func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(dc.Client(), false)
 	finder.SetDatacenter(dc.Datacenter)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		klog.Errorf("Failed to get all the datastores in the Datacenter %s with error: %v", dc.Datacenter.String(), err)
+		log.Errorf("Failed to get all the datastores in the Datacenter %s with error: %v", dc.Datacenter.String(), err)
 		return nil, err
 	}
 	var dsList []types.ManagedObjectReference
@@ -212,7 +218,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		klog.Errorf("Failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsList, properties, err)
+		log.Errorf("Failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsList, properties, err)
 		return nil, err
 	}
 	dsURLInfoMap := make(map[string]*DatastoreInfo)

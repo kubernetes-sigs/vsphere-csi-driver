@@ -17,12 +17,15 @@ limitations under the License.
 package wcpguest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
@@ -35,7 +38,6 @@ import (
 	apimachineryTypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
@@ -50,7 +52,7 @@ const (
 // validateGuestClusterCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for Guest Cluster CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
+func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
 	// Validate Name length of volumeName is > 4, eg: pvc-xxxxx
 	if len(req.Name) <= 4 {
 		msg := fmt.Sprintf("Volume name %s is not valid", req.Name)
@@ -74,29 +76,29 @@ func validateGuestClusterCreateVolumeRequest(req *csi.CreateVolumeRequest) error
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	// Fail file volume creation
-	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
+	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
-	return common.ValidateCreateVolumeRequest(req)
+	return common.ValidateCreateVolumeRequest(ctx, req)
 }
 
 // validateGuestClusterDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for pvCSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
-	return common.ValidateDeleteVolumeRequest(req)
+func validateGuestClusterDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRequest) error {
+	return common.ValidateDeleteVolumeRequest(ctx, req)
 }
 
 // validateGuestClusterControllerPublishVolumeRequest is the helper function to validate
 // pvcsi ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
-	return common.ValidateControllerPublishVolumeRequest(req)
+func validateGuestClusterControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+	return common.ValidateControllerPublishVolumeRequest(ctx, req)
 }
 
 // validateGuestClusterControllerUnpublishVolumeRequest is the helper function to validate
 // pvcsi ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
-	return common.ValidateControllerUnpublishVolumeRequest(req)
+func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
+	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode
@@ -137,22 +139,23 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 }
 
 // isPVCInSupervisorClusterBound return true if the PVC is bound in the supervisor cluster before timeout, otherwise return false
-func isPVCInSupervisorClusterBound(client clientset.Interface, claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
 	Poll := 1 * time.Second
-	klog.V(2).Infof("Waiting up to %v for PersistentVolumeClaims %v on namespace %s to have phase %s", timeout, pvcName, ns, v1.ClaimBound)
+	log.Infof("Waiting up to %v for PersistentVolumeClaims %v on namespace %s to have phase %s", timeout, pvcName, ns, v1.ClaimBound)
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		pvc, err := client.CoreV1().PersistentVolumeClaims(ns).Get(pvcName, metav1.GetOptions{})
 		if err != nil {
-			klog.Errorf("Failed to get claim %q on namespace %s, retrying in %v. Error: %v", pvcName, ns, Poll, err)
+			log.Errorf("Failed to get claim %q on namespace %s, retrying in %v. Error: %v", pvcName, ns, Poll, err)
 			continue
 		} else {
 			if pvc.Status.Phase == v1.ClaimBound {
-				klog.V(2).Infof("PersistentVolumeClaim %s found on namespace %s and phase=%s (%v)", pvcName, ns, v1.ClaimBound, time.Since(start))
+				log.Infof("PersistentVolumeClaim %s found on namespace %s and phase=%s (%v)", pvcName, ns, v1.ClaimBound, time.Since(start))
 				return true, nil
 			} else {
-				klog.V(3).Infof("PersistentVolumeClaim %s found on namespace %s but phase is %s instead of %s.", pvcName, ns, pvc.Status.Phase, v1.ClaimBound)
+				log.Debugf("PersistentVolumeClaim %s found on namespace %s but phase is %s instead of %s.", pvcName, ns, pvc.Status.Phase, v1.ClaimBound)
 			}
 		}
 	}
@@ -163,18 +166,19 @@ func isPVCInSupervisorClusterBound(client clientset.Interface, claim *v1.Persist
 // If environment variable PROVISION_TIMEOUT_MINUTES is set and valid,
 // return the interval value read from environment variable
 // otherwise, use the default timeout 5 mins
-func getProvisionTimeoutInMin() int {
+func getProvisionTimeoutInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
 	provisionTimeoutInMin := defaultProvisionTimeoutInMin
 	if v := os.Getenv("PROVISION_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				klog.Warningf(" provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
+				log.Warnf(" provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
 			} else {
 				provisionTimeoutInMin = value
-				klog.V(2).Infof("provisionTimeout is set to %d minutes", provisionTimeoutInMin)
+				log.Infof("provisionTimeout is set to %d minutes", provisionTimeoutInMin)
 			}
 		} else {
-			klog.Warningf("provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
+			log.Warnf("provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
 		}
 	}
 	return provisionTimeoutInMin
@@ -184,47 +188,49 @@ func getProvisionTimeoutInMin() int {
 // If environment variable ATTACHER_TIMEOUT_MINUTES is set and valid,
 // return the interval value read from environment variable
 // otherwise, use the default timeout 5 mins
-func getAttacherTimeoutInMin() int {
+func getAttacherTimeoutInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
 	attacherTimeoutInMin := defaultAttacherTimeoutInMin
 	if v := os.Getenv("ATTACHER_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				klog.Warningf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
+				log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
 			} else {
 				attacherTimeoutInMin = value
-				klog.V(2).Infof("attacherTimeout is set to %d minutes", attacherTimeoutInMin)
+				log.Infof("attacherTimeout is set to %d minutes", attacherTimeoutInMin)
 			}
 		} else {
-			klog.Warningf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
+			log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
 		}
 	}
 	return attacherTimeoutInMin
 }
 
 // patchVirtualMachineVolumes patches VirtualMachine instance with spec changes supplied in the newVirtualMachine instance.
-func patchVirtualMachineVolumes(client *vmoperatorclient.VmoperatorV1alpha1Client, oldVirtualMachine *vmoperatortypes.VirtualMachine, newVirtualMachine *vmoperatortypes.VirtualMachine) (*vmoperatortypes.VirtualMachine, error) {
+func patchVirtualMachineVolumes(ctx context.Context, client *vmoperatorclient.VmoperatorV1alpha1Client, oldVirtualMachine *vmoperatortypes.VirtualMachine, newVirtualMachine *vmoperatortypes.VirtualMachine) (*vmoperatortypes.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	oldVMData, err := json.Marshal(oldVirtualMachine)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", oldVirtualMachine, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	newVMData, err := json.Marshal(newVirtualMachine)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", newVirtualMachine, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldVMData, newVMData, oldVirtualMachine)
 	if err != nil {
 		msg := fmt.Sprintf("CreateTwoWayMergePatch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	updatedVirtualMachine, err := client.VirtualMachines(oldVirtualMachine.Namespace).Patch(oldVirtualMachine.Name, apimachineryTypes.StrategicMergePatchType, patchBytes)
 	if err != nil {
 		msg := fmt.Sprintf("patch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	return updatedVirtualMachine, nil

@@ -17,14 +17,16 @@ limitations under the License.
 package manager
 
 import (
+	"context"
 	"time"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
@@ -36,7 +38,8 @@ const (
 
 // createCustomResourceDefinition creates the CRD and add it into Kubernetes. If there is error,
 // it will do some clean up.
-func createCustomResourceDefinition(clientSet apiextensionsclientset.Interface, crdPlural string, crdKind string) error {
+func createCustomResourceDefinition(ctx context.Context, clientSet apiextensionsclientset.Interface, crdPlural string, crdKind string) error {
+	log := logger.GetLogger(ctx)
 	crdName := crdPlural + "." + apis.SchemeGroupVersion.Group
 	crd := &apiextensionsv1beta1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
@@ -54,12 +57,12 @@ func createCustomResourceDefinition(clientSet apiextensionsclientset.Interface, 
 	}
 	_, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
 	if err == nil {
-		klog.V(2).Infof("%q CRD created successfully", crdName)
+		log.Infof("%q CRD created successfully", crdName)
 	} else if apierrors.IsAlreadyExists(err) {
-		klog.V(4).Infof("%q CRD already exists", crdName)
+		log.Debugf("%q CRD already exists", crdName)
 		return nil
 	} else {
-		klog.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
+		log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
 		return err
 	}
 
@@ -68,7 +71,7 @@ func createCustomResourceDefinition(clientSet apiextensionsclientset.Interface, 
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
 		crd, err = clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(crdName, metav1.GetOptions{})
 		if err != nil {
-			klog.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
+			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
 			return false, err
 		}
 		for _, cond := range crd.Status.Conditions {
@@ -79,7 +82,7 @@ func createCustomResourceDefinition(clientSet apiextensionsclientset.Interface, 
 				}
 			case apiextensionsv1beta1.NamesAccepted:
 				if cond.Status == apiextensionsv1beta1.ConditionFalse {
-					klog.V(4).Infof("Name conflict while waiting for %q CRD creation", cond.Reason)
+					log.Debugf("Name conflict while waiting for %q CRD creation", cond.Reason)
 				}
 			}
 		}
@@ -89,10 +92,10 @@ func createCustomResourceDefinition(clientSet apiextensionsclientset.Interface, 
 
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {
-		klog.V(2).Infof("Cleanup %q CRD because the CRD created was not succesfully established. Error: %+v", crdName, err)
+		log.Infof("Cleanup %q CRD because the CRD created was not succesfully established. Error: %+v", crdName, err)
 		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(crdName, nil)
 		if deleteErr != nil {
-			klog.Errorf("Failed to delete %q CRD with error: %+v", crdName, deleteErr)
+			log.Errorf("Failed to delete %q CRD with error: %+v", crdName, deleteErr)
 		}
 	}
 	return err

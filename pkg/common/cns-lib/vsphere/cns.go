@@ -16,16 +16,18 @@ package vsphere
 
 import (
 	"context"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // NewCnsClient creates a new CNS client
 func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
+	log := logger.GetLogger(ctx)
 	cnsClient, err := cns.NewClient(ctx, c)
 	if err != nil {
-		klog.Errorf("Failed to create a new client for CNS. err: %v", err)
+		log.Errorf("Failed to create a new client for CNS. err: %v", err)
 		return nil, err
 	}
 	return cnsClient, nil
@@ -33,14 +35,15 @@ func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
 
 // ConnectCns creates a CNS client for the virtual center.
 func (vc *VirtualCenter) ConnectCns(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
+		log.Errorf("Failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.CnsClient == nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
-			klog.Errorf("Failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
+			log.Errorf("Failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}
@@ -49,8 +52,9 @@ func (vc *VirtualCenter) ConnectCns(ctx context.Context) error {
 
 // DisconnectCns destroys the CNS client for the virtual center.
 func (vc *VirtualCenter) DisconnectCns(ctx context.Context) {
+	log := logger.GetLogger(ctx)
 	if vc.CnsClient == nil {
-		klog.V(1).Info("CnsClient wasn't connected, ignoring")
+		log.Info("CnsClient wasn't connected, ignoring")
 	} else {
 		vc.CnsClient = nil
 	}

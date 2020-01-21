@@ -61,6 +61,8 @@ spec:
               value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
               value: "4"
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -83,6 +85,8 @@ spec:
               value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume

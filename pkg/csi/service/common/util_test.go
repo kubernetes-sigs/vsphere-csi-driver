@@ -17,10 +17,23 @@ limitations under the License.
 package common
 
 import (
+	"context"
+	"testing"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
-	"testing"
 )
+
+var (
+	ctx    context.Context
+	cancel context.CancelFunc
+)
+
+func init() {
+	// Create context
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+}
 
 func TestIsFileVolumeRequestForBlock(t *testing.T) {
 	volCap := []*csi.VolumeCapability{
@@ -32,7 +45,7 @@ func TestIsFileVolumeRequestForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsFileVolumeRequest(volCap) {
+	if IsFileVolumeRequest(ctx, volCap) {
 		t.Errorf("VolCap = %+v reported as a FILE volume!", volCap)
 	}
 }
@@ -45,7 +58,7 @@ func TestIsFileVolumeRequestForBlockWithUnsetFsType(t *testing.T) {
 			},
 		},
 	}
-	if IsFileVolumeRequest(volCap) {
+	if IsFileVolumeRequest(ctx, volCap) {
 		t.Errorf("VolCap = %+v reported as a FILE volume!", volCap)
 	}
 }
@@ -60,7 +73,7 @@ func TestIsFileVolumeRequestForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsFileVolumeRequest(volCap) {
+	if !IsFileVolumeRequest(ctx, volCap) {
 		t.Errorf("VolCap = %+v reported as a BLOCK volume!", volCap)
 	}
 
@@ -73,7 +86,7 @@ func TestIsFileVolumeRequestForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsFileVolumeRequest(volCap) {
+	if !IsFileVolumeRequest(ctx, volCap) {
 		t.Errorf("VolCap = %+v reported as a BLOCK volume!", volCap)
 	}
 }
@@ -92,7 +105,7 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(volCap) {
+	if !IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Block VolCap = %+v failed validation!", volCap)
 	}
 	// fstype=empty and mode=SINGLE_NODE_WRITER
@@ -106,7 +119,7 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(volCap) {
+	if !IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Block VolCap = %+v failed validation!", volCap)
 	}
 }
@@ -125,7 +138,7 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(volCap) {
+	if IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Invalid Block VolCap = %+v passed validation!", volCap)
 	}
 
@@ -142,7 +155,7 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(volCap) {
+	if IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Invalid Block VolCap = %+v passed validation!", volCap)
 	}
 
@@ -159,7 +172,7 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(volCap) {
+	if IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Invalid Block VolCap = %+v passed validation!", volCap)
 	}
 }
@@ -178,7 +191,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(volCap) {
+	if !IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 
@@ -195,7 +208,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(volCap) {
+	if !IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 
@@ -212,7 +225,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(volCap) {
+	if !IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 }
@@ -231,7 +244,7 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(volCap) {
+	if IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 
@@ -248,7 +261,7 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(volCap) {
+	if IsValidVolumeCapabilities(ctx, volCap) {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 }
@@ -284,7 +297,7 @@ func TestParseStorageClassParamsWithDeprecatedFSType(t *testing.T) {
 		"fstype": "ext4",
 	}
 	expectedScParams := &StorageClassParams{}
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -305,7 +318,7 @@ func TestParseStorageClassParamsWithNoNetPermissionParams(t *testing.T) {
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -335,7 +348,7 @@ func TestParseStorageClassParamsWithValidParams(t *testing.T) {
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -366,7 +379,7 @@ func TestParseStorageClassParamsWithValidRamdomOrderParams(t *testing.T) {
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -404,7 +417,7 @@ func TestParseStorageClassParamsWithValidParamsMultipleNetPermissions(t *testing
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -446,7 +459,7 @@ func TestParseStorageClassParamsWithValidParamsMultipleNetPermissionsAndDefaults
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -484,7 +497,7 @@ func TestParseStorageClassParamsWithValidRamdomOrderParamsMultipleNetPermissions
 		NetPermissions:    expectedNetPermissions,
 	}
 
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("Failed to parse params: %+v", params)
 	}
@@ -507,7 +520,7 @@ func TestParseStorageClassParamsWithValidAndUnsupportedParamsMultipleNetPermissi
 		"xyz.2":                    string(types.VsanFileShareAccessTypeREAD_WRITE), // unsupported param
 		"ips.1.1":                  "10.20.10.0/8",                                  // unsupported param
 	}
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("Expected failure due to invalid param. actualScParams: %+v", actualScParams)
 	}
@@ -522,7 +535,7 @@ func TestParseStorageClassParamsWithInvalidParam(t *testing.T) {
 		IPs:                        "10.20.30.10/8",
 		"InvalidParam":             "InvalidValue",
 	}
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("Expected failure due to invalid param. actualScParams: %+v", actualScParams)
 	}
@@ -536,7 +549,7 @@ func TestParseStorageClassParamsWithInvalidAllowRootValue(t *testing.T) {
 		Permission:                 string(types.VsanFileShareAccessTypeREAD_ONLY),
 		IPs:                        "10.20.30.10/8",
 	}
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("Expected failure due to invalid allow root value. actualScParams: %+v", actualScParams)
 	}
@@ -550,7 +563,7 @@ func TestParseStorageClassParamsWithInvalidPermissionValue(t *testing.T) {
 		Permission:                 "Invalid_Permission",
 		IPs:                        "10.20.30.10/8",
 	}
-	actualScParams, err := ParseStorageClassParams(params)
+	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("Expected failure due to invalid permission value. actualScParams: %+v", actualScParams)
 	}
