@@ -22,6 +22,8 @@ import (
 	"reflect"
 	"time"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/davecgh/go-spew/spew"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -29,7 +31,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -63,9 +64,13 @@ var backOffDuration map[string]time.Duration
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
 	// Initializes kubernetes client
-	k8sclient, err := k8s.NewClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
-		klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 
@@ -152,21 +157,23 @@ type ReconcileCnsVolumeMetadata struct {
 func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 
 	instance := &cnsv1alpha1.CnsVolumeMetadata{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			klog.V(2).Infof("ReconcileCnsVolumeMetadata: Failed to get CnsVolumeMetadata instance %q. Ignoring request.", request.Name)
+			log.Infof("ReconcileCnsVolumeMetadata: Failed to get CnsVolumeMetadata instance %q. Ignoring request.", request.Name)
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
-		klog.Errorf("ReconcileCnsVolumeMetadata: Error reading the CnsVolumeMetadata instance with name: %q on namespace: %q. Err: %+v",
+		log.Errorf("ReconcileCnsVolumeMetadata: Error reading the CnsVolumeMetadata instance with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		return reconcile.Result{}, err
 	}
 
-	klog.V(2).Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q", instance.Name, instance.Spec.EntityType)
+	log.Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q", instance.Name, instance.Spec.EntityType)
 
 	// Initialize backOffDuration for the instance, if required.
 	var timeout time.Duration
@@ -178,7 +185,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 	// Validate input instance fields
 	if err = validateReconileRequest(instance); err != nil {
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to validate reconcile request with error: %v", err)
-		recordEvent(r, instance, v1.EventTypeWarning, msg)
+		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -192,12 +199,12 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to delete entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster. Requeuing request.",
 				instance.Spec.EntityName, instance.Spec.EntityType)
-			recordEvent(r, instance, v1.EventTypeWarning, msg)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields with the errors per volume.
 			if err = r.client.Update(ctx, instance); err != nil {
 				msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update status for %q. "+
 					"Err: %v.", instance.Name, err)
-				recordEvent(r, instance, v1.EventTypeWarning, msg)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			}
 			// updateCnsMetadata failed, so the request will be requeued.
 			return reconcile.Result{RequeueAfter: timeout}, err
@@ -206,15 +213,15 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 		// Remove finalizer as update on CNS was successful.
 		for index, finalizer := range instance.Finalizers {
 			if finalizer == cnsoperatortypes.CNSFinalizer {
-				klog.V(4).Infof("ReconcileCnsVolumeMetadata: Removing finalizer %q for instance %q", finalizer, instance.Name)
+				log.Debugf("ReconcileCnsVolumeMetadata: Removing finalizer %q for instance %q", finalizer, instance.Name)
 				instance.Finalizers = append(instance.Finalizers[:index], instance.Finalizers[index+1:]...)
 				if err = r.client.Update(ctx, instance); err != nil {
 					msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to remove finalizer %q for %q. "+
 						"Err: %v. Requeueing request.", finalizer, instance.Name, err)
-					recordEvent(r, instance, v1.EventTypeWarning, msg)
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, err
 				}
-				klog.V(4).Infof("ReconcileCnsVolumeMetadata: Successfully removed finalizer %q for instance %q", finalizer, instance.Name)
+				log.Debugf("ReconcileCnsVolumeMetadata: Successfully removed finalizer %q for instance %q", finalizer, instance.Name)
 			}
 		}
 		// Cleanup instance entry from backOffDuration map
@@ -238,7 +245,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 		if err = r.client.Update(ctx, instance); err != nil {
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to add finalizer %q for %q. "+
 				"Err: %v. Requeueing request.", cnsoperatortypes.CNSFinalizer, instance.Name, err)
-			recordEvent(r, instance, v1.EventTypeWarning, msg)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, err
 		}
 	} else {
@@ -248,7 +255,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster. Requeueing request.",
 				instance.Spec.EntityName, instance.Spec.EntityType)
-			recordEvent(r, instance, v1.EventTypeWarning, msg)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields on supervisor API server and requeue the request.
 			_ = r.client.Update(ctx, instance)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -257,12 +264,12 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Successfully updated entry in CNS for instance "+
 			"with name %q and entity type %q in the guest cluster.",
 			instance.Spec.EntityName, instance.Spec.EntityType)
-		recordEvent(r, instance, v1.EventTypeNormal, msg)
+		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Update instance.status fields on supervisor API server.
 		if err = r.client.Update(ctx, instance); err != nil {
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update status for %q. "+
 				"Err: %v. Requeueing request.", instance.Name, err)
-			recordEvent(r, instance, v1.EventTypeWarning, msg)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, err
 		}
 	}
@@ -273,14 +280,15 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 // If deleteFlag is true, metadata is deleted for the given instance.
 // Returns true if all updates on CNS succeeded, otherwise return false.
 func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool) bool {
-	klog.V(4).Infof("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v", instance.Name, deleteFlag)
-	vCenter, err := types.GetVirtualCenterInstance(r.configInfo)
+	log := logger.GetLogger(ctx)
+	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v", instance.Name, deleteFlag)
+	vCenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
 	if err != nil {
-		klog.Errorf("ReconcileCnsVolumeMetadata: Failed to get virtual center instance. Err: %v", err)
+		log.Errorf("ReconcileCnsVolumeMetadata: Failed to get virtual center instance. Err: %v", err)
 		return false
 	}
 	if vCenter.Config == nil {
-		klog.Errorf("ReconcileCnsVolumeMetadata: vcenter config is empty")
+		log.Errorf("ReconcileCnsVolumeMetadata: vcenter config is empty")
 		return false
 	}
 	host := vCenter.Config.Host
@@ -308,9 +316,9 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		// Get pvc object in the supervisor cluster that this instance refers to.
 		pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(volume, metav1.GetOptions{})
 		if err != nil {
-			klog.Errorf("ReconcileCnsVolumeMetadata: Failed to get PVC %q in namespace %q. Err: %v", volume, instance.Namespace, err)
+			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PVC %q in namespace %q. Err: %v", volume, instance.Namespace, err)
 			if errors.IsNotFound(err) && deleteFlag {
-				klog.V(2).Info("Assuming volume entry is deleted from CNS.")
+				log.Info("Assuming volume entry is deleted from CNS.")
 				continue
 			} else {
 				status.ErrorMessage = err.Error()
@@ -323,7 +331,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		// Get the corresponding pv object bound to the pvc.
 		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
 		if err != nil {
-			klog.Errorf("ReconcileCnsVolumeMetadata: Failed to get PV %q. Err: %v", pvc.Spec.VolumeName, err)
+			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PV %q. Err: %v", pvc.Spec.VolumeName, err)
 			status.ErrorMessage = err.Error()
 			status.Updated = false
 			success = false
@@ -344,10 +352,10 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 				EntityMetadata:        metadataList,
 			},
 		}
-		klog.V(4).Infof("ReconcileCnsVolumeMetadata: Calling UpdateVolumeMetadata for "+
+		log.Debugf("ReconcileCnsVolumeMetadata: Calling UpdateVolumeMetadata for "+
 			"volume %q of instance %q with updateSpec: %+v", volume, instance.Name, spew.Sdump(updateSpec))
-		if err := r.volumeManager.UpdateVolumeMetadata(updateSpec); err != nil {
-			klog.Errorf("ReconcileCnsVolumeMetadata: UpdateVolumeMetadata failed with err %v", err)
+		if err := r.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+			log.Errorf("ReconcileCnsVolumeMetadata: UpdateVolumeMetadata failed with err %v", err)
 			status.ErrorMessage = err.Error()
 			status.Updated = false
 			success = false
@@ -431,17 +439,18 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 // recordEvent records the event, sets the backOffDuration for the instance appropriately
 // and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
-func recordEvent(r *ReconcileCnsVolumeMetadata, instance *cnsv1alpha1.CnsVolumeMetadata, eventtype string, msg string) {
+func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *cnsv1alpha1.CnsVolumeMetadata, eventtype string, msg string) {
+	log := logger.GetLogger(ctx)
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
-		klog.Error(msg)
+		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
 		backOffDuration[instance.Name] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "UpdateSucceeded", msg)
-		klog.V(2).Info(msg)
+		log.Info(msg)
 	}
 }

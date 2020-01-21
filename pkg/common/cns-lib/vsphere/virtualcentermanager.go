@@ -21,7 +21,7 @@ import (
 	"errors"
 	"sync"
 
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 var (
@@ -35,19 +35,19 @@ var (
 // VirtualCenterManager provides functionality to manage virtual centers.
 type VirtualCenterManager interface {
 	// GetVirtualCenter returns the VirtualCenter instance given the host.
-	GetVirtualCenter(host string) (*VirtualCenter, error)
+	GetVirtualCenter(ctx context.Context, host string) (*VirtualCenter, error)
 	// GetAllVirtualCenters returns all VirtualCenter instances. If virtual
 	// centers are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
 	GetAllVirtualCenters() []*VirtualCenter
 	// RegisterVirtualCenter registers a virtual center, but doesn't initiate
 	// the connection to the host.
-	RegisterVirtualCenter(config *VirtualCenterConfig) (*VirtualCenter, error)
+	RegisterVirtualCenter(ctx context.Context, config *VirtualCenterConfig) (*VirtualCenter, error)
 	// UnregisterVirtualCenter disconnects and unregisters the virtual center
 	// given it's host.
-	UnregisterVirtualCenter(host string) error
+	UnregisterVirtualCenter(ctx context.Context, host string) error
 	// UnregisterAllVirtualCenters disconnects and unregisters all virtual centers.
-	UnregisterAllVirtualCenters() error
+	UnregisterAllVirtualCenters(ctx context.Context) error
 }
 
 var (
@@ -58,11 +58,12 @@ var (
 )
 
 // GetVirtualCenterManager returns the VirtualCenterManager singleton.
-func GetVirtualCenterManager() VirtualCenterManager {
+func GetVirtualCenterManager(ctx context.Context) VirtualCenterManager {
 	onceForVCManager.Do(func() {
-		klog.V(1).Info("Initializing defaultVirtualCenterManager...")
+		log := logger.GetLogger(ctx)
+		log.Info("Initializing defaultVirtualCenterManager...")
 		vcManagerInst = &defaultVirtualCenterManager{virtualCenters: sync.Map{}}
-		klog.V(1).Info("Successfully initialized defaultVirtualCenterManager")
+		log.Info("Successfully initialized defaultVirtualCenterManager")
 	})
 	return vcManagerInst
 }
@@ -74,11 +75,12 @@ type defaultVirtualCenterManager struct {
 	virtualCenters sync.Map
 }
 
-func (m *defaultVirtualCenterManager) GetVirtualCenter(host string) (*VirtualCenter, error) {
+func (m *defaultVirtualCenterManager) GetVirtualCenter(ctx context.Context, host string) (*VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
 	if vc, exists := m.virtualCenters.Load(host); exists {
 		return vc.(*VirtualCenter), nil
 	}
-	klog.Errorf("Couldn't find VC %s in registry", host)
+	log.Errorf("Couldn't find VC %s in registry", host)
 	return nil, ErrVCNotFound
 }
 
@@ -96,43 +98,46 @@ func (m *defaultVirtualCenterManager) GetAllVirtualCenters() []*VirtualCenter {
 	return vcs
 }
 
-func (m *defaultVirtualCenterManager) RegisterVirtualCenter(config *VirtualCenterConfig) (*VirtualCenter, error) {
+func (m *defaultVirtualCenterManager) RegisterVirtualCenter(ctx context.Context, config *VirtualCenterConfig) (*VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
 	if _, exists := m.virtualCenters.Load(config.Host); exists {
-		klog.Errorf("VC was already found in registry, failed to register with config %v", config)
+		log.Errorf("VC was already found in registry, failed to register with config %v", config)
 		return nil, ErrVCAlreadyRegistered
 	}
 
 	vc := &VirtualCenter{Config: config} // Note that the Client isn't initialized here.
 	m.virtualCenters.Store(config.Host, vc)
-	klog.V(1).Infof("Successfully registered VC %q", vc.Config.Host)
+	log.Infof("Successfully registered VC %q", vc.Config.Host)
 	return vc, nil
 }
 
-func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(host string) error {
-	vc, err := m.GetVirtualCenter(host)
+func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(ctx context.Context, host string) error {
+	log := logger.GetLogger(ctx)
+	vc, err := m.GetVirtualCenter(ctx, host)
 	if err != nil {
-		klog.Errorf("Failed to find VC %s, couldn't unregister", host)
+		log.Errorf("Failed to find VC %s, couldn't unregister", host)
 		return err
 	}
 	if err := vc.DisconnectPbm(context.Background()); err != nil {
-		klog.Errorf("Failed to disconnect VC pbm %s, couldn't unregister", host)
+		log.Errorf("Failed to disconnect VC pbm %s, couldn't unregister", host)
 		return err
 	}
 	if err := vc.Disconnect(context.Background()); err != nil {
-		klog.Errorf("Failed to disconnect VC %s, couldn't unregister", host)
+		log.Errorf("Failed to disconnect VC %s, couldn't unregister", host)
 		return err
 	}
 
 	m.virtualCenters.Delete(host)
-	klog.V(2).Infof("Successfully unregistered VC %s", host)
+	log.Infof("Successfully unregistered VC %s", host)
 	return nil
 }
 
-func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters() error {
+func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Context) error {
 	var err error
+	log := logger.GetLogger(ctx)
 	m.virtualCenters.Range(func(hostInf, _ interface{}) bool {
-		if err = m.UnregisterVirtualCenter(hostInf.(string)); err != nil {
-			klog.Errorf("Failed to unregister VC %v", hostInf)
+		if err = m.UnregisterVirtualCenter(ctx, hostInf.(string)); err != nil {
+			log.Errorf("Failed to unregister VC %v", hostInf)
 			return false
 		}
 		return true

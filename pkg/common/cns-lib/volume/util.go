@@ -18,14 +18,16 @@ import (
 	"context"
 	"errors"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	"k8s.io/klog"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
-func validateManager(m *defaultManager) error {
+func validateManager(ctx context.Context, m *defaultManager) error {
+	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {
-		klog.Error(
+		log.Error(
 			"Virtual Center connection not established")
 		return errors.New("Virtual Center connection not established")
 	}
@@ -35,10 +37,11 @@ func validateManager(m *defaultManager) error {
 // IsDiskAttached checks if the volume is attached to the VM.
 // If the volume is attached to the VM, return disk uuid of the volume, else return empty string
 func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) (string, error) {
+	log := logger.GetLogger(ctx)
 	// Verify if the volume id is on the VM backing virtual disk devices
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		klog.Errorf("Failed to get devices from vm: %s", vm.InventoryPath)
+		log.Errorf("Failed to get devices from vm: %s", vm.InventoryPath)
 		return "", err
 	}
 	for _, device := range vmDevices {
@@ -47,13 +50,13 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 				if virtualDisk.VDiskId != nil && virtualDisk.VDiskId.Id == volumeID {
 					virtualDevice := device.GetVirtualDevice()
 					if backing, ok := virtualDevice.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
-						klog.V(3).Infof("Found diskUUID %s for volume %s on vm %s", backing.Uuid, volumeID, vm.InventoryPath)
+						log.Debugf("Found diskUUID %s for volume %s on vm %s", backing.Uuid, volumeID, vm.InventoryPath)
 						return backing.Uuid, nil
 					}
 				}
 			}
 		}
 	}
-	klog.V(3).Infof("Volume %s is not attached to VM: %+v", volumeID, vm)
+	log.Debugf("Volume %s is not attached to VM: %+v", volumeID, vm)
 	return "", nil
 }

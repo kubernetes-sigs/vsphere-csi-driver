@@ -49,6 +49,18 @@ const (
 	testClusterName = "test-cluster"
 )
 
+var (
+	ctx                    context.Context
+	controllerTestInstance *controllerTest
+	onceForControllerTest  sync.Once
+)
+
+type controllerTest struct {
+	controller *controller
+	config     *config.Config
+	vcenter    *cnsvsphere.VirtualCenter
+}
+
 // configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
 // The vcsim instance is configured with an empty tls.Config.
 func configFromSim() (*config.Config, func()) {
@@ -109,38 +121,26 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 
 func configFromEnvOrSim() (*config.Config, func()) {
 	cfg := &config.Config{}
-	if err := config.FromEnv(cfg); err != nil {
+	if err := config.FromEnv(ctx, cfg); err != nil {
 		return configFromSim()
 	}
 	return cfg, func() {}
 }
 
-type controllerTest struct {
-	controller *controller
-	config     *config.Config
-	vcenter    *cnsvsphere.VirtualCenter
-}
-
-var (
-	controllerTestInstance *controllerTest
-	onceForControllerTest  sync.Once
-)
-
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
+		// Create context
+		ctx = context.Background()
 		config, _ := configFromEnvOrSim()
 
 		// CNS based CSI requires a valid cluster name
 		config.Global.ClusterID = testClusterName
-
-		ctx := context.Background()
-
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		vcManager := cnsvsphere.GetVirtualCenterManager()
-		vcenter, err := vcManager.RegisterVirtualCenter(vcenterconfig)
+		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,8 +153,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(vcenter),
-			VcenterManager: cnsvsphere.GetVirtualCenterManager(),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
 		c := &controller{
@@ -230,10 +230,6 @@ func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphe
  * with storage policy
  */
 func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ct := getControllerTest(t)
 
 	// Create

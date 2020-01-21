@@ -20,15 +20,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
-
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	v1 "k8s.io/api/core/v1"
 )
 
 // Nodes is the type comprising cns node manager and kubernetes informer
@@ -38,70 +38,52 @@ type Nodes struct {
 }
 
 // Initialize helps initialize node manager and node informer manager
-func (nodes *Nodes) Initialize() error {
-	nodes.cnsNodeManager = cnsnode.GetManager()
+func (nodes *Nodes) Initialize(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	nodes.cnsNodeManager = cnsnode.GetManager(ctx)
 	// Create the kubernetes client
-	k8sclient, err := k8s.NewClient()
+	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
-		klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(k8sclient)
-	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nodes.nodeUpdate, nodes.nodeDelete)
+	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nil, nodes.nodeDelete)
 	nodes.informMgr.Listen()
 	return nil
 }
 
 func (nodes *Nodes) nodeAdd(obj interface{}) {
-	nodes.nodeRegister(obj)
-}
-
-func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
-	newNode, ok := newObj.(*v1.Node)
-	if !ok {
-		klog.Warningf("nodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)
-		return
-	}
-	oldNode, ok := oldObj.(*v1.Node)
-	if !ok {
-		klog.Warningf("nodeUpdate: unrecognized object oldObj %[1]T%+[1]v", oldObj)
-		return
-	}
-	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
-		klog.V(2).Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
-		nodes.nodeRegister(newObj)
-	}
-}
-
-func (nodes *Nodes) nodeRegister(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
 	node, ok := obj.(*v1.Node)
 	if node == nil || !ok {
-		klog.Warningf("nodeRegister: unrecognized object %+v", obj)
+		log.Warnf("nodeAdd: unrecognized object %+v", obj)
 		return
 	}
-	err := nodes.cnsNodeManager.RegisterNode(common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
+	err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
-		klog.Warningf("Failed to register node:%q. err=%v", node.Name, err)
+		log.Warnf("Failed to register node:%q. err=%v", node.Name, err)
 	}
 }
 
 func (nodes *Nodes) nodeDelete(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
 	node, ok := obj.(*v1.Node)
 	if node == nil || !ok {
-		klog.Warningf("nodeDelete: unrecognized object %+v", obj)
+		log.Warnf("nodeDelete: unrecognized object %+v", obj)
 		return
 	}
-	err := nodes.cnsNodeManager.UnregisterNode(node.Name)
+	err := nodes.cnsNodeManager.UnregisterNode(ctx, node.Name)
 	if err != nil {
-		klog.Warningf("Failed to unregister node:%q. err=%v", node.Name, err)
+		log.Warnf("Failed to unregister node:%q. err=%v", node.Name, err)
 	}
 }
 
 // GetNodeByName returns VirtualMachine object for given nodeName
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume to perform attach and detach operations.
-func (nodes *Nodes) GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, error) {
-	return nodes.cnsNodeManager.GetNodeByName(nodeName)
+func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
 // GetSharedDatastoresInTopology returns shared accessible datastores for specified topologyRequirement along with the map of
@@ -125,26 +107,27 @@ func (nodes *Nodes) GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, 
 //         [map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west]
 //         map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east]]]]
 func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneCategoryName string, regionCategoryName string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
-	klog.V(4).Infof("GetSharedDatastoresInTopology: called with topologyRequirement: %+v, zoneCategoryName: %s, regionCategoryName: %s", topologyRequirement, zoneCategoryName, regionCategoryName)
-	allNodes, err := nodes.cnsNodeManager.GetAllNodes()
+	log := logger.GetLogger(ctx)
+	log.Debugf("GetSharedDatastoresInTopology: called with topologyRequirement: %+v, zoneCategoryName: %s, regionCategoryName: %s", topologyRequirement, zoneCategoryName, regionCategoryName)
+	allNodes, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
-		klog.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
+		log.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
 		return nil, nil, err
 	}
 	if len(allNodes) == 0 {
 		errMsg := fmt.Sprintf("Empty List of Node VMs returned from nodeManager")
-		klog.Errorf(errMsg)
+		log.Errorf(errMsg)
 		return nil, nil, fmt.Errorf(errMsg)
 	}
 	// getNodesInZoneRegion takes zone and region as parameter and returns list of node VMs which belongs to specified
 	// zone and region.
 	getNodesInZoneRegion := func(zoneValue string, regionValue string) ([]*cnsvsphere.VirtualMachine, error) {
-		klog.V(4).Infof("getNodesInZoneRegion: called with zoneValue: %s, regionValue: %s", zoneValue, regionValue)
+		log.Debugf("getNodesInZoneRegion: called with zoneValue: %s, regionValue: %s", zoneValue, regionValue)
 		var nodeVMsInZoneAndRegion []*cnsvsphere.VirtualMachine
 		for _, nodeVM := range allNodes {
 			isNodeInZoneRegion, err := nodeVM.IsInZoneRegion(ctx, zoneCategoryName, regionCategoryName, zoneValue, regionValue)
 			if err != nil {
-				klog.Errorf("Error checking if node VM: %v belongs to zone [%s] and region [%s]. err: %+v", nodeVM, zoneValue, regionValue, err)
+				log.Errorf("Error checking if node VM: %v belongs to zone [%s] and region [%s]. err: %+v", nodeVM, zoneValue, regionValue, err)
 				return nil, err
 			}
 			if isNodeInZoneRegion {
@@ -157,26 +140,26 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	// getSharedDatastoresInTopology returns list of shared accessible datastores for requested topology along with the map of datastore URL and array of accessibleTopology
 	// map for each datastore returned from this function.
 	getSharedDatastoresInTopology := func(topologyArr []*csi.Topology) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
-		klog.V(4).Infof("getSharedDatastoresInTopology: called with topologyArr: %+v", topologyArr)
+		log.Debugf("getSharedDatastoresInTopology: called with topologyArr: %+v", topologyArr)
 		var sharedDatastores []*cnsvsphere.DatastoreInfo
 		datastoreTopologyMap := make(map[string][]map[string]string)
 		for _, topology := range topologyArr {
 			segments := topology.GetSegments()
 			zone := segments[csitypes.LabelZoneFailureDomain]
 			region := segments[csitypes.LabelRegionFailureDomain]
-			klog.V(4).Infof("Getting list of nodeVMs for zone [%s] and region [%s]", zone, region)
+			log.Debugf("Getting list of nodeVMs for zone [%s] and region [%s]", zone, region)
 			nodeVMsInZoneRegion, err := getNodesInZoneRegion(zone, region)
 			if err != nil {
-				klog.Errorf("Failed to find Nodes in the zone: [%s] and region: [%s]. Error: %+v", zone, region, err)
+				log.Errorf("Failed to find Nodes in the zone: [%s] and region: [%s]. Error: %+v", zone, region, err)
 				return nil, nil, err
 			}
-			klog.V(4).Infof("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]", nodeVMsInZoneRegion, zone, region)
+			log.Debugf("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]", nodeVMsInZoneRegion, zone, region)
 			sharedDatastoresInZoneRegion, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
 			if err != nil {
-				klog.Errorf("Failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v", nodeVMsInZoneRegion, zone, region, err)
+				log.Errorf("Failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v", nodeVMsInZoneRegion, zone, region, err)
 				return nil, nil, err
 			}
-			klog.V(4).Infof("Obtained shared datastores : %+v for topology: %+v", sharedDatastores, topology)
+			log.Debugf("Obtained shared datastores : %+v for topology: %+v", sharedDatastores, topology)
 			for _, datastore := range sharedDatastoresInZoneRegion {
 				accessibleTopology := make(map[string]string)
 				if zone != "" {
@@ -195,18 +178,18 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	var datastoreTopologyMap = make(map[string][]map[string]string)
 	if topologyRequirement != nil && topologyRequirement.GetPreferred() != nil {
-		klog.V(3).Infoln("Using preferred topology")
+		log.Debugf("Using preferred topology")
 		sharedDatastores, datastoreTopologyMap, err = getSharedDatastoresInTopology(topologyRequirement.GetPreferred())
 		if err != nil {
-			klog.Errorf("Error occurred  while finding shared datastores from preferred topology: %+v", topologyRequirement.GetPreferred())
+			log.Errorf("Error occurred  while finding shared datastores from preferred topology: %+v", topologyRequirement.GetPreferred())
 			return nil, nil, err
 		}
 	}
 	if len(sharedDatastores) == 0 && topologyRequirement != nil && topologyRequirement.GetRequisite() != nil {
-		klog.V(3).Infoln("Using requisite topology")
+		log.Debugf("Using requisite topology")
 		sharedDatastores, datastoreTopologyMap, err = getSharedDatastoresInTopology(topologyRequirement.GetRequisite())
 		if err != nil {
-			klog.Errorf("Error occurred  while finding shared datastores from requisite topology: %+v", topologyRequirement.GetRequisite())
+			log.Errorf("Error occurred  while finding shared datastores from requisite topology: %+v", topologyRequirement.GetRequisite())
 			return nil, nil, err
 		}
 	}
@@ -216,30 +199,32 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 // GetSharedDatastoresInK8SCluster returns list of DatastoreInfo objects for datastores accessible to all
 // kubernetes nodes in the cluster.
 func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error) {
-	nodeVMs, err := nodes.cnsNodeManager.GetAllNodes()
+	log := logger.GetLogger(ctx)
+	nodeVMs, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
-		klog.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
+		log.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
 		return nil, err
 	}
 	if len(nodeVMs) == 0 {
 		errMsg := fmt.Sprintf("Empty List of Node VMs returned from nodeManager")
-		klog.Errorf(errMsg)
+		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
 	}
 	sharedDatastores, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMs)
 	if err != nil {
-		klog.Errorf("Failed to get shared datastores for node VMs. Err: %+v", err)
+		log.Errorf("Failed to get shared datastores for node VMs. Err: %+v", err)
 		return nil, err
 	}
-	klog.V(3).Infof("sharedDatastores : %+v", sharedDatastores)
+	log.Debugf("sharedDatastores : %+v", sharedDatastores)
 	return sharedDatastores, nil
 }
 
 // GetSharedDatastoresForVMs returns shared datastores accessible to specified nodeVMs list
 func (nodes *Nodes) GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*cnsvsphere.VirtualMachine) ([]*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	log := logger.GetLogger(ctx)
 	for _, nodeVM := range nodeVMs {
-		klog.V(4).Infof("Getting accessible datastores for node %s", nodeVM.VirtualMachine)
+		log.Debugf("Getting accessible datastores for node %s", nodeVM.VirtualMachine)
 		accessibleDatastores, err := nodeVM.GetAllAccessibleDatastores(ctx)
 		if err != nil {
 			return nil, err

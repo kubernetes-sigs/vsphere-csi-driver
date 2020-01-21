@@ -7,8 +7,9 @@ import (
 	"errors"
 	"fmt"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/davecgh/go-spew/spew"
-	"k8s.io/klog"
 
 	"reflect"
 	"strconv"
@@ -165,13 +166,14 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 }
 
 // CompareKubernetesMetadata compares the whole CnsKubernetesEntityMetadata from two given parameters
-func CompareKubernetesMetadata(k8sMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
-	klog.V(5).Infof("CompareKubernetesMetadata called with k8spvMetaData: %+v \n and cnsMetaData: %+v \n", spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
+func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
+	log := logger.GetLogger(ctx)
+	log.Debugf("CompareKubernetesMetadata called with k8spvMetaData: %+v \n and cnsMetaData: %+v \n", spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
 	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) || (k8sMetaData.Namespace != cnsMetaData.Namespace) {
 		return false
 	}
 	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
-	klog.V(5).Infof("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
+	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
 	if !labelsMatch {
 		return false
 	}

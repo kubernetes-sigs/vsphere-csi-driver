@@ -20,9 +20,10 @@ import (
 	"context"
 	"sync"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	csictx "github.com/rexray/gocsi/context"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"k8s.io/klog"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -43,7 +44,8 @@ var (
 )
 
 // InitConfigInfo initializes the ConfigInfo struct
-func InitConfigInfo(clusterFlavor cnstypes.CnsClusterFlavor) (*ConfigInfo, error) {
+func InitConfigInfo(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor) (*ConfigInfo, error) {
+	log := logger.GetLogger(ctx)
 	var err error
 	configTypes := &ConfigInfo{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -54,17 +56,17 @@ func InitConfigInfo(clusterFlavor cnstypes.CnsClusterFlavor) (*ConfigInfo, error
 		if cfgPath == "" {
 			cfgPath = cnsconfig.DefaultGCConfigPath
 		}
-		configTypes.Cfg, err = cnsconfig.GetGCconfig(cfgPath)
+		configTypes.Cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
 	} else {
 		// Config path for SuperVisor and Vanilla Cluster
 		cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 		if cfgPath == "" {
 			cfgPath = cnsconfig.DefaultCloudConfigPath
 		}
-		configTypes.Cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+		configTypes.Cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
 	}
 	if err != nil {
-		klog.Errorf("Failed to parse config. Err: %v", err)
+		log.Errorf("Failed to parse config. Err: %v", err)
 		return nil, err
 	}
 	return configTypes, nil
@@ -72,31 +74,30 @@ func InitConfigInfo(clusterFlavor cnstypes.CnsClusterFlavor) (*ConfigInfo, error
 
 // GetVirtualCenterInstance returns the vcenter object singleton.
 // It is thread safe.
-func GetVirtualCenterInstance(configTypes *ConfigInfo) (*cnsvsphere.VirtualCenter, error) {
+func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo) (*cnsvsphere.VirtualCenter, error) {
 	onceForVirtualCenter.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		log := logger.GetLogger(ctx)
 		var vcconfig *cnsvsphere.VirtualCenterConfig
 		vcconfig, err = cnsvsphere.GetVirtualCenterConfig(configTypes.Cfg)
 		if err != nil {
-			klog.Errorf("Failed to get VirtualCenterConfig. Err: %+v", err)
+			log.Errorf("Failed to get VirtualCenterConfig. Err: %+v", err)
 			return
 		}
 
 		// Initialize the virtual center manager
-		virtualcentermanager := cnsvsphere.GetVirtualCenterManager()
+		virtualcentermanager := cnsvsphere.GetVirtualCenterManager(ctx)
 
 		// Register virtual center manager
-		vcenter, err = virtualcentermanager.RegisterVirtualCenter(vcconfig)
+		vcenter, err = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
 		if err != nil {
-			klog.Errorf("Failed to register VirtualCenter . Err: %+v", err)
+			log.Errorf("Failed to register VirtualCenter . Err: %+v", err)
 			return
 		}
 
 		// Connect to VC
 		err = vcenter.Connect(ctx)
 		if err != nil {
-			klog.Errorf("Failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
+			log.Errorf("Failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
 			return
 		}
 	})

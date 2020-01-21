@@ -16,20 +16,22 @@ package vsphere
 
 import (
 	"context"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi/vsan"
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // ConnectVsan creates a VSAN client for the virtual center.
 func (vc *VirtualCenter) ConnectVsan(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
+		log.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.VsanClient == nil {
 		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
-			klog.Errorf("Failed to create vsan client with err: %v", err)
+			log.Errorf("Failed to create vsan client with err: %v", err)
 			return err
 		}
 	}
@@ -38,8 +40,9 @@ func (vc *VirtualCenter) ConnectVsan(ctx context.Context) error {
 
 // DisconnectVsan destroys the VSAN client for the virtual center.
 func (vc *VirtualCenter) DisconnectVsan(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
 	if vc.VsanClient == nil {
-		klog.V(4).Info("VsanClient wasn't connected, ignoring disconnect request")
+		log.Debug("VsanClient wasn't connected, ignoring disconnect request")
 	} else {
 		vc.VsanClient = nil
 	}

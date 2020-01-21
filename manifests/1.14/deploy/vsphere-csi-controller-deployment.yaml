@@ -52,7 +52,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: <your docker registry>/vsphere-block-csi-driver:latest
+          image: vmware/vsphere-csi:<vsphere_csi_ver>
           lifecycle:
             preStop:
               exec:
@@ -67,6 +67,8 @@ spec:
               value: "controller"
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -96,9 +98,8 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
-          image: <your docker registry>/volume-metadata-syncer:latest
+          image: vmware/syncer:<syncer_ver>
           args:
-            - "--v=4"
             - "--leader-election"
           imagePullPolicy: "Always"
           env:
@@ -106,6 +107,8 @@ spec:
               value: "30"
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
