@@ -44,9 +44,16 @@ const (
 )
 
 var (
-	isUnitTest          bool
-	supervisorNamespace string
+	ctx                    context.Context
+	isUnitTest             bool
+	supervisorNamespace    string
+	controllerTestInstance *controllerTest
+	onceForControllerTest  sync.Once
 )
+
+type controllerTest struct {
+	controller *controller
+}
 
 func configFromSim() (clientset.Interface, error) {
 	isUnitTest = true
@@ -55,32 +62,25 @@ func configFromSim() (clientset.Interface, error) {
 	return supervisorClient, nil
 }
 
-func configFromEnvOrSim() (clientset.Interface, error) {
+func configFromEnvOrSim(ctx context.Context) (clientset.Interface, error) {
 	cfg := &config.Config{}
-	if err := config.FromEnvToGC(cfg); err != nil {
+	if err := config.FromEnvToGC(ctx, cfg); err != nil {
 		return configFromSim()
 	}
 	isUnitTest = false
-	restClientConfig := k8s.GetRestClientConfig(cfg.GC.Endpoint, cfg.GC.Port)
-	supervisorClient, err := k8s.NewSupervisorClient(restClientConfig)
+	restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+	supervisorClient, err := k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
 		return nil, err
 	}
 	return supervisorClient, nil
 }
 
-type controllerTest struct {
-	controller *controller
-}
-
-var (
-	controllerTestInstance *controllerTest
-	onceForControllerTest  sync.Once
-)
-
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
-		supervisorClient, err := configFromEnvOrSim()
+		// Create context
+		ctx = context.Background()
+		supervisorClient, err := configFromEnvOrSim(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -109,10 +109,6 @@ func createVolume(ct *controllerTest, ctx context.Context, reqCreate *csi.Create
  * TestGuestCreateVolume creates volume
  */
 func TestGuestClusterControllerFlow(t *testing.T) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ct := getControllerTest(t)
 
 	// Create

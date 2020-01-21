@@ -75,8 +75,6 @@ spec:
             preStop:
               exec:
                 command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
-          args:
-            - "--v=4"
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
@@ -92,6 +90,8 @@ spec:
               value: "29000"
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -112,7 +112,6 @@ spec:
         - name: vsphere-syncer
           image: vmware/syncer:<syncer_ver>
           args:
-            - "--v=4"
             - "--leader-election"
           env:
             - name: CLUSTER_FLAVOR
@@ -129,6 +128,8 @@ spec:
               value: "29000"
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+            - name: LOGGER_LEVEL
+              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp

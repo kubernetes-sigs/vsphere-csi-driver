@@ -19,23 +19,23 @@ package service
 import (
 	"context"
 
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"net"
 	"os"
 	"strings"
+
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
-	log "github.com/sirupsen/logrus"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -97,14 +97,12 @@ func (s *service) GetController() csi.ControllerServer {
 
 func (s *service) BeforeServe(
 	ctx context.Context, sp *gocsi.StoragePlugin, lis net.Listener) error {
-
+	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+	logger.SetLoggerLevel(logType)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	defer func() {
-		fields := map[string]interface{}{
-			"clusterFlavor": clusterFlavor,
-			"mode":          s.mode,
-		}
-
-		log.WithFields(fields).Infof("configured: %s", csitypes.Name)
+		log.Infof("configured: %q with clusterFlavor: %q and mode: %q", csitypes.Name, clusterFlavor, s.mode)
 	}()
 
 	// Get the SP's operating mode.
@@ -123,21 +121,21 @@ func (s *service) BeforeServe(
 			if cfgPath == "" {
 				cfgPath = cnsconfig.DefaultGCConfigPath
 			}
-			cfg, err = cnsconfig.GetGCconfig(cfgPath)
+			cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
 		} else {
 			// Config path for SuperVisor and Vanilla Cluster
 			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
 			if cfgPath == "" {
 				cfgPath = cnsconfig.DefaultCloudConfigPath
 			}
-			cfg, err = cnsconfig.GetCnsconfig(cfgPath)
+			cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
 		}
 		if err != nil {
-			klog.Errorf("Failed to read config. Error: %+v", err)
+			log.Errorf("Failed to read config. Error: %+v", err)
 			return err
 		}
 		if err := s.cnscs.Init(cfg); err != nil {
-			log.WithError(err).Error("Failed to init controller")
+			log.Errorf("Failed to init controller. Error: %+v", err)
 			return err
 		}
 	}

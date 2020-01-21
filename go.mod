@@ -42,7 +42,6 @@ require (
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/rexray/gocsi v0.4.1-0.20181205192803-207653674028
-	github.com/sirupsen/logrus v1.4.2
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
@@ -52,14 +51,17 @@ require (
 	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69
 	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20191220191310-2ac7ed31c085
 	go.etcd.io/bbolt v1.3.3 // indirect
-	golang.org/x/lint v0.0.0-20190313153728-d0100b6bd8b3 // indirect
+	go.uber.org/atomic v1.5.1 // indirect
+	go.uber.org/multierr v1.4.0 // indirect
+	go.uber.org/zap v1.13.0
+	golang.org/x/lint v0.0.0-20191125180803-fdd1cda4f05f // indirect
 	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
 	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
+	golang.org/x/tools v0.0.0-20200117173607-7ad9cd8f3189 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc // indirect
 	k8s.io/api v0.17.0
 	k8s.io/apiextensions-apiserver v0.0.0-20190918201827-3de75813f604
 	k8s.io/apimachinery v0.17.1-beta.0
@@ -69,7 +71,6 @@ require (
 	k8s.io/cloud-provider v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/cluster-bootstrap v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/csi-translation-lib v0.0.0-00010101000000-000000000000 // indirect
-	k8s.io/klog v1.0.0
 	k8s.io/kube-aggregator v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/kube-openapi v0.0.0-20191107075043-30be4d16710a
 	k8s.io/kubernetes v1.14.10

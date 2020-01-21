@@ -24,13 +24,14 @@ import (
 	"strconv"
 	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -44,7 +45,7 @@ const (
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateWCPCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
+func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
 	// Get create params
 	params := req.GetParameters()
 	for paramName := range params {
@@ -56,41 +57,42 @@ func validateWCPCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 		}
 	}
 	// Fail file volume creation
-	if common.IsFileVolumeRequest(req.GetVolumeCapabilities()) {
+	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
-	return common.ValidateCreateVolumeRequest(req)
+	return common.ValidateCreateVolumeRequest(ctx, req)
 }
 
 // validateWCPDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateWCPDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
-	return common.ValidateDeleteVolumeRequest(req)
+func validateWCPDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRequest) error {
+	return common.ValidateDeleteVolumeRequest(ctx, req)
 }
 
 // validateWCPControllerPublishVolumeRequest is the helper function to validate
 // ControllerPublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
-func validateWCPControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
-	return common.ValidateControllerPublishVolumeRequest(req)
+func validateWCPControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+	return common.ValidateControllerPublishVolumeRequest(ctx, req)
 }
 
 // validateWCPControllerUnpublishVolumeRequest is the helper function to validate
 // ControllerUnpublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
-func validateWCPControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
-	return common.ValidateControllerUnpublishVolumeRequest(req)
+func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
+	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
 // getVMUUIDFromPodListenerService gets the vmuuid from pod listener gRPC service
-func getVMUUIDFromPodListenerService(volumeID string, nodeName string) (string, error) {
+func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeName string) (string, error) {
 	var opts []grpc.DialOption
+	log := logger.GetLogger(ctx)
 	opts = append(opts, grpc.WithInsecure())
-	port := getPodListenerServicePort()
+	port := getPodListenerServicePort(ctx)
 	podListenerServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
 	// Connect to pod listerner gRPC service
 	conn, err := grpc.Dial(podListenerServiceAddr, opts...)
 	if err != nil {
-		klog.Errorf("Failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
+		log.Errorf("Failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
 		return "", err
 	}
 	defer conn.Close()
@@ -108,11 +110,11 @@ func getVMUUIDFromPodListenerService(volumeID string, nodeName string) (string, 
 		})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the pod listener service. Error: %+v", err)
-		klog.Error(msg)
+		log.Error(msg)
 		return "", err
 	}
 
-	klog.V(2).Infof("Got vmuuid: %s annotation from Pod Listener gRPC service", res.VmuuidAnnotation)
+	log.Infof("Got vmuuid: %s annotation from Pod Listener gRPC service", res.VmuuidAnnotation)
 	return res.VmuuidAnnotation, nil
 }
 
@@ -185,18 +187,19 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 // If environment variable X_CSI_POD_LISTENER_SERVICE_PORT is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default port
-func getPodListenerServicePort() int {
+func getPodListenerServicePort(ctx context.Context) int {
 	podListenerServicePort := defaultPodListenerServicePort
+	log := logger.GetLogger(ctx)
 	if v := os.Getenv("X_CSI_POD_LISTENER_SERVICE_PORT"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				klog.Warningf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
+				log.Warnf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
 			} else {
 				podListenerServicePort = value
-				klog.V(4).Infof("Connecting to Pod Listener Service on port %d", podListenerServicePort)
+				log.Infof("Connecting to Pod Listener Service on port %d", podListenerServicePort)
 			}
 		} else {
-			klog.Warningf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
+			log.Warnf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
 		}
 	}
 	return podListenerServicePort

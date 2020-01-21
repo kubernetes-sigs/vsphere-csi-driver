@@ -20,13 +20,14 @@ import (
 	"fmt"
 	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -55,37 +56,40 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *config.Config) error {
-	klog.Infof("Initializing WCP CSI controller")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Initializing WCP CSI controller")
 	var err error
 	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
-		klog.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
-	vcManager := cnsvsphere.GetVirtualCenterManager()
-	vcenter, err := vcManager.RegisterVirtualCenter(vcenterconfig)
+	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 	if err != nil {
-		klog.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+		log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(vcenter),
-		VcenterManager: cnsvsphere.GetVirtualCenterManager(),
+		VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+		VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		klog.Errorf("Failed to get vcenter. err=%v", err)
+		log.Errorf("Failed to get vcenter. err=%v", err)
 		return err
 	}
 	// Check vCenter API Version
 	if err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion); err != nil {
-		klog.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
+		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
 	go cnsvolume.ClearTaskInfoObjects()
@@ -96,11 +100,13 @@ func (c *controller) Init(config *config.Config) error {
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	klog.V(4).Infof("CreateVolume: called with args %+v", *req)
-	err := validateWCPCreateVolumeRequest(req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateVolume: called with args %+v", *req)
+	err := validateWCPCreateVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 
@@ -137,7 +143,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
@@ -155,18 +161,20 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 // CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
-	klog.V(4).Infof("DeleteVolume: called with args: %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("DeleteVolume: called with args: %+v", *req)
 	var err error
-	err = validateWCPDeleteVolumeRequest(req)
+	err = validateWCPDeleteVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	return &csi.DeleteVolumeResponse{}, nil
@@ -176,25 +184,27 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-	klog.V(4).Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateWCPControllerPublishVolumeRequest(req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerPublishVolume: called with args %+v", *req)
+	err := validateWCPControllerPublishVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		klog.Errorf(msg)
+		log.Errorf(msg)
 		return nil, err
 	}
 
-	vmuuid, err := getVMUUIDFromPodListenerService(req.VolumeId, req.NodeId)
+	vmuuid, err := getVMUUIDFromPodListenerService(ctx, req.VolumeId, req.NodeId)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get datacenter from config with error: %+v", err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	var vCenterHost, dcMorefValue string
@@ -202,11 +212,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		vCenterHost = key
 		dcMorefValue = value
 	}
-	vc, err := c.manager.VcenterManager.GetVirtualCenter(vCenterHost)
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
 	if err != nil {
 		msg := fmt.Sprintf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
 			vc.Config.Host, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -216,14 +226,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	err = vc.Connect(ctx)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to connect to Virtual Center: %s", vc.Config.Host)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -231,7 +241,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -249,11 +259,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-	klog.V(4).Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateWCPControllerUnpublishVolumeRequest(req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+	err := validateWCPControllerUnpublishVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-		klog.Error(msg)
+		log.Error(msg)
 		return nil, err
 	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
@@ -262,11 +274,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-
-	klog.V(4).Infof("ControllerGetCapabilities: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(volCaps) {
+	if common.IsValidVolumeCapabilities(ctx, volCaps) {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -276,22 +289,26 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
-
-	klog.V(4).Infof("ListVolumes: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ListVolumes: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
-
-	klog.V(4).Infof("GetCapacity: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("GetCapacity: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
 
-	klog.V(4).Infof("ControllerGetCapabilities: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
@@ -309,51 +326,60 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (
 	*csi.CreateSnapshotResponse, error) {
 
-	klog.V(4).Infof("CreateSnapshot: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateSnapshot: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
 	*csi.DeleteSnapshotResponse, error) {
 
-	klog.V(4).Infof("DeleteSnapshot: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("DeleteSnapshot: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
 
-	klog.V(4).Infof("ListSnapshots: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ListSnapshots: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ControllerExpandVolume expands a volume.
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
-	klog.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // GetSharedDatastoresInPodVMK8SCluster gets the shared datastores for WCP PodVM cluster
 func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([]*cnsvsphere.DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		klog.Errorf("Failed to get vCenter from Manager, err=%+v", err)
+		log.Errorf("Failed to get vCenter from Manager, err=%+v", err)
 		return nil, err
 	}
 	hosts, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
 	if err != nil {
-		klog.Errorf("Failed to get hosts from VC with err %+v", err)
+		log.Errorf("Failed to get hosts from VC with err %+v", err)
 		return nil, err
 	}
 	if len(hosts) == 0 {
 		errMsg := fmt.Sprintf("Empty List of hosts returned from VC")
-		klog.Errorf(errMsg)
+		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
 	}
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	for _, host := range hosts {
-		klog.V(4).Infof("Getting accessible datastores for node %s", host.InventoryPath)
+		log.Debugf("Getting accessible datastores for node %s", host.InventoryPath)
 		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
 		if err != nil {
 			return nil, err
@@ -378,6 +404,6 @@ func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([
 			return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster for host: %+v", host)
 		}
 	}
-	klog.V(3).Infof("The list of shared datastores: %+v", sharedDatastores)
+	log.Debugf("The list of shared datastores: %+v", sharedDatastores)
 	return sharedDatastores, nil
 }

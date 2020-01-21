@@ -41,7 +41,6 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/klog"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -53,6 +52,24 @@ const (
 	testVolumeName  = "test-pvc"
 	testClusterName = "test-cluster"
 )
+
+var (
+	ctx                    context.Context
+	controllerTestInstance *controllerTest
+	onceForControllerTest  sync.Once
+)
+
+type FakeNodeManager struct {
+	client             *vim25.Client
+	sharedDatastoreURL string
+	k8sClient          clientset.Interface
+}
+
+type controllerTest struct {
+	controller *controller
+	config     *config.Config
+	vcenter    *cnsvsphere.VirtualCenter
+}
 
 // configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
 // The vcsim instance is configured with an empty tls.Config.
@@ -115,19 +132,13 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 
 func configFromEnvOrSim() (*config.Config, func()) {
 	cfg := &config.Config{}
-	if err := config.FromEnv(cfg); err != nil {
+	if err := config.FromEnv(ctx, cfg); err != nil {
 		return configFromSim()
 	}
 	return cfg, func() {}
 }
 
-type FakeNodeManager struct {
-	client             *vim25.Client
-	sharedDatastoreURL string
-	k8sClient          clientset.Interface
-}
-
-func (f *FakeNodeManager) Initialize() error {
+func (f *FakeNodeManager) Initialize(ctx context.Context) error {
 	return nil
 }
 
@@ -180,17 +191,18 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 	}, nil
 }
 
-func (f *FakeNodeManager) GetNodeByName(nodeName string) (*cnsvsphere.VirtualMachine, error) {
+func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
+	var t *testing.T
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		nodeUUID, err := k8s.GetNodeVMUUID(f.k8sClient, nodeName)
+		nodeUUID, err := k8s.GetNodeVMUUID(ctx, f.k8sClient, nodeName)
 		if err != nil {
-			klog.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+			t.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
 			return nil, err
 		}
-		vm, err = cnsvsphere.GetVirtualMachineByUUID(nodeUUID, false)
+		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			klog.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+			t.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
 			return nil, err
 		}
 	} else {
@@ -206,32 +218,21 @@ func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context, top
 	return nil, nil, nil
 }
 
-type controllerTest struct {
-	controller *controller
-	config     *config.Config
-	vcenter    *cnsvsphere.VirtualCenter
-}
-
-var (
-	controllerTestInstance *controllerTest
-	onceForControllerTest  sync.Once
-)
-
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
+		// Create context
+		ctx = context.Background()
 		config, _ := configFromEnvOrSim()
 
 		// CNS based CSI requires a valid cluster name
 		config.Global.ClusterID = testClusterName
 
-		ctx := context.Background()
-
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		vcManager := cnsvsphere.GetVirtualCenterManager()
-		vcenter, err := vcManager.RegisterVirtualCenter(vcenterconfig)
+		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -244,8 +245,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(vcenter),
-			VcenterManager: cnsvsphere.GetVirtualCenterManager(),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
 		var sharedDatastoreURL string
@@ -284,10 +285,6 @@ func getControllerTest(t *testing.T) *controllerTest {
 
 func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	// Create context
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ct := getControllerTest(t)
 
 	// Create
@@ -393,10 +390,6 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 }
 
 func TestExtendVolume(t *testing.T) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ct := getControllerTest(t)
 
 	// Create
@@ -518,10 +511,6 @@ func TestExtendVolume(t *testing.T) {
 }
 
 func TestCompleteControllerFlow(t *testing.T) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ct := getControllerTest(t)
 
 	// Create

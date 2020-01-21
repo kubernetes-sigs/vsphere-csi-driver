@@ -17,11 +17,13 @@ limitations under the License.
 package manager
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
@@ -42,23 +44,28 @@ var (
 
 // InitCnsOperator initializes the Cns Operator
 func InitCnsOperator(configInfo *types.ConfigInfo) error {
-	klog.V(2).Infof("Initializing CNS Operator")
-	vCenter, err := types.GetVirtualCenterInstance(configInfo)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Initializing CNS Operator")
+	vCenter, err := types.GetVirtualCenterInstance(ctx, configInfo)
 	if err != nil {
 		return err
 	}
-	volumeManager := volumes.GetManager(vCenter)
+	volumeManager := volumes.GetManager(ctx, vCenter)
 
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		klog.Errorf("Failed to get Kubernetes config. Err: %+v", err)
+		log.Errorf("Failed to get Kubernetes config. Err: %+v", err)
 		return err
 	}
 
 	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
-		klog.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
+		log.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
 		return err
 	}
 
@@ -66,17 +73,17 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 
 	// Create CnsNodeVMAttachment CRD
 	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-	err = createCustomResourceDefinition(apiextensionsClientSet, apis.CnsNodeVmAttachmentPlural, crdKind)
+	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVmAttachmentPlural, crdKind)
 	if err != nil {
-		klog.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
 	// Create CnsVolumeMetadata CRD
 	crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
-	err = createCustomResourceDefinition(apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
+	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
 	if err != nil {
-		klog.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
@@ -87,29 +94,29 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 	})
 	if err != nil {
-		klog.Errorf("Failed to create new Cns operator instance. Err: %+v", err)
+		log.Errorf("Failed to create new Cns operator instance. Err: %+v", err)
 		return err
 	}
 
-	klog.V(2).Info("Registering Components for Cns Operator")
+	log.Info("Registering Components for Cns Operator")
 
 	// Setup Scheme for all resources
 	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
-		klog.Errorf("Failed to set the scheme for Cns operator. Err: %+v", err)
+		log.Errorf("Failed to set the scheme for Cns operator. Err: %+v", err)
 		return err
 	}
 
 	// Setup all Controllers
 	if err := controller.AddToManager(mgr, configInfo, volumeManager); err != nil {
-		klog.Errorf("Failed to setup the controller for Cns operator. Err: %+v", err)
+		log.Errorf("Failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}
 
-	klog.V(2).Info("Starting Cns Operator")
+	log.Info("Starting Cns Operator")
 
 	// Start the operator
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		klog.Errorf("Failed to start Cns operator. Err: %+v", err)
+		log.Errorf("Failed to start Cns operator. Err: %+v", err)
 		return err
 	}
 	return nil

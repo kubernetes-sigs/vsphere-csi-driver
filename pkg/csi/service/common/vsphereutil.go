@@ -19,6 +19,7 @@ package common
 import (
 	"errors"
 	"fmt"
+
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
@@ -27,27 +28,28 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 	"golang.org/x/net/context"
-	"k8s.io/klog"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (string, error) {
+	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
 		err = vc.ConnectPbm(ctx)
 		if err != nil {
-			klog.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
 			return "", err
 		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
@@ -64,7 +66,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// Datacenters are returned.
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
-			klog.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+			log.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 			return "", err
 		}
 		isSharedDatastoreURL := false
@@ -72,7 +74,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		for _, datacenter := range datacenters {
 			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Warningf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+				log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
 			for _, sharedDatastore := range sharedDatastores {
@@ -87,14 +89,14 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 		if datastoreObj == nil {
 			errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not found.", spec.ScParams.DatastoreURL)
-			klog.Errorf(errMsg)
+			log.Errorf(errMsg)
 			return "", errors.New(errMsg)
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
 		} else {
 			errMsg := fmt.Sprintf("Datastore: %s specified in the storage class is not accessible to all nodes.", spec.ScParams.DatastoreURL)
-			klog.Errorf(errMsg)
+			log.Errorf(errMsg)
 			return "", errors.New(errMsg)
 		}
 	}
@@ -122,7 +124,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		if spec.AffineToHost != "" {
 			hostVsanUUID, err := getHostVsanUUID(ctx, spec.AffineToHost, vc)
 			if err != nil {
-				klog.Errorf("Failed to get the vSAN UUID for node: %s", spec.AffineToHost)
+				log.Errorf("Failed to get the vSAN UUID for node: %s", spec.AffineToHost)
 				return "", err
 			}
 			param1 := vim25types.KeyValue{Key: VsanAffinityKey, Value: hostVsanUUID}
@@ -133,10 +135,10 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	klog.V(4).Infof("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeID, err := manager.VolumeManager.CreateVolume(createSpec)
+	log.Debugf("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		klog.Errorf("Failed to create disk %s with error %+v", spec.Name, err)
+		log.Errorf("Failed to create disk %s with error %+v", spec.Name, err)
 		return "", err
 	}
 	return volumeID.Id, nil
@@ -144,21 +146,22 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 
 // CreateFileVolumeUtil is the helper function to create CNS file volume.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec) (string, error) {
+	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
 		err = vc.ConnectPbm(ctx)
 		if err != nil {
-			klog.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
 			return "", err
 		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			klog.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
@@ -168,16 +171,16 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			allVsanDatastores, err = vc.GetVsanDatastores(ctx)
 			if err != nil {
-				klog.Errorf("Failed to get vSAN datastores with error %+v", err)
+				log.Errorf("Failed to get vSAN datastores with error %+v", err)
 				return "", err
 			}
 			var vsanDatastoreUrls []string
 			for _, datastore := range allVsanDatastores {
 				vsanDatastoreUrls = append(vsanDatastoreUrls, datastore.Summary.Url)
 			}
-			fsEnabledMap, err := IsFileServiceEnabled(vsanDatastoreUrls, ctx, manager)
+			fsEnabledMap, err := IsFileServiceEnabled(ctx, vsanDatastoreUrls, manager)
 			if err != nil {
-				klog.Errorf("Failed to get if file service is enabled on vsan datastores with error %+v", err)
+				log.Errorf("Failed to get if file service is enabled on vsan datastores with error %+v", err)
 				return "", err
 			}
 			for _, vsanDatastore := range allVsanDatastores {
@@ -189,7 +192,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 			if len(datastores) == 0 {
 				msg := "No file service enabled vsan datastore is present in the environment."
-				klog.Error(msg)
+				log.Error(msg)
 				return "", errors.New(msg)
 			}
 		} else {
@@ -198,7 +201,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			for _, TargetvSANFileShareDatastoreURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
 				if err != nil {
-					klog.Errorf("Failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
+					log.Errorf("Failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
 					return "", err
 				}
 				datastores = append(datastores, datastoreMoref)
@@ -211,7 +214,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
+				log.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -227,12 +230,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			if !found {
 				msg := fmt.Sprintf("Datastore URL %q specified in storage class is not in the allowed list %+v",
 					spec.ScParams.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
-				klog.Error(msg)
+				log.Error(msg)
 				return "", errors.New(msg)
 			}
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				klog.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
+				log.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -268,10 +271,10 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	klog.V(4).Infof("vSphere CNS driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeID, err := manager.VolumeManager.CreateVolume(createSpec)
+	log.Debugf("vSphere CNS driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		klog.Errorf("Failed to create file volume %q with error %+v", spec.Name, err)
+		log.Errorf("Failed to create file volume %q with error %+v", spec.Name, err)
 		return "", err
 	}
 	return volumeID.Id, nil
@@ -279,7 +282,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 
 // getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's HostVsanSystem
 func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCenter) (string, error) {
-	klog.V(4).Infof("getHostVsanUUID for host moid: %v", hostMoID)
+	log := logger.GetLogger(ctx)
+	log.Debugf("getHostVsanUUID for host moid: %v", hostMoID)
 
 	// get host vsan UUID from the HostSystem
 	hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: hostMoID}
@@ -288,10 +292,10 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 	}
 	nodeUUID, err := host.GetHostVsanNodeUUID(ctx)
 	if err != nil {
-		klog.Errorf("Failed getting ESX host %v vsanUuid, err: %v", host, err)
+		log.Errorf("Failed getting ESX host %v vsanUuid, err: %v", host, err)
 		return "", err
 	}
-	klog.V(4).Infof("Got HostVsanUUID for host %s: %s", host.Reference(), nodeUUID)
+	log.Debugf("Got HostVsanUUID for host %s: %s", host.Reference(), nodeUUID)
 	return nodeUUID, nil
 }
 
@@ -299,13 +303,14 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) (string, error) {
-	klog.V(4).Infof("vSphere CNS driver is attaching volume: %q to vm: %q", volumeID, vm.String())
-	diskUUID, err := manager.VolumeManager.AttachVolume(vm, volumeID)
+	log := logger.GetLogger(ctx)
+	log.Debugf("vSphere CNS driver is attaching volume: %q to vm: %q", volumeID, vm.String())
+	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID)
 	if err != nil {
-		klog.Errorf("Failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
+		log.Errorf("Failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
 		return "", err
 	}
-	klog.V(4).Infof("Successfully attached disk %s to VM %v. Disk UUID is %s", volumeID, vm, diskUUID)
+	log.Debugf("Successfully attached disk %s to VM %v. Disk UUID is %s", volumeID, vm, diskUUID)
 	return diskUUID, nil
 }
 
@@ -313,39 +318,42 @@ func AttachVolumeUtil(ctx context.Context, manager *Manager,
 func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) error {
-	klog.V(4).Infof("vSphere CNS driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
-	err := manager.VolumeManager.DetachVolume(vm, volumeID)
+	log := logger.GetLogger(ctx)
+	log.Debugf("vSphere CNS driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
+	err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
 	if err != nil {
-		klog.Errorf("Failed to detach disk %s with err %+v", volumeID, err)
+		log.Errorf("Failed to detach disk %s with err %+v", volumeID, err)
 		return err
 	}
-	klog.V(4).Infof("Successfully detached disk %s from VM %v.", volumeID, vm)
+	log.Debugf("Successfully detached disk %s from VM %v.", volumeID, vm)
 	return nil
 }
 
 // DeleteVolumeUtil is the helper function to delete CNS volume for given volumeId
 func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, deleteDisk bool) error {
+	log := logger.GetLogger(ctx)
 	var err error
-	klog.V(4).Infof("vSphere Cloud Provider deleting volume: %s", volumeID)
-	err = manager.VolumeManager.DeleteVolume(volumeID, deleteDisk)
+	log.Debugf("vSphere Cloud Provider deleting volume: %s", volumeID)
+	err = manager.VolumeManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
-		klog.Errorf("Failed to delete disk %s with error %+v", volumeID, err)
+		log.Errorf("Failed to delete disk %s with error %+v", volumeID, err)
 		return err
 	}
-	klog.V(4).Infof("Successfully deleted disk for volumeid: %s", volumeID)
+	log.Debugf("Successfully deleted disk for volumeid: %s", volumeID)
 	return nil
 }
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given volumeId
 func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
 	var err error
-	klog.V(4).Infof("vSphere CNS driver expanding volume %q to new size %d MB.", volumeID, capacityInMb)
+	log := logger.GetLogger(ctx)
+	log.Debugf("vSphere CNS driver expanding volume %q to new size %d MB.", volumeID, capacityInMb)
 	err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 	if err != nil {
-		klog.Errorf("failed to expand volume %q with error %+v", volumeID, err)
+		log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 		return err
 	}
-	klog.V(4).Infof("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
+	log.Debugf("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
 	return nil
 }
 
@@ -360,6 +368,7 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 
 // Helper function to get DatastoreMoRef for given datastoreUrl in the given virtual center.
 func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl string) (vim25types.ManagedObjectReference, error) {
+	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
 		return vim25types.ManagedObjectReference{}, err
@@ -368,7 +377,7 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl s
 	for _, datacenter := range datacenters {
 		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreUrl)
 		if err != nil {
-			klog.Warningf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+			log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
 				datastoreUrl, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
 			return datastoreObj.Reference(), nil
@@ -380,22 +389,23 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreUrl s
 }
 
 // IsFileServiceEnabled checks if file sevice is enabled on the specified datastoreUrls.
-func IsFileServiceEnabled(datastoreUrls []string, ctx context.Context, manager *Manager) (map[string]bool, error) {
+func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *Manager) (map[string]bool, error) {
 	// Compute this map during controller init. Re use the map every other time.
+	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		klog.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
 		return nil, err
 	}
 	err = vc.ConnectVsan(ctx)
 	if err != nil {
-		klog.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
+		log.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
 		return nil, err
 	}
 	// This gets the datastore to file service enabled map for all the vsan datastores.
-	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(vc, ctx)
+	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc)
 	if err != nil {
-		klog.Errorf("Failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
+		log.Errorf("Failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
 		return nil, err
 	}
 	// Now create a map of datastores which are queried in the method.
@@ -404,16 +414,16 @@ func IsFileServiceEnabled(datastoreUrls []string, ctx context.Context, manager *
 		if val, ok := dsToFileServiceEnabledMap[datastoreUrl]; ok {
 			if !val {
 				msg := fmt.Sprintf("File service is not enabled on the datastore: %s", datastoreUrl)
-				klog.V(4).Infof(msg)
+				log.Debugf(msg)
 				dsToFSEnabledMapToReturn[datastoreUrl] = false
 			} else {
 				msg := fmt.Sprintf("File service is enabled on the datastore: %s", datastoreUrl)
-				klog.V(4).Infof(msg)
+				log.Debugf(msg)
 				dsToFSEnabledMapToReturn[datastoreUrl] = true
 			}
 		} else {
 			msg := fmt.Sprintf("Datastore URL %s is not present in datacenters specified in config.", datastoreUrl)
-			klog.V(4).Infof(msg)
+			log.Debugf(msg)
 			dsToFSEnabledMapToReturn[datastoreUrl] = false
 		}
 	}
@@ -421,11 +431,12 @@ func IsFileServiceEnabled(datastoreUrls []string, ctx context.Context, manager *
 }
 
 // Creates a map of vsan datastores to file service status (enabled/disabled).
-func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context) (map[string]bool, error) {
-	klog.V(4).Infof("Computing the cluster to file service status (enabled/disabled) map.")
+func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string]bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
-		klog.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		log.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 
@@ -435,7 +446,7 @@ func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context
 		finder.SetDatacenter(datacenter.Datacenter)
 		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
 		if err != nil {
-			klog.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
+			log.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
 			return nil, err
 		}
 
@@ -446,7 +457,7 @@ func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context
 			// Get the cluster config to know if file service is enabled on it or not.
 			config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
 			if err != nil {
-				klog.Errorf("Failed to get the vsan cluster config. error: %+v", err)
+				log.Errorf("Failed to get the vsan cluster config. error: %+v", err)
 				return nil, err
 			}
 
@@ -454,7 +465,7 @@ func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context
 			var dsMoList []mo.Datastore
 			datastores, err := cluster.Datastores(ctx)
 			if err != nil {
-				klog.Errorf("Error occurred while getting datastores from clusters. error: %+v", err)
+				log.Errorf("Error occurred while getting datastores from clusters. error: %+v", err)
 				return nil, err
 			}
 			for _, datastore := range datastores {
@@ -462,7 +473,7 @@ func getDsToFileServiceEnabledMap(vc *vsphere.VirtualCenter, ctx context.Context
 			}
 			err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 			if err != nil {
-				klog.Errorf("Failed to get Datastore managed objects from datastore objects."+
+				log.Errorf("Failed to get Datastore managed objects from datastore objects."+
 					" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
 				return nil, err
 			}
