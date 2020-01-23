@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -92,12 +91,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Datastore Based Volume Provisioning
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// eventList contains the events related to pvc
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
-		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		fmt.Println(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
 		fmt.Println(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
+		errorOccurred := checkEventsforError(client, pvclaim.Namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+		gomega.Expect(errorOccurred).To(gomega.BeTrue())
 
 	})
 })
