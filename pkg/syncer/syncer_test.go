@@ -564,8 +564,10 @@ func getCnsCreateSpec(t *testing.T) (cnstypes.CnsVolumeCreateSpec, error) {
 				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
 			},
 		},
-		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
-			CapacityInMb: gbInMb,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: gbInMb,
+			},
 		},
 	}, nil
 }
