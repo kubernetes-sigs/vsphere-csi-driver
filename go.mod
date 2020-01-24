@@ -58,6 +58,7 @@ require (
 	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
 	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
 	golang.org/x/tools v0.0.0-20200117173607-7ad9cd8f3189 // indirect
+	google.golang.org/appengine v1.6.5 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect

@@ -53,6 +53,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
 	const defaultVolumeOpsScale = 30
+	const  defaultVolumeOpsScaleWCP = 29
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -76,7 +77,11 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 			volumeOpsScale, err = strconv.Atoi(os.Getenv(envVolumeOperationsScale))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
-			volumeOpsScale = defaultVolumeOpsScale
+			if vanillaCluster {
+				volumeOpsScale = defaultVolumeOpsScale
+			} else {
+				volumeOpsScale = defaultVolumeOpsScaleWCP
+			}
 		}
 		pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		scParameters = make(map[string]string)
