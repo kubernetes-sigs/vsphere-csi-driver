@@ -18,16 +18,16 @@ package service
 
 import (
 	"context"
+	"net"
+	"os"
+	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
-
-	"net"
-	"os"
-	"strings"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 
@@ -36,6 +36,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
+
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -107,29 +108,12 @@ func (s *service) BeforeServe(
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	if strings.TrimSpace(string(clusterFlavor)) == "" {
-		clusterFlavor = defaultClusterFlavor
-	}
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 		var cfg *cnsconfig.Config
 		var err error
-		if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			// Config path for Guest Cluster
-			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
-			if cfgPath == "" {
-				cfgPath = cnsconfig.DefaultGCConfigPath
-			}
-			cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
-		} else {
-			// Config path for SuperVisor and Vanilla Cluster
-			cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-			if cfgPath == "" {
-				cfgPath = cnsconfig.DefaultCloudConfigPath
-			}
-			cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
-		}
+
+		cfg, err = common.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("Failed to read config. Error: %+v", err)
 			return err

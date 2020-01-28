@@ -27,6 +27,7 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
@@ -58,6 +59,8 @@ type Manager interface {
 	QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 	// ExpandVolume expands a volume to a new size.
 	ExpandVolume(ctx context.Context, volumeID string, size int64) error
+	// SetNewVCConfig helps set new VC configuration
+	SetNewVCConfig(ctx context.Context, newVCConfig *cnsvsphere.VirtualCenterConfig)
 }
 
 var (
@@ -109,6 +112,14 @@ func ClearTaskInfoObjects() {
 			}
 		}
 	}
+}
+
+// SetNewVCConfig helps set new VC configuration
+func (m *defaultManager) SetNewVCConfig(ctx context.Context, newVCConfig *cnsvsphere.VirtualCenterConfig) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Setting a new VC Configuration")
+	m.virtualCenter.Config = newVCConfig
+	log.Debugf("Done setting a new VC Configuration")
 }
 
 // CreateVolume creates a new volume given its spec.
