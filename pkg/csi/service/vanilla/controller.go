@@ -21,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/fsnotify/fsnotify"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"google.golang.org/grpc/codes"
@@ -123,7 +125,67 @@ func (c *controller) Init(config *config.Config) error {
 		return err
 	}
 	go cnsvolume.ClearTaskInfoObjects()
+	cfgPath := common.GetConfigPath(ctx)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		return err
+	}
+	go func() {
+		for {
+			log.Debugf("Waiting for event on fsnotify watcher")
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Debugf("fsnotify event: %q", event.String())
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
+					log.Infof("Reloading Configuration")
+					c.ReloadConfiguration(ctx)
+					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Errorf("fsnotify error: %+v", err)
+			}
+			log.Debugf("fsnotify event processed")
+		}
+	}()
+	cfgDirPath := filepath.Dir(cfgPath)
+	log.Infof("Adding watch on path: %q", cfgDirPath)
+	err = watcher.Add(cfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
 	return nil
+}
+
+// ReloadConfiguration reloads configuration from the secret, and update controller's config cache
+// and VolumeManager's VC Config cache.
+func (c *controller) ReloadConfiguration(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to read config. Error: %+v", err)
+		return
+	}
+	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+	if err != nil {
+		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		return
+	}
+	if newVCConfig != nil {
+		c.manager.VolumeManager.SetNewVCConfig(ctx, newVCConfig)
+		c.manager.VcenterConfig = newVCConfig
+	}
+	if cfg != nil {
+		log.Debugf("updating manager.CnsConfig")
+		c.manager.CnsConfig = cfg
+	}
 }
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.

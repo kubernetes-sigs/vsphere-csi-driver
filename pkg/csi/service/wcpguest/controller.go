@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
 	vmoperatorclient "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	"golang.org/x/net/context"
@@ -89,7 +91,69 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
+	cfgPath := common.GetConfigPath(ctx)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		return err
+	}
+	go func() {
+		for {
+			log.Debugf("Waiting for event on fsnotify watcher")
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Debugf("fsnotify event: %q", event.String())
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
+					log.Infof("Reloading Configuration")
+					c.ReloadConfiguration(ctx)
+					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Errorf("fsnotify error: %+v", err)
+			}
+			log.Debugf("fsnotify event processed")
+		}
+	}()
+	cfgDirPath := filepath.Dir(cfgPath)
+	log.Infof("Adding watch on path: %q", cfgDirPath)
+	err = watcher.Add(cfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
 	return nil
+}
+
+// ReloadConfiguration reloads configuration from the secret, and reset restClientConfig, supervisorClient
+// and re-create vmOperatorClient using new config
+func (c *controller) ReloadConfiguration(ctx context.Context) {
+	ctx, log := logger.GetNewContextWithLogger()
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to read config. Error: %+v", err)
+		return
+	}
+	if cfg != nil {
+		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
+		if err != nil {
+			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
+			return
+		}
+		log.Infof("successfully re-created supervisorClient using updated configuration")
+		c.vmOperatorClient, err = k8s.NewVMOperatorClient(ctx, restClientConfig)
+		if err != nil {
+			log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+			return
+		}
+		log.Infof("successfully re-created vmOperatorClient using updated configuration")
+	}
 }
 
 // CreateVolume is creating CNS Volume using volume request specified

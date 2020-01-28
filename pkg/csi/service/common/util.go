@@ -19,11 +19,16 @@ package common
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
+	csictx "github.com/rexray/gocsi/context"
+	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -285,4 +290,41 @@ func validatePermissions(permission vsanfstypes.VsanFileShareAccessType) (vsanfs
 		return permission, nil
 	}
 	return "", errors.New(fmt.Sprintf("Invalid permission %q", permission))
+}
+
+// GetConfigPath returns ConfigPath depending on the environment variable specified and the cluster flavor set
+func GetConfigPath(ctx context.Context) string {
+	var cfgPath string
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	}
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Config path for Guest Cluster
+		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultGCConfigPath
+		}
+	} else {
+		// Config path for SuperVisor and Vanilla Cluster
+		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultCloudConfigPath
+		}
+	}
+	return cfgPath
+}
+
+// GetConfig loads configuration from secret and returns config object
+func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
+	var cfg *cnsconfig.Config
+	var err error
+	var cfgPath string
+	cfgPath = GetConfigPath(ctx)
+	if cfgPath == cnsconfig.DefaultGCConfigPath {
+		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
+	} else {
+		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+	}
+	return cfg, err
 }
