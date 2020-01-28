@@ -24,13 +24,12 @@ import (
 	"strconv"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vsan"
 
-	csictx "github.com/rexray/gocsi/context"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 	"gitlab.eng.vmware.com/hatchway/govmomi"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
 	"gitlab.eng.vmware.com/hatchway/govmomi/object"
@@ -41,7 +40,6 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 const (
@@ -62,8 +60,7 @@ type VirtualCenter struct {
 	// CnsClient represents the CNS client instance.
 	CnsClient *cns.Client
 	// VsanClient represents the VSAN client instance.
-	VsanClient      *vsan.Client
-	credentialsLock sync.Mutex
+	VsanClient *vsan.Client
 }
 
 func (vc *VirtualCenter) String() string {
@@ -145,8 +142,6 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	vc.credentialsLock.Lock()
-	defer vc.credentialsLock.Unlock()
 
 	b, _ := pem.Decode([]byte(vc.Config.Username))
 	if b == nil {
@@ -183,27 +178,8 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 // If credentials are invalid then it fails the connection.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-	cfgPath := csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
-	if err != nil {
-		log.Errorf("Failed to read config with err: %v", err)
-		return err
-	}
-	updatedVCConfig, err := GetVirtualCenterConfig(cfg)
-	if err != nil {
-		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
-		return err
-	}
-	var requestNewSession bool
-	if (vc.Config.Username != updatedVCConfig.Username) || (vc.Config.Password != updatedVCConfig.Password) {
-		vc.UpdateCredentials(updatedVCConfig.Username, updatedVCConfig.Password)
-		requestNewSession = true
-	}
 	// Set up the vc connection
-	err = vc.connect(ctx, requestNewSession)
+	err := vc.connect(ctx, false)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
 	}
@@ -225,7 +201,6 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		}
 		return nil
 	}
-
 	if !requestNewSession {
 		// If session hasn't expired, nothing to do.
 		sessionMgr := session.NewManager(vc.Client.Client)
@@ -328,14 +303,6 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 	}
 	vc.Client = nil
 	return nil
-}
-
-// UpdateCredentials updates username and password in the VirtualCenterConfig object
-func (vc *VirtualCenter) UpdateCredentials(username, password string) {
-	vc.credentialsLock.Lock()
-	defer vc.credentialsLock.Unlock()
-	vc.Config.Username = username
-	vc.Config.Password = password
 }
 
 // GetHostsByCluster return hosts inside the cluster using cluster moref.

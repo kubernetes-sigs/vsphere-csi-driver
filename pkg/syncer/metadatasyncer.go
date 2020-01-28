@@ -19,6 +19,7 @@ package syncer
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"time"
@@ -29,9 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/fsnotify/fsnotify"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -122,6 +125,43 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Conte
 		}
 	}()
 
+	cfgPath := common.GetConfigPath(ctx)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		return err
+	}
+	go func() {
+		for {
+			log.Debugf("Waiting for event on fsnotify watcher")
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Debugf("fsnotify event: %q", event.String())
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
+					log.Infof("Reloading Configuration")
+					ReloadConfiguration(ctx, metadataSyncer)
+					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Errorf("fsnotify error: %+v", err)
+			}
+			log.Debugf("fsnotify event processed")
+		}
+	}()
+	cfgDirPath := filepath.Dir(cfgPath)
+	log.Infof("Adding watch on path: %q", cfgDirPath)
+	err = watcher.Add(cfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
+
 	// Set up kubernetes resource listeners for metadata syncer
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
@@ -154,6 +194,38 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Conte
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	<-(stopCh)
 	return nil
+}
+
+// ReloadConfiguration reloads configuration from the secret, and update controller's cached configs
+func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to read config. Error: %+v", err)
+		return
+	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		var err error
+		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewCnsVolumeMetadataClient(ctx, restClientConfig)
+		if err != nil {
+			log.Errorf("failed to create supervisor client. Err: %v", err)
+			return
+		}
+	} else {
+		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+		if err != nil {
+			log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+			return
+		}
+		if newVCConfig != nil {
+			metadataSyncer.volumeManager.SetNewVCConfig(ctx, newVCConfig)
+		}
+		if cfg != nil {
+			metadataSyncer.configInfo = &types.ConfigInfo{cfg}
+			log.Infof("updated metadataSyncer.configInfo")
+		}
+	}
 }
 
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated

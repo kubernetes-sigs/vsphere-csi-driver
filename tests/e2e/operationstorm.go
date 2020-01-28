@@ -53,7 +53,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
 	const defaultVolumeOpsScale = 30
-	const  defaultVolumeOpsScaleWCP = 29
+	const defaultVolumeOpsScaleWCP = 29
 	var (
 		client            clientset.Interface
 		namespace         string
