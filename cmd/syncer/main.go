@@ -46,10 +46,9 @@ func main() {
 	var run func(ctx context.Context)
 	var err error
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+	logger.SetLoggerLevel(logType)
+	ctx, log := logger.GetNewContextWithLogger()
 
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	configInfo, err := types.InitConfigInfo(ctx, clusterFlavor)
