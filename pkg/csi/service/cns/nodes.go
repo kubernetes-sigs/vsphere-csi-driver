@@ -58,7 +58,20 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 }
 
 func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
-	nodes.nodeRegister(newObj)
+	newNode, ok := newObj.(*v1.Node)
+	if !ok {
+		klog.Warningf("nodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)
+		return
+	}
+	oldNode, ok := oldObj.(*v1.Node)
+	if !ok {
+		klog.Warningf("nodeUpdate: unrecognized object oldObj %[1]T%+[1]v", oldObj)
+		return
+	}
+	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
+		klog.V(2).Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
+		nodes.nodeRegister(newObj)
+	}
 }
 
 func (nodes *Nodes) nodeRegister(obj interface{}) {
