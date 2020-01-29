@@ -203,8 +203,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters)
 	if err != nil {
-		log.Errorf("Parsing storage class parameters failed with error: %+v", err)
-		return nil, err
+		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.InvalidArgument, msg)
 	}
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB: volSizeMB,
@@ -326,8 +327,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters)
 	if err != nil {
-		log.Errorf("Parsing storage class parameters failed with error: %+v", err)
-		return nil, err
+		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.InvalidArgument, msg)
 	}
 
 	// If no network permissions are defined, add the default.
@@ -380,7 +382,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	return c.createBlockVolume(ctx, req)
 }
 
-// CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
+// DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
