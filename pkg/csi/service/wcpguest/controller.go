@@ -270,7 +270,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
-	// TODO: Verify if a race condition can exist here. If yes, implement some locking mechanism
 	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
