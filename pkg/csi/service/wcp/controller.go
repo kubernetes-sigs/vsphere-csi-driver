@@ -219,7 +219,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	return resp, nil
 }
 
-// CreateVolume is deleting CNS Volume specified in DeleteVolumeRequest
+// DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
