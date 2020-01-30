@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	"gitlab.eng.vmware.com/hatchway/govmomi/object"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -73,7 +74,7 @@ var (
 
 // createVolumeTaskDetails contains taskInfo object and expiration time
 type createVolumeTaskDetails struct {
-	taskinfo       *vim25types.TaskInfo
+	task           *object.Task
 	expirationTime time.Time
 }
 
@@ -107,7 +108,7 @@ func ClearTaskInfoObjects() {
 			// Checking if the expiration time has elapsed
 			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
 				// If one of the parameters in the time object is negative, it means the entry has to be deleted
-				log.Debugf("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[k].taskinfo, k)
+				log.Debugf("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[k].task, k)
 				delete(volumeTaskMap, k)
 			}
 		}
@@ -149,28 +150,29 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	// Construct the CNS VolumeCreateSpec list
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
 	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
+	var task *object.Task
 	var taskInfo *vim25types.TaskInfo
 	// Call the CNS CreateVolume
 	taskDetailsInMap, ok := volumeTaskMap[spec.Name]
 	if ok {
-		taskInfo = taskDetailsInMap.taskinfo
-		log.Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", spec.Name, taskInfo)
+		task = taskDetailsInMap.task
+		log.Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", spec.Name, task)
 	} else {
-		task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
+		task, err = m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
 		if err != nil {
 			log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
 		}
-		// Get the taskInfo
-		taskInfo, err = cns.GetTaskInfo(ctx, task)
-		if err != nil {
-			log.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-			return nil, err
-		}
-		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
-		volumeTaskMap[spec.Name] = createVolumeTaskDetails{taskInfo, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
-	}
 
+		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
+		volumeTaskMap[spec.Name] = createVolumeTaskDetails{task, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
+	}
+	// Get the taskInfo
+	taskInfo, err = cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
 	log.Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
 	// Get the taskResult
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
@@ -230,7 +232,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 	}
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
+	if err != nil || taskInfo == nil {
 		log.Errorf("Failed to get taskInfo for AttachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return "", err
 	}
@@ -321,7 +323,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
+	if err != nil || taskInfo == nil {
 		log.Errorf("Failed to get taskInfo for DetachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
@@ -390,7 +392,7 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 	}
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
+	if err != nil || taskInfo == nil {
 		log.Errorf("Failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
@@ -454,7 +456,7 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 	}
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
+	if err != nil || taskInfo == nil {
 		log.Errorf("Failed to get taskInfo for UpdateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
@@ -516,7 +518,7 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 	}
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
+	if err != nil || taskInfo == nil {
 		log.Errorf("Failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
