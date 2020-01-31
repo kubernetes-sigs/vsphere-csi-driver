@@ -69,11 +69,14 @@ var (
 	managerInstance *defaultManager
 	// onceForManager is used for initializing the Manager singleton.
 	onceForManager sync.Once
-	volumeTaskMap  = make(map[string]createVolumeTaskDetails)
+	// volumeTaskMap is used for storing pairs of (pvc-name, CNSTask)
+	// to avoid orphan volume creation
+	volumeTaskMap = make(map[string]createVolumeTaskDetails)
 )
 
 // createVolumeTaskDetails contains taskInfo object and expiration time
 type createVolumeTaskDetails struct {
+	sync.Mutex
 	task           *object.Task
 	expirationTime time.Time
 }
@@ -102,14 +105,16 @@ func ClearTaskInfoObjects() {
 	// At a frequency of every 1 minute, check if there are expired taskInfo objects and delete them from the volumeTaskMap
 	ticker := time.NewTicker(time.Duration(defaultTaskCleanupIntervalInMinutes) * time.Minute)
 	for range ticker.C {
-		for k, v := range volumeTaskMap {
+		for pvc, taskDetails := range volumeTaskMap {
 			// Get the time difference between current time and the expiration time from the volumeTaskMap
-			diff := v.expirationTime.Sub(time.Now())
+			diff := taskDetails.expirationTime.Sub(time.Now())
 			// Checking if the expiration time has elapsed
 			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
 				// If one of the parameters in the time object is negative, it means the entry has to be deleted
-				log.Debugf("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[k].task, k)
-				delete(volumeTaskMap, k)
+				log.Debugf("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[pvc].task, pvc)
+				taskDetails.Lock()
+				delete(volumeTaskMap, pvc)
+				taskDetails.Unlock()
 			}
 		}
 	}
@@ -163,9 +168,13 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 			log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
 		}
-
-		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
-		volumeTaskMap[spec.Name] = createVolumeTaskDetails{task, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
+		var taskDetails createVolumeTaskDetails
+		// Store the task details and task object expiration time in volumeTaskMap
+		taskDetails.Lock()
+		taskDetails.task = task
+		taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
+		volumeTaskMap[spec.Name] = taskDetails
+		taskDetails.Unlock()
 	}
 	// Get the taskInfo
 	taskInfo, err = cns.GetTaskInfo(ctx, task)
