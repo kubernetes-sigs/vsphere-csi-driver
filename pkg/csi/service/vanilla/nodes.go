@@ -49,7 +49,7 @@ func (nodes *Nodes) Initialize(ctx context.Context) error {
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(k8sclient)
-	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nil, nodes.nodeDelete)
+	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nodes.nodeUpdate, nodes.nodeDelete)
 	nodes.informMgr.Listen()
 	return nil
 }
@@ -64,6 +64,29 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 	err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
 		log.Warnf("Failed to register node:%q. err=%v", node.Name, err)
+	}
+}
+
+func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	log = logger.GetLogger(ctx)
+	newNode, ok := newObj.(*v1.Node)
+	if !ok {
+		log.Warnf("nodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)
+		return
+	}
+	oldNode, ok := oldObj.(*v1.Node)
+	if !ok {
+		log.Warnf("nodeUpdate: unrecognized object oldObj %[1]T%+[1]v", oldObj)
+		return
+	}
+	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
+		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
+
+		err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
+		if err != nil {
+			log.Warnf("nodeUpdate: Failed to register node:%q. err=%v", newNode.Name, err)
+		}
 	}
 }
 
