@@ -349,7 +349,6 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	return pv.Spec.CSI.VolumeHandle, nil
 }
 
-
 func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
