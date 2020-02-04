@@ -73,7 +73,6 @@ func (*Response) ProtoMessage() {}
 // Descriptor returns fileDescriptor0, int{1}
 func (*Response) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
-
 func init() {
 	proto.RegisterType((*Request)(nil), "podlistener.Request")
 	proto.RegisterType((*Response)(nil), "podlistener.Response")
@@ -143,7 +142,6 @@ type Server interface {
 func RegisterPodListenerServer(s *grpc.Server, srv Server) {
 	s.RegisterService(&_PodListenerServiceDesc, srv)
 }
-
 
 func _PodListenerGetPodVMUUIDAnnotationHandler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Request)
