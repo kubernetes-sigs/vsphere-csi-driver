@@ -191,7 +191,6 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	log := logger.GetLogger(ctx)
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
-
 	// If client was never initialized, initialize one.
 	var err error
 	if vc.Client == nil {

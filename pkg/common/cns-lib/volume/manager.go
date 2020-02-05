@@ -60,18 +60,16 @@ type Manager interface {
 	QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 	// ExpandVolume expands a volume to a new size.
 	ExpandVolume(ctx context.Context, volumeID string, size int64) error
-	// SetNewVCConfig helps set new VC configuration
-	SetNewVCConfig(ctx context.Context, newVCConfig *cnsvsphere.VirtualCenterConfig)
+	// ResetManager helps set new manager instance and VC configuration
+	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
 }
 
 var (
 	// managerInstance is a Manager singleton.
 	managerInstance *defaultManager
-	// onceForManager is used for initializing the Manager singleton.
-	onceForManager sync.Once
-	// volumeTaskMap is used for storing pairs of (pvc-name, CNSTask)
-	// to avoid orphan volume creation
-	volumeTaskMap = make(map[string]createVolumeTaskDetails)
+	// managerInstanceLock is used for mitigating race condition during read/write on manager instance.
+	managerInstanceLock sync.Mutex
+	volumeTaskMap       = make(map[string]createVolumeTaskDetails)
 )
 
 // createVolumeTaskDetails contains taskInfo object and expiration time
@@ -81,16 +79,19 @@ type createVolumeTaskDetails struct {
 	expirationTime time.Time
 }
 
-// GetManager returns the Manager singleton.
+// GetManager returns the Manager instance.
 func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter) Manager {
 	log := logger.GetLogger(ctx)
-	onceForManager.Do(func() {
-		log.Infof("Initializing volume.defaultManager...")
-		managerInstance = &defaultManager{
-			virtualCenter: vc,
-		}
-		log.Infof("volume.defaultManager initialized")
-	})
+	managerInstanceLock.Lock()
+	defer managerInstanceLock.Unlock()
+	if managerInstance != nil {
+		log.Infof("Retrieving existing volume.defaultManager...")
+		return managerInstance
+	}
+	log.Infof("Initializing new volume.defaultManager...")
+	managerInstance = &defaultManager{
+		virtualCenter: vc,
+	}
 	return managerInstance
 }
 
@@ -120,12 +121,19 @@ func ClearTaskInfoObjects() {
 	}
 }
 
-// SetNewVCConfig helps set new VC configuration
-func (m *defaultManager) SetNewVCConfig(ctx context.Context, newVCConfig *cnsvsphere.VirtualCenterConfig) {
+// ResetManager helps set new manager instance and VC configuration
+func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("Setting a new VC Configuration")
-	m.virtualCenter.Config = newVCConfig
-	log.Debugf("Done setting a new VC Configuration")
+	managerInstanceLock.Lock()
+	defer managerInstanceLock.Unlock()
+	if vcenter.Config.Host != managerInstance.virtualCenter.Config.Host {
+		log.Infof("Re-initializing volume.defaultManager")
+		managerInstance = &defaultManager{
+			virtualCenter: vcenter,
+		}
+	}
+	m.virtualCenter.Config = vcenter.Config
+	log.Infof("Done resetting volume.defaultManager")
 }
 
 // CreateVolume creates a new volume given its spec.

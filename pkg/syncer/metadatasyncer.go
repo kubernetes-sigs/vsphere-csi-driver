@@ -219,7 +219,30 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			return
 		}
 		if newVCConfig != nil {
-			metadataSyncer.volumeManager.SetNewVCConfig(ctx, newVCConfig)
+			var vcenter *cnsvsphere.VirtualCenter
+			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host {
+				vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+				log.Debugf("Unregistering virtual center: %q from virtualCenterManager", metadataSyncer.configInfo.Cfg.Global.VCenterIP)
+				err = vcManager.UnregisterAllVirtualCenters(ctx)
+				if err != nil {
+					log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
+					return
+				}
+				log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
+				vcenter, err = vcManager.RegisterVirtualCenter(ctx, newVCConfig)
+				if err != nil {
+					log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+					return
+				}
+			} else {
+				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{cfg})
+				if err != nil {
+					log.Errorf("Failed to get VirtualCenter. err=%v", err)
+					return
+				}
+			}
+			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
+			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter)
 		}
 		if cfg != nil {
 			metadataSyncer.configInfo = &types.ConfigInfo{cfg}
