@@ -149,10 +149,34 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		return
 	}
 	if newVCConfig != nil {
-		c.manager.VolumeManager.SetNewVCConfig(ctx, newVCConfig)
+		var vcenter *cnsvsphere.VirtualCenter
+		if c.manager.VcenterConfig.Host != newVCConfig.Host {
+			log.Debugf("Unregistering virtual center: %q from virtualCenterManager", c.manager.VcenterConfig.Host)
+			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
+			if err != nil {
+				log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
+				return
+			}
+			log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
+			vcenter, err = c.manager.VcenterManager.RegisterVirtualCenter(ctx, newVCConfig)
+			if err != nil {
+				log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+				return
+			}
+			c.manager.VcenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
+		} else {
+			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, newVCConfig.Host)
+			if err != nil {
+				log.Errorf("Failed to get VirtualCenter. err=%v", err)
+				return
+			}
+		}
+		c.manager.VolumeManager.ResetManager(ctx, vcenter)
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
 	}
 	if cfg != nil {
+		log.Debugf("updating manager.CnsConfig")
 		c.manager.CnsConfig = cfg
 	}
 }
