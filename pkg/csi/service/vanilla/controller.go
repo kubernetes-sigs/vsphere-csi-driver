@@ -55,6 +55,7 @@ type NodeManagerInterface interface {
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
 	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
 
 type controller struct {
@@ -575,6 +576,31 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	if currentSize >= volSizeMB {
 		log.Infof("Volume size %d is greater than or equal to the requested size %d for volumeID: %q", currentSize, volSizeMB, volumeID)
 	} else {
+		// Check if volume is attached to a node
+		log.Infof("Check if volume %q is attached to a node", volumeID)
+		nodes, err := c.nodeMgr.GetAllNodes(ctx)
+		if err != nil {
+			msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+
+		for _, node := range nodes {
+			// Check if volume is attached to any node. If so,
+			// fail the operation as only offline volume expansion is supported.
+			diskUUID, err := cnsvolume.IsDiskAttached(ctx, node, volumeID)
+			if err != nil {
+				msg := fmt.Sprintf("expand volume has failed with err: %q. Unable to check if volume: %q is attached to node: %+v",
+					err, volumeID, node)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			} else if diskUUID != "" {
+				msg := fmt.Sprintf("failed to expand volume: %+q to size: %d. Volume is attached to node %q. Only offline volume expansion is supported", volumeID, volSizeMB, node.UUID)
+				log.Error(msg)
+				return nil, status.Errorf(codes.FailedPrecondition, msg)
+			}
+		}
+
 		log.Infof("Current volume size is %d, requested size is %d for volumeID: %q. Need volume expansion.", currentSize, volSizeMB, volumeID)
 
 		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)

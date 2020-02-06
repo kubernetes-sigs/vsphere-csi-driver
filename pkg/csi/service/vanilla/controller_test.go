@@ -214,6 +214,10 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	return vm, nil
 }
 
+func (f *FakeNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error) {
+	return nil, nil
+}
+
 func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 	return nil, nil, nil
 }
