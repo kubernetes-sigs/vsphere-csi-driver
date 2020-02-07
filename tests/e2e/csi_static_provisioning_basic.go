@@ -32,8 +32,10 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
@@ -261,7 +263,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
-		ginkgo.By("Verifying if volume is provisioned using specified storage policy")
 		// svcPVCName refers to PVC Name in the supervisor cluster
 		svcPVCName := volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
@@ -320,4 +321,79 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(volumeExists).To(gomega.BeFalse())
 	})
 
+	/*
+		This test verifies the static provisioning workflow II in guest cluster.
+
+		Test Steps:
+		1. Create a PVC using the existing SC in SV Cluster
+		2. Wait for PVC to be Bound in SV cluster
+		3. Create a PV with reclaim policy=delete in GC using the bound PVC in SV cluster as the volume id
+		4. Create a PVC in GC using the above PV
+		5. Verify the PVC is bound in GC.
+		6. Delete the PVC in GC
+		7. Verifying if PVC and PV also deleted in the SV cluster
+		8. Verify volume is deleted on CNS
+	*/
+	ginkgo.It("[csi-guest] Static provisioning workflow II in guest cluster", func() {
+		var err error
+		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+		// create supvervisor cluster client
+		var svcClient clientset.Interface
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+
+		ginkgo.By("Creating PVC in supervisor cluster")
+		// get storageclass from the supervisor cluster
+		storageclass, err := svcClient.StorageV1().StorageClasses().Get(storagePolicyNameForSharedDatastores, metav1.GetOptions{})
+		pvclaim, err := createPVC(svcClient, svNamespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := framework.DeletePersistentVolumeClaim(svcClient, pvclaim.Name, svNamespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Waiting for claim to be in bound phase")
+		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
+		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, svcClient, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pv := getPvFromClaim(svcClient, pvclaim.Namespace, pvclaim.Name)
+		volumeID := pv.Spec.CSI.VolumeHandle
+
+		// Creating label for PV.
+		// PVC will use this label as Selector to find PV
+		staticPVLabels := make(map[string]string)
+		staticPVLabels["fcd-id"] = volumeID
+
+		svcPVCName := volumeID
+		ginkgo.By("Creating the PV in guest cluster")
+		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PVC in guest cluster")
+		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Wait for PV and PVC to Bind
+		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
+
+		ginkgo.By("Deleting the PV Claim")
+		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		pvc = nil
+
+		ginkgo.By("Verify PV should be deleted automatically")
+		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+		pv = nil
+
+		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
+		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
+		gomega.Expect(volumeExists).To(gomega.BeFalse())
+	})
 })
