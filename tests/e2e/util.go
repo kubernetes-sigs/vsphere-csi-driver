@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -429,6 +431,75 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
+// writeToFile will take two parameters:
+// 1. the absolute path of the file(including filename) to be created
+// 2. data content to be written into the file
+// Returns nil on Success and error on failure
+func writeToFile(filePath, data string) error {
+	if filePath == "" {
+		return fmt.Errorf("invalid filename")
+	}
+	f, err := os.Create(filePath)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	_, err = f.WriteString(data)
+	if err != nil {
+		fmt.Println(err)
+		f.Close()
+		return err
+	}
+	err = f.Close()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	return nil
+}
+
+// invokeVCenterChangePassword invokes `dir-cli password reset` command on the given vCenter host over SSH
+// thereby resetting the currentPassword of the `user` to the `newPassword`
+func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) error {
+	// create an input file and write passwords into it
+	path := fmt.Sprintf("input.txt")
+	data := fmt.Sprintf("%s\n%s\n", adminPassword, newPassword)
+	err := writeToFile(path, data)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer func() {
+		// delete the input file containing passwords
+		err = os.Remove(path)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	// remote copy this input file to VC
+	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'", path, e2eVSphere.Config.Global.VCenterHostname)
+	fmt.Printf("Executing the command: %s\n", copyCmd)
+	_, err = exec.Command("/bin/sh", "-c", copyCmd).Output()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer func() {
+		// remove the input_copy.txt file from VC
+		removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'", e2eVSphere.Config.Global.VCenterHostname)
+		_, err = exec.Command("/bin/sh", "-c", removeCmd).Output()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	sshCmd := fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		framework.LogSSHResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
+		framework.Logf("Failed to change the password for user %s: %s", user, result.Stdout)
+		return err
+	}
+	framework.Logf("password changed successfully for user: %s", user)
+	return nil
+}
+
 // verifyVolumeTopology verifies that the Node Affinity rules in the volume
 // match the topology constraints specified in the storage class
 func verifyVolumeTopology(pv *v1.PersistentVolume, zoneValues []string, regionValues []string) (string, string, error) {
@@ -751,4 +822,78 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	} else {
 		gomega.Expect(instanceFound).To(gomega.BeFalse())
 	}
+}
+
+// trimQuotes takes a quoted string as input and returns the same string unquoted
+func trimQuotes(str string) string {
+	str = strings.TrimPrefix(str, "\"")
+	str = strings.TrimSuffix(str, "\"")
+	return str
+}
+
+/*
+	readConfigFromSecretString takes input string of the form:
+		[Global]
+		insecure-flag = "true"
+		cluster-id = "domain-c1047"
+		[VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
+		user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
+		password = "qd?\\/\"K=O_<ZQw~s4g(S"
+		datacenters = "datacenter-1033"
+		port = "443"
+	Returns a de-serialized structured config data
+*/
+func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
+	var config e2eTestConfig
+	key, value := "", ""
+	lines := strings.Split(cfg, "\n")
+	for index, line := range lines {
+		if index == 0 {
+			// Skip [Global]
+			continue
+		}
+		words := strings.Split(line, " = ")
+		if len(words) == 1 {
+			// case VirtualCenter
+			words = strings.Split(line, " ")
+			if strings.Contains(words[0], "VirtualCenter") {
+				value = words[1]
+				// Remove trailing '"]' characters from value
+				value = strings.TrimSuffix(value, "]")
+				config.Global.VCenterHostname = trimQuotes(value)
+				fmt.Printf("Key: VirtualCenter, Value: %s\n", value)
+			}
+			continue
+		}
+		key = words[0]
+		value = trimQuotes(words[1])
+		switch key {
+		case "insecure-flag":
+			if strings.Contains(value, "true") {
+				config.Global.InsecureFlag = true
+			} else {
+				config.Global.InsecureFlag = false
+			}
+		case "cluster-id":
+			config.Global.ClusterID = value
+		case "user":
+			config.Global.User = value
+		case "password":
+			config.Global.Password = value
+		case "datacenters":
+			config.Global.Datacenters = value
+		case "port":
+			config.Global.VCenterPort = value
+		default:
+			return config, fmt.Errorf("invalid key %s in the input string\n", key)
+		}
+	}
+	return config, nil
+}
+
+// writeConfigToSecretString takes in a structured config data and serializes that into a string
+func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
+	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
+		cfg.Global.InsecureFlag, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort)
+	return result, nil
 }
