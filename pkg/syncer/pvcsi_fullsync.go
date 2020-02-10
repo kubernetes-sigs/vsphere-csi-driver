@@ -93,7 +93,7 @@ func pvcsiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataS
 			// Create objects that do not exist
 			log.Infof("FullSync: Creating CnsVolumeMetadata %v on the supervisor cluster for entity type %q", guestObject.Name, guestObject.Spec.EntityType)
 			if _, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(&guestObject); err != nil {
-				log.Warnf("FullSync: Failed to create CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
+				log.Warnf("FullSync: Failed to create CnsVolumeMetadata %v. Err: %v", guestObject.Name, err)
 			}
 		} else {
 			// Compare objects between the guest cluster and supervisor cluster.
