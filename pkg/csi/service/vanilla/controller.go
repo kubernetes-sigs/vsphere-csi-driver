@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -32,21 +34,12 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-)
-
-var (
-	// controllerCaps represents the capability of controller service
-	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-	}
 )
 
 // NodeManagerInterface provides functionality to manage nodes.
@@ -62,6 +55,23 @@ type controller struct {
 	manager *common.Manager
 	nodeMgr NodeManagerInterface
 }
+
+var (
+	// VSAN67u3ControllerServiceCapability represents the capability of controller service
+	// for VSAN67u3 release
+	VSAN67u3ControllerServiceCapability = []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+	}
+
+	// VSAN7ControllerServiceCapability represents the capability of controller service
+	// for VSAN 7.0 release
+	VSAN7ControllerServiceCapability = []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+	}
+)
 
 // New creates a CNS controller
 func New() csitypes.CnsController {
@@ -377,6 +387,16 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 
 	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+		vsan67u3Release, err := isVsan67u3Release(ctx, c)
+		if err != nil {
+			log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if vsan67u3Release {
+			msg := "fileshare volume creation is not supported on vSAN 67u3 release"
+			log.Error(msg)
+			return nil, status.Error(codes.FailedPrecondition, msg)
+		}
 		return c.createFileVolume(ctx, req)
 	}
 	return c.createBlockVolume(ctx, req)
@@ -659,11 +679,44 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
+// isVsan67u3Release returns true if controller is dealing with vSAN 67u3 Release of vCenter.
+func isVsan67u3Release(ctx context.Context, c *controller) (bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Debug("Checking if vCenter version is of vsan 67u3 release")
+	if c.manager == nil || c.manager.VolumeManager == nil {
+		return false, errors.New("cannot retrieve vcenter version. controller manager is not initialized")
+	}
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+	if err != nil || vc == nil {
+		log.Errorf("failed to get vcenter version. Err: %v", err)
+		return false, err
+	}
+	log.Debugf("vCenter version is :%q", vc.Client.Version)
+	if vc.Client.Version == cns.ReleaseVSAN67u3 {
+		return true, nil
+	}
+	return false, nil
+}
+
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
+
+	var controllerCaps []csi.ControllerServiceCapability_RPC_Type
+
+	vsan67u3Release, err := isVsan67u3Release(ctx, c)
+	if err != nil {
+		log.Error("failed to get vcenter version to help identify controller service capabilities")
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if vsan67u3Release {
+		controllerCaps = VSAN67u3ControllerServiceCapability
+	} else {
+		controllerCaps = VSAN7ControllerServiceCapability
+	}
+
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
