@@ -261,8 +261,8 @@ github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69 h1:x2jOfnNC0jgkgX1NOWWfP98ohBpJR80v4vfoiTOGuDk=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69/go.mod h1:x65RJ1o4UoibPmuifqbSB3ao1UscZuNSQ244C/HwDf4=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200130212314-d702571e701c h1:3+fMfcZBD+zSKmvSYLcOcyzXQ6G33JCAJkuU3V8tv60=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200130212314-d702571e701c/go.mod h1:33wyqPPVz8rWm5ee91QpZk9aAl7FHDSe4FXhJRTzN0Q=
+gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200211180404-be44f632d4b2 h1:A05qe3qjlgHRPz85Tl4DAg6zisZH7wgp+FCgIi4Zy2w=
+gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200211180404-be44f632d4b2/go.mod h1:33wyqPPVz8rWm5ee91QpZk9aAl7FHDSe4FXhJRTzN0Q=
 go.etcd.io/bbolt v1.3.3 h1:MUGmc65QhB3pIlaQ5bB4LwqSj6GIonVJXpZiaKNyaKk=
 go.etcd.io/bbolt v1.3.3/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=

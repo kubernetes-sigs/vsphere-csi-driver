@@ -112,7 +112,7 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 		log.Errorf("Failed to create new client with err: %v", err)
 		return nil, err
 	}
-
+	vimClient.UseServiceVersion("vsan")
 	vimClient.UserAgent = "k8s-csi-useragent"
 
 	client := &govmomi.Client{
