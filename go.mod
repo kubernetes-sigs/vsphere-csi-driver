@@ -4,16 +4,9 @@ go 1.13
 
 require (
 	github.com/akutz/gofsutil v0.1.2
-	github.com/akutz/gosync v0.1.0 // indirect
-	github.com/akutz/memconn v0.1.0
 	github.com/container-storage-interface/spec v1.2.0
-	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.18+incompatible // indirect
-	github.com/coreos/go-semver v0.3.0 // indirect
-	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e // indirect
-	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
 	github.com/davecgh/go-spew v1.1.1
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
 	github.com/elazarl/goproxy v0.0.0-20190421051319-9d40249d3c2f // indirect
@@ -24,17 +17,14 @@ require (
 	github.com/go-openapi/spec v0.19.3
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/protobuf v1.3.2
-	github.com/google/btree v1.0.0 // indirect
 	github.com/google/gofuzz v1.0.0 // indirect
 	github.com/google/uuid v1.0.0
 	github.com/gorilla/websocket v1.4.1 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
-	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.12.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
-	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
 	github.com/onsi/ginkgo v1.11.0
@@ -42,16 +32,11 @@ require (
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/rexray/gocsi v0.4.1-0.20181205192803-207653674028
-	github.com/soheilhy/cmux v0.1.4 // indirect
+	github.com/rexray/gocsi v1.2.0
 	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
-	github.com/thecodeteam/gosync v0.1.0 // indirect
-	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
-	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20191227172040-5bbd4d3b4e69
+	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4
 	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200211180404-be44f632d4b2
-	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/atomic v1.5.1 // indirect
 	go.uber.org/multierr v1.4.0 // indirect
 	go.uber.org/zap v1.13.0
