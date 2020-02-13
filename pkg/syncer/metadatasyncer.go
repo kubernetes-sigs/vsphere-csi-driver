@@ -37,6 +37,7 @@ import (
 
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -144,6 +145,9 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Conte
 					log.Infof("Reloading Configuration")
 					ReloadConfiguration(ctx, metadataSyncer)
 					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+						log.Infof("Successfully reloaded configuration from: %q", cnsconfig.DefaultpvCSIProviderPath)
+					}
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -160,6 +164,14 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Conte
 	if err != nil {
 		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
+	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
+		err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+		if err != nil {
+			log.Errorf("Failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+			return err
+		}
 	}
 
 	// Set up kubernetes resource listeners for metadata syncer
