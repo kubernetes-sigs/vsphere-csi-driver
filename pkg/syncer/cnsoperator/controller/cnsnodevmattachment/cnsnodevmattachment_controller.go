@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -45,6 +47,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
+const (
+	defaultMaxWorkerThreadsForNodeVmAttach = 10
+)
+
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
@@ -67,8 +73,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
+	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
 	// Create a new controller
-	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
 		log.Errorf("Failed to create new CnsNodeVmAttachment controller with error: %+v", err)
 		return err
@@ -357,4 +364,31 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 			instance.Name, instance.Namespace, err)
 	}
 	return err
+}
+
+// getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
+// number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
+// If environment variable X_CSI_WORKER_THREADS_NODEVM_ATTACH is set and valid,
+// return the value read from enviroment variable otherwise, use the default value
+func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	workerThreads := defaultMaxWorkerThreadsForNodeVmAttach
+	if v := os.Getenv("X_CSI_WORKER_THREADS_NODEVM_ATTACH"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
+			} else if value > defaultMaxWorkerThreadsForNodeVmAttach {
+				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
+					v, defaultMaxWorkerThreadsForNodeVmAttach, defaultMaxWorkerThreadsForNodeVmAttach)
+			} else {
+				workerThreads = value
+				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment instances is set to %d", workerThreads)
+			}
+		} else {
+			log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
+		}
+	} else {
+		log.Debugf("X_CSI_WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d", defaultMaxWorkerThreadsForNodeVmAttach)
+	}
+	return workerThreads
 }
