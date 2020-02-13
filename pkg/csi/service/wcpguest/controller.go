@@ -91,7 +91,7 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
-	cfgPath := common.GetConfigPath(ctx)
+	pvcsiConfigPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
@@ -109,7 +109,7 @@ func (c *controller) Init(config *config.Config) error {
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
 					log.Infof("Reloading Configuration")
 					c.ReloadConfiguration(ctx)
-					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					log.Infof("Successfully reloaded configuration from: %q and %q", pvcsiConfigPath, cnsconfig.DefaultpvCSIProviderPath)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -120,11 +120,17 @@ func (c *controller) Init(config *config.Config) error {
 			log.Debugf("fsnotify event processed")
 		}
 	}()
-	cfgDirPath := filepath.Dir(cfgPath)
+	cfgDirPath := filepath.Dir(pvcsiConfigPath)
 	log.Infof("Adding watch on path: %q", cfgDirPath)
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
 		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
+	log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
+	err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
 	return nil
