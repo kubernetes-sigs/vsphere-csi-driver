@@ -19,7 +19,9 @@ package cnsvolumemetadata
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -50,6 +52,10 @@ import (
 	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+)
+
+const (
+	defaultMaxWorkerThreadsToProcessCnsVolumeMetadata = 3
 )
 
 // backOffDuration is a map of cnsvolumemetadata name's to the time after which a request
@@ -92,9 +98,16 @@ func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeMana
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx)
 	// Create a new controller
-	c, err := controller.New("cnsvolumemetadata-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("cnsvolumemetadata-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
+		log.Errorf("Failed to create new CnsVolumeMetadata controller with error: %+v", err)
 		return err
 	}
 	backOffDuration = make(map[string]time.Duration)
@@ -131,6 +144,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Watch for changes to primary resource CnsVolumeMetadata
 	err = c.Watch(src, h, pred)
 	if err != nil {
+		log.Errorf("Failed to watch for changes to CnsVolumeMetadata resource with error: %+v", err)
 		return err
 	}
 
@@ -453,4 +467,31 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 		r.recorder.Event(instance, v1.EventTypeNormal, "UpdateSucceeded", msg)
 		log.Info(msg)
 	}
+}
+
+// getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum
+// number of worker threads which can be run to reconcile CnsVolumeMetadata instances.
+// If environment variable X_CSI_WORKER_THREADS_VOLUME_METADATA is set and valid,
+// return the value read from enviroment variable otherwise, use the default value
+func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata
+	if v := os.Getenv("X_CSI_WORKER_THREADS_VOLUME_METADATA"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+			} else if value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata {
+				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is greater than %d, will use the default value %d",
+					v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+			} else {
+				workerThreads = value
+				log.Debugf("Maximum number of worker threads to run is set to %d", workerThreads)
+			}
+		} else {
+			log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+		}
+	} else {
+		log.Debugf("X_CSI_WORKER_THREADS_VOLUME_METADATA is not set. Picking the default value %d", defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+	}
+	return workerThreads
 }
