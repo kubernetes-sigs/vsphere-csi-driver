@@ -58,7 +58,7 @@ spec:
         - name: X_CSI_DEBUG
           value: "true"
         - name: LOGGER_LEVEL
-          value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
+          value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
         securityContext:
           privileged: true
           capabilities:
