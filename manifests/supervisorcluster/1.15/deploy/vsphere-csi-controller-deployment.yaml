@@ -91,7 +91,7 @@ spec:
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
-              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
+              value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -129,7 +129,7 @@ spec:
             - name: X_CSI_VSPHERE_CLOUD_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
-              value: "DEVELOPMENT" # Options: DEVELOPMENT, PRODUCTION
+              value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
