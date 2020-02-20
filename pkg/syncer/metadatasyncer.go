@@ -50,7 +50,7 @@ func NewInformer() *metadataSyncInformer {
 }
 
 // getFullSyncIntervalInMin return the FullSyncInterval
-// If enviroment variable X_CSI_FULL_SYNC_INTERVAL_MINUTES is set and valid,
+// If environment variable X_CSI_FULL_SYNC_INTERVAL_MINUTES is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default value 30 minutes
 func getFullSyncIntervalInMin(ctx context.Context) int {
@@ -61,7 +61,7 @@ func getFullSyncIntervalInMin(ctx context.Context) int {
 			if value <= 0 {
 				log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
 			} else if value > defaultFullSyncIntervalInMin {
-				log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is larger than max vlaue can be set, will use the default interval", v)
+				log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is larger than max value can be set, will use the default interval", v)
 			} else {
 				fullSyncIntervalInMin = value
 				log.Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
@@ -115,7 +115,7 @@ func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Conte
 	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	// Trigger full sync
 	go func() {
-		for range ticker.C {
+		for ; true; <-ticker.C {
 			ctx, log = logger.GetNewContextWithLogger()
 			log.Infof("fullSync is triggered")
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
