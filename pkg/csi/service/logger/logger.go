@@ -83,7 +83,10 @@ func newLogger() *zap.Logger {
 	if defaultLogLevel == DevelopmentLogLevel {
 		logger, _ = zap.NewDevelopment()
 	} else {
-		logger, _ = zap.NewProduction()
+		loggerConfig := zap.NewProductionConfig()
+		loggerConfig.EncoderConfig.TimeKey = "time"
+		loggerConfig.EncoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+		logger, _ = loggerConfig.Build()
 	}
 	return logger
 }
