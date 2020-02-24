@@ -20,9 +20,9 @@ const (
 	// CNSFinalizer is the finalizer on CNSNodeVmAttachment and CnsVolumeMetadata controllers
 	CNSFinalizer = "cns.vmware.com"
 
-	// GCAPIVersion is the APIVersion for managed cluster
-	GCAPIVersion = "gcm.vmware.com/v1alpha1"
+	// GCAPIVersion is the APIVersion for TanzuKubernetes Cluster
+	GCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
 
-	// GCKind is the Kind value for managed cluster
-	GCKind = "ManagedCluster"
+	// GCKind is the Kind value for TanzuKubernetes Cluster
+	GCKind = "TanzuKubernetesCluster"
 )

@@ -137,12 +137,12 @@ type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
 func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig, uid string, name string, entityType CnsOperatorEntityType, labels map[string]string, namespace string, reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
 	return &CnsVolumeMetadata{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            GetCnsVolumeMetadataName(gcConfig.ManagedClusterUID, uid),
-			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion, cnsoperatortypes.GCKind, gcConfig.ManagedClusterName, gcConfig.ManagedClusterUID)},
+			Name:            GetCnsVolumeMetadataName(gcConfig.TanzuKubernetesClusterUID, uid),
+			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion, cnsoperatortypes.GCKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
 		},
 		Spec: CnsVolumeMetadataSpec{
 			VolumeNames:      volumeHandle,
-			GuestClusterID:   gcConfig.ManagedClusterUID,
+			GuestClusterID:   gcConfig.TanzuKubernetesClusterUID,
 			EntityType:       entityType,
 			EntityName:       name,
 			Labels:           labels,
