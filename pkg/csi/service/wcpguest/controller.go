@@ -54,10 +54,10 @@ var (
 )
 
 type controller struct {
-	supervisorClient    clientset.Interface
-	vmOperatorClient    *vmoperatorclient.VmoperatorV1alpha1Client
-	supervisorNamespace string
-	managedClusterUID   string
+	supervisorClient          clientset.Interface
+	vmOperatorClient          *vmoperatorclient.VmoperatorV1alpha1Client
+	supervisorNamespace       string
+	tanzukubernetesClusterUID string
 }
 
 // New creates a CNS controller
@@ -79,7 +79,7 @@ func (c *controller) Init(config *config.Config) error {
 	if err != nil {
 		return err
 	}
-	c.managedClusterUID = config.GC.ManagedClusterUID
+	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
 	restClientConfig := k8s.GetRestClientConfig(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
@@ -178,7 +178,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	// Get PVC name and disk size for the supervisor cluster
 	// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
-	supervisorPVCName := c.managedClusterUID + "-" + req.Name[4:]
+	supervisorPVCName := c.tanzukubernetesClusterUID + "-" + req.Name[4:]
 
 	// Volume Size - Default is 10 GiB
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)

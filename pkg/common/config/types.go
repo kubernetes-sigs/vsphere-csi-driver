@@ -78,7 +78,7 @@ type GCConfig struct {
 	// Supervisor Cluster server port
 	Port string `gcfg:"port"`
 	// Guest Cluster UID
-	ManagedClusterUID string `gcfg:"managedcluster-uid"`
+	TanzuKubernetesClusterUID string `gcfg:"tanzukubernetescluster-uid"`
 	// Guest Cluster Name
-	ManagedClusterName string `gcfg:"managedcluster-name"`
+	TanzuKubernetesClusterName string `gcfg:"tanzukubernetescluster-name"`
 }

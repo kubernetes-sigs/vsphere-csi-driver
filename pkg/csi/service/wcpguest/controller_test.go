@@ -36,8 +36,8 @@ import (
 
 const (
 	testVolumeName = "pvc-12345"
-	// The format of SupervisorPVCName is ManagedClusterUID+"-"+ volumeUID
-	// The ManagedClusterUID is empty in the unit test
+	// The format of SupervisorPVCName is TanzuKubernetesClusterUID+"-"+ volumeUID
+	// The TanzuKubernetesClusterUID is empty in the unit test
 	testSupervisorPVCName = "-12345"
 	testNamespace         = "test-namespace"
 	testStorageClass      = "test-storageclass"
