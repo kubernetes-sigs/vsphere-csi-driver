@@ -71,9 +71,9 @@ var (
 	// define any endpoints.
 	ErrMissingEndpoint = errors.New("No Supervisor Cluster endpoint defined in Guest Cluster config")
 
-	// ErrMissingManagedClusterUID is returned when the provided configuration does not
-	// define any ManagedClusterUID.
-	ErrMissingManagedClusterUID = errors.New("No Managed Cluster UID defined in Guest Cluster config")
+	// ErrMissingTanzuKubernetesClusterUID is returned when the provided configuration does not
+	// define any TanzuKubernetesClusterUID.
+	ErrMissingTanzuKubernetesClusterUID = errors.New("No Tanzu Kubernetes Cluster UID defined in Guest Cluster config")
 )
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
@@ -325,8 +325,8 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("WCP_PORT"); v != "" {
 		cfg.GC.Port = v
 	}
-	if v := os.Getenv("WCP_ManagedClusterUID"); v != "" {
-		cfg.GC.ManagedClusterUID = v
+	if v := os.Getenv("WCP_TanzuKubernetesClusterUID"); v != "" {
+		cfg.GC.TanzuKubernetesClusterUID = v
 	}
 
 	if cfg.GC.Port == "" {
@@ -390,9 +390,9 @@ func validateGCConfig(ctx context.Context, cfg *Config) error {
 		log.Error(ErrMissingEndpoint)
 		return ErrMissingEndpoint
 	}
-	if cfg.GC.ManagedClusterUID == "" {
-		log.Error(ErrMissingManagedClusterUID)
-		return ErrMissingManagedClusterUID
+	if cfg.GC.TanzuKubernetesClusterUID == "" {
+		log.Error(ErrMissingTanzuKubernetesClusterUID)
+		return ErrMissingTanzuKubernetesClusterUID
 	}
 	return nil
 }

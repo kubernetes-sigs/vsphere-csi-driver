@@ -66,7 +66,7 @@ func pvcsiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataS
 	supervisorCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
 	// Remove cnsvolumemetadata object from supervisorCnsVolumeMetadataList that do not belong to this guest cluster
 	for _, object := range supervisorNamespaceList.Items {
-		if object.Spec.GuestClusterID == metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID {
+		if object.Spec.GuestClusterID == metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
 			supervisorCnsVolumeMetadataList.Items = append(supervisorCnsVolumeMetadataList.Items, object)
 		}
 	}
@@ -156,7 +156,7 @@ func createCnsVolumeMetadataList(ctx context.Context, k8sclient clientset.Interf
 				log.Errorf("FullSync: Failed to get PVC %q from guest cluster. Err: %v", pvc.Name, err)
 				return err
 			}
-			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID)
+			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
 			pvcObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace, []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 			returnList.Items = append(returnList.Items, *pvcObject)
 			pvcToVolumeName[pvc.Name] = pv.Spec.CSI.VolumeHandle
@@ -181,7 +181,7 @@ func createCnsVolumeMetadataList(ctx context.Context, k8sclient clientset.Interf
 				log.Debugf("FullSync: PVC %q claimed by Pod %q is not a CSI vSphere Volume", volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Name)
 				continue
 			}
-			entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, metadataSyncer.configInfo.Cfg.GC.ManagedClusterUID))
+			entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID))
 			volumeNames = append(volumeNames, volumeName)
 		}
 		if len(volumeNames) > 0 {
