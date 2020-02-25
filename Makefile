@@ -386,7 +386,7 @@ HAS_LINT := $(shell command -v golint 2>/dev/null)
 .PHONY: lint
 lint:
 ifndef HAS_LINT
-	cd / && GO111MODULE=off go get -u github.com/golang/lint/golint
+	cd / && GO111MODULE=off go get -u golang.org/x/lint/golint
 endif
 	f=$$(mktemp); \
 	go list ./... | xargs golint -set_exit_status 2>&1 >"$${f}" || \
