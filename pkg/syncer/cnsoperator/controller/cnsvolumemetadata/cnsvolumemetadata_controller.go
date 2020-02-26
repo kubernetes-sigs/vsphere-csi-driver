@@ -471,27 +471,27 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 
 // getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum
 // number of worker threads which can be run to reconcile CnsVolumeMetadata instances.
-// If environment variable X_CSI_WORKER_THREADS_VOLUME_METADATA is set and valid,
+// If environment variable WORKER_THREADS_VOLUME_METADATA is set and valid,
 // return the value read from enviroment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata
-	if v := os.Getenv("X_CSI_WORKER_THREADS_VOLUME_METADATA"); v != "" {
+	if v := os.Getenv("WORKER_THREADS_VOLUME_METADATA"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 			} else if value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata {
-				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is greater than %d, will use the default value %d",
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run is set to %d", workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_VOLUME_METADATA %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 		}
 	} else {
-		log.Debugf("X_CSI_WORKER_THREADS_VOLUME_METADATA is not set. Picking the default value %d", defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+		log.Debugf("WORKER_THREADS_VOLUME_METADATA is not set. Picking the default value %d", defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 	}
 	return workerThreads
 }
