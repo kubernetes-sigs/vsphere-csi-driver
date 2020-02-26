@@ -150,7 +150,9 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 	}
 	if newVCConfig != nil {
 		var vcenter *cnsvsphere.VirtualCenter
-		if c.manager.VcenterConfig.Host != newVCConfig.Host {
+		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
+			c.manager.VcenterConfig.Username != newVCConfig.Username ||
+			c.manager.VcenterConfig.Password != newVCConfig.Password {
 			log.Debugf("Unregistering virtual center: %q from virtualCenterManager", c.manager.VcenterConfig.Host)
 			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
 			if err != nil {

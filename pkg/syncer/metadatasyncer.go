@@ -232,7 +232,9 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 		}
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
-			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host {
+			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host ||
+				metadataSyncer.configInfo.Cfg.Global.User != newVCConfig.Username ||
+				metadataSyncer.configInfo.Cfg.Global.Password != newVCConfig.Password {
 				vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 				log.Debugf("Unregistering virtual center: %q from virtualCenterManager", metadataSyncer.configInfo.Cfg.Global.VCenterIP)
 				err = vcManager.UnregisterAllVirtualCenters(ctx)
