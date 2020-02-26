@@ -49,13 +49,13 @@ spec:
               fieldPath: spec.nodeName
         - name: CSI_ENDPOINT
           value: unix:///csi/csi.sock
-        - name: X_CSI_MODE
+        - name: MODE
           value: "node"
-        - name: X_CSI_SPEC_REQ_VALIDATION
+        - name: SPEC_REQ_VALIDATION
           value: "false"
-        - name: X_CSI_VSPHERE_CLOUD_CONFIG
+        - name: VSPHERE_CLOUD_CONFIG
           value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
-        - name: X_CSI_DEBUG
+        - name: DEBUG
           value: "true"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION

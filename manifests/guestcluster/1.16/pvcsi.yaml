@@ -132,9 +132,9 @@ spec:
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
-            - name: X_CSI_MODE
+            - name: MODE
               value: "controller"
-            - name: X_CSI_GC_CONFIG
+            - name: GC_CONFIG
               value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: PROVISION_TIMEOUT_MINUTES
               value: "4"
@@ -157,9 +157,9 @@ spec:
             - "--leader-election"
           imagePullPolicy: "IfNotPresent"
           env:
-            - name: X_CSI_FULL_SYNC_INTERVAL_MINUTES
+            - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
-            - name: X_CSI_GC_CONFIG
+            - name: GC_CONFIG
               value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
@@ -269,9 +269,9 @@ spec:
               fieldPath: spec.nodeName
         - name: CSI_ENDPOINT
           value: unix:///csi/csi.sock
-        - name: X_CSI_MODE
+        - name: MODE
           value: "node"
-        - name: X_CSI_SPEC_REQ_VALIDATION
+        - name: SPEC_REQ_VALIDATION
           value: "false"
         - name: CLUSTER_FLAVOR
           value: "GUEST_CLUSTER"

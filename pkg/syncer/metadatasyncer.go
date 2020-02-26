@@ -50,24 +50,24 @@ func NewInformer() *metadataSyncInformer {
 }
 
 // getFullSyncIntervalInMin return the FullSyncInterval
-// If environment variable X_CSI_FULL_SYNC_INTERVAL_MINUTES is set and valid,
+// If environment variable FULL_SYNC_INTERVAL_MINUTES is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default value 30 minutes
 func getFullSyncIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	fullSyncIntervalInMin := defaultFullSyncIntervalInMin
-	if v := os.Getenv("X_CSI_FULL_SYNC_INTERVAL_MINUTES"); v != "" {
+	if v := os.Getenv("FULL_SYNC_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
+				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
 			} else if value > defaultFullSyncIntervalInMin {
-				log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is larger than max value can be set, will use the default interval", v)
+				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is larger than max value can be set, will use the default interval", v)
 			} else {
 				fullSyncIntervalInMin = value
 				log.Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
 			}
 		} else {
-			log.Warnf("FullSync: fullSync interval set in env variable X_CSI_FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+			log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
 		}
 	}
 	return fullSyncIntervalInMin

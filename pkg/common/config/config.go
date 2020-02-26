@@ -44,9 +44,9 @@ const (
 	// DefaultGCConfigPath is the default path of GC config file
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
 	// EnvCloudConfig contains the path to the CSI vSphere Config
-	EnvCloudConfig = "X_CSI_VSPHERE_CLOUD_CONFIG"
+	EnvCloudConfig = "VSPHERE_CLOUD_CONFIG"
 	// EnvGCConfig contains the path to the CSI GC Config
-	EnvGCConfig = "X_CSI_GC_CONFIG"
+	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
 )

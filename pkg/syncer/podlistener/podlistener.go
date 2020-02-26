@@ -148,21 +148,21 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 
 // getPodListenerServicePort return the port where the Pod Listener gRPC service
 // will be running.
-// If environment variable X_CSI_POD_LISTENER_SERVICE_PORT is set and valid,
+// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default port
 func getPodListenerServicePort(ctx context.Context) int {
 	podListenerServicePort := defaultPodListenerServicePort
 	log := logger.GetLogger(ctx)
-	if v := os.Getenv("X_CSI_POD_LISTENER_SERVICE_PORT"); v != "" {
+	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Pod Listener Service Port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
+				log.Warnf("Pod Listener Service Port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
 			} else {
 				podListenerServicePort = value
 			}
 		} else {
-			log.Warnf("Pod Listener Service port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
+			log.Warnf("Pod Listener Service port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
 		}
 	}
 	return podListenerServicePort
@@ -170,22 +170,22 @@ func getPodListenerServicePort(ctx context.Context) int {
 
 // getPodPollIntervalInSecs return the Poll interval in secs to query the
 // Pod Info from API server.
-// If environment variable X_CSI_POD_POLL_INTERVAL_SECONDS is set and valid,
+// If environment variable POD_POLL_INTERVAL_SECONDS is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default value 30 minutes
 func getPodPollIntervalInSecs(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	podPollIntervalInSec := defaultPodPollIntervalInSec
-	if v := os.Getenv("X_CSI_POD_POLL_INTERVAL_SECONDS"); v != "" {
+	if v := os.Getenv("POD_POLL_INTERVAL_SECONDS"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Poll Interval to query the Pod Info from API server set in env variable X_CSI_POD_POLL_INTERVAL_SECONDS %s is equal or less than 0, will use the default interval %d", v, defaultPodPollIntervalInSec)
+				log.Warnf("Poll Interval to query the Pod Info from API server set in env variable POD_POLL_INTERVAL_SECONDS %s is equal or less than 0, will use the default interval %d", v, defaultPodPollIntervalInSec)
 			} else {
 				podPollIntervalInSec = value
 				log.Debugf("Poll Interval to query the Pod Info from API server is set to %d seconds", podPollIntervalInSec)
 			}
 		} else {
-			log.Warnf("Poll Interval to query the Pod Info from API server set in env variable X_CSI_PODVM_POLL_INTERVAL_SECONDS %s is invalid, will use the default interval", v)
+			log.Warnf("Poll Interval to query the Pod Info from API server set in env variable PODVM_POLL_INTERVAL_SECONDS %s is invalid, will use the default interval", v)
 		}
 	}
 	return podPollIntervalInSec

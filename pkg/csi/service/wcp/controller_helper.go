@@ -184,22 +184,22 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 }
 
 // getPodListenerServicePort return the port to connect the Pod Listener gRPC service.
-// If environment variable X_CSI_POD_LISTENER_SERVICE_PORT is set and valid,
+// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
 // return the interval value read from enviroment variable
 // otherwise, use the default port
 func getPodListenerServicePort(ctx context.Context) int {
 	podListenerServicePort := defaultPodListenerServicePort
 	log := logger.GetLogger(ctx)
-	if v := os.Getenv("X_CSI_POD_LISTENER_SERVICE_PORT"); v != "" {
+	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
+				log.Warnf("Connecting to Pod Listener Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
 			} else {
 				podListenerServicePort = value
 				log.Infof("Connecting to Pod Listener Service on port %d", podListenerServicePort)
 			}
 		} else {
-			log.Warnf("Connecting to Pod Listener Service on port set in env variable X_CSI_POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
+			log.Warnf("Connecting to Pod Listener Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
 		}
 	}
 	return podListenerServicePort
