@@ -35,17 +35,17 @@ func main() {
 		provider.New())
 }
 
-const usage = `    X_CSI_VSPHERE_APINAME
+const usage = `    VSPHERE_APINAME
         Specifies the name of the API to use when talking to vCenter
 
 				The default value is "FCD" (First Class Disk)
 
-    X_CSI_VSPHERE_CLOUD_CONFIG
+    VSPHERE_CLOUD_CONFIG
         Specifies the path to the vsphere.conf file
 
         The default falue is "/etc/cloud/vsphere.conf"
 
-    X_CSI_DISABLE_K8S_CLIENT
+    DISABLE_K8S_CLIENT
         Boolean flag that disables the Kubernetes API client to retrieve
         secrets.
 

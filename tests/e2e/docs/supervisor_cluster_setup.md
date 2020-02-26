@@ -71,7 +71,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export KUBECONFIG=~/.kube/config
     export STORAGE_POLICY_FOR_SHARED_DATASTORES="shared-ds-policy"
     export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="non-shared-ds-policy"
-    # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable X_CSI_FULL_SYNC_INTERVAL_MINUTES in csi-driver-deploy.yaml
+    # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in csi-driver-deploy.yaml
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export USER=root
     export CLUSTER_FLAVOR="WORKLOAD"

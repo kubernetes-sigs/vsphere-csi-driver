@@ -97,7 +97,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	cfg.Global.Datacenters = "DC0"
 
 	// Write values to test_vsphere.conf
-	os.Setenv("X_CSI_VSPHERE_CLOUD_CONFIG", "test_vsphere.conf")
+	os.Setenv("VSPHERE_CLOUD_CONFIG", "test_vsphere.conf")
 	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort))
 	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)

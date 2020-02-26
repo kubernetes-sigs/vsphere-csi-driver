@@ -368,27 +368,27 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 
 // getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
 // number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
-// If environment variable X_CSI_WORKER_THREADS_NODEVM_ATTACH is set and valid,
+// If environment variable WORKER_THREADS_NODEVM_ATTACH is set and valid,
 // return the value read from enviroment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForNodeVmAttach
-	if v := os.Getenv("X_CSI_WORKER_THREADS_NODEVM_ATTACH"); v != "" {
+	if v := os.Getenv("WORKER_THREADS_NODEVM_ATTACH"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
 			} else if value > defaultMaxWorkerThreadsForNodeVmAttach {
-				log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsForNodeVmAttach, defaultMaxWorkerThreadsForNodeVmAttach)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment instances is set to %d", workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable X_CSI_WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
+			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
 		}
 	} else {
-		log.Debugf("X_CSI_WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d", defaultMaxWorkerThreadsForNodeVmAttach)
+		log.Debugf("WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d", defaultMaxWorkerThreadsForNodeVmAttach)
 	}
 	return workerThreads
 }
