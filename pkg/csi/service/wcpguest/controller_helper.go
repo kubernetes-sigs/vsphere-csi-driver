@@ -18,7 +18,6 @@ package wcpguest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -28,15 +27,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
-	vmoperatorclient "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apimachineryTypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
@@ -202,34 +197,4 @@ func getAttacherTimeoutInMin(ctx context.Context) int {
 		}
 	}
 	return attacherTimeoutInMin
-}
-
-// patchVirtualMachineVolumes patches VirtualMachine instance with spec changes supplied in the newVirtualMachine instance.
-func patchVirtualMachineVolumes(ctx context.Context, client *vmoperatorclient.VmoperatorV1alpha1Client, oldVirtualMachine *vmoperatortypes.VirtualMachine, newVirtualMachine *vmoperatortypes.VirtualMachine) (*vmoperatortypes.VirtualMachine, error) {
-	log := logger.GetLogger(ctx)
-	oldVMData, err := json.Marshal(oldVirtualMachine)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", oldVirtualMachine, err)
-		log.Error(msg)
-		return nil, err
-	}
-	newVMData, err := json.Marshal(newVirtualMachine)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to marshal virtualMachine: %v. Error: %+v", newVirtualMachine, err)
-		log.Error(msg)
-		return nil, err
-	}
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldVMData, newVMData, oldVirtualMachine)
-	if err != nil {
-		msg := fmt.Sprintf("CreateTwoWayMergePatch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
-		log.Error(msg)
-		return nil, err
-	}
-	updatedVirtualMachine, err := client.VirtualMachines(oldVirtualMachine.Namespace).Patch(oldVirtualMachine.Name, apimachineryTypes.StrategicMergePatchType, patchBytes)
-	if err != nil {
-		msg := fmt.Sprintf("patch failed for virtualMachine %q with Error: %v", oldVirtualMachine.Name, err)
-		log.Error(msg)
-		return nil, err
-	}
-	return updatedVirtualMachine, nil
 }

@@ -315,9 +315,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			},
 		}
 		virtualMachine.Spec.Volumes = append(oldvirtualMachine.Spec.Volumes, vmvolumes)
-		_, err := patchVirtualMachineVolumes(ctx, c.vmOperatorClient, oldvirtualMachine, virtualMachine)
+		_, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
 		if err != nil {
-			msg := fmt.Sprintf("failed to patch virtualMachine %q with Error: %+v", virtualMachine.Name, err)
+			msg := fmt.Sprintf("failed to update virtualMachine %q with Error: %+v", virtualMachine.Name, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -413,8 +413,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if volume.Name == req.VolumeId {
 			log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, newVirtualMachine.Name)
 			newVirtualMachine.Spec.Volumes = append(newVirtualMachine.Spec.Volumes[:index], newVirtualMachine.Spec.Volumes[index+1:]...)
-			if _, err = patchVirtualMachineVolumes(ctx, c.vmOperatorClient, oldVirtualMachine, newVirtualMachine); err != nil {
-				msg := fmt.Sprintf("Failed to patch VirtualMachine %q with Error: %+v", newVirtualMachine.Name, err)
+			if _, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(newVirtualMachine); err != nil {
+				msg := fmt.Sprintf("Failed to update VirtualMachine %q with Error: %+v", newVirtualMachine.Name, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
