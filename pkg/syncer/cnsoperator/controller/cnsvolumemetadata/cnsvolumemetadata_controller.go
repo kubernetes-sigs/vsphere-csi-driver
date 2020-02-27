@@ -316,13 +316,9 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(reference.EntityType, reference.EntityName, reference.Namespace, clusterid))
 	}
 
-	var metadataList []cnstypes.BaseCnsEntityMetadata
-	metadata := cnsvsphere.GetCnsKubernetesEntityMetaData(instance.Spec.EntityName, instance.Spec.Labels, deleteFlag, string(instance.Spec.EntityType), instance.Spec.Namespace, instance.Spec.GuestClusterID, entityReferences)
-	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
-
 	var volumeStatus []*cnsv1alpha1.CnsVolumeMetadataVolumeStatus
 	success := true
-	for _, volume := range instance.Spec.VolumeNames {
+	for index, volume := range instance.Spec.VolumeNames {
 		status := cnsv1alpha1.GetCnsOperatorVolumeStatus(volume, "")
 		status.Updated = true
 		volumeStatus = append(volumeStatus, &status)
@@ -354,6 +350,10 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 			continue
 		}
+
+		var metadataList []cnstypes.BaseCnsEntityMetadata
+		metadata := cnsvsphere.GetCnsKubernetesEntityMetaData(instance.Spec.EntityName, instance.Spec.Labels, deleteFlag, string(instance.Spec.EntityType), instance.Spec.Namespace, instance.Spec.GuestClusterID, []cnstypes.CnsKubernetesEntityReference{entityReferences[index]})
+		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
 
 		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID, r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
