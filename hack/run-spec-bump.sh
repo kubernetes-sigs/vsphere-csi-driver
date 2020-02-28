@@ -53,11 +53,11 @@ function update_mirrors () {
 
    printf "\n\tSTEP 1(e): Successfully built mirrors-internal-vsphere_csi_driver!\n\n"
 
-   #git push
+   git push
 	
-   #git tag v0.0.1.alpha+vmware."${INTERNAL_VSPHERE_TAG}"
+   git tag v0.0.1.alpha+vmware."${INTERNAL_VSPHERE_TAG}"
 
-   #git push --tags
+   git push --tags
 
    cd ..
 
@@ -119,7 +119,7 @@ EOF
       NEW_COMMIT=\$(git log --format=%H -n 1)
       printf "\nNew commit id: %s\n\n" "\${NEW_COMMIT}"
        
-      #/build/apps/bin/gobuild sandbox queue cayman_vsphere_csi_driver --branch cns_csi --no-store-trees --bootstrap "cayman_vsphere_csi_driver=git-eng:core-build/cayman_vsphere-csi-driver.git;%(branch);" --changeset \$NEW_COMMIT --buildtype beta
+      /build/apps/bin/gobuild sandbox queue cayman_vsphere_csi_driver --branch cns_csi --no-store-trees --bootstrap "cayman_vsphere_csi_driver=git-eng:core-build/cayman_vsphere-csi-driver.git;%(branch);" --changeset \$NEW_COMMIT --buildtype beta
 
 EOF
 
@@ -143,7 +143,7 @@ EOF
       cd core-build/cayman_vsphere-csi-driver
       pwd
       printf "\n\tSTEP 2(h): Pushing new commit to cayman_vsphere-csi-driver\n\n"
-      #git push
+      git push
 EOF
 }
 
@@ -176,11 +176,11 @@ function update_vsphere-csi-driver() {
       printf "\n\tSTEP 3(d): Committing changes to cayman_vsphere-csi-driver.\n\n"
       git add .
       git commit -m "Update commit id for cayman_vsphere-csi-driver + Added source file for tag \$NEW_TAG"
-      #git push
-      #git tag v0.0.1.alpha+vmware.\$NEW_TAG
-      #git push --tags
+      git push
+      git tag v0.0.1.alpha+vmware.\$NEW_TAG
+      git push --tags
 
-      #/build/apps/bin/gobuild sandbox queue vsphere_csi_driver --branch vmware-0.0.1.alpha --no-store-trees --bootstrap "vsphere_csi_driver=git-eng:core-build/vsphere-csi-driver.git;%(branch);" --changeset False --buildtype beta
+      /build/apps/bin/gobuild sandbox queue vsphere_csi_driver --branch vmware-0.0.1.alpha --no-store-trees --bootstrap "vsphere_csi_driver=git-eng:core-build/vsphere-csi-driver.git;%(branch);" --changeset False --buildtype beta
 
 EOF
    printf "\n\n"
@@ -224,9 +224,9 @@ function update_cayman_photon() {
       git add . 
       git commit -s -m "Spec bump for vSphere CSI driver."
 
-      #git push --set-upstream origin \${branch_name}
+      git push --set-upstream origin \${branch_name}
 
-      #/build/apps/bin/gobuild sandbox queue cayman_stateless_photon --accept-defaults --branch \${branch_name} --buildtype release --no-changeset
+      /build/apps/bin/gobuild sandbox queue cayman_stateless_photon --accept-defaults --branch \${branch_name} --buildtype release --no-changeset
 EOF
 
 }
