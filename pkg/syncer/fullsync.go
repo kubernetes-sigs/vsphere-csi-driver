@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
@@ -158,42 +159,47 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	for _, pv := range currentK8sPV {
 		currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
 	}
+	var queryVolumeIds []cnstypes.CnsVolumeId
 	for _, volID := range volumeIDDeleteArray {
 		// Delete volume if not present in currentK8sPVMap
 		if _, existsInK8s := currentK8sPVMap[volID.Id]; !existsInK8s {
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: []cnstypes.CnsVolumeId{
-					{
-						Id: volID.Id,
-					},
-				},
-			}
-			// Verify if Volume is not in use by any other Cluster before removing CNS tag
-			queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
-			if err != nil {
-				log.Errorf("FullSync: fullSyncDeleteVolumes: Failed to QueryVolume using filter: %+v, err: %+v", queryFilter, err)
-				continue
-			}
+			queryVolumeIds = append(queryVolumeIds, cnstypes.CnsVolumeId{Id: volID.Id})
+		}
+	}
+	// this check is needed to prevent querying all CNS volumes when queryFilter.VolumeIds does not have any volumes.
+	// volumes in the queryFilter.VolumeIds should be one which is not present in the k8s, but needs be verified that
+	// it is not in use by any other kubernetes cluster
+	if len(queryVolumeIds) == 0 {
+		log.Info("FullSync: fullSyncDeleteVolumes could not find any volume which is not present in k8s and needs to be checked for volume deletion.")
+		return
+	}
+	allQueryResults, err := getQueryResults(ctx, queryVolumeIds, "", metadataSyncer.volumeManager)
+	if err != nil {
+		log.Errorf("FullSync: getQueryResults failed to query volume metadata from vc. Err: %v", err)
+		return
+	}
+	// Verify if Volume is not in use by any other Cluster before removing CNS tag
+	for _, queryResult := range allQueryResults {
+		for _, volume := range queryResult.Volumes {
 			inUsebyOtherK8SCluster := false
-			if queryResult != nil && len(queryResult.Volumes) == 1 {
-				for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
-					if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID != metadataSyncer.configInfo.Cfg.Global.ClusterID {
-						inUsebyOtherK8SCluster = true
-						log.Debugf("FullSync: fullSyncDeleteVolumes: Volume: %q is in use by other cluster.", volID.Id)
-						break
-					}
+			for _, metadata := range volume.Metadata.EntityMetadata {
+				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID != metadataSyncer.configInfo.Cfg.Global.ClusterID {
+					inUsebyOtherK8SCluster = true
+					log.Debugf("FullSync: fullSyncDeleteVolumes: Volume: %q is in use by other cluster.", volume.VolumeId.Id)
+					break
 				}
 			}
 			if !inUsebyOtherK8SCluster {
-				log.Debugf("FullSync: fullSyncDeleteVolumes: Calling DeleteVolume for volume %v with delete disk %v", volID, deleteDisk)
-				err := metadataSyncer.volumeManager.DeleteVolume(ctx, volID.Id, deleteDisk)
+				log.Infof("FullSync: fullSyncDeleteVolumes: Calling DeleteVolume for volume %v with delete disk %v", volume.VolumeId.Id, deleteDisk)
+				err := metadataSyncer.volumeManager.DeleteVolume(ctx, volume.VolumeId.Id, deleteDisk)
 				if err != nil {
-					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v", volID, err)
+					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v", volume.VolumeId.Id, err)
 					continue
 				}
 			}
+			// delete volume from cnsDeletionMap which is successfully deleted from CNS
+			delete(cnsDeletionMap, volume.VolumeId.Id)
 		}
-		delete(cnsDeletionMap, volID.Id)
 	}
 }
 
@@ -248,37 +254,40 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 	for _, vol := range cnsVolumeList {
 		cnsVolumeMap[vol.VolumeId.Id] = true
 	}
+
+	var queryVolumeIds []cnstypes.CnsVolumeId
 	for _, pv := range pvList {
 		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		pvToK8sEntityMetadataMap[pv.Spec.CSI.VolumeHandle] = k8sMetadata
 		if cnsVolumeMap[pv.Spec.CSI.VolumeHandle] {
-			// PV exist in both K8S and CNS cache, check metadata has been changed or not
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: []cnstypes.CnsVolumeId{
-					{
-						Id: pv.Spec.CSI.VolumeHandle,
-					},
-				},
-				ContainerClusterIds: []string{
-					metadataSyncer.configInfo.Cfg.Global.ClusterID,
-				},
-			}
-			queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
-			if err != nil {
-				log.Errorf("FullSync: Failed to QueryVolume using filter: %+v", queryFilter)
-				return nil, nil, err
-			}
+			// PV exist in both K8S and CNS cache, add to queryVolumeIds list to check if metadata has been
+			// changed or not
+			queryVolumeIds = append(queryVolumeIds, cnstypes.CnsVolumeId{Id: pv.Spec.CSI.VolumeHandle})
+		}
+	}
+	// this check is needed to prevent querying all CNS volumes when queryFilter.VolumeIds does not have any volumes.
+	// volumes in the queryFilter.VolumeIds should be one which is present in both k8s and in CNS.
+	if len(queryVolumeIds) == 0 {
+		log.Warn("could not find any volume which is present in both k8s and in CNS")
+		return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil
+	}
+	allQueryResults, err := getQueryResults(ctx, queryVolumeIds, metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.volumeManager)
+	if err != nil {
+		log.Errorf("getQueryResults failed to query volume metadata from vc. Err: %v", err)
+		return nil, nil, err
+	}
+
+	for _, queryResult := range allQueryResults {
+		for _, volume := range queryResult.Volumes {
 			var cnsMetadata []cnstypes.BaseCnsEntityMetadata
-			if err == nil && queryResult != nil && len(queryResult.Volumes) > 0 {
-				if &queryResult.Volumes[0].Metadata != nil {
-					allEntityMetadata := queryResult.Volumes[0].Metadata.EntityMetadata
-					for _, metadata := range allEntityMetadata {
-						if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
-							cnsMetadata = append(cnsMetadata, metadata)
-						}
+			if &volume.Metadata != nil {
+				allEntityMetadata := volume.Metadata.EntityMetadata
+				for _, metadata := range allEntityMetadata {
+					if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+						cnsMetadata = append(cnsMetadata, metadata)
 					}
-					pvToCnsEntityMetadataMap[pv.Spec.CSI.VolumeHandle] = cnsMetadata
 				}
+				pvToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
 			}
 		}
 	}
@@ -292,8 +301,8 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 
-	var operationType string
 	for _, pv := range pvList {
+		var operationType string
 		pvToCnsEntityMetadata, presentInCNS := pvToCnsEntityMetadataMap[pv.Spec.CSI.VolumeHandle]
 		pvToK8sEntityMetadata, presentInK8S := pvToK8sEntityMetadataMap[pv.Spec.CSI.VolumeHandle]
 
@@ -507,6 +516,7 @@ func cleanupCnsMaps(k8sPVs map[string]string) {
 	// Cleanup cnsDeletionMap
 	for volID := range cnsDeletionMap {
 		if _, existsInK8s := k8sPVs[volID]; existsInK8s {
+			// delete volume from cnsDeletionMap which is present in the kubernetes
 			delete(cnsDeletionMap, volID)
 		}
 	}
