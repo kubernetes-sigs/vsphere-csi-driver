@@ -106,7 +106,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: csi-attacher
-          image: vmware/csi-attacher/csi-attacher:<image_tag>
+          image: vmware.io/csi-attacher/csi-attacher:<image_tag>
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -121,7 +121,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: vmware/vsphere-csi:<image_tag>
+          image: vmware.io/vsphere-csi:<image_tag>
           lifecycle:
             preStop:
               exec:
@@ -152,7 +152,7 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
-          image: vmware/syncer:<image_tag>
+          image: vmware.io/syncer:<image_tag>
           args:
             - "--leader-election"
           imagePullPolicy: "IfNotPresent"
@@ -173,7 +173,7 @@ spec:
             name: pvcsi-config-volume
             readOnly: true
         - name: liveness-probe
-          image: vmware/csi-livenessprobe/csi-livenessprobe:<image_tag>
+          image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
           args:
             - "--csi-address=$(ADDRESS)"
           imagePullPolicy: "IfNotPresent"
@@ -184,7 +184,7 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: csi-provisioner
-          image: vmware/csi-provisioner/csi-provisioner:<image_tag>
+          image: vmware.io/csi-provisioner/csi-provisioner:<image_tag>
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -260,7 +260,7 @@ spec:
           - name: registration-dir
             mountPath: /registration
       - name: vsphere-csi-node
-        image: vmware/vsphere-csi:<image_tag>
+        image: vmware.io/vsphere-csi:<image_tag>
         imagePullPolicy: "IfNotPresent"
         env:
         - name: NODE_NAME
@@ -291,7 +291,7 @@ spec:
         - name: device-dir
           mountPath: /dev
       - name: liveness-probe
-        image: vmware/csi-livenessprobe/csi-livenessprobe:<image_tag>
+        image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
         args:
         - "--csi-address=$(ADDRESS)"
         imagePullPolicy: "IfNotPresent"
@@ -320,7 +320,12 @@ spec:
 ---
 apiVersion: v1
 data:
-  cns-csi.conf: "[GC]\nendpoint = \"{{ .SupervisorMasterEndpointHostName }}\"\nport = \"{{ .SupervisorMasterPort }}\"\ntanzukubernetescluster-uid = \"{{ .TanzuKubernetesClusterUID }}\" \ntanzukubernetescluster-name = \"{{ .TanzuKubernetesClusterName }}\" \n"
+  cns-csi.conf: |
+    [GC]
+    endpoint = "{{ .SupervisorMasterEndpointHostName }}"
+    port = "{{ .SupervisorMasterPort }}"
+    tanzukubernetescluster-uid = "{{ .TanzuKubernetesClusterUID }}"
+    tanzukubernetescluster-name = "{{ .TanzuKubernetesClusterName }}"
 kind: ConfigMap
 metadata:
   name: pvcsi-config
