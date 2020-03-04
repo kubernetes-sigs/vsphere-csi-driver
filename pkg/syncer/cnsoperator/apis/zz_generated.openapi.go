@@ -27,20 +27,20 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachment(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachmentSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachmentStatus(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
 	}
 }
 
-func schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachment(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CnsNodeVmAttachment is the Schema for the cnsnodevmattachments API",
+				Description: "CnsNodeVMAttachment is the Schema for the cnsnodevmattachments API",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -64,38 +64,38 @@ func schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref common.ReferenceCallba
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVMAttachmentStatus"},
 	}
 }
 
-func schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachmentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CnsNodeVmAttachmentSpec defines the desired state of CnsNodeVmAttachment",
+				Description: "CnsNodeVMAttachmentSpec defines the desired state of CnsNodeVMAttachment",
 				Type:        []string{"object"},
 			},
 		},
 	}
 }
 
-func schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_cns_v1alpha1_CnsNodeVMAttachmentStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CnsNodeVmAttachmentStatus defines the observed state of CnsNodeVmAttachment",
+				Description: "CnsNodeVMAttachmentStatus defines the observed state of CnsNodeVMAttachment",
 				Type:        []string{"object"},
 			},
 		},
