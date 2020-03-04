@@ -44,8 +44,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
-// NewInformer returns uninitialized metadataSyncInformer
-func NewInformer() *metadataSyncInformer {
+// newInformer returns uninitialized metadataSyncInformer
+func newInformer() *metadataSyncInformer {
 	return &metadataSyncInformer{}
 }
 
@@ -73,11 +73,12 @@ func getFullSyncIntervalInMin(ctx context.Context) int {
 	return fullSyncIntervalInMin
 }
 
-// Initializes the Metadata Sync Informer
-func (metadataSyncer *metadataSyncInformer) InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) error {
+// InitMetadataSyncer initializes the Metadata Sync Informer
+func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) error {
 	log := logger.GetLogger(ctx)
 	var err error
 	log.Infof("Initializing MetadataSyncer")
+	metadataSyncer := newInformer()
 	metadataSyncer.configInfo = configInfo
 
 	// Create the kubernetes client from config

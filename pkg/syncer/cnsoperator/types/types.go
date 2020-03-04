@@ -17,7 +17,7 @@ limitations under the License.
 package types
 
 const (
-	// CNSFinalizer is the finalizer on CNSNodeVmAttachment and CnsVolumeMetadata controllers
+	// CNSFinalizer is the finalizer on CNSNodeVMAttachment and CnsVolumeMetadata controllers
 	CNSFinalizer = "cns.vmware.com"
 
 	// GCAPIVersion is the APIVersion for TanzuKubernetes Cluster

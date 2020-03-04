@@ -48,10 +48,10 @@ import (
 )
 
 const (
-	defaultMaxWorkerThreadsForNodeVmAttach = 10
+	defaultMaxWorkerThreadsForNodeVMAttach = 10
 )
 
-// Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
+// Add creates a new CnsNodeVMAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
@@ -73,18 +73,18 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
+	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVMAttachment(ctx)
 	// Create a new controller
 	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
-		log.Errorf("Failed to create new CnsNodeVmAttachment controller with error: %+v", err)
+		log.Errorf("Failed to create new CnsNodeVMAttachment controller with error: %+v", err)
 		return err
 	}
 
-	// Watch for changes to primary resource CnsNodeVmAttachment
-	err = c.Watch(&source.Kind{Type: &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}}, &handler.EnqueueRequestForObject{})
+	// Watch for changes to primary resource CnsNodeVMAttachment
+	err = c.Watch(&source.Kind{Type: &cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsNodeVmAttachment resource with error: %+v", err)
+		log.Errorf("Failed to watch for changes to CnsNodeVMAttachment resource with error: %+v", err)
 		return err
 	}
 	return nil
@@ -93,7 +93,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 // blank assignment to verify that ReconcileCnsNodeVMAttachment implements reconcile.Reconciler
 var _ reconcile.Reconciler = &ReconcileCnsNodeVMAttachment{}
 
-// ReconcileCnsNodeVMAttachment reconciles a CnsNodeVmAttachment object
+// ReconcileCnsNodeVMAttachment reconciles a CnsNodeVMAttachment object
 type ReconcileCnsNodeVMAttachment struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -115,16 +115,16 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q and Request.Namespace: %q", request.Namespace, request.Name)
-	// Fetch the CnsNodeVmAttachment instance
-	instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+	log.Infof("Reconciling CnsNodeVMAttachment with Request.Name: %q and Request.Namespace: %q", request.Namespace, request.Name)
+	// Fetch the CnsNodeVMAttachment instance
+	instance := &cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Error("CnsNodeVmAttachment resource not found. Ignoring since object must be deleted.")
+			log.Error("CnsNodeVMAttachment resource not found. Ignoring since object must be deleted.")
 			return reconcile.Result{}, nil
 		}
-		log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
+		log.Errorf("Error reading the CnsNodeVMAttachment with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
@@ -138,7 +138,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 
 	vcdcMap, err := getVCDatacentersFromConfig(r.configInfo.Cfg)
 	if err != nil {
-		log.Errorf("Failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+		log.Errorf("Failed to find datacenter moref from config for CnsNodeVMAttachment request with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		instance.Status.Error = err.Error()
 		updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -168,7 +168,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if !instance.Status.Attached && instance.DeletionTimestamp == nil {
 		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			log.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("Failed to find the VM with UUID: %q for CnsNodeVMAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
 			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
 			updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -176,7 +176,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		}
 		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
 		if err != nil {
-			log.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
+			log.Errorf("Failed to get volumeID from volumeName: %q for CnsNodeVMAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
 			updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -210,17 +210,17 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			instance.Status.AttachmentMetadata = attachmentMetadata
 			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
-				log.Errorf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+				log.Errorf("Failed to update CnsNodeVMAttachment instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
 				return reconcile.Result{}, err
 			}
 		}
 
-		log.Debugf("vSphere CNS driver is attaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
+		log.Debugf("vSphere CNS driver is attaching volume: %q to nodevm: %+v for CnsNodeVMAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
 		diskUUID, attachErr := volumes.GetManager(ctx, vcenter).AttachVolume(ctx, nodeVM, volumeID)
 		if attachErr != nil {
-			log.Errorf("Failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("Failed to attach disk: %q to nodevm: %+v for CnsNodeVMAttachment request with name: %q on namespace: %q. Err: %+v",
 				volumeID, nodeVM, request.Name, request.Namespace, attachErr)
 		}
 
@@ -228,7 +228,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			// Read the CnsNodeVMAttachment instance again because the instance is already modified
 			err = r.client.Get(ctx, request.NamespacedName, instance)
 			if err != nil {
-				log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
+				log.Errorf("Error reading the CnsNodeVMAttachment with name: %q on namespace: %q. Err: %+v",
 					request.Name, request.Namespace, err)
 				// Error reading the object - requeue the request.
 				return reconcile.Result{}, err
@@ -249,7 +249,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 
 		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
-			log.Errorf("Failed to update attach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+			log.Errorf("Failed to update attach status on CnsNodeVMAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
 			return reconcile.Result{}, err
 		}
@@ -259,7 +259,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if instance.DeletionTimestamp != nil {
 		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			log.Errorf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("Failed to find the VM with UUID: %q for CnsNodeVMAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
 			// TODO : Need to check for VirtualMachine CRD instance existence.
 			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
@@ -270,11 +270,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		var cnsVolumeID string
 		var ok bool
 		if cnsVolumeID, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID]; !ok {
-			errMsg := fmt.Sprintf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v", instance.Status.AttachmentMetadata)
+			errMsg := fmt.Sprintf("CnsNodeVMAttachment does not have CNS volume ID. AttachmentMetadata: %+v", instance.Status.AttachmentMetadata)
 			log.Error(errMsg)
 			return reconcile.Result{}, errors.New(errMsg)
 		}
-		log.Debugf("vSphere CNS driver is detaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
+		log.Debugf("vSphere CNS driver is detaching volume: %q to nodevm: %+v for CnsNodeVMAttachment request with name: %q on namespace: %q",
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
 		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
@@ -284,7 +284,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 				updateCnsNodeVMAttachment(ctx, r.client, instance)
 				return reconcile.Result{}, nil
 			}
-			log.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("Failed to detach disk: %q from nodevm: %+v for CnsNodeVMAttachment request with name: %q on namespace: %q. Err: %+v",
 				cnsVolumeID, nodeVM, request.Name, request.Namespace, detachErr)
 			// Update CnsNodeVMAttachment instance with detach error message
 			instance.Status.Error = detachErr.Error()
@@ -293,7 +293,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		}
 		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
-			log.Errorf("Failed to update detach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+			log.Errorf("Failed to update detach status on CnsNodeVMAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
 			return reconcile.Result{}, err
 		}
@@ -303,11 +303,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 }
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer = cns.vmware.com, from a given nodevmattachment instance
-func removeFinalizerFromCRDInstance(ctx context.Context, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, request reconcile.Request) {
+func removeFinalizerFromCRDInstance(ctx context.Context, instance *cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment, request reconcile.Request) {
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoperatortypes.CNSFinalizer {
-			log.Debugf("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
+			log.Debugf("Removing %q finalizer from CnsNodeVMAttachment instance with name: %q on namespace: %q",
 				cnsoperatortypes.CNSFinalizer, request.Name, request.Namespace)
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 		}
@@ -356,39 +356,39 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	return pv.Spec.CSI.VolumeHandle, nil
 }
 
-func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
+func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment) error {
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {
-		log.Errorf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+		log.Errorf("Failed to update CnsNodeVMAttachment instance: %q on namespace: %q. Error: %+v",
 			instance.Name, instance.Namespace, err)
 	}
 	return err
 }
 
-// getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
-// number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
+// getMaxWorkerThreadsToReconcileCnsNodeVMAttachment returns the maximum
+// number of worker threads which can be run to reconcile CnsNodeVMAttachment instances.
 // If environment variable WORKER_THREADS_NODEVM_ATTACH is set and valid,
 // return the value read from enviroment variable otherwise, use the default value
-func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
+func getMaxWorkerThreadsToReconcileCnsNodeVMAttachment(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForNodeVmAttach
+	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach
 	if v := os.Getenv("WORKER_THREADS_NODEVM_ATTACH"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
-			} else if value > defaultMaxWorkerThreadsForNodeVmAttach {
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVMAttach)
+			} else if value > defaultMaxWorkerThreadsForNodeVMAttach {
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVmAttach, defaultMaxWorkerThreadsForNodeVmAttach)
+					v, defaultMaxWorkerThreadsForNodeVMAttach, defaultMaxWorkerThreadsForNodeVMAttach)
 			} else {
 				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment instances is set to %d", workerThreads)
+				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVMAttachment instances is set to %d", workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVmAttach)
+			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVMAttach)
 		}
 	} else {
-		log.Debugf("WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d", defaultMaxWorkerThreadsForNodeVmAttach)
+		log.Debugf("WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d", defaultMaxWorkerThreadsForNodeVMAttach)
 	}
 	return workerThreads
 }

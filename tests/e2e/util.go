@@ -796,7 +796,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	var instanceFound bool
 	for _, crd := range list.Items {
 		if crdName == "cnsnodevmattachments" {
-			instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+			instance := &cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if expectedInstanceName == instance.Name {
@@ -885,7 +885,7 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "port":
 			config.Global.VCenterPort = value
 		default:
-			return config, fmt.Errorf("invalid key %s in the input string\n", key)
+			return config, fmt.Errorf("invalid key %s in the input string", key)
 		}
 	}
 	return config, nil
