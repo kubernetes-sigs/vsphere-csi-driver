@@ -54,10 +54,39 @@ function update_mirrors () {
    printf "\n\tSTEP 1(e): Successfully built mirrors-internal-vsphere_csi_driver!\n\n"
 
    git push
+   
+   printf "\n\n"
+
+   success=""
+
+   until [[ ${success} == 'yes' || ${success} == 'no' ]]; do 
+      read -r -p "Merge request approved (yes/no): " success;
+   done
+
+   if [ "${success}" == 'no' ]; then
+      printf "Merge request denied. Exiting\n"
+      exit 1
+   else 
+      printf "Merge request approved! Moving on..\n"
+   fi
 	
    git tag v0.0.1.alpha+vmware."${INTERNAL_VSPHERE_TAG}"
 
    git push --tags
+   printf "\n\n"
+
+   success=""
+
+   until [[ ${success} == 'yes' || ${success} == 'no' ]]; do 
+      read -r -p "Merge request approved (yes/no): " success;
+   done
+
+   if [ "${success}" == 'no' ]; then
+      printf "Merge request denied. Exiting\n"
+      exit 1
+   else 
+      printf "Merge request approved! Moving on..\n"
+   fi
 
    cd ..
 
