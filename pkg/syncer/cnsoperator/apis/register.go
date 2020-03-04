@@ -32,7 +32,7 @@ import (
 var (
 	// SchemeGroupVersion is group version used to register these objects
 	SchemeGroupVersion = schema.GroupVersion{Group: "cns.vmware.com", Version: "v1alpha1"}
-	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
+	// CnsNodeVMAttachmentPlural is plural of CnsNodeVMAttachment
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
@@ -66,8 +66,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
-		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{},
-		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{},
+		&cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment{},
+		&cnsnodevmattachmentv1alpha1.CnsNodeVMAttachmentList{},
 	)
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
