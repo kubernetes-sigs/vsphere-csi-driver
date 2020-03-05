@@ -80,7 +80,7 @@ spec:
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
-            - name: MODE
+            - name: X_CSI_MODE
               value: "controller"
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
@@ -88,7 +88,7 @@ spec:
               value: "6443"
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
-            - name: VSPHERE_CLOUD_CONFIG
+            - name: VSPHERE_CSI_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
@@ -126,7 +126,7 @@ spec:
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
-            - name: VSPHERE_CLOUD_CONFIG
+            - name: VSPHERE_CSI_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION

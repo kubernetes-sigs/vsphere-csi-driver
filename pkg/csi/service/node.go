@@ -546,7 +546,7 @@ func (s *service) NodeGetInfo(
 		}, nil
 	}
 	var cfg *cnsconfig.Config
-	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
