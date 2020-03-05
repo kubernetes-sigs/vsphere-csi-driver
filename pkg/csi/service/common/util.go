@@ -306,7 +306,7 @@ func GetConfigPath(ctx context.Context) string {
 		}
 	} else {
 		// Config path for SuperVisor and Vanilla Cluster
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
+		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
 		if cfgPath == "" {
 			cfgPath = cnsconfig.DefaultCloudConfigPath
 		}
