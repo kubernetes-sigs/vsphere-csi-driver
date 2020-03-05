@@ -60,9 +60,9 @@ spec:
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
-            - name: MODE
+            - name: X_CSI_MODE
               value: "controller"
-            - name: VSPHERE_CLOUD_CONFIG
+            - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
@@ -102,7 +102,7 @@ spec:
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
-            - name: VSPHERE_CLOUD_CONFIG
+            - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION

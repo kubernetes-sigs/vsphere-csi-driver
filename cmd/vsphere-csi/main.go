@@ -30,24 +30,13 @@ func main() {
 	gocsi.Run(
 		context.Background(),
 		csitypes.Name,
-		"A CSI plugin for VMware vSphere storage",
+		"A CSI plugin for vSphere Cloud Native Storage",
 		usage,
 		provider.New())
 }
 
-const usage = `    VSPHERE_APINAME
-        Specifies the name of the API to use when talking to vCenter
+const usage = `    VSPHERE_CSI_CONFIG
+        Specifies the path to the csi-vsphere.conf file
 
-				The default value is "FCD" (First Class Disk)
-
-    VSPHERE_CLOUD_CONFIG
-        Specifies the path to the vsphere.conf file
-
-        The default falue is "/etc/cloud/vsphere.conf"
-
-    DISABLE_K8S_CLIENT
-        Boolean flag that disables the Kubernetes API client to retrieve
-        secrets.
-
-        The default value is "false"
+        The default value is "/etc/cloud/csi-vsphere.conf"
 `
