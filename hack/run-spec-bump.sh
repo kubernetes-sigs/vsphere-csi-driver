@@ -94,7 +94,7 @@ function update_mirrors () {
 
 function update_cayman_vsphere_csi-driver() {
    printf "\n\tSTEP 2: Updating cayman_vsphere_csi-driver\n\n"
-
+   success=""
    until [[ ${success} == 'yes' ]]; do 
       read -r -p "Enter your dbc hostname (eg. pa-dbc1103.eng.vmware.com): " account
    if ! (ssh "${account}") << EOF
