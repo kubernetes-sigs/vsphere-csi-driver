@@ -25,8 +25,10 @@ then
     exit 1
 fi
 
-# Exporting KUBECONFIG path
-export KUBECONFIG=$HOME/.kube/config
+# Exporting KUBECONFIG path if not set
+if [ -z $KUBECONFIG ]; then
+    export KUBECONFIG=$HOME/.kube/config
+fi
 
 # Running the e2e test.
 # If $GINKGO_FOCUS not set, run "csi-block-vanilla" by default.
@@ -35,7 +37,15 @@ if [ -z "$FOCUS" ]
 then
     FOCUS="csi-block-vanilla"
 fi
-ginkgo -v --focus="$FOCUS" tests/e2e
+
+OPTS=""
+if [ -z $GINKGO_OPTS ]; then
+    OPTS="-v"
+else
+    OPTS="-v $GINKGO_OPTS"
+fi
+
+ginkgo $OPTS --focus="$FOCUS" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?
