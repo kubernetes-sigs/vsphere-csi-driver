@@ -26,7 +26,7 @@ then
 fi
 
 # Exporting KUBECONFIG path if not set
-if [ -z $KUBECONFIG ]; then
+if [ -z ${KUBECONFIG-} ]; then
     export KUBECONFIG=$HOME/.kube/config
 fi
 
@@ -39,7 +39,7 @@ then
 fi
 
 OPTS=""
-if [ -z $GINKGO_OPTS ]; then
+if [ -z ${GINKGO_OPTS-} ]; then
     OPTS="-v"
 else
     OPTS="-v $GINKGO_OPTS"
