@@ -28,9 +28,9 @@ const (
 	AttributeCnsVolumeID = "cnsVolumeId"
 )
 
-// CnsNodeVMAttachmentSpec defines the desired state of CnsNodeVMAttachment
+// CnsNodeVmAttachmentSpec defines the desired state of CnsNodeVmAttachment
 // +k8s:openapi-gen=true
-type CnsNodeVMAttachmentSpec struct {
+type CnsNodeVmAttachmentSpec struct {
 	// NodeUUID indicates the UUID of the node where the volume needs to be attached to.
 	// Here NodeUUID is the bios UUID of the node.
 	NodeUUID string `json:"nodeuuid"`
@@ -40,9 +40,9 @@ type CnsNodeVMAttachmentSpec struct {
 	VolumeName string `json:"volumename"`
 }
 
-// CnsNodeVMAttachmentStatus defines the observed state of CnsNodeVMAttachment
+// CnsNodeVmAttachmentStatus defines the observed state of CnsNodeVmAttachment
 // +k8s:openapi-gen=true
-type CnsNodeVMAttachmentStatus struct {
+type CnsNodeVmAttachmentStatus struct {
 	// Indicates the volume is successfully attached.
 	// This field must only be set by the entity completing the attach
 	// operation, i.e. the CNS Operator.
@@ -67,20 +67,20 @@ type CnsNodeVMAttachmentStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 
-// CnsNodeVMAttachment is the Schema for the cnsnodevmattachments API
-type CnsNodeVMAttachment struct {
+// CnsNodeVmAttachment is the Schema for the cnsnodevmattachments API
+type CnsNodeVmAttachment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CnsNodeVMAttachmentSpec   `json:"spec,omitempty"`
-	Status CnsNodeVMAttachmentStatus `json:"status,omitempty"`
+	Spec   CnsNodeVmAttachmentSpec   `json:"spec,omitempty"`
+	Status CnsNodeVmAttachmentStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// CnsNodeVMAttachmentList contains a list of CnsNodeVMAttachment
-type CnsNodeVMAttachmentList struct {
+// CnsNodeVmAttachmentList contains a list of CnsNodeVmAttachment
+type CnsNodeVmAttachmentList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []CnsNodeVMAttachment `json:"items"`
+	Items           []CnsNodeVmAttachment `json:"items"`
 }
