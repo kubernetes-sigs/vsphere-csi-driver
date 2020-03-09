@@ -36,7 +36,7 @@ require (
 	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4
-	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200211180404-be44f632d4b2
+	gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200309205830-1d2cc4bf13c8
 	go.uber.org/atomic v1.5.1 // indirect
 	go.uber.org/multierr v1.4.0 // indirect
 	go.uber.org/zap v1.13.0
