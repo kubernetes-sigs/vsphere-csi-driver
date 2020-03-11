@@ -796,7 +796,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	var instanceFound bool
 	for _, crd := range list.Items {
 		if crdName == "cnsnodevmattachments" {
-			instance := &cnsnodevmattachmentv1alpha1.CnsNodeVMAttachment{}
+			instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if expectedInstanceName == instance.Name {
