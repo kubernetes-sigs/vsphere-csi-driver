@@ -19,4 +19,10 @@ package types
 const (
 	// EnvClusterFlavor is the k8s cluster type on which CSI Driver is being deployed
 	EnvClusterFlavor = "CLUSTER_FLAVOR"
+
+	// EnvSupervisorClientQPS is the QPS for the client to the supervisor cluster API server
+	EnvSupervisorClientQPS = "SUPERVISOR_CLIENT_QPS"
+
+	// EnvSupervisorClientBurst is the Burst for the client to the supervisor cluster API server
+	EnvSupervisorClientBurst = "SUPERVISOR_CLIENT_BURST"
 )

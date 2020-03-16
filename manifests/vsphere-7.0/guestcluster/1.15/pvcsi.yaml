@@ -142,6 +142,10 @@ spec:
               value: "4"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: SUPERVISOR_CLIENT_QPS
+              value: "50"
+            - name: SUPERVISOR_CLIENT_BURST
+              value: "50"
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
