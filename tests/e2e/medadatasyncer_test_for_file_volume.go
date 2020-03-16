@@ -38,6 +38,10 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		namespace  string
 		labelKey   string
 		labelValue string
+		storageclass *storagev1.StorageClass
+		pvc *v1.PersistentVolumeClaim
+		fileshareID string
+		err error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -50,6 +54,21 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		bootstrap()
 		labelKey = "app"
 		labelValue = "e2e-labels"
+	})
+
+	ginkgo.AfterEach(func() {
+		if storageclass != nil {
+			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if pvc != nil {
+			err = framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if fileshareID != "" {
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fileshareID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	/*
@@ -68,30 +87,15 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		scParameters[scParamFsType] = nfs4FSType
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
-		var storageclass *storagev1.StorageClass
-		var pvc *v1.PersistentVolumeClaim
-		var err error
-
 		storageclass, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		defer func() {
-			err = framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
 		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
-		defer func() {
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		fileshareID = pv.Spec.CSI.VolumeHandle
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
