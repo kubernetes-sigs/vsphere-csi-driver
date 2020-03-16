@@ -170,7 +170,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphere.DatastoreInfo, error) {
+func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) ([]*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastoreURL string
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		sharedDatastoreURL = v
@@ -185,7 +185,6 @@ func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphe
 		datacenterName = simulator.Map.Any("Datacenter").(*simulator.Datacenter).Name
 	}
 
-	vc, _ := common.GetVCenter(ctx, controller.manager)
 	finder := find.NewFinder(vc.Client.Client, false)
 	dc, _ := finder.Datacenter(ctx, datacenterName)
 	finder.SetDatacenter(dc)
@@ -272,7 +271,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		VolumeCapabilities: capabilities,
 	}
 
-	getSharedDatastores = getFakeDatastores
+	getCandidateDatastores = getFakeDatastores
 	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
 	if err != nil {
 		t.Fatal(err)

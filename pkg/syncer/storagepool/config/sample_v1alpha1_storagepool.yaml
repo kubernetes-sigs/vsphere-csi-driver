@@ -1,0 +1,11 @@
+apiVersion: cns.vmware.com/v1alpha1
+kind: StoragePool
+metadata:
+  labels:
+    controller-tools.k8s.io: "1.0"
+  name: storagepool-sample
+spec:
+  driver: foo
+  parameters:
+    foo1: bar1
+    foo2: bar2
