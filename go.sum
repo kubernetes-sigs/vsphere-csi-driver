@@ -269,6 +269,8 @@ github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9o
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
+github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7 h1:v9UNFRR161p+1G9RBO8A/fVMGdTeR+CtJMJZKcHBNWY=
+github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7/go.mod h1:ktlw5aYhoXQvOvWFL9SzltGXn1bQgJXxZzHJK4wQvsI=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4 h1:bqWa8N5LFXGuhZybfiIKr6xjKdx6E0ElRNE3U8WITi8=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4/go.mod h1:x65RJ1o4UoibPmuifqbSB3ao1UscZuNSQ244C/HwDf4=
 gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200309205830-1d2cc4bf13c8 h1:QUL6o97ItF1dV6WkUunFHTdHN1Uq2Syd12j/5D7KeSQ=
