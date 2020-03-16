@@ -22,6 +22,21 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const (
+	// Default QPS for client to the supervisor cluster
+	defaultSupervisorClientQPS = float32(50)
+	// Max QPS for client to the supervisor cluster
+	maxSupervisorClientQPS = float32(1000)
+	// Min QPS for client to the supervisor cluster
+	minSupervisorClientQPS = float32(5)
+	// Default Burst for client to the supervisor cluster
+	defaultSupervisorClientBurst = 50
+	// Max Burst for client to the supervisor cluster
+	maxSupervisorClientBurst = 1000
+	// Min Burst for client to the supervisor cluster
+	minSupervisorClientBurst = 5
+)
+
 // InformerManager is a service that notifies subscribers about changes
 // to well-defined information in the Kubernetes API server.
 type InformerManager struct {
