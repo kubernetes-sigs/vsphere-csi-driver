@@ -30,6 +30,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
+	"github.com/zekroTJA/timedmap"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"google.golang.org/grpc/codes"
@@ -55,6 +56,11 @@ type controller struct {
 	manager *common.Manager
 	nodeMgr NodeManagerInterface
 }
+
+// timedmap of deleted volumes. This map used to resolve race between detach and delete volume
+// If volume is present in this map, then detach volume operation can be skipped.
+// TODO: Remove this when https://github.com/kubernetes/kubernetes/issues/84226 is fixed
+var deletedVolumes *timedmap.TimedMap
 
 var (
 	// VSAN67u3ControllerServiceCapability represents the capability of controller service
@@ -173,6 +179,8 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
+	// deletedVolumes timedmap with clean up interval of 1 minute to remove expired entries
+	deletedVolumes = timedmap.New(1 * time.Minute)
 	return nil
 }
 
@@ -444,6 +452,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
+	deletedVolumes.Set(req.VolumeId, true, 5*time.Minute)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -533,6 +542,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
+	// Check for the race condition where DeleteVolume is called before ControllerUnpublishVolume
+	if deletedVolumes.Contains(req.VolumeId) {
+		log.Info("Skipping ControllerUnpublish for deleted volume ", req.VolumeId)
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	}
 
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
@@ -562,7 +576,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, status.Error(codes.Internal, msg)
 		}
 	} else {
-		log.Debugf("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
+		log.Info("Skipping ControllerUnpublish for file volume ", req.VolumeId)
 	}
 
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
