@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -98,6 +99,10 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		// Initialize CNS Operator for Supervisor clusters
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
+				if err := storagepool.InitStoragePoolService(ctx, configInfo); err != nil {
+					log.Errorf("Error initializing StoragePool Service. Error: %+v", err)
+					os.Exit(1)
+				}
 				if err := manager.InitCnsOperator(configInfo); err != nil {
 					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
 					os.Exit(1)

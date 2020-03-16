@@ -60,6 +60,10 @@ const (
 	// For Example: AffineToHost: "host-25"
 	AttributeAffineToHost = "affinetohost"
 
+	// AttributeStoragePool represents name of the StoragePool on which to place the PVC
+	// For example: StoragePool: "storagepool-vsandatastore"
+	AttributeStoragePool = "storagepool"
+
 	// Ext4FsType represents the default filesystem type for block volume
 	Ext4FsType = "ext4"
 

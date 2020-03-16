@@ -45,7 +45,7 @@ var (
 	}
 )
 
-var getSharedDatastores = getSharedDatastoresInPodVMK8SCluster
+var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 type controller struct {
 	manager *common.Manager
@@ -207,6 +207,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	var storagePolicyID string
 
 	var affineToHost string
+	var storagePool string
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -214,25 +215,47 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			storagePolicyID = req.Parameters[paramName]
 		} else if param == common.AttributeAffineToHost {
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
+		} else if param == common.AttributeStoragePool {
+			storagePool = req.Parameters[paramName]
 		}
+	}
+
+	var selectedDatastoreURL string
+	if storagePool != "" {
+		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(storagePool)
+		if err != nil {
+			msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:      volSizeMB,
 		Name:            req.Name,
 		StoragePolicyID: storagePolicyID,
-		ScParams:        &common.StorageClassParams{},
-		AffineToHost:    affineToHost,
-		VolumeType:      common.BlockVolumeType,
+		ScParams: &common.StorageClassParams{
+			DatastoreURL: selectedDatastoreURL,
+		},
+		AffineToHost: affineToHost,
+		VolumeType:   common.BlockVolumeType,
 	}
-	// Get shared datastores for the Kubernetes cluster
-	sharedDatastores, err := getSharedDatastores(ctx, c)
+	// Get candidate datastores for the Kubernetes cluster
+	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		msg := fmt.Sprintf("failed to obtain shared datastores. Error: %+v", err)
+		msg := fmt.Sprintf("Failed to get vCenter from Manager. Error: %v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
+	candidateDatastores, err := getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
+	if err != nil {
+		msg := fmt.Sprintf("Failed finding candidate datastores to place volume. Error: %v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
@@ -449,53 +472,4 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
-}
-
-// GetSharedDatastoresInPodVMK8SCluster gets the shared datastores for WCP PodVM cluster
-func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([]*cnsvsphere.DatastoreInfo, error) {
-	log := logger.GetLogger(ctx)
-	vc, err := common.GetVCenter(ctx, c.manager)
-	if err != nil {
-		log.Errorf("failed to get vCenter from Manager, err=%+v", err)
-		return nil, err
-	}
-	hosts, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
-	if err != nil {
-		log.Errorf("failed to get hosts from VC with err %+v", err)
-		return nil, err
-	}
-	if len(hosts) == 0 {
-		errMsg := "Empty List of hosts returned from VC"
-		log.Errorf(errMsg)
-		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
-	}
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	for _, host := range hosts {
-		log.Debugf("Getting accessible datastores for node %s", host.InventoryPath)
-		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(sharedDatastores) == 0 {
-			sharedDatastores = accessibleDatastores
-		} else {
-			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
-			// Check if sharedDatastores is found in accessibleDatastores
-			for _, sharedDs := range sharedDatastores {
-				for _, accessibleDs := range accessibleDatastores {
-					// Intersection is performed based on the datastoreUrl as this uniquely identifies the datastore.
-					if sharedDs.Info.Url == accessibleDs.Info.Url {
-						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
-						break
-					}
-				}
-			}
-			sharedDatastores = sharedAccessibleDatastores
-		}
-		if len(sharedDatastores) == 0 {
-			return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster for host: %+v", host)
-		}
-	}
-	log.Debugf("The list of shared datastores: %+v", sharedDatastores)
-	return sharedDatastores, nil
 }

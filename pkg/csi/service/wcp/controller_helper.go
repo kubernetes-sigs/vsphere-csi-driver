@@ -32,10 +32,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
 )
 
 const (
@@ -51,7 +56,7 @@ func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRe
 	for paramName := range params {
 		paramName = strings.ToLower(paramName)
 		if paramName != common.AttributeStoragePolicyID && paramName != common.AttributeFsType &&
-			paramName != common.AttributeAffineToHost {
+			paramName != common.AttributeAffineToHost && paramName != common.AttributeStoragePool {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
@@ -203,4 +208,33 @@ func getPodListenerServicePort(ctx context.Context) int {
 		}
 	}
 	return podListenerServicePort
+}
+
+// getDatastoreURLFromStoragePool returns the datastoreUrl that the given StoragePool represents
+func getDatastoreURLFromStoragePool(spName string) (string, error) {
+	// Get a config to talk to the apiserver
+	cfg, err := clientconfig.GetConfig()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get Kubernetes config. Err: %+v", err)
+	}
+
+	// create a new StoragePool client
+	spclient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return "", fmt.Errorf("Failed to create StoragePool client using config. Err: %+v", err)
+	}
+	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
+
+	// Get StoragePool with spName
+	sp, err := spclient.Resource(spResource).Get(spName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("Failed to get StoragePool with name %s: %+v", spName, err)
+	}
+
+	// extract the datastoreUrl field
+	datastoreURL, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", "datastoreUrl")
+	if !found || err != nil {
+		return "", fmt.Errorf("Failed to find datastoreUrl in StoragePool %s", spName)
+	}
+	return datastoreURL, nil
 }
