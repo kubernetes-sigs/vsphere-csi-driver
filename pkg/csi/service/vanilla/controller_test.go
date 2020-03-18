@@ -25,9 +25,11 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
+	"github.com/zekroTJA/timedmap"
 	cnssim "gitlab.eng.vmware.com/hatchway/govmomi/cns/simulator"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	"gitlab.eng.vmware.com/hatchway/govmomi/find"
@@ -284,6 +286,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			vcenter:    vcenter,
 		}
 	})
+	deletedVolumes = timedmap.New(1 * time.Minute)
 	return controllerTestInstance
 }
 
