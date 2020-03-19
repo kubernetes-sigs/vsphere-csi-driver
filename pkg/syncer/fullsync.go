@@ -20,28 +20,24 @@ import (
 	"context"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	clientset "k8s.io/client-go/kubernetes"
-	api "k8s.io/kubernetes/pkg/apis/core"
+	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // csiFullSync reconciles volume metadata on a vanilla k8s cluster
 // with volume metadata on CNS
-func csiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataSyncer *metadataSyncInformer) {
+func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: start")
 
 	// Get K8s PVs in State "Bound", "Available" or "Released"
-	k8sPVs, err := getPVsInBoundAvailableOrReleased(ctx, k8sclient)
+	k8sPVs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
 		log.Warnf("FullSync: Failed to get PVs from kubernetes. Err: %v", err)
 		return
@@ -54,7 +50,7 @@ func csiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataSyn
 
 	// pvToPVCMap maps pv name to corresponding PVC
 	// pvcToPodMap maps pvc to the mounted Pod
-	pvToPVCMap, pvcToPodMap := buildPVCMapPodMap(ctx, k8sclient, k8sPVs)
+	pvToPVCMap, pvcToPodMap := buildPVCMapPodMap(ctx, k8sPVs, metadataSyncer)
 	log.Debugf("FullSync: pvToPVCMap %v", pvToPVCMap)
 	log.Debugf("FullSync: pvcToPodMap %v", pvcToPodMap)
 
@@ -85,9 +81,9 @@ func csiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataSyn
 	wg := sync.WaitGroup{}
 	wg.Add(3)
 	// Perform operations
-	go fullSyncCreateVolumes(ctx, createSpecArray, metadataSyncer, k8sclient, &wg)
+	go fullSyncCreateVolumes(ctx, createSpecArray, metadataSyncer, &wg)
 	go fullSyncUpdateVolumes(ctx, updateSpecArray, metadataSyncer, &wg)
-	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, k8sclient, &wg)
+	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg)
 	wg.Wait()
 
 	cleanupCnsMaps(k8sPVMap)
@@ -99,14 +95,14 @@ func csiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataSyn
 // fullSyncCreateVolumes create volumes with given array of createSpec
 // Before creating a volume, all current K8s volumes are retrieved
 // If the volume is successfully created, it is removed from cnsCreationMap
-func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec, metadataSyncer *metadataSyncInformer, k8sclient clientset.Interface, wg *sync.WaitGroup) {
+func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup) {
 	log := logger.GetLogger(ctx)
 	defer wg.Done()
 	currentK8sPVMap := make(map[string]bool)
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
 	// Get all K8s PVs
-	currentK8sPV, err := getPVsInBoundAvailableOrReleased(ctx, k8sclient)
+	currentK8sPV, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncCreateVolumes failed to get PVs from kubernetes. Err: %v", err)
 		return
@@ -142,7 +138,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 // fullSyncDeleteVolumes delete volumes with given array of volumeId
 // Before deleting a volume, all current K8s volumes are retrieved
 // If the volume is successfully deleted, it is removed from cnsDeletionMap
-func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataSyncer *metadataSyncInformer, k8sclient clientset.Interface, wg *sync.WaitGroup) {
+func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup) {
 	defer wg.Done()
 	log := logger.GetLogger(ctx)
 	deleteDisk := false
@@ -150,7 +146,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
 	// Get all K8s PVs
-	currentK8sPV, err := getPVsInBoundAvailableOrReleased(ctx, k8sclient)
+	currentK8sPV, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncDeleteVolumes failed to get PVs from kubernetes. Err: %v", err)
 		return
@@ -424,33 +420,30 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 //  2. find POD mounted to given PVC
 // pvToPVCMap maps PV name to corresponding PVC, key is pv name
 // pvcToPodMap maps PVC to the array of PODs using the PVC, key is "pod.Namespace/pvc.Name"
-func buildPVCMapPodMap(ctx context.Context, k8sclient clientset.Interface, pvList []*v1.PersistentVolume) (pvcMap, podMap) {
+func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metadataSyncer *metadataSyncInformer) (pvcMap, podMap) {
 	log := logger.GetLogger(ctx)
 	pvToPVCMap := make(pvcMap)
 	pvcToPodMap := make(podMap)
+	pods, err := metadataSyncer.podLister.Pods(v1.NamespaceAll).List(labels.Everything())
+	if err != nil {
+		log.Warnf("FullSync: Failed to get pods in all namespaces. err=%v", err)
+	}
 	for _, pv := range pvList {
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
-			pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name, metav1.GetOptions{})
+			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
 				log.Warnf("FullSync: Failed to get pvc for namespace %v and name %v. err=%v", pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 				continue
 			}
 			pvToPVCMap[pv.Name] = pvc
 			log.Debugf("FullSync: pvc %v is backed by pv %v", pvc.Name, pv.Name)
-			pods, err := k8sclient.CoreV1().Pods(pvc.Namespace).List(metav1.ListOptions{
-				FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodRunning)})).String(),
-			})
-			if err != nil {
-				log.Warnf("FullSync: Failed to get pods for namespace %v. err=%v", pvc.Namespace, err)
-				continue
-			}
-			for index, pod := range pods.Items {
+			for _, pod := range pods {
 				if pod.Spec.Volumes != nil {
 					for _, volume := range pod.Spec.Volumes {
 						pvClaim := volume.VolumeSource.PersistentVolumeClaim
 						if pvClaim != nil && pvClaim.ClaimName == pvc.Name {
 							key := pod.Namespace + "/" + pvClaim.ClaimName
-							pvcToPodMap[key] = append(pvcToPodMap[key], &pods.Items[index])
+							pvcToPodMap[key] = append(pvcToPodMap[key], pod)
 							log.Debugf("FullSync: pvc %v is mounted by pod %v", key, pod.Name)
 							break
 						}

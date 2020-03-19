@@ -20,19 +20,18 @@ import (
 	"context"
 	"reflect"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	clientset "k8s.io/client-go/kubernetes"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
 // pvcsiFullSync reconciles PV/PVC/Pod metadata on the guest cluster
 // with cnsvolumemetadata objects on the supervisor cluster for the guest cluster
-func pvcsiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataSyncer *metadataSyncInformer) {
+func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: Start")
 
@@ -50,7 +49,7 @@ func pvcsiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataS
 	}
 
 	// Populate guestCnsVolumeMetadataList with cnsvolumemetadata objects created from the guest cluster
-	err = createCnsVolumeMetadataList(ctx, k8sclient, metadataSyncer, supervisorNamespace, &guestCnsVolumeMetadataList)
+	err = createCnsVolumeMetadataList(ctx, metadataSyncer, supervisorNamespace, &guestCnsVolumeMetadataList)
 	if err != nil {
 		log.Errorf("FullSync: Failed to create CnsVolumeMetadataList from guest cluster. Err: %v", err)
 		return
@@ -127,10 +126,10 @@ func pvcsiFullSync(ctx context.Context, k8sclient clientset.Interface, metadataS
 // using the input k8s client.
 // All objects that can be created are added to returnList. This includes
 // PERSISTENT_VOLUME, PERSISTENT_VOLUME_CLAIM and POD entity types.
-func createCnsVolumeMetadataList(ctx context.Context, k8sclient clientset.Interface, metadataSyncer *metadataSyncInformer, supervisorNamespace string, returnList *cnsvolumemetadatav1alpha1.CnsVolumeMetadataList) error {
+func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSyncInformer, supervisorNamespace string, returnList *cnsvolumemetadatav1alpha1.CnsVolumeMetadataList) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("FullSync: Querying guest cluster API server for all PV objects.")
-	pvList, err := getPVsInBoundAvailableOrReleased(ctx, k8sclient)
+	pvList, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
 		return err
@@ -151,7 +150,7 @@ func createCnsVolumeMetadataList(ctx context.Context, k8sclient clientset.Interf
 
 		// Get the cnsvolumemetadata object for pvc bound to this pv and add it to the return list
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
-			pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name, metav1.GetOptions{})
+			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get PVC %q from guest cluster. Err: %v", pvc.Name, err)
 				return err
@@ -164,12 +163,10 @@ func createCnsVolumeMetadataList(ctx context.Context, k8sclient clientset.Interf
 	}
 
 	log.Debugf("FullSync: Querying guest cluster API server for all POD objects.")
-	pods, err := k8sclient.CoreV1().Pods(v1.NamespaceAll).List(metav1.ListOptions{
-		FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"status.phase": string(v1.PodRunning)})).String(),
-	})
+	pods, err := metadataSyncer.podLister.Pods(v1.NamespaceAll).List(labels.Everything())
 
 	// Create cnsvolumemetadata objects for POD entity types
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		var entityReferences []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference
 		var volumeNames []string
 		for _, volume := range pod.Spec.Volumes {
