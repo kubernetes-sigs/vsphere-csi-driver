@@ -3,30 +3,30 @@ package syncer
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/api/core/v1"
+
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released state
-func getPVsInBoundAvailableOrReleased(ctx context.Context, k8sclient clientset.Interface) ([]*v1.PersistentVolume, error) {
+func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	var pvsInDesiredState []*v1.PersistentVolume
 	log.Debugf("FullSync: Getting all PVs in Bound, Available or Released state")
 	// Get all PVs from kubernetes
-	allPVs, err := k8sclient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
+	allPVs, err := metadataSyncer.pvLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
-	for index, pv := range allPVs.Items {
+	for _, pv := range allPVs {
 		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
-				pvsInDesiredState = append(pvsInDesiredState, &allPVs.Items[index])
+				pvsInDesiredState = append(pvsInDesiredState, pv)
 			}
 		}
 	}

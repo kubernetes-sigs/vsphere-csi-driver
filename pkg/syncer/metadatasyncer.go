@@ -113,20 +113,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	// Initialize cnsCreationMap used by Full Sync
 	cnsCreationMap = make(map[string]bool)
 
-	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
-	// Trigger full sync
-	go func() {
-		for ; true; <-ticker.C {
-			ctx, log = logger.GetNewContextWithLogger()
-			log.Infof("fullSync is triggered")
-			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				pvcsiFullSync(ctx, k8sClient, metadataSyncer)
-			} else {
-				csiFullSync(ctx, k8sClient, metadataSyncer)
-			}
-		}
-	}()
-
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -203,9 +189,22 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		})
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
+	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	log.Infof("Initialized metadata syncer")
-	stopCh := metadataSyncer.k8sInformerManager.Listen()
-	<-(stopCh)
+	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
+	// Trigger full sync
+	go func() {
+		for ; true; <-ticker.C {
+			ctx, log = logger.GetNewContextWithLogger()
+			log.Infof("fullSync is triggered")
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+				pvcsiFullSync(ctx, metadataSyncer)
+			} else {
+				csiFullSync(ctx, metadataSyncer)
+			}
+		}
+	}()
+	<-metadataSyncer.k8sInformerManager.Listen()
 	return nil
 }
 

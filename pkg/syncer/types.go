@@ -70,4 +70,5 @@ type metadataSyncInformer struct {
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
 	pvcLister          corelisters.PersistentVolumeClaimLister
+	podLister corelisters.PodLister
 }
