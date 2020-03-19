@@ -18,8 +18,10 @@ package kubernetes
 
 import (
 	"context"
+	"flag"
 	"io/ioutil"
 	"net"
+	"os"
 
 	vmoperatorv1alpha1 "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +29,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	certutil "k8s.io/client-go/util/cert"
+
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -38,13 +41,26 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	var err error
-	log.Info("k8s client using in-cluster config")
-	config, err = restclient.InClusterConfig()
-	if err != nil {
-		log.Errorf("InClusterConfig failed %q", err)
-		return nil, err
-	}
 
+	kubecfgPath := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	if flag.Lookup("kubeconfig") != nil {
+		kubecfgPath = flag.Lookup("kubeconfig").Value.(flag.Getter).Get().(string)
+	}
+	if kubecfgPath != "" {
+		log.Infof("k8s client using kubeconfig from %s", kubecfgPath)
+		config, err = clientcmd.BuildConfigFromFlags("", kubecfgPath)
+		if err != nil {
+			log.Errorf("BuildConfigFromFlags failed %v", err)
+			return nil, err
+		}
+	} else {
+		log.Info("k8s client using in-cluster config")
+		config, err = restclient.InClusterConfig()
+		if err != nil {
+			log.Errorf("InClusterConfig failed %v", err)
+			return nil, err
+		}
+	}
 	return clientset.NewForConfig(config)
 }
 
