@@ -40,7 +40,7 @@ var (
 
 // main for vsphere syncer
 func main() {
-
+	flag.Parse()
 	// run will be executed if this instance is elected as the leader
 	// or if leader election is not enabled
 	var run func(ctx context.Context)

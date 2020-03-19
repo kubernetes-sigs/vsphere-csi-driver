@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"flag"
 
 	"github.com/rexray/gocsi"
 
@@ -27,6 +28,7 @@ import (
 
 // main is ignored when this package is built as a go plug-in.
 func main() {
+	flag.Parse()
 	gocsi.Run(
 		context.Background(),
 		csitypes.Name,

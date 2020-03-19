@@ -34,14 +34,14 @@ import (
 var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes", func() {
 	f := framework.NewDefaultFramework("e2e-file-volume-label-updates")
 	var (
-		client     clientset.Interface
-		namespace  string
-		labelKey   string
-		labelValue string
+		client       clientset.Interface
+		namespace    string
+		labelKey     string
+		labelValue   string
 		storageclass *storagev1.StorageClass
-		pvc *v1.PersistentVolumeClaim
-		fileshareID string
-		err error
+		pvc          *v1.PersistentVolumeClaim
+		fileshareID  string
+		err          error
 	)
 
 	ginkgo.BeforeEach(func() {
