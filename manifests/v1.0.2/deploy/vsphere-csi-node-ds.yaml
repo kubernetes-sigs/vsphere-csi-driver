@@ -15,6 +15,13 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      # Need the below toleration if you require the master nodes to be able to
+      # run pods that have dynamic pvc attached to them. The toleration makes
+      # sure the vsphere-csi-node DaemonSet runs on the master nodes and a
+      # CSINode object is created for the master nodes.
+      #tolerations:
+      #  - key: node-role.kubernetes.io/master
+      #    effect: NoSchedule
       dnsPolicy: "Default"
       containers:
         - name: node-driver-registrar
