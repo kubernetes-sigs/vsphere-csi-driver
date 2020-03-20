@@ -283,7 +283,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
-	oldvirtualMachine := virtualMachine.DeepCopy()
 
 	// Check if volume is already present in the virtualMachine.Spec.Volumes
 	var isVolumePresentInSpec, isVolumeAttached bool
@@ -296,6 +295,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 	}
 
+	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
 	if isVolumePresentInSpec {
 		for _, volume := range virtualMachine.Status.Volumes {
@@ -314,10 +314,23 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				ClaimName: req.VolumeId,
 			},
 		}
-		virtualMachine.Spec.Volumes = append(oldvirtualMachine.Spec.Volumes, vmvolumes)
-		_, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
+		timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+		for {
+			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+			_, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
+			if err == nil || time.Now().After(timeout) {
+				break
+			}
+			virtualMachine, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
+		}
 		if err != nil {
-			msg := fmt.Sprintf("failed to update virtualMachine %q with Error: %+v", virtualMachine.Name, err)
+			msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -325,7 +338,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	// volume is not attached, so wait until volume is attached and DiskUuid is set
 	if !isVolumeAttached {
-		timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 		watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
 			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
 			ResourceVersion: virtualMachine.ResourceVersion,
@@ -399,43 +411,56 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 
 	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
 	// 	If yes, implement some locking mechanism
-	oldVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
+	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
-	newVirtualMachine := oldVirtualMachine.DeepCopy()
 
-	// Remove volume for virtual machine spec, if it exists
-	for index, volume := range newVirtualMachine.Spec.Volumes {
-		if volume.Name == req.VolumeId {
-			log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, newVirtualMachine.Name)
-			newVirtualMachine.Spec.Volumes = append(newVirtualMachine.Spec.Volumes[:index], newVirtualMachine.Spec.Volumes[index+1:]...)
-			if _, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(newVirtualMachine); err != nil {
-				msg := fmt.Sprintf("Failed to update VirtualMachine %q with Error: %+v", newVirtualMachine.Name, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
+	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+
+	for {
+		for index, volume := range virtualMachine.Spec.Volumes {
+			if volume.Name == req.VolumeId {
+				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index], virtualMachine.Spec.Volumes[index+1:]...)
+				_, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
+				break
 			}
+		}
+		if err == nil || time.Now().After(timeout) {
 			break
 		}
+		virtualMachine, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
+	}
+	if err != nil {
+		msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
-	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
-		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(newVirtualMachine.Name)}).String(),
-		ResourceVersion: oldVirtualMachine.ResourceVersion,
+		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+		ResourceVersion: virtualMachine.ResourceVersion,
 		TimeoutSeconds:  &timeoutSeconds,
 	})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to watch VirtualMachine %q with Error: %v", newVirtualMachine.Name, err)
+		msg := fmt.Sprintf("Failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if watchVirtualMachine == nil {
-		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", newVirtualMachine.Name)
+		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 
@@ -445,22 +470,22 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	// Loop until the volume is removed from virtualmachine status
 	isVolumeDetached := false
 	for !isVolumeDetached {
-		log.Debugf(fmt.Sprintf("Waiting for update on VirtualMachine: %q", newVirtualMachine.Name))
+		log.Debugf(fmt.Sprintf("Waiting for update on VirtualMachine: %q", virtualMachine.Name))
 		// Block on update events
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 		if !ok {
-			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", newVirtualMachine.Name)
+			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		isVolumeDetached = true
 		for _, volume := range vm.Status.Volumes {
 			if volume.Name == req.VolumeId {
-				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, newVirtualMachine.Name))
+				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name))
 				isVolumeDetached = false
 				if volume.Attached == true && volume.Error != "" {
-					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, newVirtualMachine.Name, volume.Error)
+					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
 					log.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)
 				}
