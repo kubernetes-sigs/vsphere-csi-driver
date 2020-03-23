@@ -80,8 +80,13 @@ type VirtualCenterConfig struct {
 	Username string
 	// Password represents the virtual center password in clear text.
 	Password string
-	// Insecure tells if an insecure connection is allowed.
+	// Specifies whether to verify the server's certificate chain. Set to true to
+	// skip verification.
 	Insecure bool
+	// Specifies the path to a CA certificate in PEM format. This has no effect if
+	// Insecure is enabled. Optional; if not configured, the system's CA
+	// certificates will be used.
+	CAFile string
 	// RoundTripperCount is the SOAP round tripper count. (retries = RoundTripperCount - 1)
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
@@ -107,6 +112,12 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	}
 
 	soapClient := soap.NewClient(url, vc.Config.Insecure)
+	if len(vc.Config.CAFile) > 0 && !vc.Config.Insecure {
+		if err := soapClient.SetRootCAs(vc.Config.CAFile); err != nil {
+			log.Errorf("Failed to load CA file: %v", err)
+			return nil, err
+		}
+	}
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		log.Errorf("Failed to create new client with err: %v", err)
