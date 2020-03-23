@@ -3,8 +3,8 @@ package syncer
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
