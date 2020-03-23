@@ -50,7 +50,11 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 
 	// pvToPVCMap maps pv name to corresponding PVC
 	// pvcToPodMap maps pvc to the mounted Pod
-	pvToPVCMap, pvcToPodMap := buildPVCMapPodMap(ctx, k8sPVs, metadataSyncer)
+	pvToPVCMap, pvcToPodMap, err := buildPVCMapPodMap(ctx, k8sPVs, metadataSyncer)
+	if err != nil {
+		log.Errorf("FullSync: Failed to build PVCMap and PodMap. Err: %v", err)
+		return
+	}
 	log.Debugf("FullSync: pvToPVCMap %v", pvToPVCMap)
 	log.Debugf("FullSync: pvcToPodMap %v", pvcToPodMap)
 
@@ -420,20 +424,21 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 //  2. find POD mounted to given PVC
 // pvToPVCMap maps PV name to corresponding PVC, key is pv name
 // pvcToPodMap maps PVC to the array of PODs using the PVC, key is "pod.Namespace/pvc.Name"
-func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metadataSyncer *metadataSyncInformer) (pvcMap, podMap) {
+func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metadataSyncer *metadataSyncInformer) (pvcMap, podMap, error) {
 	log := logger.GetLogger(ctx)
 	pvToPVCMap := make(pvcMap)
 	pvcToPodMap := make(podMap)
 	pods, err := metadataSyncer.podLister.Pods(v1.NamespaceAll).List(labels.Everything())
 	if err != nil {
 		log.Warnf("FullSync: Failed to get pods in all namespaces. err=%v", err)
+		return nil, nil, err
 	}
 	for _, pv := range pvList {
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
 			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
 				log.Warnf("FullSync: Failed to get pvc for namespace %v and name %v. err=%v", pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
-				continue
+				return nil, nil, err
 			}
 			pvToPVCMap[pv.Name] = pvc
 			log.Debugf("FullSync: pvc %v is backed by pv %v", pvc.Name, pv.Name)
@@ -453,7 +458,7 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 
 		}
 	}
-	return pvToPVCMap, pvcToPodMap
+	return pvToPVCMap, pvcToPodMap, nil
 }
 
 // isUpdateRequired compares the input metadata list from K8S and metadata list from CNS and
