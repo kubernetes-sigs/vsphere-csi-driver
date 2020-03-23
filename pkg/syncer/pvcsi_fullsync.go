@@ -20,12 +20,12 @@ import (
 	"context"
 	"reflect"
 
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
@@ -164,7 +164,10 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 
 	log.Debugf("FullSync: Querying guest cluster API server for all POD objects.")
 	pods, err := metadataSyncer.podLister.Pods(v1.NamespaceAll).List(labels.Everything())
-
+	if err != nil {
+		log.Errorf("FullSync: Failed to get all PODs from the guest cluster. Err: %v", err)
+		return err
+	}
 	// Create cnsvolumemetadata objects for POD entity types
 	for _, pod := range pods {
 		var entityReferences []cnsvolumemetadatav1alpha1.CnsOperatorEntityReference
