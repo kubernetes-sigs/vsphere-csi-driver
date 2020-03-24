@@ -23,18 +23,18 @@ import (
 )
 
 const (
-	// Default QPS for client to the supervisor cluster
-	defaultSupervisorClientQPS = float32(50)
-	// Max QPS for client to the supervisor cluster
-	maxSupervisorClientQPS = float32(1000)
-	// Min QPS for client to the supervisor cluster
-	minSupervisorClientQPS = float32(5)
-	// Default Burst for client to the supervisor cluster
-	defaultSupervisorClientBurst = 50
-	// Max Burst for client to the supervisor cluster
-	maxSupervisorClientBurst = 1000
-	// Min Burst for client to the supervisor cluster
-	minSupervisorClientBurst = 5
+	// Default QPS for clients to the API server
+	defaultClientQPS = float32(100)
+	// Max QPS for client to the API server
+	maxClientQPS = float32(1000)
+	// Min QPS for client to the API server
+	minClientQPS = float32(5)
+	// Default Burst for client to the API server
+	defaultClientBurst = 100
+	// Max Burst for client to the API server
+	maxClientBurst = 1000
+	// Min Burst for client to the API server
+	minClientBurst = 5
 	// Kind for virtualmachine resources
 	virtualMachineKind = "virtualmachines"
 )

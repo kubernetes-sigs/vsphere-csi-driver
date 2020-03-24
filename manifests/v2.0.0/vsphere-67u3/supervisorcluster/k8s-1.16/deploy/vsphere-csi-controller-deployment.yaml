@@ -113,6 +113,10 @@ spec:
               value: /etc/vmware/wcp/csi-feature-states/csi-feature-states.conf
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "50"
+            - name: INCLUSTER_CLIENT_BURST
+              value: "50"
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
