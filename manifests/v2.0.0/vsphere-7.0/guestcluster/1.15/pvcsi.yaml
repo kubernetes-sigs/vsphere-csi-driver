@@ -146,6 +146,10 @@ spec:
               value: "50"
             - name: SUPERVISOR_CLIENT_BURST
               value: "50"
+            - name: INCLUSTER_CLIENT_QPS
+              value: "50"
+            - name: INCLUSTER_CLIENT_BURST
+              value: "50"
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
