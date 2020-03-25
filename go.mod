@@ -32,7 +32,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/rexray/gocsi v1.2.0
+	github.com/rexray/gocsi v1.2.1
 	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7
