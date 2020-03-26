@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,7 +191,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
+	stopCh := metadataSyncer.k8sInformerManager.Listen()
+	if stopCh == nil {
+		msg := "Failed to sync informer caches"
+		log.Error(msg)
+		return errors.New(msg)
+	}
 	log.Infof("Initialized metadata syncer")
+
 	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	// Trigger full sync
 	go func() {
@@ -204,7 +212,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}
 	}()
-	<-metadataSyncer.k8sInformerManager.Listen()
+	<-stopCh
 	return nil
 }
 
