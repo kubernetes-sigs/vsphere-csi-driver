@@ -199,6 +199,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sclient)
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
+	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.k8sInformerManager.Listen()
 
 	var sharedDatastore string
@@ -493,6 +494,7 @@ func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentV
 	if claimRefName != "" {
 		claimRef = &v1.ObjectReference{
 			Name: claimRefName,
+			Namespace: testNamespace,
 		}
 	}
 	pv = &v1.PersistentVolume{
@@ -634,8 +636,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// PV does not exist in K8S, but volume exist in CNS cache
 	// FullSync should delete this volume from CNS cache after two cycles
-	csiFullSync(ctx, k8sclient, metadataSyncer)
-	csiFullSync(ctx, k8sclient, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
 
 	// Verify if volume has been deleted from cache
 	queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
@@ -675,8 +677,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	csiFullSync(ctx, k8sclient, metadataSyncer)
-	csiFullSync(ctx, k8sclient, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
 
 	// Verify pv label of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
@@ -701,7 +703,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	csiFullSync(ctx, k8sclient, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
 
 	// Verify pv label value has been updated in CNS cache
 
@@ -720,7 +722,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	csiFullSync(ctx, k8sclient, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
 
 	// Verify pvc label value has been updated in CNS cache
 
@@ -740,7 +742,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	csiFullSync(ctx, k8sclient, metadataSyncer)
+	csiFullSync(ctx, metadataSyncer)
 
 	// Verify POD metadata of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
