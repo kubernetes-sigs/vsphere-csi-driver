@@ -24,18 +24,26 @@ import (
 	"os"
 	"strconv"
 
-	vmoperatorv1alpha1 "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	certutil "k8s.io/client-go/util/cert"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	cnsoperatorclient "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/client/clientset/versioned/typed/cns/v1alpha1"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
 // NewClient creates a newk8s client based on a service account
@@ -89,6 +97,7 @@ func GetRestClientConfig(ctx context.Context, endpoint string, port string) *res
 		},
 		BearerToken: string(token),
 	}
+
 	return config
 }
 
@@ -102,30 +111,60 @@ func NewSupervisorClient(ctx context.Context, config *restclient.Config) (client
 		log.Error("Failed to connect to the supervisor cluster with err: %+v", err)
 		return nil, err
 	}
+
 	return client, nil
 
 }
 
-// NewCnsVolumeMetadataClient creates a new CnsVolumeMetadata client from the given rest client config
-func NewCnsVolumeMetadataClient(ctx context.Context, config *restclient.Config) (*cnsoperatorclient.CnsV1alpha1Client, error) {
+// NewClientForGroup creates a new controller-runtime client for a new scheme.
+// The input Group is added to this scheme.
+func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName string) (client.Client, error) {
+	var err error
 	log := logger.GetLogger(ctx)
-	client, err := cnsoperatorclient.NewForConfig(config)
+
+	scheme := runtime.NewScheme()
+	switch groupName {
+	case vmoperatorv1alpha1.GroupName:
+		err = vmoperatorv1alpha1.AddToScheme(scheme)
+	case cnsoperatorv1alpha1.GroupName:
+		err = cnsoperatorv1alpha1.AddToScheme(scheme)
+	}
 	if err != nil {
-		log.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		log.Error("failed to add to scheme with err: %+v", err)
 		return nil, err
 	}
-	return client, nil
+	client, err := client.New(config, client.Options{
+		Scheme: scheme,
+	})
+	if err != nil {
+		log.Error("failed to create client for group %s with err: %+v", groupName, err)
+	}
+	return client, err
+
 }
 
-// NewVMOperatorClient creates a new VMOperatorClient for given restClient config
-func NewVMOperatorClient(ctx context.Context, config *restclient.Config) (*vmoperatorv1alpha1.VmoperatorV1alpha1Client, error) {
+// NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given rest client config
+func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
+	var err error
 	log := logger.GetLogger(ctx)
-	vmOperatorClient, err := vmoperatorv1alpha1.NewForConfig(config)
+
+	scheme := runtime.NewScheme()
+	err = vmoperatorv1alpha1.AddToScheme(scheme)
 	if err != nil {
-		log.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		log.Errorf("failed to add to scheme with err: %+v", err)
+	}
+	gvk := schema.GroupVersionKind{
+		Group:   vmoperatorv1alpha1.SchemeGroupVersion.Group,
+		Version: vmoperatorv1alpha1.SchemeGroupVersion.Version,
+		Kind:    virtualMachineKind,
+	}
+
+	client, err := apiutils.RESTClientForGVK(gvk, config, serializer.NewCodecFactory(scheme))
+	if err != nil {
+		log.Error("failed to create RESTClient with err: %+v", err)
 		return nil, err
 	}
-	return vmOperatorClient, nil
+	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file

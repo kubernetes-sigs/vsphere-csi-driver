@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -94,9 +95,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		// Initialize client to supervisor cluster
 		// if metadata syncer is being initialized for guest clusters
 		restClientConfig := k8s.GetRestClientConfig(ctx, metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-		metadataSyncer.cnsOperatorClient, err = k8s.NewCnsVolumeMetadataClient(ctx, restClientConfig)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
-			log.Errorf("Creating Supervisor client failed. Err: %v", err)
+			log.Errorf("Creating Cns Operator client failed. Err: %v", err)
 			return err
 		}
 	} else {
@@ -228,9 +229,9 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
 		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-		metadataSyncer.cnsOperatorClient, err = k8s.NewCnsVolumeMetadataClient(ctx, restClientConfig)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
-			log.Errorf("failed to create supervisor client. Err: %v", err)
+			log.Errorf("failed to create cns operator client. Err: %v", err)
 			return
 		}
 	} else {

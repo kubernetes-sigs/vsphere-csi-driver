@@ -28,8 +28,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
-	vmoperatortypes "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/apis/vmoperator/v1alpha1"
-	vmoperatorclient "gitlab.eng.vmware.com/core-build/vm-operator-client/pkg/client/clientset/versioned/typed/vmoperator/v1alpha1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,7 +36,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -55,7 +57,8 @@ var (
 
 type controller struct {
 	supervisorClient          clientset.Interface
-	vmOperatorClient          *vmoperatorclient.VmoperatorV1alpha1Client
+	vmOperatorClient          client.Client
+	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
 }
@@ -86,9 +89,14 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 		return err
 	}
-	c.vmOperatorClient, err = k8s.NewVMOperatorClient(ctx, restClientConfig)
+	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+		return err
+	}
+	c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
+	if err != nil {
+		log.Errorf("Failed to create vmWatcher. Error: %+v", err)
 		return err
 	}
 	pvcsiConfigPath := common.GetConfigPath(ctx)
@@ -153,9 +161,14 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 			return
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
-		c.vmOperatorClient, err = k8s.NewVMOperatorClient(ctx, restClientConfig)
+		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+			return
+		}
+		c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
+		if err != nil {
+			log.Errorf("Failed to create vmWatcher. Error: %+v", err)
 			return
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
@@ -276,8 +289,12 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
-	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
-	if err != nil {
+	virtualMachine := &vmoperatortypes.VirtualMachine{}
+	vmKey := types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      req.NodeId,
+	}
+	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -308,7 +325,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 	} else {
 		// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
-		vmvolumes := vmoperatortypes.VirtualMachineVolumes{
+		vmvolumes := vmoperatortypes.VirtualMachineVolume{
 			Name: req.VolumeId,
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 				ClaimName: req.VolumeId,
@@ -317,12 +334,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		for {
 			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
-			_, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
+			err = c.vmOperatorClient.Update(ctx, virtualMachine)
 			if err == nil || time.Now().After(timeout) {
 				break
 			}
-			virtualMachine, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
-			if err != nil {
+			if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 				msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
@@ -338,7 +354,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	// volume is not attached, so wait until volume is attached and DiskUuid is set
 	if !isVolumeAttached {
-		watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
+		watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
 			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
 			ResourceVersion: virtualMachine.ResourceVersion,
 			TimeoutSeconds:  &timeoutSeconds,
@@ -391,6 +407,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	resp := &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
 	}
+	log.Infof("ControllerPublishVolume: Volume attached successfully %q", req.VolumeId)
 	return resp, nil
 }
 
@@ -411,8 +428,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 
 	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
 	// 	If yes, implement some locking mechanism
-	virtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
-	if err != nil {
+	virtualMachine := &vmoperatortypes.VirtualMachine{}
+	vmKey := types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      req.NodeId,
+	}
+	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 		msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -427,15 +448,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			if volume.Name == req.VolumeId {
 				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
 				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index], virtualMachine.Spec.Volumes[index+1:]...)
-				_, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Update(virtualMachine)
+				err = c.vmOperatorClient.Update(ctx, virtualMachine)
 				break
 			}
 		}
 		if err == nil || time.Now().After(timeout) {
 			break
 		}
-		virtualMachine, err = c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Get(req.NodeId, metav1.GetOptions{})
-		if err != nil {
+		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 			msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
@@ -449,7 +469,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
-	watchVirtualMachine, err := c.vmOperatorClient.VirtualMachines(c.supervisorNamespace).Watch(metav1.ListOptions{
+	watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
 		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
 		ResourceVersion: virtualMachine.ResourceVersion,
 		TimeoutSeconds:  &timeoutSeconds,

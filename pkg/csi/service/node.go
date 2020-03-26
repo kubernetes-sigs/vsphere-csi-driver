@@ -767,7 +767,7 @@ func (s *service) NodeExpandVolume(
 	log.Debugf("NodeExpandVolume: staging target path %s, getDevFromMount %+v", volumePath, *dev)
 
 	realMounter := mount.New("")
-	realExec := mount.NewOsExec()
+	realExec := mount.NewOSExec()
 	mounter := &mount.SafeFormatAndMount{
 		Interface: realMounter,
 		Exec:      realExec,
