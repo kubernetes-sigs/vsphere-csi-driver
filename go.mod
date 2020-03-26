@@ -32,6 +32,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
+	github.com/pkg/errors v0.8.1
 	github.com/rexray/gocsi v1.2.1
 	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect

@@ -493,7 +493,7 @@ func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentV
 	var claimRef *v1.ObjectReference
 	if claimRefName != "" {
 		claimRef = &v1.ObjectReference{
-			Name: claimRefName,
+			Name:      claimRefName,
 			Namespace: testNamespace,
 		}
 	}
