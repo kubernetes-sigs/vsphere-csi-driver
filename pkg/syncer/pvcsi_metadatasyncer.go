@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
@@ -48,11 +49,12 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{}, volumeHan
 	default:
 	}
 	// Check if cnsvolumemetadata object exists for this entity in the supervisor cluster
-	currentMetadata, err := metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Get(newMetadata.Name, metav1.GetOptions{})
-	if err != nil {
+	currentMetadata := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+	key := types.NamespacedName{Namespace: supervisorNamespace, Name: newMetadata.Name}
+	if err := metadataSyncer.cnsOperatorClient.Get(ctx, key, currentMetadata); err != nil {
 		if apierrors.IsNotFound(err) {
-			_, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(newMetadata)
-			if err != nil {
+			newMetadata.Namespace = supervisorNamespace
+			if err := metadataSyncer.cnsOperatorClient.Create(ctx, newMetadata); err != nil {
 				log.Errorf("pvCSI VolumeUpdated: Failed to create CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
 			}
 			return
@@ -61,9 +63,9 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{}, volumeHan
 		return
 	}
 	newMetadata.ResourceVersion = currentMetadata.ResourceVersion
-	log.Debugf("pvCSI VolumeUpdated: Invoking update on CnsVolumeMetadata : %+v", spew.Sdump(currentMetadata))
-	_, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Update(newMetadata)
-	if err != nil {
+	newMetadata.Namespace = supervisorNamespace
+	log.Debugf("pvCSI VolumeUpdated: Invoking update on CnsVolumeMetadata with spec: %+v", spew.Sdump(newMetadata))
+	if err := metadataSyncer.cnsOperatorClient.Update(ctx, newMetadata); err != nil {
 		log.Errorf("pvCSI VolumeUpdated: Failed to update CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
 		return
 	}
@@ -80,7 +82,12 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 	}
 	volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID, uID)
 	log.Debugf("pvCSI VolumeDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
-	err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Delete(volumeMetadataName, &metav1.DeleteOptions{})
+	err = metadataSyncer.cnsOperatorClient.Delete(ctx, &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      volumeMetadataName,
+			Namespace: supervisorNamespace,
+		},
+	})
 	if err != nil {
 		log.Errorf("pvCSI VolumeDeleted: Failed to delete CnsVolumeMetadata: %v. Error: %v", volumeMetadataName, err)
 		return
@@ -112,8 +119,8 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 		if deleteFlag == false {
 			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes, metadataSyncer.configInfo.Cfg.GC, string(pod.GetUID()), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			log.Debugf("pvCSI PodUpdated: Invoking create CnsVolumeMetadata : %v", newMetadata)
-			_, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(newMetadata)
-			if err != nil {
+			newMetadata.Namespace = supervisorNamespace
+			if err := metadataSyncer.cnsOperatorClient.Create(ctx, newMetadata); err != nil {
 				log.Errorf("pvCSI PodUpdated: Failed to create CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
 				return
 			}
@@ -121,7 +128,12 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 		} else {
 			volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID, string(pod.GetUID()))
 			log.Debugf("pvCSI PodDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
-			err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Delete(volumeMetadataName, &metav1.DeleteOptions{})
+			err = metadataSyncer.cnsOperatorClient.Delete(ctx, &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      volumeMetadataName,
+					Namespace: supervisorNamespace,
+				},
+			})
 			if err != nil {
 				log.Errorf("pvCSI PodDeleted: Failed to delete CnsVolumeMetadata: %v. Error: %v", volumeMetadataName, err)
 				return

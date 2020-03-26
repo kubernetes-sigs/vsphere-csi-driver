@@ -22,9 +22,9 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	cnsoperatorclient "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/client/clientset/versioned/typed/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -65,7 +65,7 @@ type metadataSyncInformer struct {
 	clusterFlavor      cnstypes.CnsClusterFlavor
 	volumeManager      volumes.Manager
 	host               string
-	cnsOperatorClient  *cnsoperatorclient.CnsV1alpha1Client
+	cnsOperatorClient  client.Client
 	configInfo         *types.ConfigInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
