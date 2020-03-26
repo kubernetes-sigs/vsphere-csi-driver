@@ -21,8 +21,9 @@ import (
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -56,7 +57,8 @@ func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	}
 
 	// Get list of cnsvolumemetadata objects that exist in the given supervisor cluster namespace
-	supervisorNamespaceList, err := metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).List(metav1.ListOptions{})
+	supervisorNamespaceList := &cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
+	err = metadataSyncer.cnsOperatorClient.List(ctx, supervisorNamespaceList, client.InNamespace(supervisorNamespace))
 	if err != nil {
 		log.Warnf("FullSync: Failed to get CnsVolumeMetadatas from supervisor cluster. Err: %v", err)
 		return
@@ -91,7 +93,8 @@ func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		if supervisorObject, exists := supervisorObjectsMap[guestObject.Name]; !exists {
 			// Create objects that do not exist
 			log.Infof("FullSync: Creating CnsVolumeMetadata %v on the supervisor cluster for entity type %q", guestObject.Name, guestObject.Spec.EntityType)
-			if _, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Create(&guestObject); err != nil {
+			guestObject.Namespace = supervisorNamespace
+			if err := metadataSyncer.cnsOperatorClient.Create(ctx, &guestObject); err != nil {
 				log.Warnf("FullSync: Failed to create CnsVolumeMetadata %v. Err: %v", guestObject.Name, err)
 			}
 		} else {
@@ -100,7 +103,7 @@ func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 			if guestObject.Spec.EntityType != cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD &&
 				!compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec) {
 				log.Infof("FullSync: Updating CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
-				if _, err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Update(supervisorObject); err != nil {
+				if err := metadataSyncer.cnsOperatorClient.Update(ctx, supervisorObject); err != nil {
 					log.Warnf("FullSync: Failed to update CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 				}
 			}
@@ -112,7 +115,7 @@ func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	for _, supervisorObject := range supervisorCnsVolumeMetadataList.Items {
 		if _, exists := guestObjectsMap[supervisorObject.Name]; !exists {
 			log.Infof("FullSync: Deleting CnsVolumeMetadata %v on the supervisor cluster for entity type %q", supervisorObject.Name, supervisorObject.Spec.EntityType)
-			if err = metadataSyncer.cnsOperatorClient.CnsVolumeMetadatas(supervisorNamespace).Delete(supervisorObject.Name, &metav1.DeleteOptions{}); err != nil {
+			if err := metadataSyncer.cnsOperatorClient.Delete(ctx, &supervisorObject); err != nil {
 				log.Warnf("FullSync: Failed to delete CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 			}
 		}

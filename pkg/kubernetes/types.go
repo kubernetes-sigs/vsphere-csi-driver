@@ -35,6 +35,8 @@ const (
 	maxSupervisorClientBurst = 1000
 	// Min Burst for client to the supervisor cluster
 	minSupervisorClientBurst = 5
+	// Kind for virtualmachine resources
+	virtualMachineKind = "virtualmachines"
 )
 
 // InformerManager is a service that notifies subscribers about changes
