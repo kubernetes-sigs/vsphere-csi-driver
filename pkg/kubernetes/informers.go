@@ -57,6 +57,7 @@ func (im *InformerManager) AddPVCListener(add func(obj interface{}), update func
 	if im.pvcInformer == nil {
 		im.pvcInformer = im.informerFactory.Core().V1().PersistentVolumeClaims().Informer()
 	}
+	im.pvcSynced = im.pvcInformer.HasSynced
 
 	im.pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
@@ -70,6 +71,7 @@ func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(
 	if im.pvInformer == nil {
 		im.pvInformer = im.informerFactory.Core().V1().PersistentVolumes().Informer()
 	}
+	im.pvSynced = im.pvInformer.HasSynced
 
 	im.pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
@@ -83,6 +85,7 @@ func (im *InformerManager) AddPodListener(add func(obj interface{}), update func
 	if im.podInformer == nil {
 		im.podInformer = im.informerFactory.Core().V1().Pods().Informer()
 	}
+	im.podSynced = im.podInformer.HasSynced
 
 	im.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
@@ -109,5 +112,8 @@ func (im *InformerManager) GetPodLister() corelisters.PodLister {
 // Listen starts the Informers
 func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	go im.informerFactory.Start(im.stopCh)
+	if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced) {
+		return
+	}
 	return im.stopCh
 }
