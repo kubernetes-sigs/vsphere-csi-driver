@@ -60,9 +60,8 @@ const (
 	// For Example: AffineToHost: "host-25"
 	AttributeAffineToHost = "affinetohost"
 
-	// DefaultFsType represents the default filesystem type which will be used to format the volume
-	// during mount if user does not specify the filesystem type in the Storage Class
-	DefaultFsType = "ext4"
+	// Ext4FsType represents the default filesystem type for block volume
+	Ext4FsType = "ext4"
 
 	// NfsV4FsType represents nfs4 mount type
 	NfsV4FsType = "nfs4"
