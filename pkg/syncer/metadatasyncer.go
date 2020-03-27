@@ -224,6 +224,18 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}()
 
+	ticker = time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
+	// Trigger get volume health status
+	go func() {
+		for ; true; <-ticker.C {
+			ctx, log = logger.GetNewContextWithLogger()
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				log.Infof("getVolumeHealthStatus is triggered")
+				csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
+			}
+		}
+	}()
+
 	// Trigger volume health reconciler
 	go func() {
 		ctx, log = logger.GetNewContextWithLogger()
