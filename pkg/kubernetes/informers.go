@@ -112,8 +112,11 @@ func (im *InformerManager) GetPodLister() corelisters.PodLister {
 // Listen starts the Informers
 func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	go im.informerFactory.Start(im.stopCh)
-	if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced) {
-		return
+	if im.pvSynced != nil && im.pvcSynced != nil && im.podSynced != nil {
+		if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced) {
+			return
+		}
+
 	}
 	return im.stopCh
 }
