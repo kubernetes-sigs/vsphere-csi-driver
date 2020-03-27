@@ -40,6 +40,8 @@ const (
 
 	// key for HealthStatus annotation on PVC
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+	// default interval for csi volume health
+	defaultVolumeHealthIntervalInMin = 5
 
 	// default resync period for volume health reconciler
 	volumeHealthResyncPeriod = 10 * time.Minute
@@ -49,6 +51,24 @@ const (
 	volumeHealthRetryIntervalMax = 5 * time.Minute
 	// default number of threads concurrently running for volume health reconciler
 	volumeHealthWorkers = 10
+
+	// description of volume health status for accessible volume
+	volHealthStatusAccessible = "accessible"
+
+	// description of volume health status for inaccessible volume
+	volHealthStatusInAccessible = "inaccessible"
+
+	// volume health status with "red" level
+	volHealthStatusRed = "red"
+
+	// volume health status with "green" level
+	volHealthStatusGreen = "green"
+
+	// volume health status with "yellow" level
+	volHealthStatusYellow = "yellow"
+
+	// volume health status with "unknown" level
+	volHealthStatusUnknown = "unknown"
 )
 
 var (
@@ -73,6 +93,9 @@ type (
 	pvcMap = map[string]*v1.PersistentVolumeClaim
 	// Maps K8s PVC name to respective Pod object
 	podMap = map[string][]*v1.Pod
+	// Maps K8s PV's Spec.CSI.VolumeHandle to corressponding PVC object
+	volumeHandleMap = map[string]*v1.PersistentVolumeClaim
+
 )
 
 type metadataSyncInformer struct {
