@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -197,6 +199,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	// metadata syncer pod in real Kubernetes cluster
 	k8sclient = testclient.NewSimpleClientset()
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sclient)
+	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
@@ -362,6 +365,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	// Test pvcUpdate workflow on VC
 	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, oldPVCLabel, pv.Name)
 	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name)
+	waitForListerSync()
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
@@ -404,6 +408,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Test pvcDelete workflow
+	waitForListerSync()
 	pvcDeleted(newPvc, metadataSyncer)
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
@@ -633,9 +638,9 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatalf("Failed to find the newly created volume with ID: %s", volumeID)
 	}
 	cnsDeletionMap = make(map[string]bool)
-
 	// PV does not exist in K8S, but volume exist in CNS cache
 	// FullSync should delete this volume from CNS cache after two cycles
+	waitForListerSync()
 	csiFullSync(ctx, metadataSyncer)
 	csiFullSync(ctx, metadataSyncer)
 
@@ -676,7 +681,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
 	}
-
+	waitForListerSync()
 	csiFullSync(ctx, metadataSyncer)
 	csiFullSync(ctx, metadataSyncer)
 
@@ -702,7 +707,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
 	}
-
+	waitForListerSync()
 	csiFullSync(ctx, metadataSyncer)
 
 	// Verify pv label value has been updated in CNS cache
@@ -721,7 +726,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(pvc); err != nil {
 		t.Fatal(err)
 	}
-
+	waitForListerSync()
 	csiFullSync(ctx, metadataSyncer)
 
 	// Verify pvc label value has been updated in CNS cache
@@ -741,7 +746,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pod, err = k8sclient.CoreV1().Pods(testNamespace).Create(pod); err != nil {
 		t.Fatal(err)
 	}
-
+	waitForListerSync()
 	csiFullSync(ctx, metadataSyncer)
 
 	// Verify POD metadata of volume matches that of updated metadata
@@ -823,4 +828,11 @@ func getPodSpec(namespace string, labels map[string]string, pvcName string, phas
 		},
 	}
 	return pod
+}
+
+// waitForListerSync allow Listers to sync with recently created k8s objects.
+// To ensure unit tests are executed successfully for very recently created k8s objects, we need to
+// ensure listers used in the metadata syncer are synced.
+func waitForListerSync() {
+	time.Sleep(1 * time.Second)
 }

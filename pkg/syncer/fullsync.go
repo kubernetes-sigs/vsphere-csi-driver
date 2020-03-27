@@ -22,7 +22,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
