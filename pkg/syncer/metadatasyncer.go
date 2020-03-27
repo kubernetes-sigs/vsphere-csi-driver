@@ -18,12 +18,13 @@ package syncer
 
 import (
 	"context"
-	"github.com/pkg/errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 

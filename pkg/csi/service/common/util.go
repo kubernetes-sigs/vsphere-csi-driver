@@ -87,27 +87,32 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 }
 
 // IsFileVolumeRequest checks whether the request is to create a CNS file volume.
-func IsFileVolumeRequest(ctx context.Context, v []*csi.VolumeCapability) bool {
-	for _, capability := range v {
-		if fstype := strings.ToLower(GetVolumeCapabilityFsType(ctx, capability)); fstype == NfsV4FsType || fstype == NfsFsType {
+func IsFileVolumeRequest(ctx context.Context, capabilities []*csi.VolumeCapability) bool {
+	for _, capability := range capabilities {
+		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
 			return true
 		}
 	}
 	return false
 }
 
-// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability. Defaults to DefaultFsType when empty for mount volumes.
+// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability.
+// Defaults to nfs4 for file volume and ext4 for block volume when empty string is observed.
+// This function also ignores default ext4 fstype supplied by external-provisioner when none is
+// specified in the StorageClass
 func GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
 	log := logger.GetLogger(ctx)
 	fsType := strings.ToLower(capability.GetMount().GetFsType())
 	log.Debugf("FsType received from Volume Capability: %q", fsType)
-	if fsType == "" {
-		// Defaulting fstype for mount volumes only. Block volumes will still have fstype as empty.
-		if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Mount); ok {
-			log.Infof("No fstype received in Volume Capability for mount volume. Defaulting to: %s",
-				DefaultFsType)
-			fsType = DefaultFsType
-		}
+	isFileVolume := IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
+	if isFileVolume && (fsType == "" || fsType == "ext4") {
+		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", NfsV4FsType)
+		fsType = NfsV4FsType
+	} else if !isFileVolume && fsType == "" {
+		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", Ext4FsType)
+		fsType = Ext4FsType
 	}
 	return fsType
 }
@@ -137,6 +142,11 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessMode
 		}
 		if !found {
 			return false
+		}
+		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
+			if volCap.GetMount() != nil && (volCap.GetMount().FsType == NfsV4FsType || volCap.GetMount().FsType == NfsFsType) {
+				return false
+			}
 		}
 	}
 	return true
