@@ -16,6 +16,8 @@ limitations under the License.
 
 package config
 
+import vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+
 // Config is used to read and store information from the cloud configuration file
 type Config struct {
 	Global struct {
@@ -40,6 +42,10 @@ type Config struct {
 		Datacenters string `gcfg:"datacenters"`
 	}
 
+	// Multiple sets of Net Permissions applied to all file shares
+	// The string can uniquely represent each Net Permissions config
+	NetPermissions map[string]*NetPermissionConfig
+
 	// Virtual Center configurations
 	VirtualCenter map[string]*VirtualCenterConfig
 
@@ -51,6 +57,17 @@ type Config struct {
 		Zone   string `gcfg:"zone"`
 		Region string `gcfg:"region"`
 	}
+}
+
+// NetPermissionConfig consists of information used to restrict the
+// network permissions set on file share volumes
+type NetPermissionConfig struct {
+	// Client IP address, IP range or IP subnet. Example: "10.20.30.0/24"; defaults to "*" if not specified
+	Ips string `gcfg:"ips"`
+	// Is it READ_ONLY, READ_WRITE or NO_ACCESS. Defaults to "READ_WRITE" if not specified
+	Permissions vsanfstypes.VsanFileShareAccessType `gcfg:"permissions"`
+	// Disallow root access for this IP range. Defaults to "false" if not specified
+	RootSquash bool `gcfg:"rootsquash"`
 }
 
 // VirtualCenterConfig contains information used to access a remote vCenter

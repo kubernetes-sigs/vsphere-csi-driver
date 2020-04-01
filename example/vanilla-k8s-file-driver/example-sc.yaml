@@ -7,12 +7,4 @@ metadata:
 provisioner: csi.vsphere.vmware.com
 parameters:
   storagepolicyname: "vSAN Default Storage Policy"  #Optional Parameter
-  csi.storage.k8s.io/fstype: "nfs4" #Optional Parameter
-  # Optional net permissions allowed for file volumes.
-  #allowroot: "true"       #defaults to "true" if not specified
-  #permission: "READ_ONLY" #defaults to "READ_WRITE" if not specified
-  #ips: "10.20.30.0/24"    # defaults to "*" if not specified
-  # Suffix the above params with "." and any string to add more net permissions. Same above defined defaults applies if a param is not specified.
-  #allowroot.1: "false"
-  #permission.1: "READ_WRITE"
-  #ips.1: "10.20.20.0/24"
+  csi.storage.k8s.io/fstype: "nfs4"

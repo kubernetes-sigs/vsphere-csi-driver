@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 
+	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"gopkg.in/gcfg.v1"
@@ -54,10 +56,10 @@ const (
 // Errors
 var (
 	// ErrUsernameMissing is returned when the provided username is empty.
-	ErrUsernameMissing = errors.New("Username is missing")
+	ErrUsernameMissing = errors.New("username is missing")
 
 	// ErrPasswordMissing is returned when the provided password is empty.
-	ErrPasswordMissing = errors.New("Password is missing")
+	ErrPasswordMissing = errors.New("password is missing")
 
 	// ErrInvalidVCenterIP is returned when the provided vCenter IP address is
 	// missing from the provided configuration.
@@ -65,15 +67,18 @@ var (
 
 	// ErrMissingVCenter is returned when the provided configuration does not
 	// define any vCenters.
-	ErrMissingVCenter = errors.New("No Virtual Center hosts defined")
+	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
 
 	// ErrMissingEndpoint is returned when the provided configuration does not
 	// define any endpoints.
-	ErrMissingEndpoint = errors.New("No Supervisor Cluster endpoint defined in Guest Cluster config")
+	ErrMissingEndpoint = errors.New("no Supervisor Cluster endpoint defined in Guest Cluster config")
 
 	// ErrMissingTanzuKubernetesClusterUID is returned when the provided configuration does not
 	// define any TanzuKubernetesClusterUID.
-	ErrMissingTanzuKubernetesClusterUID = errors.New("No Tanzu Kubernetes Cluster UID defined in Guest Cluster config")
+	ErrMissingTanzuKubernetesClusterUID = errors.New("no Tanzu Kubernetes Cluster UID defined in Guest Cluster config")
+
+	// ErrInvalidNetPermission is returned when the value of Permission in NetPermissions is not among the  ones listed
+	ErrInvalidNetPermission = errors.New("invalid value for Permissions under NetPermission Config")
 )
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
@@ -103,7 +108,7 @@ func getEnvKeyValue(match string, partial bool) (string, string, error) {
 	return "", "", fmt.Errorf("Failed to find %s with %s", matchType, match)
 }
 
-// FromEnv initializes the provided configuratoin object with values
+// FromEnv initializes the provided configuration object with values
 // obtained from environment variables. If an environment variable is set
 // for a property that's already initialized, the environment variable's value
 // takes precedence.
@@ -263,17 +268,38 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}
+	if cfg.NetPermissions == nil {
+		// If no net permissions are given, assume default
+		log.Info("No Net Permissions given in Config. Using default permissions.")
+		cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
+	} else {
+		for key, netPerm := range cfg.NetPermissions {
+			if netPerm.Permissions == "" {
+				netPerm.Permissions = vsanfstypes.VsanFileShareAccessTypeREAD_WRITE
+			} else if netPerm.Permissions != vsanfstypes.VsanFileShareAccessTypeNO_ACCESS &&
+				netPerm.Permissions != vsanfstypes.VsanFileShareAccessTypeREAD_ONLY &&
+				netPerm.Permissions != vsanfstypes.VsanFileShareAccessTypeREAD_WRITE {
+				log.Errorf("Invalid value %s for Permissions under NetPermission Config %s", netPerm.Permissions, key)
+				return ErrInvalidNetPermission
+			}
+			if netPerm.Ips == "" {
+				netPerm.Ips = "*"
+			}
+		}
+	}
 	return nil
 }
 
 // ReadConfig parses vSphere cloud config file and stores it into VSphereConfig.
 // Environment variables are also checked
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
+	log := logger.GetLogger(ctx)
 	if config == nil {
 		return nil, fmt.Errorf("no vSphere cloud provider config file given")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
+		log.Errorf("error while reading config file: %+v", err)
 		return nil, err
 	}
 	// Env Vars should override config file entries if present
@@ -309,6 +335,15 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// GetDefaultNetPermission returns the default file share net permission.
+func GetDefaultNetPermission() *NetPermissionConfig {
+	return &NetPermissionConfig{
+		RootSquash:  false,
+		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
+		Ips:         "*",
+	}
 }
 
 // FromEnvToGC initializes the provided configuration object with values
