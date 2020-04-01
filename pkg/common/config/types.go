@@ -16,7 +16,7 @@ limitations under the License.
 
 package config
 
-import vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+import vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
 // Config is used to read and store information from the cloud configuration file
 type Config struct {

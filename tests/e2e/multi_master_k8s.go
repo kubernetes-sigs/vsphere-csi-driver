@@ -35,9 +35,9 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/test/e2e/framework"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 )
 
 var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {

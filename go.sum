@@ -265,6 +265,8 @@ github.com/thecodeteam/gosync v0.1.0/go.mod h1:43QHsngcnWc8GE1aCmi7PEypslflHjCzX
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 h1:LnC5Kc/wtumK+WB441p7ynQJzVuNRJiqddSIE3IlSEQ=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
+github.com/vmware/govmomi v0.22.2-0.20200329172045-a01612b98505 h1:+DJiAYxE/8P+4QYmE6jdpofrc5eSsxWJUU72jSLd3/c=
+github.com/vmware/govmomi v0.22.2-0.20200329172045-a01612b98505/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
 github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9oS4Wk2s2u4tS29nEaDLdzvuHdB19CvSGJjPgkZJNk=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
@@ -273,8 +275,6 @@ github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7 h1:v9UNFRR161p+1
 github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7/go.mod h1:ktlw5aYhoXQvOvWFL9SzltGXn1bQgJXxZzHJK4wQvsI=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4 h1:bqWa8N5LFXGuhZybfiIKr6xjKdx6E0ElRNE3U8WITi8=
 gitlab.eng.vmware.com/core-build/vm-operator-client v0.0.0-20200109223959-f49bf2cf25a4/go.mod h1:x65RJ1o4UoibPmuifqbSB3ao1UscZuNSQ244C/HwDf4=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200309205830-1d2cc4bf13c8 h1:QUL6o97ItF1dV6WkUunFHTdHN1Uq2Syd12j/5D7KeSQ=
-gitlab.eng.vmware.com/hatchway/govmomi v0.0.0-20200309205830-1d2cc4bf13c8/go.mod h1:33wyqPPVz8rWm5ee91QpZk9aAl7FHDSe4FXhJRTzN0Q=
 go.etcd.io/bbolt v1.3.3 h1:MUGmc65QhB3pIlaQ5bB4LwqSj6GIonVJXpZiaKNyaKk=
 go.etcd.io/bbolt v1.3.3/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=

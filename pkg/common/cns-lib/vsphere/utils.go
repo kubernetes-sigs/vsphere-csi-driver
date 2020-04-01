@@ -15,11 +15,11 @@ import (
 	"strconv"
 	"strings"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/sts"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/soap"
+	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 

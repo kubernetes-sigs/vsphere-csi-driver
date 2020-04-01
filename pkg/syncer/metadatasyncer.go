@@ -33,7 +33,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
