@@ -6,5 +6,5 @@ metadata:
     storageclass.kubernetes.io/is-default-class: "false"
 provisioner: csi.vsphere.vmware.com
 parameters:
-  storagepolicyname: "vSAN Default Storage Policy"  #Optional Parameter
-  csi.storage.k8s.io/fstype: "nfs4"
+  storagepolicyname: "vSAN Default Storage Policy"  # Optional Parameter
+  csi.storage.k8s.io/fstype: "nfs4" # Optional Parameter
