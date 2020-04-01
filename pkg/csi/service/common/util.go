@@ -22,14 +22,14 @@ import (
 	"strings"
 
 	csictx "github.com/rexray/gocsi/context"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )

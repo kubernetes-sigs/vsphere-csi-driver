@@ -24,10 +24,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
-	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi/cns"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )

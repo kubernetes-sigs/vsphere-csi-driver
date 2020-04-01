@@ -23,7 +23,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"

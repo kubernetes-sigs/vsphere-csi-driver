@@ -25,9 +25,9 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/find"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/types"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"

@@ -25,8 +25,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/units"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

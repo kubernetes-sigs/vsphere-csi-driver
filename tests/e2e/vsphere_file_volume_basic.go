@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"

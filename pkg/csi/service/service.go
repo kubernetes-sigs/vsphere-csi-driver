@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 

@@ -21,13 +21,13 @@ import (
 	"net/url"
 	"sync"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/vapi/rest"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vapi/tags"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vapi/rest"
+	"github.com/vmware/govmomi/vapi/tags"
+	"github.com/vmware/govmomi/vim25/mo"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/types"
 )
 
 // ErrVMNotFound is returned when a virtual machine isn't found.

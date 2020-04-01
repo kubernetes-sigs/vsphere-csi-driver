@@ -27,8 +27,8 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi/object"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
