@@ -93,12 +93,14 @@ const (
 	sshdPort                                   = "22"
 	vsanHealthServiceWaitTime                  = 15
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
+	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	adminPassword                              = "Admin!23"
 	e2eTestPassword                            = "E2E-test-password!23"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
 	svOperationTimeout                         = 240 * time.Second
+	defaultFullSyncIntervalInMin               = "30"
 )
 
 const (
