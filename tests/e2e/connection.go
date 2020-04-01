@@ -23,11 +23,11 @@ import (
 	"sync"
 
 	gomega "github.com/onsi/gomega"
-	"gitlab.eng.vmware.com/hatchway/govmomi"
-	"gitlab.eng.vmware.com/hatchway/govmomi/session"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
-	vimtypes "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/session"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/soap"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 

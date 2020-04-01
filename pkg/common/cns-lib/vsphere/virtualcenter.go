@@ -24,22 +24,22 @@ import (
 	"strconv"
 	"sync"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
-	"gitlab.eng.vmware.com/hatchway/govmomi/property"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vsan"
+	"github.com/vmware/govmomi/cns"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vsan"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi"
-	"gitlab.eng.vmware.com/hatchway/govmomi/find"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
-	"gitlab.eng.vmware.com/hatchway/govmomi/pbm"
-	"gitlab.eng.vmware.com/hatchway/govmomi/session"
-	"gitlab.eng.vmware.com/hatchway/govmomi/sts"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/soap"
-	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
+	"github.com/vmware/govmomi/session"
+	"github.com/vmware/govmomi/sts"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/soap"
+	"github.com/vmware/govmomi/vim25/types"
 )
 
 const (

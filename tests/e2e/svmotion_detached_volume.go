@@ -24,8 +24,8 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"gitlab.eng.vmware.com/hatchway/govmomi/find"
-	"gitlab.eng.vmware.com/hatchway/govmomi/object"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"

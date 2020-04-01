@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"time"
 
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	"github.com/onsi/gomega"
 )

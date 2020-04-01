@@ -17,7 +17,7 @@ package vsphere
 import (
 	"context"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/vsan"
+	"github.com/vmware/govmomi/vsan"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 

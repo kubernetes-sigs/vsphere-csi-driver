@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"

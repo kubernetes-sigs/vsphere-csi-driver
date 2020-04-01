@@ -24,15 +24,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"gitlab.eng.vmware.com/hatchway/govmomi/cns"
+	"github.com/vmware/govmomi/cns"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/units"
 	"github.com/zekroTJA/timedmap"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
-	"gitlab.eng.vmware.com/hatchway/govmomi/units"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 

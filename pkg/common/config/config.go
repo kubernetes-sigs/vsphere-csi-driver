@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 

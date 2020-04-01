@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
-	cnstypes "gitlab.eng.vmware.com/hatchway/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
