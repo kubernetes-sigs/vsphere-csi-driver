@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -290,7 +291,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
+	ginkgo.By(fmt.Sprintf("Creating StorageClass '%s' with scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
@@ -377,6 +378,34 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 	}
 	return svcClient, svcNamespace
+}
+
+// updateCSIDeploymentTemplateFullSyncInterval helps to update the FULL_SYNC_INTERVAL_MINUTES in deployment template
+// For this to take effect we need to terminate the running csi controller pod
+// returns fsync interval value before the change
+func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containers := deployment.Spec.Template.Spec.Containers
+	oldValue := ""
+	for _, c := range containers {
+		if c.Name == "vsphere-syncer" {
+			for _, e := range c.Env {
+				if e.Name == "FULL_SYNC_INTERVAL_MINUTES" {
+					oldValue = e.Value
+					e.Value = mins
+				}
+			}
+		}
+	}
+	deployment.Spec.Template.Spec.Containers = containers
+	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Waiting for a min for update operation on deployment to take effect...")
+	time.Sleep(1 * time.Minute)
+	return oldValue
 }
 
 // getLabelsMapFromKeyValue returns map[string]string for given array of vim25types.KeyValue
@@ -965,6 +994,56 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if expectedInstanceName == instance.Name {
 				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+		}
+	}
+	if isCreated {
+		gomega.Expect(instanceFound).To(gomega.BeTrue())
+	} else {
+		gomega.Expect(instanceFound).To(gomega.BeFalse())
+	}
+}
+
+// verifyEntityReferenceInCRDInSupervisor is a helper method to check CnsVolumeMetadata CRDs exists and has expected labels
+func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool, volumeNames string, checkLabel bool, labels map[string]string, labelPresent bool) {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fmt.Println("expected instancename is :", expectedInstanceName)
+
+	var instanceFound bool
+	for _, crd := range list.Items {
+		if crdName == "cnsvolumemetadatas" {
+			instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata type crd instance: %v", instance.Name))
+
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				vol := instance.Spec.VolumeNames
+				if vol[0] == volumeNames {
+					ginkgo.By(fmt.Sprintf("Entity reference for the volume: %v ,found in the CRD : %v", volumeNames, expectedInstanceName))
+				}
+
+				if checkLabel {
+					ginkgo.By(fmt.Sprintf("Checking the cnsvolumemetadatas for the expected label %v", labels))
+					labelsPresent := instance.Spec.Labels
+					labelFound := reflect.DeepEqual(labelsPresent, labels)
+					if labelFound {
+						gomega.Expect(labelFound).To(gomega.BeTrue())
+					} else {
+						gomega.Expect(labelFound).To(gomega.BeFalse())
+					}
+				}
 				instanceFound = true
 				break
 			}

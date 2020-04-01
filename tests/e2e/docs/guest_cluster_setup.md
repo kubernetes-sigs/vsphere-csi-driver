@@ -78,11 +78,13 @@ datacenters should be comma separated if deployed on multi-datacenters
     export CLUSTER_FLAVOR="GUEST_CLUSTER"
     export GINKGO_FOCUS="csi-guest"
     export SVC_NAMESPACE="test-gc-e2e-demo-ns"
+    # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in pvcsi.yaml
+    export FULL_SYNC_WAIT_TIME=350    # In seconds
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
 
-#### Setting SSH keys for VC with your local machine to run tests which toggle VC service states
+#### Setting SSH keys for VC with your local machine to run tests which toggle states of VC services and full sync tests
 
     1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
     2.ssh root@<vc-ip-address> mkdir -p .ssh
