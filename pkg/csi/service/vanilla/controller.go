@@ -228,7 +228,7 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		c.manager.VcenterConfig = newVCConfig
 	}
 	if cfg != nil {
-		log.Debugf("updating manager.CnsConfig")
+		log.Debugf("Updating manager.CnsConfig")
 		c.manager.CnsConfig = cfg
 	}
 }
@@ -373,11 +373,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.InvalidArgument, msg)
-	}
-
-	// If no network permissions are defined, add the default.
-	if len(scParams.NetPermissions) == 0 {
-		scParams.NetPermissions = append(scParams.NetPermissions, *common.GetDefaultNetPermission())
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
