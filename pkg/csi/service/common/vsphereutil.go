@@ -27,6 +27,7 @@ import (
 	"gitlab.eng.vmware.com/hatchway/govmomi/property"
 	"gitlab.eng.vmware.com/hatchway/govmomi/vim25/mo"
 	vim25types "gitlab.eng.vmware.com/hatchway/govmomi/vim25/types"
+	vsanfstypes "gitlab.eng.vmware.com/hatchway/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -241,6 +242,17 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			datastores = append(datastores, datastoreMoref)
 		}
 	}
+
+	// Retrieve net permissions from CnsConfig of manager and convert to required format
+	netPerms := make([]vsanfstypes.VsanFileShareNetPermission, 0)
+	for _, netPerm := range manager.CnsConfig.NetPermissions {
+		netPerms = append(netPerms, vsanfstypes.VsanFileShareNetPermission{
+			Ips:         netPerm.Ips,
+			Permissions: netPerm.Permissions,
+			AllowRoot:   !netPerm.RootSquash,
+		})
+	}
+
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -261,7 +273,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		},
 		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
 			SoftQuotaInMb: spec.CapacityMB,
-			Permission:    spec.ScParams.NetPermissions,
+			Permission:    netPerms,
 		},
 	}
 	if spec.StoragePolicyID != "" {
