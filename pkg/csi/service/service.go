@@ -28,7 +28,7 @@ import (
 	"k8s.io/klog"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/cns"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/block/vanilla"
 	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -74,7 +74,7 @@ func New() Service {
 }
 
 func (s *service) GetController() csi.ControllerServer {
-	s.cs = cns.New()
+	s.cs = vanilla.New()
 	return s.cs
 }
 
