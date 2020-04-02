@@ -1,3 +1,17 @@
+# Copyright 2019 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 ################################################################################
 ##                               BUILD ARGS                                   ##
 ################################################################################
@@ -16,17 +30,10 @@ COPY pkg ./pkg/
 COPY cmd ./cmd/
 ARG GOOS
 ARG GOARCH
+ARG GOPROXY
 ENV GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
-
-ARG SSH_PRIVATE_KEY
-RUN mkdir /root/.ssh/ && \
-    echo "${SSH_PRIVATE_KEY}" > /root/.ssh/id_rsa && \
-    chmod -R 600 /root/.ssh/id_rsa && \
-    ssh-keyscan -t rsa gitlab.eng.vmware.com >> /root/.ssh/known_hosts
-RUN git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/"
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN go mod download && go mod verify
-RUN rm /root/.ssh/id_rsa && \
-    rm /root/.ssh/known_hosts
 
 ################################################################################
 ##                           GO BUILD CACHE STAGE                             ##
@@ -42,28 +49,44 @@ COPY pkg ./pkg/
 COPY cmd ./cmd/
 ARG GOOS
 ARG GOARCH
+ARG GOPROXY
 ENV CGO_ENABLED=0 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
+ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN LDFLAGS=$(cat ldflags.txt) && \
-    go build -ldflags "${LDFLAGS}" ./cmd/vsphere-csi && \
+    go build -ldflags "${LDFLAGS}" ./cmd/vsphere-csi
+RUN LDFLAGS=$(cat ldflags.txt) && \
     go build -ldflags "${LDFLAGS}" ./cmd/syncer
-
-################################################################################
-##                               LINT STAGE                                   ##
-################################################################################
-FROM ${GOLANG_IMAGE} as lint
-RUN go get -u golang.org/x/lint/golint
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${GOLANG_IMAGE}
-LABEL "maintainer" "Cheng Cheng <chengch@vmware.com>"
+LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
 
 ################################################################################
-##                            CONFIGURE LOCALE                                ##
+##                             PACKAGE UPDATES                                ##
 ################################################################################
-# Set the locale so that the gist command is happy.
-ENV LANG=en_US.UTF-8 LC_ALL=C.UTF-8
+# Install the dependencies. The list is a union of the dependencies required
+# by the following images:
+#   * https://github.com/kubernetes/test-infra/blob/master/images/bootstrap/Dockerfile
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      jq \
+      mercurial \
+      python3 \
+      python3-pip \
+      unzip \
+      zip && \
+    rm -rf /var/cache/apt/* /var/lib/apt/lists/* && \
+    pip3 install setuptools wheel --upgrade
+
+# Download the Google Cloud SDK
+RUN curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-265.0.0-linux-x86_64.tar.gz | \
+    tar xzC / && \
+    /google-cloud-sdk/bin/gcloud components update
 
 ################################################################################
 ##                             DOCKER-IN-DOCKER                               ##
@@ -91,7 +114,7 @@ RUN curl -fsSL https://download.docker.com/linux/$(. /etc/os-release; echo "${ID
       $(lsb_release -cs) stable"
 
 # Install Docker
-# TODO: the `sed` is a bit of a hack, look into alternatives.
+# TODO(bentheelder): the `sed` is a bit of a hack, look into alternatives.
 # Why this exists: `docker service start` on debian runs a `cgroupfs_mount` method,
 # We're already inside docker though so we can be sure these are already mounted.
 # Trying to remount these makes for a very noisy error block in the beginning of
@@ -116,19 +139,24 @@ RUN mkdir /docker-graph
 ENV DOCKER_IN_DOCKER_ENABLED=true
 
 ################################################################################
-##                             INSTALL LINT                                   ##
+##                       CONFIGURE GOOGLE CLOUD SDK                           ##
 ################################################################################
-COPY --from=lint /go/bin/golint /usr/local/bin/
+# Update the PATH to include the Google Cloud SDK and disable its prompts and
+# update the gcloud components.
+ENV PATH="/google-cloud-sdk/bin:${PATH}" CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
 ################################################################################
 ##                         PRIME GO MOD & BUILD CACHES                        ##
 ################################################################################
 COPY --from=mod-cache   /go/pkg/mod           /go/pkg/mod/
 COPY --from=build-cache /root/.cache/go-build /root/.cache/go-build/
+RUN  mkdir -p /home/prow/go/pkg && ln -s /go/pkg/mod /home/prow/go/pkg/mod
 
 ################################################################################
-##                              ADD WORKDIR                                   ##
+##                           ADD LOCAL SOURCES                                ##
 ################################################################################
-# Map the sources into the project's traditional Gopath location in the
-# image.
-WORKDIR /go/src/sigs.k8s.io/vsphere-csi-driver
+# Copy the sources into the project's traditional Gopath location in the
+# image. It's possible to bind mount up-to-date sources over the ones in
+# the image when the latter is run as a container.
+WORKDIR /go/src/sigs.k8s.io/vsphere-csi-driver/
+COPY . ./

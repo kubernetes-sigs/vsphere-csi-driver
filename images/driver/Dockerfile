@@ -16,10 +16,10 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.12.10
+ARG GOLANG_IMAGE=golang:1.13
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v0.2.1-10-gb2fb75e
+ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
 
 ################################################################################
 ##                              BUILD STAGE                                   ##

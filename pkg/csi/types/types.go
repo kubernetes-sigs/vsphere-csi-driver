@@ -21,9 +21,9 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
-// Controller is the interface for the CSI Controller Server plus extra methods
-// required to support multiple API backends
-type Controller interface {
+// CnsController is the interface for the CSI Controller Server plus extra methods
+// required to support CNS API backend
+type CnsController interface {
 	csi.ControllerServer
 	Init(config *config.Config) error
 }
