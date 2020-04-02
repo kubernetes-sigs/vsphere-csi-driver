@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svol "k8s.io/kubernetes/pkg/volume"
@@ -709,8 +710,8 @@ func (s *service) NodeGetInfo(
 		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
 		if zone != "" && region != "" {
 			accessibleTopology = make(map[string]string)
-			accessibleTopology[csitypes.LabelRegionFailureDomain] = region
-			accessibleTopology[csitypes.LabelZoneFailureDomain] = zone
+			accessibleTopology[v1.LabelZoneRegion] = region
+			accessibleTopology[v1.LabelZoneFailureDomain] = zone
 		}
 	}
 	if len(accessibleTopology) > 0 {
@@ -767,7 +768,7 @@ func (s *service) NodeExpandVolume(
 	log.Debugf("NodeExpandVolume: staging target path %s, getDevFromMount %+v", volumePath, *dev)
 
 	realMounter := mount.New("")
-	realExec := mount.NewOSExec()
+	realExec := mount.NewOsExec()
 	mounter := &mount.SafeFormatAndMount{
 		Interface: realMounter,
 		Exec:      realExec,

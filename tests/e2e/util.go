@@ -31,7 +31,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
@@ -548,8 +547,8 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
-			podRegion := node.Labels[csitypes.LabelRegionFailureDomain]
-			podZone := node.Labels[csitypes.LabelZoneFailureDomain]
+			podRegion := node.Labels[v1.LabelZoneRegion]
+			podZone := node.Labels[v1.LabelZoneFailureDomain]
 			return podRegion, podZone, nil
 		}
 	}

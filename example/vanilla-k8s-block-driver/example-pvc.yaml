@@ -4,7 +4,7 @@ metadata:
   name: example-vanilla-block-pvc
 spec:
   accessModes:
-  - ReadWriteOnce
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi

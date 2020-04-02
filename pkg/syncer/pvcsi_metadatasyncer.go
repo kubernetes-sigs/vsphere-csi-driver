@@ -116,7 +116,7 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 		}
 	}
 	if len(volumes) > 0 {
-		if deleteFlag == false {
+		if 	deleteFlag == false {
 			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes, metadataSyncer.configInfo.Cfg.GC, string(pod.GetUID()), pod.Name, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			log.Debugf("pvCSI PodUpdated: Invoking create CnsVolumeMetadata : %v", newMetadata)
 			newMetadata.Namespace = supervisorNamespace

@@ -522,11 +522,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
 
 	ginkgo.It("Verify PVC metadata is deleted in CNS after PVC is deleted in k8s", func() {

@@ -14,7 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -uo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
@@ -52,3 +54,4 @@ TEST_PASS=$?
 if [[ $TEST_PASS -ne 0 ]]; then
     exit 1
 fi
+

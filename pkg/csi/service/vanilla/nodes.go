@@ -24,7 +24,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -174,8 +173,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 		datastoreTopologyMap := make(map[string][]map[string]string)
 		for _, topology := range topologyArr {
 			segments := topology.GetSegments()
-			zone := segments[csitypes.LabelZoneFailureDomain]
-			region := segments[csitypes.LabelRegionFailureDomain]
+			zone := segments[v1.LabelZoneFailureDomain]
+			region := segments[v1.LabelZoneRegion]
 			log.Debugf("Getting list of nodeVMs for zone [%s] and region [%s]", zone, region)
 			nodeVMsInZoneRegion, err := getNodesInZoneRegion(zone, region)
 			if err != nil {
@@ -192,10 +191,10 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 			for _, datastore := range sharedDatastoresInZoneRegion {
 				accessibleTopology := make(map[string]string)
 				if zone != "" {
-					accessibleTopology[csitypes.LabelZoneFailureDomain] = zone
+					accessibleTopology[v1.LabelZoneFailureDomain] = zone
 				}
 				if region != "" {
-					accessibleTopology[csitypes.LabelRegionFailureDomain] = region
+					accessibleTopology[v1.LabelZoneRegion] = region
 				}
 				datastoreTopologyMap[datastore.Info.Url] = append(datastoreTopologyMap[datastore.Info.Url], accessibleTopology)
 			}
