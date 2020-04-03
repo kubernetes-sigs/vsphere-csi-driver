@@ -17,7 +17,8 @@ require (
 	github.com/go-openapi/spec v0.19.3
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/protobuf v1.3.2
-	github.com/google/uuid v1.1.1
+	github.com/google/gofuzz v1.0.0 // indirect
+	github.com/google/uuid v1.0.0
 	github.com/gorilla/websocket v1.4.1 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
@@ -35,6 +36,7 @@ require (
 	github.com/prometheus/client_golang v1.1.0 // indirect
 	github.com/prometheus/procfs v0.0.4 // indirect
 	github.com/rexray/gocsi v1.2.1
+	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.0
 	github.com/vmware/govmomi v0.22.2-0.20200530130842-aa97c4d3353d
@@ -53,7 +55,7 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 	k8s.io/api v0.17.4
-	k8s.io/apiextensions-apiserver v0.17.2
+	k8s.io/apiextensions-apiserver v0.0.0-20190918201827-3de75813f604
 	k8s.io/apimachinery v0.17.4
 	k8s.io/apiserver v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/cli-runtime v0.0.0-00010101000000-000000000000 // indirect
