@@ -111,9 +111,7 @@ func (c *controller) Init(config *config.Config) error {
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					log.Infof("Reloading Configuration")
-					c.ReloadConfiguration(ctx)
-					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					c.ReloadConfiguration()
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -136,17 +134,16 @@ func (c *controller) Init(config *config.Config) error {
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's config cache
 // and VolumeManager's VC Config cache.
-func (c *controller) ReloadConfiguration(ctx context.Context) {
+func (c *controller) ReloadConfiguration() {
 	ctx, log := logger.GetNewContextWithLogger()
+	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("Failed to read config. Error: %+v", err)
-		return
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 	if err != nil {
 		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
-		return
 	}
 	if newVCConfig != nil {
 		var vcenter *cnsvsphere.VirtualCenter
@@ -157,13 +154,11 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
 			if err != nil {
 				log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
-				return
 			}
 			log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
 			vcenter, err = c.manager.VcenterManager.RegisterVirtualCenter(ctx, newVCConfig)
 			if err != nil {
 				log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
-				return
 			}
 			c.manager.VcenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
 		} else {
@@ -181,6 +176,7 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		log.Debugf("updating manager.CnsConfig")
 		c.manager.CnsConfig = cfg
 	}
+	log.Info("Successfully reloaded configuration")
 }
 
 // CreateVolume is creating CNS Volume using volume request specified
