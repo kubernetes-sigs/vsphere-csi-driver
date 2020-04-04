@@ -259,7 +259,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 					return
 				}
 			} else {
-				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{cfg})
+				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg})
 				if err != nil {
 					log.Errorf("Failed to get VirtualCenter. err=%v", err)
 					return
@@ -269,7 +269,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter)
 		}
 		if cfg != nil {
-			metadataSyncer.configInfo = &types.ConfigInfo{cfg}
+			metadataSyncer.configInfo = &types.ConfigInfo{Cfg: cfg}
 			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
