@@ -115,9 +115,7 @@ func (c *controller) Init(config *config.Config) error {
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					log.Infof("Reloading Configuration")
-					c.ReloadConfiguration(ctx)
-					log.Infof("Successfully reloaded configuration from: %q and %q", pvcsiConfigPath, cnsconfig.DefaultpvCSIProviderPath)
+					c.ReloadConfiguration()
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -146,8 +144,9 @@ func (c *controller) Init(config *config.Config) error {
 
 // ReloadConfiguration reloads configuration from the secret, and reset restClientConfig, supervisorClient
 // and re-create vmOperatorClient using new config
-func (c *controller) ReloadConfiguration(ctx context.Context) {
+func (c *controller) ReloadConfiguration() {
 	ctx, log := logger.GetNewContextWithLogger()
+	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("Failed to read config. Error: %+v", err)
@@ -173,6 +172,7 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
 	}
+	log.Info("Successfully reloaded configuration")
 }
 
 // CreateVolume is creating CNS Volume using volume request specified
