@@ -8,7 +8,6 @@
 
 ![Go to Workload Management](images/create_namespace_step_1.png)
 
-
 #### Click on Create Namespace and enter necessary inputs
 
 ![Create Namespace](images/create_namespace_step_2.png)
@@ -80,6 +79,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export GINKGO_FOCUS="csi-guest"
 
 ## Requirements
+
 Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
@@ -91,10 +91,11 @@ Export the go binary in your PATH to run end-to-end tests
 
     make test-e2e
 
-### Running specific e2e test :
+### Running specific e2e test
+
 To run a particular e2e test, set GINKGO_FOCUS to the string located “ginkgo.It()” for that test:
 
-To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
+To run the Disk Size test (located at /tests/e2e/vsphere_volume_disksize.go
 
     export GINKGO_FOCUS="Volume\sDisk\sSize"
 

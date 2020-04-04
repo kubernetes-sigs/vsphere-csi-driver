@@ -29,9 +29,9 @@ The section outlines how to set the env variable for running e2e test.
     datacenters = "<Datacenter_Name>"
     targetvSANFileShareDatastoreURLs = "<comma separated datastore URLs>" # Optional parameter
 
-* Please update the `hostname` and `datacenters` as per your testbed configuration. 
+* Please update the `hostname` and `datacenters` as per your testbed configuration.
 `datacenters` should be comma separated if deployed on multi-datacenters
-* `targetvSANFileShareDatastoreURLs` is an optional parameter. It contains a comma separated 
+* `targetvSANFileShareDatastoreURLs` is an optional parameter. It contains a comma separated
 list of datastore URLs where you want to deploy file share volumes. Retrieve this value from the
  secret named `vsphere-config-secret` in your testbed.
 
@@ -70,6 +70,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     4.ssh root@<vc-ip-address> "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 
 ## Requirements
+
 Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
@@ -81,10 +82,11 @@ Export the go binary in your PATH to run end-to-end tests
 
     make test-e2e
 
-### Running specific e2e test :
+### Running specific e2e test
+
 To run a particular e2e test, set GINKGO_FOCUS to the string located “ginkgo.It()” for that test:
 
-To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
+To run the Disk Size test (located at tests/e2e/vsphere_volume_disksize.go)
 
     export GINKGO_FOCUS="Volume\sDisk\sSize"
 

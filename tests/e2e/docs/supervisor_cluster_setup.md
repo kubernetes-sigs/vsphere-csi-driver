@@ -8,7 +8,6 @@
 
 ![Go to Workload Management](images/create_namespace_step_1.png)
 
-
 #### Click on Create Namespace and enter necessary inputs
 
 ![Create Namespace](images/create_namespace_step_2.png)
@@ -40,6 +39,7 @@
 ![WCP non shared DS 3](images/non-shared_ds_policy_step_2.png)
 
 ### Fetch the shared-vsphere-datastore-url from VC
+
 ![WCP_non_shared_DS_4](images/shared_vsphere_datastore_url.png)
 
 ## Running e2e Tests
@@ -90,6 +90,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     4.ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 
 ## Requirements
+
 Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
@@ -101,10 +102,11 @@ Export the go binary in your PATH to run end-to-end tests
 
     make test-e2e
 
-### Running specific e2e test :
+### Running specific e2e test
+
 To run a particular e2e test, set GINKGO_FOCUS to the string located “ginkgo.It()” for that test:
 
-To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
+To run the Disk Size test (located at tests/e2e/vsphere_volume_disksize.go)
 
     export GINKGO_FOCUS="Volume\sDisk\sSize"
 
