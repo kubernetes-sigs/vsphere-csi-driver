@@ -316,7 +316,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
 	if isVolumePresentInSpec {
 		for _, volume := range virtualMachine.Status.Volumes {
-			if volume.Name == req.VolumeId && volume.Attached == true && volume.DiskUuid != "" {
+			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
 				diskUUID = volume.DiskUuid
 				isVolumeAttached = true
 				log.Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
@@ -504,7 +504,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			if volume.Name == req.VolumeId {
 				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name))
 				isVolumeDetached = false
-				if volume.Attached == true && volume.Error != "" {
+				if volume.Attached && volume.Error != "" {
 					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
 					log.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)

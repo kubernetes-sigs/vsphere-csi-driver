@@ -770,10 +770,10 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	for _, volume := range pod.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
-			if valid == true {
+			if valid {
 				var metadataList []cnstypes.BaseCnsEntityMetadata
 				var podMetadata *cnstypes.CnsKubernetesEntityMetadata
-				if deleteFlag == false {
+				if !deleteFlag {
 					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
