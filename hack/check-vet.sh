@@ -22,4 +22,4 @@ set -o pipefail
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go vet ./cmd/... ./pkg/... ./tests/...
+go vet $(find . -name "*.go" -not -path "./vendor/*" -not -path "./pkg/syncer/cnsoperator/apis/*" -exec dirname {} \;)

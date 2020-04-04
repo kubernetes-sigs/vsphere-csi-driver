@@ -569,8 +569,6 @@ func (s *service) NodeGetVolumeStats(
 			},
 		},
 	}, nil
-
-	return nil, nil
 }
 
 //getMetrics helps get volume metrics using k8s fsInfo strategy
