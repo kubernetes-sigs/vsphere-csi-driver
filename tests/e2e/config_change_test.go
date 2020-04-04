@@ -53,13 +53,13 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 			8. Delete Storage class
 	*/
 	ginkgo.It("verify PVC deletion after VC password change", func() {
-		ginkgo.By(fmt.Sprintf("Invoking password change test"))
+		ginkgo.By("Invoking password change test")
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 		scParameters[scParamStoragePolicyID] = profileID
 		// create resource quota
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		// Create Storage class and PVC
-		ginkgo.By(fmt.Sprintf("Creating Storage Class and PVC"))
+		ginkgo.By("Creating Storage Class and PVC")
 		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

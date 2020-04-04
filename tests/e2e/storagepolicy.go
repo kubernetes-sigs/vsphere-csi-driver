@@ -173,7 +173,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 
 	storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), fmt.Sprintf("storage policy verification failed"))
+	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
@@ -198,7 +198,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	}
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
 	err = framework.DeletePodWithWait(f, client, pod)
@@ -217,7 +217,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
 		if guestCluster {
-			ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+			ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 		}

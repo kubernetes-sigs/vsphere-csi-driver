@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		ginkgo.By(fmt.Sprintf("Expect claim to fail as the access mode %q is not supported for File volumes", accessMode))
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		expectedErrMsg := fmt.Sprintf("Volume capabilities not supported")
+		expectedErrMsg := "Volume capabilities not supported"
 		ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
@@ -472,7 +472,7 @@ func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Fra
 }
 
 func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
-	ginkgo.By(fmt.Sprintf("Invoking test to check if the TargetvSANFileShareDatastoreURLs in vSphere config is applied when no datastore is specified in Storage Class"))
+	ginkgo.By("Invoking test to check if the TargetvSANFileShareDatastoreURLs in vSphere config is applied when no datastore is specified in Storage Class")
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
