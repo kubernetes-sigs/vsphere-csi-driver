@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Datastore Based Volume Provisioning
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// eventList contains the events related to pvc
 		expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
-		fmt.Println(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		errorOccurred := checkEventsforError(client, pvclaim.Namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 		gomega.Expect(errorOccurred).To(gomega.BeTrue())
 

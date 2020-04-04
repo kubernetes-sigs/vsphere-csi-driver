@@ -174,10 +174,7 @@ func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKub
 	}
 	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
 	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
-	if !labelsMatch {
-		return false
-	}
-	return true
+	return labelsMatch
 }
 
 // Signer decodes the certificate and private key and returns SAML token needed for authentication

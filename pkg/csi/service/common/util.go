@@ -241,8 +241,7 @@ func GetConfigPath(ctx context.Context) string {
 func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 	var cfg *cnsconfig.Config
 	var err error
-	var cfgPath string
-	cfgPath = GetConfigPath(ctx)
+	cfgPath := GetConfigPath(ctx)
 	if cfgPath == cnsconfig.DefaultGCConfigPath {
 		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
 	} else {

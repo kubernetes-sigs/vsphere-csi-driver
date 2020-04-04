@@ -110,7 +110,7 @@ func ClearTaskInfoObjects() {
 	for range ticker.C {
 		for pvc, taskDetails := range volumeTaskMap {
 			// Get the time difference between current time and the expiration time from the volumeTaskMap
-			diff := taskDetails.expirationTime.Sub(time.Now())
+			diff := time.Until(taskDetails.expirationTime)
 			// Checking if the expiration time has elapsed
 			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
 				// If one of the parameters in the time object is negative, it means the entry has to be deleted

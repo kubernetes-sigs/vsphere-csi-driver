@@ -440,18 +440,18 @@ func writeToFile(filePath, data string) error {
 	}
 	f, err := os.Create(filePath)
 	if err != nil {
-		fmt.Println(err)
+		framework.Logf("Error: %v", err)
 		return err
 	}
 	_, err = f.WriteString(data)
 	if err != nil {
-		fmt.Println(err)
+		framework.Logf("Error: %v", err)
 		f.Close()
 		return err
 	}
 	err = f.Close()
 	if err != nil {
-		fmt.Println(err)
+		framework.Logf("Error: %v", err)
 		return err
 	}
 	return nil
@@ -773,10 +773,7 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(pvcName, metav1.GetOptions{})
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // verifyCRDInSupervisor is a helper method to check if a given crd is created/deleted in the supervisor cluster
