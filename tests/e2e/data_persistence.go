@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			if guestCluster {
-				ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+				ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 				verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 			}
@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		}
 		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		// Create another empty file on the mounted volume on the pod and
 		// verify newly and previously created files present on the volume mounted on the pod
@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			if guestCluster {
-				ginkgo.By(fmt.Sprintf("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource"))
+				ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 				verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 			}

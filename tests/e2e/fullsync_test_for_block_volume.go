@@ -185,7 +185,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 	})
 
 	ginkgo.It("[csi-supervisor] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
+		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -263,7 +263,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 	})
 
 	ginkgo.It("[csi-supervisor] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify CNS volume creation"))
+		ginkgo.By("Invoking test to verify CNS volume creation")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var sc *storagev1.StorageClass

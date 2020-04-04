@@ -82,7 +82,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			7. Delete Storage class
 	*/
 	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation for file volume"))
+		ginkgo.By("Invoking test to verify labels creation for file volume")
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = nfs4FSType
 		// Create Storage class and PVC

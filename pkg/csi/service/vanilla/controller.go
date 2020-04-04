@@ -267,7 +267,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
 			// if zone and region label (vSphere category names) not specified in the config secret, then return
 			// NotFound error.
-			errMsg := fmt.Sprintf("Zone/Region vsphere category names not specified in the vsphere config secret")
+			errMsg := "Zone/Region vsphere category names not specified in the vsphere config secret"
 			log.Errorf(errMsg)
 			return nil, status.Error(codes.NotFound, errMsg)
 		}

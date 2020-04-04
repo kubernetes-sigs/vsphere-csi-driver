@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 })
 
 func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test for Volume Expansion"))
+	ginkgo.By("Invoking Test for Volume Expansion")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = ext4FSType
 	// Create Storage class and PVC
@@ -285,7 +285,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
@@ -301,7 +301,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	pvcConditions := pvclaim.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
-	ginkgo.By(fmt.Sprintf("Verify filesystem size for mount point /mnt/volume1"))
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err := getFSSizeMb(pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume
@@ -326,7 +326,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 }
 
 func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test for Volume Expansion 2"))
+	ginkgo.By("Invoking Test for Volume Expansion 2")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = ext4FSType
 	// Create Storage class and PVC
@@ -365,13 +365,13 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By(fmt.Sprintf("Check filesystem size for mount point /mnt/volume1 before expansion"))
+	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
 	originalFsSize, err := getFSSizeMb(pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -443,7 +443,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify after expansion the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
@@ -459,7 +459,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	pvcConditions := pvclaim.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
-	ginkgo.By(fmt.Sprintf("Verify filesystem size for mount point /mnt/volume1 after expansion"))
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
 	fsSize, err := getFSSizeMb(pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume.
@@ -522,7 +522,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 }
 
 func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test for Invalid Online Volume Expansion"))
+	ginkgo.By("Invoking Test for Invalid Online Volume Expansion")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = ext4FSType
 	// Create Storage class and PVC
@@ -561,7 +561,7 @@ func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client cl
 	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
@@ -639,7 +639,7 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 }
 
 func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test for Invalid Volume Expansion for Static Provisioning"))
+	ginkgo.By("Invoking Test for Invalid Volume Expansion for Static Provisioning")
 
 	var (
 		fcdID               string
@@ -757,7 +757,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 }
 
 func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test to verify Multiple Volume Expansions on the same volume"))
+	ginkgo.By("Invoking Test to verify Multiple Volume Expansions on the same volume")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = ext4FSType
 	// Create Storage class and PVC
@@ -847,7 +847,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
@@ -860,7 +860,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	pvcConditions := pvclaim.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
-	ginkgo.By(fmt.Sprintf("Verify filesystem size for mount point /mnt/volume1"))
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err := getFSSizeMb(pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume
@@ -883,7 +883,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 }
 
 func invokeTestForUnsupportedFileVolumeExpansion(f *framework.Framework, client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
-	ginkgo.By(fmt.Sprintf("Invoking Test for Unsupported File Volume Expansion"))
+	ginkgo.By("Invoking Test for Unsupported File Volume Expansion")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = nfs4FSType
 	// Create Storage class and PVC
@@ -1025,7 +1025,7 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 
 // get filesystem size in Mb
 func getFSSizeMb(pod *v1.Pod) (int64, error) {
-	output, err := storage_utils.PodExec(pod, fmt.Sprintf("df -T -m | grep /mnt/volume1"))
+	output, err := storage_utils.PodExec(pod, "df -T -m | grep /mnt/volume1")
 	if err != nil {
 		return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
 	}

@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)
 
 		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
-		ginkgo.By(fmt.Sprintf("Waiting for 30 seconds and verifying whether the PVC is still in pending state"))
+		ginkgo.By("Waiting for 30 seconds and verifying whether the PVC is still in pending state")
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
 
 		ginkgo.By("Expect claim status to be in Pending state")
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		if allowedTopologies == nil {
 			// Get the topology value from pod's location to verify if it matches with volume's node affinity rules
