@@ -2,7 +2,7 @@
 
 ## Prerequisite
 
-To run those tests, a multi-master K8S testbed which has more than one master node is required. CSI driver must be deployed as a K8S deployment with 1 replica. Use manifest file at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/tree/master/manifests/1.14 to deploy CSI driver.
+To run those tests, a multi-master K8S testbed which has more than one master node is required. CSI driver must be deployed as a K8S deployment with 1 replica.
 
 The following output shows a sample multi-master K8S testbed (with 3 master nodes and 3 worker nodes)
 
@@ -24,7 +24,6 @@ The following output shows a sample multi-master K8S testbed (with 3 master node
 
 Please verify ProviderID is set on all registered nodes.
 
-
     root@master01:~# kubectl describe nodes | egrep "ProviderID:|Name:"
     Name                ProviderID 
     master01      vsphere://4222b6fd-ae22-f4e7-96f1-aa8a78cf5b03
@@ -35,7 +34,6 @@ Please verify ProviderID is set on all registered nodes.
     worker03      vsphere://422279f2-0510-b5ff-1129-f32e2b87a23d
 
 ## Setting SSH keys for K8S master node with your local machine
-
 
     1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
     2.ssh root@k8s_master_ip mkdir -p .ssh
@@ -54,6 +52,7 @@ SSH keys need to be configured properley for all three master nodes of K8S clust
     export GINKGO_FOCUS="csi-multi-master-block-e2e"
 
 ## Requirements
+
 Go version: 1.13
 
 Export the go binary in your PATH to run end-to-end tests
@@ -65,10 +64,11 @@ Export the go binary in your PATH to run end-to-end tests
 
     make test-e2e
 
-### Running specific e2e test :
+### Running specific e2e test
+
 To run a particular e2e test, set GINKGO_FOCUS to the string located “ginkgo.It()” for that test:
 
-To run the Disk Size test (located at https://gitlab.eng.vmware.com/hatchway/vsphere-csi-driver/blob/master/tests/e2e/vsphere_volume_disksize.go)
+To run the Disk Size test (located at tests/e2e/vsphere_volume_disksize.go)
 
     export GINKGO_FOCUS="Volume\sDisk\sSize"
 
