@@ -143,7 +143,7 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 		return nil, nil, err
 	}
 	if len(allNodes) == 0 {
-		errMsg := fmt.Sprintf("Empty List of Node VMs returned from nodeManager")
+		errMsg := "Empty List of Node VMs returned from nodeManager"
 		log.Errorf(errMsg)
 		return nil, nil, fmt.Errorf(errMsg)
 	}
@@ -234,7 +234,7 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cns
 		return nil, err
 	}
 	if len(nodeVMs) == 0 {
-		errMsg := fmt.Sprintf("Empty List of Node VMs returned from nodeManager")
+		errMsg := "Empty List of Node VMs returned from nodeManager"
 		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
 	}

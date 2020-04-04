@@ -461,7 +461,7 @@ func writeToFile(filePath, data string) error {
 // thereby resetting the currentPassword of the `user` to the `newPassword`
 func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) error {
 	// create an input file and write passwords into it
-	path := fmt.Sprintf("input.txt")
+	path := "input.txt"
 	data := fmt.Sprintf("%s\n%s\n", adminPassword, newPassword)
 	err := writeToFile(path, data)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

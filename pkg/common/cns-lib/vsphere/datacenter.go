@@ -181,7 +181,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	var vmMoList []mo.VirtualMachine
 	var vmRefs []types.ManagedObjectReference
 	if len(vmObjList) < 1 {
-		msg := fmt.Sprintf("VirtualMachine Object list is empty")
+		msg := "VirtualMachine Object list is empty"
 		log.Errorf(msg+": %v", vmObjList)
 		return nil, fmt.Errorf(msg)
 	}

@@ -460,7 +460,7 @@ func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([
 		return nil, err
 	}
 	if len(hosts) == 0 {
-		errMsg := fmt.Sprintf("Empty List of hosts returned from VC")
+		errMsg := "Empty List of hosts returned from VC"
 		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
 	}

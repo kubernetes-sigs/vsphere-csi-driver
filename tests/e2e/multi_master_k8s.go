@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			client.StorageV1().StorageClasses().Delete(sc.Name, nil)
 		}
 
-		ginkgo.By(fmt.Sprintf("Waiting for old vsphere-csi-controller pod to be removed"))
+		ginkgo.By("Waiting for old vsphere-csi-controller pod to be removed")
 		err = waitForControllerDeletion(client, controllerNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})

@@ -101,7 +101,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 	})
 
 	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
+		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -239,7 +239,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 	})
 
 	ginkgo.It("[csi-supervisor] verify podname label is created/deleted when pod with cns volume is created/deleted.", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify pod name label updates"))
+		ginkgo.By("Invoking test to verify pod name label updates")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -294,7 +294,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By(fmt.Sprintf("Waiting for pod name to be updated for volume %s by metadata-syncer", pv.Spec.CSI.VolumeHandle))
 		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, nil, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Name, pod.Namespace)
@@ -372,11 +372,11 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		ginkgo.By(fmt.Sprintf("Creating storage class"))
+		ginkgo.By("Creating storage class")
 		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Creating PVC"))
+		ginkgo.By("Creating PVC")
 		pvc, err := createPVC(client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
