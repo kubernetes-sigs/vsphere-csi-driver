@@ -71,7 +71,7 @@ var (
 	managerInstance *defaultManager
 	// managerInstanceLock is used for mitigating race condition during read/write on manager instance.
 	managerInstanceLock sync.Mutex
-	volumeTaskMap       = make(map[string]createVolumeTaskDetails)
+	volumeTaskMap       = make(map[string]*createVolumeTaskDetails)
 )
 
 // createVolumeTaskDetails contains taskInfo object and expiration time
@@ -183,7 +183,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		taskDetails.Lock()
 		taskDetails.task = task
 		taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
-		volumeTaskMap[spec.Name] = taskDetails
+		volumeTaskMap[spec.Name] = &taskDetails
 		taskDetails.Unlock()
 	}
 	// Get the taskInfo
