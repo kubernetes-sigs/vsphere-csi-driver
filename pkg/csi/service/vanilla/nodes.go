@@ -68,7 +68,6 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 
 func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
-	log = logger.GetLogger(ctx)
 	newNode, ok := newObj.(*v1.Node)
 	if !ok {
 		log.Warnf("nodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)

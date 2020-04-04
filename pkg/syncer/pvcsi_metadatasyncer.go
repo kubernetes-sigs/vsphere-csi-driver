@@ -109,7 +109,7 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 	for _, volume := range pod.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
-			if valid  {
+			if valid {
 				entityReferences = append(entityReferences, cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Name, pvc.Namespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID))
 				volumes = append(volumes, pv.Spec.CSI.VolumeHandle)
 			}

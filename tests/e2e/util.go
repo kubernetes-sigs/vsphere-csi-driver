@@ -787,6 +787,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
 	resourceClient := dynamicClient.Resource(gvr).Namespace("")
 	list, err := resourceClient.List(metav1.ListOptions{})
