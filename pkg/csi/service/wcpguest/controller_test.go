@@ -112,7 +112,7 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 
 	params[common.AttributeSupervisorStorageClass] = testStorageClass
 	if v := os.Getenv("SUPERVISOR_STORAGE_CLASS"); v != "" {

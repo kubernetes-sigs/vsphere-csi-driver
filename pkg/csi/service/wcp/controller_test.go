@@ -233,7 +233,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 
 	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
 	if profileID == "" {

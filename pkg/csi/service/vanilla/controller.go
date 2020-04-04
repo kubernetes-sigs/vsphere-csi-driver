@@ -472,7 +472,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	}
 
 	log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
-	publishInfo := make(map[string]string, 0)
+	publishInfo := make(map[string]string)
 	// Check whether its a block or file volume
 	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
 		// File Volume

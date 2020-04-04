@@ -295,7 +295,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
 	}
@@ -400,7 +400,7 @@ func TestExtendVolume(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
 	}
@@ -521,7 +521,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create
-	params := make(map[string]string, 0)
+	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
 	}
