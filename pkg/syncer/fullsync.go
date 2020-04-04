@@ -487,7 +487,7 @@ func isUpdateRequired(ctx context.Context, k8sMetadataList []cnstypes.BaseCnsEnt
 				log.Debugf("key: %q is not found in the cnsEntityTypeMetadataMap", key)
 				return true
 			}
-			if cnsvsphere.CompareKubernetesMetadata(ctx, metadata, cnsMetadata) == false {
+			if !cnsvsphere.CompareKubernetesMetadata(ctx, metadata, cnsMetadata) {
 				return true
 			}
 		}

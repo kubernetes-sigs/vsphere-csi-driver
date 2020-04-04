@@ -689,7 +689,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 	deleteFCDRequired = true
 
 	defer func() {
-		if deleteFCDRequired == true && fcdID != "" && defaultDatastore != nil {
+		if deleteFCDRequired && fcdID != "" && defaultDatastore != nil {
 			ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
