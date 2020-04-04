@@ -180,7 +180,7 @@ func (vs *vSphere) GetSpbmPolicyID(storagePolicyName string) string {
 	pbmClient, err := pbm.NewClient(ctx, vs.Client.Client)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	profileID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to get profileID from given profileName"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to get profileID from given profileName")
 	framework.Logf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
 	return profileID
 }

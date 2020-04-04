@@ -536,9 +536,7 @@ func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentV
 	if labels != nil {
 		pv.Labels = labels
 	}
-	if &phase != nil {
-		pv.Status.Phase = phase
-	}
+	pv.Status.Phase = phase
 	return pv
 }
 

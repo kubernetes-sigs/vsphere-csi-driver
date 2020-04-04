@@ -280,15 +280,13 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 	for _, queryResult := range allQueryResults {
 		for _, volume := range queryResult.Volumes {
 			var cnsMetadata []cnstypes.BaseCnsEntityMetadata
-			if &volume.Metadata != nil {
-				allEntityMetadata := volume.Metadata.EntityMetadata
-				for _, metadata := range allEntityMetadata {
-					if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
-						cnsMetadata = append(cnsMetadata, metadata)
-					}
+			allEntityMetadata := volume.Metadata.EntityMetadata
+			for _, metadata := range allEntityMetadata {
+				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+					cnsMetadata = append(cnsMetadata, metadata)
 				}
-				pvToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
 			}
+			pvToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
 		}
 	}
 	return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil

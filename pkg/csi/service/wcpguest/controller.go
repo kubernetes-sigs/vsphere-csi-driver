@@ -208,8 +208,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			supervisorStorageClass = req.Parameters[param]
 		}
 	}
-	var accessMode csi.VolumeCapability_AccessMode_Mode
-	accessMode = req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
+	accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
 	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
