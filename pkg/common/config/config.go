@@ -264,7 +264,6 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		}
 		insecure := vcConfig.InsecureFlag
 		if !insecure {
-			insecure = cfg.Global.InsecureFlag
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}

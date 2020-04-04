@@ -349,6 +349,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating PVC in supervisor cluster")
 		// get storageclass from the supervisor cluster
 		storageclass, err := svcClient.StorageV1().StorageClasses().Get(storagePolicyNameForSharedDatastores, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim, err := createPVC(svcClient, svNamespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

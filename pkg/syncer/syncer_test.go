@@ -79,8 +79,6 @@ var (
 	k8sclient            clientset.Interface
 	dc                   []*cnsvsphere.Datacenter
 	volumeManager        volume.Manager
-	sharedDatastore      string
-	datastoreObj         *cnsvsphere.Datastore
 	dsList               []vimtypes.ManagedObjectReference
 	cancel               context.CancelFunc
 )
@@ -326,7 +324,9 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Delete volume with DeleteDisk=false
-	err = volumeManager.DeleteVolume(ctx, volumeID.Id, false)
+	if err = volumeManager.DeleteVolume(ctx, volumeID.Id, false); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create PV on K8S with VolumeHandle of recently deleted Volume
 	pvcName := testPVCName + "-" + uuid.New().String()

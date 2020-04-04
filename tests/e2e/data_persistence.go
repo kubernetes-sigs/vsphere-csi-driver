@@ -134,6 +134,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 		}
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)

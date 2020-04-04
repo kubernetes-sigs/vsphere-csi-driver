@@ -678,6 +678,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 
 	for _, dc := range datacenters {
 		defaultDatacenter, err = finder.Datacenter(ctx, dc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		finder.SetDatacenter(defaultDatacenter)
 		defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -956,27 +957,6 @@ func expandPVCSize(origPVC *v1.PersistentVolumeClaim, size resource.Quantity, c 
 		return false, nil
 	})
 	return updatedPVC, waitErr
-}
-
-// waitForResizingCondition waits for the pvc condition to be PersistentVolumeClaimResizing
-func waitForResizingCondition(pvc *v1.PersistentVolumeClaim, c clientset.Interface, duration time.Duration) error {
-	waitErr := wait.PollImmediate(resizePollInterval, duration, func() (bool, error) {
-		var err error
-		updatedPVC, err := c.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(pvc.Name, metav1.GetOptions{})
-
-		if err != nil {
-			return false, fmt.Errorf("error fetching pvc %q for checking for resize status : %v", pvc.Name, err)
-		}
-
-		pvcConditions := updatedPVC.Status.Conditions
-		if len(pvcConditions) > 0 {
-			if pvcConditions[0].Type == v1.PersistentVolumeClaimResizing {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
-	return waitErr
 }
 
 // waitForControllerVolumeResize waits for the controller resize to be finished
