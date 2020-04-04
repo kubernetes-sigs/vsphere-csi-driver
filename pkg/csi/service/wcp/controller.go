@@ -337,7 +337,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
-	publishInfo := make(map[string]string, 0)
+	publishInfo := make(map[string]string)
 	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
 	resp := &csi.ControllerPublishVolumeResponse{

@@ -401,7 +401,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	}
 
 	//return PublishContext with diskUUID of the volume attached to node.
-	publishInfo := make(map[string]string, 0)
+	publishInfo := make(map[string]string)
 	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
 	resp := &csi.ControllerPublishVolumeResponse{
