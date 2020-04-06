@@ -30,6 +30,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
@@ -98,6 +101,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("Creating Cns Operator client failed. Err: %v", err)
+			return err
+		}
+		// Initialize supervisor client for Volume Health
+		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
+		if err != nil {
+			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 			return err
 		}
 	} else {
@@ -214,6 +223,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}
 	}()
+
+	// Trigger volume health reconciler
+	go func() {
+		ctx, log = logger.GetNewContextWithLogger()
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+			initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+		}
+	}()
+
 	<-stopCh
 	return nil
 }
@@ -232,6 +250,12 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("failed to create cns operator client. Err: %v", err)
+			return
+		}
+		// Initialize supervisor client for Volume Health
+		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
+		if err != nil {
+			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 			return
 		}
 	} else {
@@ -800,4 +824,28 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 			}
 		}
 	}
+}
+
+func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Interface, svcKubeClient clientset.Interface) {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("initVolumeHealthReconciler is triggered")
+	tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
+
+	// Get the supervisor namespace in which the guest cluster is deployed
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("could not get supervisor namespace in which guest cluster was deployed. Err: %v", err)
+		return
+	}
+	log.Infof("supervisorNamespace %s", supervisorNamespace)
+	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
+
+	rc := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
+		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
+		supervisorNamespace,
+	)
+	tkgInformerFactory.Start(wait.NeverStop)
+	svcInformerFactory.Start(wait.NeverStop)
+	rc.Run(ctx, volumeHealthWorkers)
 }
