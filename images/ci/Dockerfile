@@ -61,7 +61,7 @@ RUN LDFLAGS=$(cat ldflags.txt) && \
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${GOLANG_IMAGE}
-LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
+LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
 
 ################################################################################
 ##                             PACKAGE UPDATES                                ##
