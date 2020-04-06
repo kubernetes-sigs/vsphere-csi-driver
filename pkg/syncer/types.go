@@ -18,9 +18,11 @@ package syncer
 
 import (
 	"sync"
+	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -35,6 +37,18 @@ const (
 	// queryVolumeLimit is the page size, which should be set in the cursor when syncer container need to
 	// query many volumes using QueryVolume API
 	queryVolumeLimit = int64(500)
+
+	// key for HealthStatus annotation on PVC
+	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+
+	// default resync period for volume health reconciler
+	volumeHealthResyncPeriod = 10 * time.Minute
+	// default retry start interval time for volume health reconciler
+	volumeHealthRetryIntervalStart = time.Second
+	// default retry max interval time for volume health reconciler
+	volumeHealthRetryIntervalMax = 5 * time.Minute
+	// default number of threads concurrently running for volume health reconciler
+	volumeHealthWorkers = 10
 )
 
 var (
@@ -66,6 +80,7 @@ type metadataSyncInformer struct {
 	volumeManager      volumes.Manager
 	host               string
 	cnsOperatorClient  client.Client
+	supervisorClient   clientset.Interface
 	configInfo         *types.ConfigInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
