@@ -271,8 +271,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 				VSphereUser: metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			},
 		},
-		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
-			CapacityInMb: gbInMb,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: gbInMb},
 		},
 	}
 
@@ -604,8 +604,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
 			},
 		},
-		BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{
-			CapacityInMb: gbInMb,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: gbInMb},
 		},
 	}
 	cnsCreationMap = make(map[string]bool)
