@@ -37,6 +37,12 @@ ifeq (/src/$(MOD_NAME),$(subst $(GOPATH),,$(PWD)))
 $(warning This project uses Go modules and should not be cloned into the GOPATH)
 endif
 endif
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
 
 ################################################################################
 ##                                DEPENDENCIES                                ##
@@ -99,7 +105,7 @@ export SYNCER_BIN_SRCS
 endif
 
 syncer_manifest: controller-gen
-	controller-gen crd:trivialVersions=true paths=./pkg/syncer/storagepool/... output:crd:dir=pkg/syncer/storagepool/config
+	$(CONTROLLER_GEN) crd:trivialVersions=true paths=./pkg/syncer/storagepool/... output:crd:dir=pkg/syncer/storagepool/config
 # find or download controller-gen
 # download controller-gen if necessary
 controller-gen:
