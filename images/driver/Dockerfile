@@ -46,7 +46,7 @@ RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${BASE_IMAGE}
-LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
+LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 
