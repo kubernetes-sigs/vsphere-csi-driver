@@ -16,10 +16,10 @@ limitations under the License.
 
 syntax = 'proto3';
 
-package podlistener;
+package k8scloudoperator;
 
 // Interface exported by the server
-service PodListener {
+service K8sCloudOperator {
    /*
    * GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
    * Retrieves the PVC name and Namespace from the PV spec.

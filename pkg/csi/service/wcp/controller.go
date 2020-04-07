@@ -240,10 +240,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 	}
 
-	// Query API server to get ESX Host Moid from the hostLocalNodeName
+	// Query API server to get ESX Host Moid from the hostLocalNodeName	
 	if hostLocalMode && hostLocalNodeName != "" {
-		ctx = logger.NewContextWithLogger(ctx)
-		hostMoid, err := getHostMOIDFromK8sCloudOperatorGRPCService(ctx, hostLocalNodeName)
+		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
 		if err != nil {
 			log.Error(err)
 			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
@@ -340,9 +339,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, err
 	}
 
-	vmuuid, err := getVMUUIDFromPodListenerService(ctx, req.VolumeId, req.NodeId)
+	vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
 	if err != nil {
-		msg := fmt.Sprintf("failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
+		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8sCloudOperator service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}

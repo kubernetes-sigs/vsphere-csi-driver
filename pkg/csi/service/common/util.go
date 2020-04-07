@@ -19,6 +19,7 @@ package common
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	csictx "github.com/rexray/gocsi/context"
@@ -34,6 +35,10 @@ import (
 	"golang.org/x/net/context"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+)
+
+const (
+	defaultK8sCloudOperatorServicePort = 10000
 )
 
 // GetVCenter returns VirtualCenter object from specified Manager object.
@@ -324,4 +329,26 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 		}
 	}
 	return cfg, err
+}
+
+// GetK8sCloudOperatorServicePort return the port to connect the K8sCloudOperator gRPC service.
+// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
+// return the interval value read from environment variable
+// otherwise, use the default port
+func GetK8sCloudOperatorServicePort(ctx context.Context) int {
+	k8sCloudOperatorServicePort := defaultK8sCloudOperatorServicePort
+	log := logger.GetLogger(ctx)
+	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("Connecting to K8s Cloud Operator Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultK8sCloudOperatorServicePort)
+			} else {
+				k8sCloudOperatorServicePort = value
+				log.Infof("Connecting to K8s Cloud Operator Service on port %d", k8sCloudOperatorServicePort)
+			}
+		} else {
+			log.Warnf("Connecting to K8s Cloud Operator Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultK8sCloudOperatorServicePort)
+		}
+	}
+	return k8sCloudOperatorServicePort
 }
