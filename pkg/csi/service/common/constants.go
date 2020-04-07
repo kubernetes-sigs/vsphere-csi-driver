@@ -64,6 +64,14 @@ const (
 	// For example: StoragePool: "storagepool-vsandatastore"
 	AttributeStoragePool = "storagepool"
 
+	// AttributeHostLocal represents the presence of HostLocal functionality in
+	// the given storage policy. For Example: HostLocal: "True"
+	AttributeHostLocal = "hostlocal"
+
+	// HostMoidAnnotationKey represents the Node annotation key that has the value
+	// of VC's ESX host moid of this node.
+	HostMoidAnnotationKey = "vmware-system-esxi-node-moid"
+
 	// Ext4FsType represents the default filesystem type for block volume
 	Ext4FsType = "ext4"
 

@@ -94,7 +94,7 @@ func InitPodListenerService(ctx context.Context) error {
 /*
  * GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation interface method
  */
-func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req *Request) (*Response, error) {
+func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
 	var (
 		vmuuid   string
 		err      error
@@ -142,7 +142,7 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 		return nil, fmt.Errorf(errMsg)
 	}
 	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s", vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
-	response := Response{VmuuidAnnotation: vmuuid}
+	response := PodListenerResponse{VmuuidAnnotation: vmuuid}
 	return &response, nil
 }
 
@@ -249,4 +249,31 @@ func (podListener *podListener) getPod(ctx context.Context, pvcName string, pvcN
 	errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s", pvcName, pvcNamespace, nodeName)
 	log.Error(errMsg)
 	return nil, fmt.Errorf(errMsg)
+}
+
+/*
+ * GetHostAnnotation provide the implementation for the GetHostAnnotation interface method
+ */
+func (podListener *podListener) GetHostAnnotation(ctx context.Context,
+	req *HostAnnotationRequest) (*HostAnnotationResponse, error) {
+	var (
+		key      = req.AnnotationKey
+		nodeName = req.HostName
+	)
+	log := logger.GetLogger(ctx)
+	node, err := podListener.k8sClient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get the node object for node %s: %s", nodeName, err)
+		return nil, err
+	}
+	hostMoid, ok := node.Annotations[key]
+	if !ok {
+		log.Errorf("failed to get the node annotation for the key %s: %s", key, err)
+		return nil, err
+	}
+	log.Infof("Found the %s: %s annotation on Node: %s", key, hostMoid, nodeName)
+	response := &HostAnnotationResponse{
+		AnnotationValue: hostMoid,
+	}
+	return response, nil
 }
