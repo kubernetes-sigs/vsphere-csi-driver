@@ -17,16 +17,17 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
 /*
@@ -44,7 +45,7 @@ import (
    8. Delete PVC, PV and Storage Class
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisioning", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisioning", func() {
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	var (
 		client    clientset.Interface
@@ -52,35 +53,66 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		namespace = f.Namespace.Name
+		namespace = getNamespaceToRunTests(f)
 		bootstrap()
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			deleteResourceQuota(client, namespace)
+		}
+	})
 
-	ginkgo.It("Verify dynamic volume provisioning works when storage policy specified in the storageclass is compliant for shared datastores", func() {
+	ginkgo.It("[csi-supervisor] [csi-guest] Verify dynamic volume provisioning works when storage policy specified in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))
 		scParameters := make(map[string]string)
-		scParameters[scParamStoragePolicyName] = storagePolicyNameForSharedDatastores
-		verifyStoragePolicyBasedVolumeProvisioning(f, client, namespace, scParameters)
+
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters[scParamStoragePolicyName] = storagePolicyNameForSharedDatastores
+		} else if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForSharedDatastores)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForSharedDatastores)
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyNameForSharedDatastores
+		}
+		verifyStoragePolicyBasedVolumeProvisioning(f, client, namespace, scParameters, storagePolicyNameForSharedDatastores)
 	})
 
-	ginkgo.It("Verify dynamic volume provisioning fails when storage policy specified in the storageclass is compliant for non-shared datastores", func() {
+	ginkgo.It("[csi-supervisor] [csi-guest] Verify dynamic volume provisioning fails when storage policy specified in the storageclass is compliant for non-shared datastores", func() {
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
 		scParameters := make(map[string]string)
-		scParameters[scParamStoragePolicyName] = storagePolicyNameForNonSharedDatastores
-
-		err := invokeInvalidPolicyTestNeg(client, namespace, scParameters)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-		expectedErrorMsg := "No compatible datastore found for storagePolicy"
-		e2elog.Logf(fmt.Sprintf("expected error: %+q", expectedErrorMsg))
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), expectedErrorMsg)
+		var expectedErrorMsg string = "No compatible datastore found for storagePolicy"
+		var createVolumeWaitTime time.Duration = 1 * time.Minute / 2
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters[scParamStoragePolicyName] = storagePolicyNameForNonSharedDatastores
+		} else if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForNonSharedDatastores)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForNonSharedDatastores)
+		} else {
+			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
+			expectedErrorMsg = "failed to provision volume"
+			createVolumeWaitTime = pollTimeout
 		}
+
+		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, storagePolicyNameForNonSharedDatastores, createVolumeWaitTime)
+		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
 
 	ginkgo.It("Verify non-existing SPBM policy is not honored for dynamic volume provisioning using storageclass", func() {
@@ -88,67 +120,140 @@ var _ = ginkgo.Describe("[csi-block-e2e] Storage Policy Based Volume Provisionin
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
 
-		err := invokeInvalidPolicyTestNeg(client, namespace, scParameters)
-		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrorMsg := "no pbm profile found with name: \"" + f.Namespace.Name + "\""
-		e2elog.Logf(fmt.Sprintf("expected error: %+q", expectedErrorMsg))
-		if !strings.Contains(err.Error(), expectedErrorMsg) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), expectedErrorMsg)
-		}
+		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, scParamStoragePolicyName, pollTimeoutShort)
+		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
-
 })
 
 // verifyStoragePolicyBasedVolumeProvisioning helps invokes storage policy related positive e2e tests
-func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string) {
-	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
+func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string, storagePolicyName string) {
+
+	var storageclass *storagev1.StorageClass
+	var pvclaim *v1.PersistentVolumeClaim
+	var svcPVCName string // PVC Name in the Supervisor Cluster
+	var err error
+	// decide which test setup is available to run
+	if vanillaCluster {
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+	} else if guestCluster {
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+	} else {
+		ginkgo.By("CNS_TEST: Running for WCP setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-	defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
 	ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
 	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By("Verifying if volume is provisioned using specified storage policy")
 	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-	ok, err := e2eVSphere.VerifySpbmPolicyOfVolume(pv.Spec.CSI.VolumeHandle, scParameters[scParamStoragePolicyName])
+	volumeID := pv.Spec.CSI.VolumeHandle
+	ginkgo.By("Verifying if volume is provisioned using specified storage policy")
+	if guestCluster {
+		// svcPVCName refers to PVC Name in the supervisor cluster
+		svcPVCName = volumeID
+		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+	}
+
+	storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(ok).To(gomega.BeTrue(), fmt.Sprintf("storage policy verification failed"))
+	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By("Verify volume is attached to the node")
-	isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+	var vmUUID string
+	var exists bool
+	nodeName := pod.Spec.NodeName
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if supervisorCluster {
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else if vanillaCluster {
+		vmUUID = getNodeUUID(client, nodeName)
+	} else {
+		vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+	}
+	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-	ginkgo.By("Deleting the pod")
-	framework.DeletePodWithWait(f, client, pod)
-
-	ginkgo.By("Verify volume is detached from the node")
-	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err = framework.DeletePodWithWait(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	if supervisorCluster {
+		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+		time.Sleep(supervisorClusterOperationsTimeout)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, nodeName))
+	} else {
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", volumeID, nodeName))
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
+		if guestCluster {
+			ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
+			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		}
+	}
 }
 
 // invokeInvalidPolicyTestNeg helps invokes storage policy related negative e2e tests
-func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string) error {
-	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create a StorageClasse. Error: %v", err))
-	defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-	defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string, storagePolicyName string, createVolumeWaitTime time.Duration) *v1.PersistentVolumeClaim {
+
+	var storageclass *storagev1.StorageClass
+	var pvclaim *v1.PersistentVolumeClaim
+	var err error
+	// decide which test setup is available to run
+	if vanillaCluster {
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+	} else if guestCluster {
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+	} else {
+		ginkgo.By("CNS_TEST: Running for WCP setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create a StorageClass. Error: %v", err))
+
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+	defer func() {
+		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
-	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, poll, pollTimeoutShort)
+	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, poll, createVolumeWaitTime)
 	gomega.Expect(err).To(gomega.HaveOccurred())
-
-	// eventList contains the events related to pvc
-	eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
-	errMsg := eventList.Items[len(eventList.Items)-1].Message
-	e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", errMsg))
-	return fmt.Errorf(errMsg)
+	return pvclaim
 }

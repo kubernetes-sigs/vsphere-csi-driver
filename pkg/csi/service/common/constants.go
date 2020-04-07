@@ -24,10 +24,14 @@ const (
 	GbInBytes = int64(1024 * 1024 * 1024)
 
 	// DefaultGbDiskSize is the default disk size in gibibytes.
+	// TODO: will make the DefaultGbDiskSize configurable in the future
 	DefaultGbDiskSize = int64(10)
 
-	// DiskTypeString is the value for the PersistentVolume's attribute "type"
-	DiskTypeString = "vSphere CNS Block Volume"
+	// DiskTypeBlockVolume is the value for the PersistentVolume's attribute "type"
+	DiskTypeBlockVolume = "vSphere CNS Block Volume"
+
+	// DiskTypeFileVolume is the value for the PersistentVolume's attribute "type"
+	DiskTypeFileVolume = "vSphere CNS File Volume"
 
 	// AttributeDiskType is a PersistentVolume's attribute.
 	AttributeDiskType = "type"
@@ -44,13 +48,26 @@ const (
 	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
 	AttributeStoragePolicyID = "storagepolicyid"
 
+	// AttributeSupervisorStorageClass represents name of the Storage Class
+	// For example: StorageClassName: "silver"
+	AttributeSupervisorStorageClass = "svstorageclass"
+
 	// AttributeFsType represents filesystem type in the Storage Classs
 	// For Example: FsType: "ext4"
 	AttributeFsType = "fstype"
 
-	// DefaultFsType represents the default filesystem type which will be used to format the volume
-	// during mount if user does not specify the filesystem type in the Storage Class
-	DefaultFsType = "ext4"
+	// AttributeAffineToHost represents the ESX host moid to which this PV should be affinitized
+	// For Example: AffineToHost: "host-25"
+	AttributeAffineToHost = "affinetohost"
+
+	// Ext4FsType represents the default filesystem type for block volume
+	Ext4FsType = "ext4"
+
+	// NfsV4FsType represents nfs4 mount type
+	NfsV4FsType = "nfs4"
+
+	// NfsFsType represents nfs mount type
+	NfsFsType = "nfs"
 
 	//ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
@@ -62,6 +79,15 @@ const (
 	// BlockVolumeType is the VolumeType for CNS Volume
 	BlockVolumeType = "BLOCK"
 
+	// FileVolumeType is the VolumeType for CNS File Share Volume
+	FileVolumeType = "FILE"
+
+	// Nfsv4AccessPointKey is the key for NFSv4 access point
+	Nfsv4AccessPointKey = "NFSv4.1"
+
+	// Nfsv4AccessPoint is the access point of file volume
+	Nfsv4AccessPoint = "Nfsv4AccessPoint"
+
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
 	// on which CNS is supported.
 	MinSupportedVCenterMajor int = 6
@@ -70,6 +96,28 @@ const (
 	// on which CNS is supported.
 	MinSupportedVCenterMinor int = 7
 
-	// MinSupportedVCenterPatch is the patch version supported with MinSupportedVCenterMajor and MinSupportedVCenterMinor
+	// MinSupportedVCenterPatch is the minimum patch version of vCenter
+	// on which CNS is supported.
 	MinSupportedVCenterPatch int = 3
+
+	// VsanAffinityKey is the profile param key to indicate which node the FCD should be affinitized to.
+	VsanAffinityKey string = "VSAN/affinity/affinity"
+
+	// VsanAffinityMandatory is the profile param key to turn on affinity of the volume to a specific ESX host.
+	VsanAffinityMandatory string = "VSAN/affinityMandatory/affinityMandatory"
+
+	// VsanMigrateForDecom is the profile param key to set the migrate mode for the volume.
+	VsanMigrateForDecom string = "VSAN/migrateForDecom/migrateForDecom"
+
+	// VsanDatastoreType is the string to identify datastore type as vsan.
+	VsanDatastoreType string = "vsan"
+
+	// AllowRoot decides Whether the root access should be allowed on a file volume
+	AllowRoot string = "allowroot"
+
+	// Permission to be set in the file volume
+	Permission string = "permission"
+
+	// IPs is Client IP address, IP range or IP subnet
+	IPs string = "ips"
 )

@@ -22,7 +22,9 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
@@ -37,55 +39,98 @@ import (
 	4. Verify disk size specified is being honored
 */
 
-var _ = ginkgo.Describe("[csi-block-e2e] Volume Disk Size ", func() {
+var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] [csi-guest] Volume Disk Size ", func() {
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
-		client       clientset.Interface
-		namespace    string
-		scParameters map[string]string
-		datastoreURL string
-		pvclaims     []*v1.PersistentVolumeClaim
+		client            clientset.Interface
+		namespace         string
+		scParameters      map[string]string
+		datastoreURL      string
+		pvclaims          []*v1.PersistentVolumeClaim
+		storagePolicyName string
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
-		namespace = f.Namespace.Name
+		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			deleteResourceQuota(client, namespace)
+		}
+	})
+
 	// Test for valid disk size of 2Gi
 	ginkgo.It("Verify dynamic provisioning of pv using storageclass with a valid disk size passes", func() {
 		ginkgo.By("Invoking Test for valid disk size")
-		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "")
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters[scParamDatastoreURL] = datastoreURL
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		} else if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyName
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		pvclaims = append(pvclaims, pvclaim)
 
 		persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			// svcPVCName refers to PVC Name in the supervisor cluster
+			svcPVCName := volHandle
+			volHandle = getVolumeIDFromSupervisorCluster(svcPVCName)
+		}
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", persistentvolumes[0].Spec.CSI.VolumeHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(persistentvolumes[0].Spec.CSI.VolumeHandle)
+		defer func() {
+			err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(queryResult.Volumes) == 0 {
-			err = fmt.Errorf("Error: QueryCNSVolumeWithResult returned no volume")
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verifying disk size specified in PVC in honored")
-		if queryResult.Volumes[0].BackingObjectDetails.CapacityInMb != diskSizeInMb {
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != diskSizeInMb {
 			err = fmt.Errorf("Wrong disk size provisioned ")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

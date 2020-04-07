@@ -16,10 +16,10 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.12.10
+ARG GOLANG_IMAGE=golang:1.13
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v0.2.1-10-gb2fb75e
+ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v1.0.2-10-ga6fc92a
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
@@ -46,7 +46,7 @@ RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${BASE_IMAGE}
-LABEL "maintainer" "Travis Rhoden <trhoden@vmware.com>"
+LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 

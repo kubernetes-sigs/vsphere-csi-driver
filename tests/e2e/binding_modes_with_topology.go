@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Volume-Binding-Modes", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Volume-Binding-Modes", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
@@ -71,18 +71,18 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 	verifyTopologyAwareProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string,
 		allowedTopologies []v1.TopologySelectorLabelRequirement) {
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)
 
 		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
-		ginkgo.By(fmt.Sprintf("Waiting for 30 seconds and verifying whether the PVC is still in pending state"))
+		ginkgo.By("Waiting for 30 seconds and verifying whether the PVC is still in pending state")
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
 
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to find the volume in pending state with err: %v", err))
 
 		ginkgo.By("Creating a pod")
 		pod, err = framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
@@ -90,13 +90,14 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 
 		ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to provision volume with err: %v", err))
 
-		ginkgo.By("Verify volume is attached to the node")
 		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		if allowedTopologies == nil {
 			// Get the topology value from pod's location to verify if it matches with volume's node affinity rules

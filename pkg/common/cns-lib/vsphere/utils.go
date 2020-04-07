@@ -1,19 +1,3 @@
-/*
-Copyright 2019 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package vsphere
 
 import (
@@ -22,6 +6,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
+	"github.com/davecgh/go-spew/spew"
+
 	"reflect"
 	"strconv"
 	"strings"
@@ -31,7 +20,6 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
-
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
@@ -44,8 +32,26 @@ func IsInvalidCredentialsError(err error) bool {
 	return isInvalidCredentialsError
 }
 
+// IsNotFoundError checks if err is the NotFound fault, if yes then returns true else return false
+func IsNotFoundError(err error) bool {
+	isNotFoundError := false
+	if soap.IsSoapFault(err) {
+		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.NotFound)
+	}
+	return isNotFoundError
+}
+
+// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault, if yes then returns true else return false
+func IsManagedObjectNotFound(err error) bool {
+	isNotFoundError := false
+	if soap.IsSoapFault(err) {
+		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
+	}
+	return isNotFoundError
+}
+
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject object from given parameters
-func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string, deleteFlag bool, entityType string, namespace string) *cnstypes.CnsKubernetesEntityMetadata {
+func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string, deleteFlag bool, entityType string, namespace string, clusterID string, referredEntity []cnstypes.CnsKubernetesEntityReference) *cnstypes.CnsKubernetesEntityMetadata {
 	// Create new metadata spec
 	var newLabels []types.KeyValue
 	for labelKey, labelVal := range labels {
@@ -63,17 +69,29 @@ func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
 	}
 	entityMetadata.EntityType = entityType
 	entityMetadata.Namespace = namespace
+	entityMetadata.ClusterID = clusterID
+	entityMetadata.ReferredEntity = referredEntity
 	return entityMetadata
 }
 
 // GetContainerCluster creates ContainerCluster object from given parameters
-func GetContainerCluster(clusterid string, username string) cnstypes.CnsContainerCluster {
+func GetContainerCluster(clusterid string, username string, clusterflavor cnstypes.CnsClusterFlavor) cnstypes.CnsContainerCluster {
 	return cnstypes.CnsContainerCluster{
-		ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-		ClusterId:   clusterid,
-		VSphereUser: username,
+		ClusterType:   string(cnstypes.CnsClusterTypeKubernetes),
+		ClusterId:     clusterid,
+		VSphereUser:   username,
+		ClusterFlavor: string(clusterflavor),
 	}
+}
 
+// CreateCnsKuberenetesEntityReference returns an  EntityReference object to which the given entity refers to.
+func CreateCnsKuberenetesEntityReference(entityType string, entityName string, namespace string, clusterid string) cnstypes.CnsKubernetesEntityReference {
+	return cnstypes.CnsKubernetesEntityReference{
+		EntityType: entityType,
+		EntityName: entityName,
+		Namespace:  namespace,
+		ClusterID:  clusterid,
+	}
 }
 
 // GetVirtualCenterConfig returns VirtualCenterConfig Object created using vSphere Configuration
@@ -89,19 +107,38 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	var targetDatastoreUrlsForFile []string
+
+	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs) != "" {
+		targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs, ",")
+	}
+
 	vcConfig := &VirtualCenterConfig{
-		Host:            host,
-		Port:            port,
-		Username:        cfg.VirtualCenter[host].User,
-		Password:        cfg.VirtualCenter[host].Password,
-		Insecure:        cfg.VirtualCenter[host].InsecureFlag,
-		DatacenterPaths: strings.Split(cfg.VirtualCenter[host].Datacenters, ","),
+		Host:                             host,
+		Port:                             port,
+		Username:                         cfg.VirtualCenter[host].User,
+		Password:                         cfg.VirtualCenter[host].Password,
+		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
+		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 	}
-	for idx := range vcConfig.DatacenterPaths {
-		vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+
+	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
+		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
+		for idx := range vcConfig.DatacenterPaths {
+			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+		}
 	}
-	if len(cfg.Global.CAFile) > 0 && !cfg.Global.InsecureFlag {
-		vcConfig.CAFile = cfg.Global.CAFile
+
+	// validate if target file volume datastores present are vsan datastores
+	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
+		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
+		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
+			return nil, errors.New("Invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
+		}
+		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
+			err = errors.New("Non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
+			return nil, err
+		}
 	}
 	return vcConfig, nil
 }
@@ -128,12 +165,15 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	return labelsMap
 }
 
-// CompareKubernetesMetadata compares the whole cnskubernetesEntityMetadata from two given parameters
-func CompareKubernetesMetadata(pvMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
-	if (pvMetaData.EntityName != cnsMetaData.EntityName) || (pvMetaData.Delete != cnsMetaData.Delete) || (pvMetaData.Namespace != cnsMetaData.Namespace) {
+// CompareKubernetesMetadata compares the whole CnsKubernetesEntityMetadata from two given parameters
+func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
+	log := logger.GetLogger(ctx)
+	log.Debugf("CompareKubernetesMetadata called with k8spvMetaData: %+v \n and cnsMetaData: %+v \n", spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
+	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) || (k8sMetaData.Namespace != cnsMetaData.Namespace) {
 		return false
 	}
-	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(pvMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
+	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
+	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
 	return labelsMatch
 }
 
@@ -145,11 +185,11 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	certificate, err := tls.X509KeyPair([]byte(username), []byte(password))
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load X509 key pair. Error: %+v", err)
+		return nil, fmt.Errorf("failed to load X509 key pair. Error: %+v", err)
 	}
 	tokens, err := sts.NewClient(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create STS client. err: %+v", err)
+		return nil, fmt.Errorf("failed to create STS client. err: %+v", err)
 	}
 	req := sts.TokenRequest{
 		Certificate: &certificate,
@@ -157,7 +197,7 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	}
 	signer, err := tokens.Issue(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to issue SAML token. err: %+v", err)
+		return nil, fmt.Errorf("failed to issue SAML token. err: %+v", err)
 	}
 	return signer, nil
 }

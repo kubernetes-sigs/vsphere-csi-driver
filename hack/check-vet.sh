@@ -22,4 +22,5 @@ set -o pipefail
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go vet ./cmd/... ./pkg/... ./tests/...
+# shellcheck disable=SC2046
+go vet $(go list ./... | grep -Ev 'vendor|sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis')

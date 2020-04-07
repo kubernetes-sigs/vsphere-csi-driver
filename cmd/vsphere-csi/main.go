@@ -21,20 +21,18 @@ import (
 	"flag"
 
 	"github.com/rexray/gocsi"
-	"k8s.io/klog"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 // main is ignored when this package is built as a go plug-in.
 func main() {
-	klog.InitFlags(nil)
 	flag.Parse()
 	gocsi.Run(
 		context.Background(),
-		service.Name,
-		"A CSI plugin for VMware vSphere storage",
+		csitypes.Name,
+		"A CSI plugin for vSphere Cloud Native Storage",
 		usage,
 		provider.New())
 }

@@ -18,21 +18,39 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-go get github.com/onsi/ginkgo/ginkgo
+# Fetching ginkgo for running the test
+export GO111MODULE=on
+if ! go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo
+then
+    echo "go mod vendor or go get ginkgo error"
+    exit 1
+fi
 
-# Exporting KUBECONFIG path
-export KUBECONFIG=$HOME/.kube/config
-# Running the e2e test
+# Exporting KUBECONFIG path if not set
+if [ -z "${KUBECONFIG-}" ]; then
+    export KUBECONFIG=$HOME/.kube/config
+fi
 
+# Running the e2e test.
+# If $GINKGO_FOCUS not set, run "csi-block-vanilla" by default.
 FOCUS=${GINKGO_FOCUS:-}
 if [ -z "$FOCUS" ]
 then
-    FOCUS="[csi\-block\-e2e]"
+    FOCUS="csi-block-vanilla"
 fi
-ginkgo -v --focus="$FOCUS" tests/e2e
+
+OPTS=""
+if [ -z "${GINKGO_OPTS-}" ]; then
+    OPTS="-v"
+else
+    OPTS="-v $GINKGO_OPTS"
+fi
+
+ginkgo "$OPTS" --focus="$FOCUS" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?
 if [[ $TEST_PASS -ne 0 ]]; then
     exit 1
 fi
+
