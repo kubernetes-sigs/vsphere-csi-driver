@@ -73,7 +73,7 @@ GOARCH ?= amd64
 
 LDFLAGS := $(shell cat hack/make/ldflags.txt)
 LDFLAGS_CSI := $(LDFLAGS) -X "$(MOD_NAME)/pkg/csi/service.version=$(VERSION)"
-LDFLAGS_SYNCER := $(LDFLAGS) -X "$(MOD_NAME)/pkg/csi/service.version=$(VERSION)"
+LDFLAGS_SYNCER := $(LDFLAGS)
 
 # The CSI binary.
 CSI_BIN_NAME := vsphere-csi

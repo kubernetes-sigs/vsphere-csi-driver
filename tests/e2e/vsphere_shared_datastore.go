@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Datastore Based Volume Provisioning
 
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume on shared datastore with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to provision volume on shared datastore with err: %v", err))
 	})
 
 	// Setting non-shared datastore in the storage class should fail dynamic volume provisioning

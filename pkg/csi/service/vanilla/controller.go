@@ -96,13 +96,13 @@ func (c *controller) Init(config *config.Config) error {
 	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
-		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 	if err != nil {
-		log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
 	c.manager = &common.Manager{
@@ -114,7 +114,7 @@ func (c *controller) Init(config *config.Config) error {
 
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		log.Errorf("Failed to get vcenter. err=%v", err)
+		log.Errorf("failed to get vcenter. err=%v", err)
 		return err
 	}
 	// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
@@ -139,14 +139,14 @@ func (c *controller) Init(config *config.Config) error {
 	c.nodeMgr = &Nodes{}
 	err = c.nodeMgr.Initialize(ctx)
 	if err != nil {
-		log.Errorf("Failed to initialize nodeMgr. err=%v", err)
+		log.Errorf("failed to initialize nodeMgr. err=%v", err)
 		return err
 	}
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
 	go func() {
@@ -176,7 +176,7 @@ func (c *controller) Init(config *config.Config) error {
 	log.Infof("Adding watch on path: %q", cfgDirPath)
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
 	// deletedVolumes timedmap with clean up interval of 1 minute to remove expired entries
@@ -190,12 +190,12 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to read config. Error: %+v", err)
+		log.Errorf("failed to read config. Error: %+v", err)
 		return
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 	if err != nil {
-		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return
 	}
 	if newVCConfig != nil {
@@ -206,20 +206,20 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 			log.Debugf("Unregistering virtual center: %q from virtualCenterManager", c.manager.VcenterConfig.Host)
 			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
 			if err != nil {
-				log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
+				log.Errorf("failed to unregister vcenter with virtualCenterManager.")
 				return
 			}
 			log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
 			vcenter, err = c.manager.VcenterManager.RegisterVirtualCenter(ctx, newVCConfig)
 			if err != nil {
-				log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+				log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 				return
 			}
 			c.manager.VcenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
 		} else {
 			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, newVCConfig.Host)
 			if err != nil {
-				log.Errorf("Failed to get VirtualCenter. err=%v", err)
+				log.Errorf("failed to get VirtualCenter. err=%v", err)
 				return
 			}
 		}
@@ -273,7 +273,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
+			msg := fmt.Sprintf("failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 			log.Errorf(msg)
 			return nil, status.Error(codes.NotFound, msg)
 		}
@@ -298,14 +298,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	} else {
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("Failed to get shared datastores in kubernetes cluster. Error: %+v", err)
+			msg := fmt.Sprintf("failed to get shared datastores in kubernetes cluster. Error: %+v", err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
+		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -384,7 +384,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	volumeID, err := common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
+		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -410,7 +410,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	log.Infof("CreateVolume: called with args %+v", *req)
 	err := validateVanillaCreateVolumeRequest(ctx, req)
 	if err != nil {
-		log.Errorf("Failed to validate Create Volume Request with err: %v", err)
+		log.Errorf("failed to validate Create Volume Request with err: %v", err)
 		return nil, err
 	}
 
@@ -443,7 +443,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	}
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
+		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -466,7 +466,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	}
 	node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+		msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -502,7 +502,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			}
 		}
 		if !nfsv4AccessPointFound {
-			msg := fmt.Sprintf("Failed to get NFSv4 access point for volume: %q."+
+			msg := fmt.Sprintf("failed to get NFSv4 access point for volume: %q."+
 				" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
@@ -511,7 +511,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Block Volume
 		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
+			msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -560,13 +560,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if queryResult.Volumes[0].VolumeType != common.FileVolumeType {
 		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
 		err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
+			msg := fmt.Sprintf("failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
@@ -603,7 +603,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
 	if err != nil {
-		log.Errorf("Failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
+		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	var currentSize int64

@@ -457,7 +457,7 @@ func (s *service) NodeUnpublishVolume(
 		// TODO Use a go routine here. The deletion of target path might not be a good reason to error out
 		// The SP is supposed to delete the files/directory it created in this target path
 		if err := rmpath(ctx, target); err != nil {
-			log.Debugf("Failed to delete the target path %q", target)
+			log.Debugf("failed to delete the target path %q", target)
 			return nil, err
 		}
 		log.Debugf("Target path  %q successfully deleted", target)
@@ -484,7 +484,7 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 		log.Debugf("isBlockVolumePublished: No device found. Assuming Unpublish is "+
 			"already complete for volume %q and target path %q", volID, target)
 		if err := rmpath(ctx, target); err != nil {
-			mssg := fmt.Sprintf("Failed to delete the target path %q. Error: %q", target, err.Error())
+			mssg := fmt.Sprintf("failed to delete the target path %q. Error: %q", target, err.Error())
 			log.Debug(mssg)
 			return false, status.Errorf(codes.Internal, mssg)
 		}
@@ -654,7 +654,7 @@ func (s *service) NodeGetInfo(
 	}
 	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
 	if err != nil {
-		log.Errorf("Failed to read cnsconfig. Error: %v", err)
+		log.Errorf("failed to read cnsconfig. Error: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	var accessibleTopology map[string]string
@@ -663,32 +663,32 @@ func (s *service) NodeGetInfo(
 	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 		if err != nil {
-			log.Errorf("Failed to get VirtualCenterConfig from cns config. err=%v", err)
+			log.Errorf("failed to get VirtualCenterConfig from cns config. err=%v", err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 		if err != nil {
-			log.Errorf("Failed to register vcenter with virtualCenterManager.")
+			log.Errorf("failed to register vcenter with virtualCenterManager.")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		defer vcManager.UnregisterAllVirtualCenters(ctx)
 		//Connect to vCenter
 		err = vcenter.Connect(ctx)
 		if err != nil {
-			log.Errorf("Failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
+			log.Errorf("failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		// Get VM UUID
 		uuid, err := getSystemUUID(ctx)
 		if err != nil {
-			log.Errorf("Failed to get system uuid for node VM")
+			log.Errorf("failed to get system uuid for node VM")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
 		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
 		if err != nil || nodeVM == nil {
-			log.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+			log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
 			uuid, err = convertUUID(uuid)
 			if err != nil {
 				log.Errorf("convertUUID failed with error: %v", err)
@@ -696,13 +696,13 @@ func (s *service) NodeGetInfo(
 			}
 			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
 			if err != nil || nodeVM == nil {
-				log.Errorf("Failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+				log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
 				return nil, status.Errorf(codes.Internal, err.Error())
 			}
 		}
 		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
 		if err != nil {
-			log.Errorf("Failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
+			log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)

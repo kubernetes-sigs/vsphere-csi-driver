@@ -108,7 +108,7 @@ func NewSupervisorClient(ctx context.Context, config *restclient.Config) (client
 	log.Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
 	client, err := clientset.NewForConfig(config)
 	if err != nil {
-		log.Error("Failed to connect to the supervisor cluster with err: %+v", err)
+		log.Error("failed to connect to the supervisor cluster with err: %+v", err)
 		return nil, err
 	}
 
@@ -188,7 +188,7 @@ func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName 
 	log.Infof("GetNodeVMUUID called for the node: %q", nodeName)
 	node, err := k8sclient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("Failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
+		log.Errorf("failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
 		return "", err
 	}
 	k8sNodeUUID := common.GetUUIDFromProviderID(node.Spec.ProviderID)

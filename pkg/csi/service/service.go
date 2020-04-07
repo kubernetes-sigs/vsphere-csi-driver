@@ -115,11 +115,11 @@ func (s *service) BeforeServe(
 
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
-			log.Errorf("Failed to read config. Error: %+v", err)
+			log.Errorf("failed to read config. Error: %+v", err)
 			return err
 		}
 		if err := s.cnscs.Init(cfg); err != nil {
-			log.Errorf("Failed to init controller. Error: %+v", err)
+			log.Errorf("failed to init controller. Error: %+v", err)
 			return err
 		}
 	}

@@ -107,7 +107,7 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 	vm := object.NewVirtualMachine(vs.Client.Client, vmRef.Reference())
 	device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
 	if err != nil {
-		framework.Logf("Failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
+		framework.Logf("failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
 		return false, err
 	}
 	if device == nil {
@@ -193,7 +193,7 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string, ent
 		return nil, err
 	}
 	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-		return nil, fmt.Errorf("Failed to query cns volume %s", volumeID)
+		return nil, fmt.Errorf("failed to query cns volume %s", volumeID)
 	}
 	gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
 	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {

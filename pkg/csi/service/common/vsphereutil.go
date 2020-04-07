@@ -38,7 +38,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
@@ -67,7 +67,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// Datacenters are returned.
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
-			log.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+			log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 			return "", err
 		}
 		isSharedDatastoreURL := false
@@ -75,7 +75,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		for _, datacenter := range datacenters {
 			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
 			if err != nil {
-				log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+				log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
 			for _, sharedDatastore := range sharedDatastores {
@@ -125,7 +125,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		if spec.AffineToHost != "" {
 			hostVsanUUID, err := getHostVsanUUID(ctx, spec.AffineToHost, vc)
 			if err != nil {
-				log.Errorf("Failed to get the vSAN UUID for node: %s", spec.AffineToHost)
+				log.Errorf("failed to get the vSAN UUID for node: %s", spec.AffineToHost)
 				return "", err
 			}
 			param1 := vim25types.KeyValue{Key: VsanAffinityKey, Value: hostVsanUUID}
@@ -139,7 +139,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	log.Debugf("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		log.Errorf("Failed to create disk %s with error %+v", spec.Name, err)
+		log.Errorf("failed to create disk %s with error %+v", spec.Name, err)
 		return "", err
 	}
 	return volumeID.Id, nil
@@ -150,7 +150,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
@@ -172,7 +172,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			allVsanDatastores, err = vc.GetVsanDatastores(ctx)
 			if err != nil {
-				log.Errorf("Failed to get vSAN datastores with error %+v", err)
+				log.Errorf("failed to get vSAN datastores with error %+v", err)
 				return "", err
 			}
 			var vsanDatastoreUrls []string
@@ -181,7 +181,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 			fsEnabledMap, err := IsFileServiceEnabled(ctx, vsanDatastoreUrls, manager)
 			if err != nil {
-				log.Errorf("Failed to get if file service is enabled on vsan datastores with error %+v", err)
+				log.Errorf("failed to get if file service is enabled on vsan datastores with error %+v", err)
 				return "", err
 			}
 			for _, vsanDatastore := range allVsanDatastores {
@@ -202,7 +202,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			for _, TargetvSANFileShareDatastoreURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
 				if err != nil {
-					log.Errorf("Failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
+					log.Errorf("failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
 					return "", err
 				}
 				datastores = append(datastores, datastoreMoref)
@@ -215,7 +215,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				log.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
+				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -236,7 +236,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
-				log.Errorf("Failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
+				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				return "", err
 			}
 			datastores = append(datastores, datastoreMoref)
@@ -286,7 +286,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	log.Debugf("vSphere CNS driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		log.Errorf("Failed to create file volume %q with error %+v", spec.Name, err)
+		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
 		return "", err
 	}
 	return volumeID.Id, nil
@@ -319,7 +319,7 @@ func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	log.Debugf("vSphere CNS driver is attaching volume: %q to vm: %q", volumeID, vm.String())
 	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID)
 	if err != nil {
-		log.Errorf("Failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
+		log.Errorf("failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
 		return "", err
 	}
 	log.Debugf("Successfully attached disk %s to VM %v. Disk UUID is %s", volumeID, vm, diskUUID)
@@ -334,7 +334,7 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	log.Debugf("vSphere CNS driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
 	err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
 	if err != nil {
-		log.Errorf("Failed to detach disk %s with err %+v", volumeID, err)
+		log.Errorf("failed to detach disk %s with err %+v", volumeID, err)
 		return err
 	}
 	log.Debugf("Successfully detached disk %s from VM %v.", volumeID, vm)
@@ -348,7 +348,7 @@ func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, de
 	log.Debugf("vSphere Cloud Provider deleting volume: %s", volumeID)
 	err = manager.VolumeManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
-		log.Errorf("Failed to delete disk %s with error %+v", volumeID, err)
+		log.Errorf("failed to delete disk %s with error %+v", volumeID, err)
 		return err
 	}
 	log.Debugf("Successfully deleted disk for volumeid: %s", volumeID)
@@ -389,7 +389,7 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 	for _, datacenter := range datacenters {
 		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreURL)
 		if err != nil {
-			log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+			log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
 				datastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
 			return datastoreObj.Reference(), nil
@@ -406,7 +406,7 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
-		log.Errorf("Failed to get vCenter from Manager, err: %+v", err)
+		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
 		return nil, err
 	}
 	err = vc.ConnectVsan(ctx)
@@ -417,7 +417,7 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *
 	// This gets the datastore to file service enabled map for all the vsan datastores.
 	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc)
 	if err != nil {
-		log.Errorf("Failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
+		log.Errorf("failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
 		return nil, err
 	}
 	// Now create a map of datastores which are queried in the method.
@@ -448,7 +448,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
-		log.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 
@@ -469,7 +469,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 			// Get the cluster config to know if file service is enabled on it or not.
 			config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
 			if err != nil {
-				log.Errorf("Failed to get the vsan cluster config. error: %+v", err)
+				log.Errorf("failed to get the vsan cluster config. error: %+v", err)
 				return nil, err
 			}
 
@@ -485,7 +485,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 			}
 			err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 			if err != nil {
-				log.Errorf("Failed to get Datastore managed objects from datastore objects."+
+				log.Errorf("failed to get Datastore managed objects from datastore objects."+
 					" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
 				return nil, err
 			}

@@ -52,7 +52,7 @@ func (ds *Datastore) GetDatastoreURL(ctx context.Context) (string, error) {
 	pc := property.DefaultCollector(ds.Client())
 	err := pc.RetrieveOne(ctx, ds.Datastore.Reference(), []string{"summary"}, &dsMo)
 	if err != nil {
-		log.Errorf("Failed to retrieve datastore summary property: %v", err)
+		log.Errorf("failed to retrieve datastore summary property: %v", err)
 		return "", err
 	}
 	return dsMo.Summary.Url, nil

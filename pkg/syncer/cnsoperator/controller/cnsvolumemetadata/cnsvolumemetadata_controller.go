@@ -107,7 +107,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
 	c, err := controller.New("cnsvolumemetadata-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
-		log.Errorf("Failed to create new CnsVolumeMetadata controller with error: %+v", err)
+		log.Errorf("failed to create new CnsVolumeMetadata controller with error: %+v", err)
 		return err
 	}
 	backOffDuration = make(map[string]time.Duration)
@@ -144,7 +144,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Watch for changes to primary resource CnsVolumeMetadata
 	err = c.Watch(src, h, pred)
 	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsVolumeMetadata resource with error: %+v", err)
+		log.Errorf("failed to watch for changes to CnsVolumeMetadata resource with error: %+v", err)
 		return err
 	}
 

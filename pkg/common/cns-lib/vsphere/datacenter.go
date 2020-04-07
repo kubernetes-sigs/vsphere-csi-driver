@@ -53,7 +53,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 	finder.SetDatacenter(dc.Datacenter)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		log.Errorf("Failed to get all the datastores. err: %+v", err)
+		log.Errorf("failed to get all the datastores. err: %+v", err)
 		return nil, err
 	}
 	var dsList []types.ManagedObjectReference
@@ -66,7 +66,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 	properties := []string{DatastoreInfoProperty}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("Failed to get Datastore managed objects from datastore objects."+
+		log.Errorf("failed to get Datastore managed objects from datastore objects."+
 			" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context, uuid string, 
 	searchIndex := object.NewSearchIndex(dc.Datacenter.Client())
 	svm, err := searchIndex.FindByUuid(ctx, dc.Datacenter, uuid, true, &instanceUUID)
 	if err != nil {
-		log.Errorf("Failed to find VM given uuid %s with err: %v", uuid, err)
+		log.Errorf("failed to find VM given uuid %s with err: %v", uuid, err)
 		return nil, err
 	} else if svm == nil {
 		log.Errorf("Couldn't find VM given uuid %s", uuid)
@@ -135,7 +135,7 @@ func asyncGetAllDatacenters(ctx context.Context, dcsChan chan<- *Datacenter, err
 
 		dcs, err := vc.GetDatacenters(ctx)
 		if err != nil {
-			log.Errorf("Failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
+			log.Errorf("failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
 			errChan <- err
 			return
 		}
@@ -192,7 +192,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	pc := property.DefaultCollector(dc.Client())
 	err := pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {
-		log.Errorf("Failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v", vmObjList, properties, err)
+		log.Errorf("failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v", vmObjList, properties, err)
 		return nil, err
 	}
 	return vmMoList, nil
@@ -206,7 +206,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 	finder.SetDatacenter(dc.Datacenter)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		log.Errorf("Failed to get all the datastores in the Datacenter %s with error: %v", dc.Datacenter.String(), err)
+		log.Errorf("failed to get all the datastores in the Datacenter %s with error: %v", dc.Datacenter.String(), err)
 		return nil, err
 	}
 	var dsList []types.ManagedObjectReference
@@ -218,7 +218,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("Failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsList, properties, err)
+		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsList, properties, err)
 		return nil, err
 	}
 	dsURLInfoMap := make(map[string]*DatastoreInfo)
