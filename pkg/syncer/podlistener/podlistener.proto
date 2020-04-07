@@ -33,7 +33,13 @@ service PodListener {
    * So polling the Pod periodically every pollInterval seconds to check if annotation is available.
    * If annotation is not available after a timeout period, the function errors out.
    */
-  rpc GetPodVMUUIDAnnotation(PodListenerRequest) returns (PodListenerResponse) {}
+   rpc GetPodVMUUIDAnnotation(PodListenerRequest) returns (PodListenerResponse) {}
+
+   /*
+    * GetHostAnnotation gets the annotation value by querying the API server referring to the annotation key
+    * and the host specified in the HostAnnotationRequest
+    */
+   rpc GetHostAnnotation(HostAnnotationRequest) returns (HostAnnotationResponse) {}
 }
 
 message PodListenerRequest {
@@ -49,3 +55,14 @@ message PodListenerResponse {
    string vmuuidAnnotation = 1;
 }
 
+message HostAnnotationRequest {
+    // Name of the host
+    string hostName = 1;
+    // Name of the annotation key of interest
+    string annotationKey = 2;
+}
+
+message HostAnnotationResponse {
+    // Value of the annotation key on the node `hostName`
+    string annotationValue = 2;
+}

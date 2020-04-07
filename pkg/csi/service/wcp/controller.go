@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
+	v1 "k8s.io/api/core/v1"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -208,6 +210,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var affineToHost string
 	var storagePool string
+	var hostLocalNodeName string
+	hostLocalMode := false
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -217,7 +221,35 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
 		} else if param == common.AttributeStoragePool {
 			storagePool = req.Parameters[paramName]
+		} else if param == common.AttributeHostLocal {
+			hostLocalMode = true
+			topologyRequirement := req.GetAccessibilityRequirements()
+			if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
+				return nil, status.Errorf(codes.InvalidArgument, "accessibility requirements not found")
+			}
+			for _, topology := range topologyRequirement.GetPreferred() {
+				if topology == nil {
+					return nil, status.Errorf(codes.NotFound, "invalid accessibility requirement")
+				}
+				value, ok := topology.Segments[v1.LabelHostname]
+				if !ok {
+					return nil, status.Errorf(codes.NotFound, "hostname not found in the accessibility requirements")
+				}
+				hostLocalNodeName = value
+			}
 		}
+	}
+
+	// Query API server to get ESX Host Moid from the hostLocalNodeName
+	if hostLocalMode && hostLocalNodeName != "" {
+		ctx = logger.NewContextWithLogger(ctx)
+		hostMoid, err := getHostMOIDFromK8sCloudOperatorGRPCService(ctx, hostLocalNodeName)
+		if err != nil {
+			log.Error(err)
+			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
+		}
+		affineToHost = hostMoid
+		log.Debugf("Setting the affineToHost value as %s", affineToHost)
 	}
 
 	var selectedDatastoreURL string

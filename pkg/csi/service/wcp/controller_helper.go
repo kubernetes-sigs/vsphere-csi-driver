@@ -47,16 +47,26 @@ const (
 	defaultPodListenerServicePort = 10000
 )
 
+// validateParam is a helper function used to validate the parameter name
+// received in the CreateVolume request for WCP CSI driver
+// Returns true if the parameter name is valid, false otherwise
+func validateParam(paramName, value string) bool {
+	return paramName == common.AttributeStoragePolicyID ||
+		paramName == common.AttributeFsType ||
+		paramName == common.AttributeAffineToHost ||
+		paramName == common.AttributeStoragePool ||
+		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
+}
+
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
 	// Get create params
 	params := req.GetParameters()
-	for paramName := range params {
+	for paramName, value := range params {
 		paramName = strings.ToLower(paramName)
-		if paramName != common.AttributeStoragePolicyID && paramName != common.AttributeFsType &&
-			paramName != common.AttributeAffineToHost && paramName != common.AttributeStoragePool {
+		if !validateParam(paramName, value) {
 			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
@@ -109,7 +119,7 @@ func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeN
 
 	// Call GetPodVMUUIDAnnotation method on the client stub
 	res, err := client.GetPodVMUUIDAnnotation(ctx,
-		&podlistener.Request{
+		&podlistener.PodListenerRequest{
 			VolumeID: volumeID,
 			NodeName: nodeName,
 		})
@@ -121,6 +131,42 @@ func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeN
 
 	log.Infof("Got vmuuid: %s annotation from Pod Listener gRPC service", res.VmuuidAnnotation)
 	return res.VmuuidAnnotation, nil
+}
+
+// getHostMOIDFromK8sCloudOperatorGRPCService gets the host-moid from K8sCloudOperator gRPC service
+func getHostMOIDFromK8sCloudOperatorGRPCService(ctx context.Context, nodeName string) (string, error) {
+	var opts []grpc.DialOption
+	log := logger.GetLogger(ctx)
+	opts = append(opts, grpc.WithInsecure())
+	port := getPodListenerServicePort(ctx)
+	gRPCServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
+	// Connect to gRPC service running on syncer container
+	conn, err := grpc.Dial(gRPCServiceAddr, opts...)
+	if err != nil {
+		log.Errorf("Failed to establish the connection to pod listener service. Error: %+v", err)
+		return "", err
+	}
+	defer conn.Close()
+
+	// Create a client stub for gRPC service
+	client := podlistener.NewPodListenerClient(conn)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Call GetHostMOIDAnnotation method on the client stub
+	res, err := client.GetHostAnnotation(ctx,
+		&podlistener.HostAnnotationRequest{
+			HostName:      nodeName,
+			AnnotationKey: common.HostMoidAnnotationKey,
+		})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get the host moid annotation from the gRPC service. Error: %+v", err)
+		log.Error(msg)
+		return "", err
+	}
+
+	log.Infof("Got host-moid: %s annotation from the K8sCloudOperator gRPC service", res.AnnotationValue)
+	return res.AnnotationValue, nil
 }
 
 // getDatacenterFromConfig gets the vcenter-datacenter where WCP PodVM cluster is deployed
