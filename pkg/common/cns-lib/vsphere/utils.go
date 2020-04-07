@@ -297,20 +297,22 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 // given VirtualCenter
 func getVsanDirectVMFSDatastores(ctx context.Context, vc *VirtualCenter) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
+	var datastores = make(map[string]bool)
 	// get the special tag that is applied to all vSAN Direct managed VMFS datastores
 	tagMgr, err := GetTagManager(ctx, vc)
 	if err != nil {
-		return nil, err
+		log.Warnf("Not able to get TagManager. vSAN Direct VMFS datastores are skipped.")
+		return datastores, nil
 	}
 
 	// get all associated objects with this tag
 	refs, err := tagMgr.ListAttachedObjects(ctx, vsanDirectTagName)
 	if err != nil {
-		return nil, fmt.Errorf("Error getting Datastores with vSAN-Direct tag. Err: %+v", err)
+		log.Infof("No datastores tagged with %s", vsanDirectTagName)
+		return datastores, nil
 	}
 
 	// return the datastores among the associated objects
-	var datastores = make(map[string]bool)
 	for _, ref := range refs {
 		if ref.Reference().Type != datastoreType {
 			continue
