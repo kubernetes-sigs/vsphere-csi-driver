@@ -21,39 +21,42 @@ import (
 
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/vim25"
-	"k8s.io/klog"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// NewCNSClient creates a new CNS client
-func NewCNSClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
+// NewCnsClient creates a new CNS client
+func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
+	log := logger.GetLogger(ctx)
 	cnsClient, err := cns.NewClient(ctx, c)
 	if err != nil {
-		klog.Errorf("Failed to create a new client for CNS. err: %v", err)
+		log.Errorf("failed to create a new client for CNS. err: %v", err)
 		return nil, err
 	}
 	return cnsClient, nil
 }
 
-// ConnectCNS creates a CNS client for the virtual center.
-func (vc *VirtualCenter) ConnectCNS(ctx context.Context) error {
-	err := vc.Connect(ctx)
+// ConnectCns creates a CNS client for the virtual center.
+func (vc *VirtualCenter) ConnectCns(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	var err = vc.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
+		log.Errorf("failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.CnsClient == nil {
-		if vc.CnsClient, err = NewCNSClient(ctx, vc.Client.Client); err != nil {
-			klog.Errorf("Failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
+		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
+			log.Errorf("failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}
 	return nil
 }
 
-// DisconnectCNS destroys the CNS client for the virtual center.
-func (vc *VirtualCenter) DisconnectCNS(ctx context.Context) {
+// DisconnectCns destroys the CNS client for the virtual center.
+func (vc *VirtualCenter) DisconnectCns(ctx context.Context) {
+	log := logger.GetLogger(ctx)
 	if vc.CnsClient == nil {
-		klog.V(1).Info("CnsClient wasn't connected, ignoring")
+		log.Info("CnsClient wasn't connected, ignoring")
 	} else {
 		vc.CnsClient = nil
 	}

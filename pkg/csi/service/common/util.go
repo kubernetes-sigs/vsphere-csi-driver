@@ -17,13 +17,20 @@ limitations under the License.
 package common
 
 import (
-	"context"
+	"fmt"
+	"os"
 	"strings"
 
+	csictx "github.com/rexray/gocsi/context"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+
+	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/vim25/types"
-	"k8s.io/klog"
-
+	"golang.org/x/net/context"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
@@ -31,14 +38,15 @@ import (
 // Before returning VirtualCenter object, vcenter connection is established if session doesn't exist.
 func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCenter, error) {
 	var err error
-	vcenter, err := manager.VcenterManager.GetVirtualCenter(manager.VcenterConfig.Host)
+	log := logger.GetLogger(ctx)
+	vcenter, err := manager.VcenterManager.GetVirtualCenter(ctx, manager.VcenterConfig.Host)
 	if err != nil {
-		klog.Errorf("Failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	err = vcenter.Connect(ctx)
 	if err != nil {
-		klog.Errorf("Failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	return vcenter, nil
@@ -76,21 +84,168 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	return labelsMap
 }
 
-// IsValidVolumeCapabilities is the helper function to validate capabilities of volume.
-func IsValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
-	hasSupport := func(cap *csi.VolumeCapability) bool {
-		for _, c := range VolumeCaps {
-			if c.GetMode() == cap.AccessMode.GetMode() {
-				return true
+// IsFileVolumeRequest checks whether the request is to create a CNS file volume.
+func IsFileVolumeRequest(ctx context.Context, capabilities []*csi.VolumeCapability) bool {
+	for _, capability := range capabilities {
+		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			return true
+		}
+	}
+	return false
+}
+
+// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability.
+// Defaults to nfs4 for file volume and ext4 for block volume when empty string is observed.
+// This function also ignores default ext4 fstype supplied by external-provisioner when none is
+// specified in the StorageClass
+func GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
+	log := logger.GetLogger(ctx)
+	fsType := strings.ToLower(capability.GetMount().GetFsType())
+	log.Debugf("FsType received from Volume Capability: %q", fsType)
+	isFileVolume := IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
+	if isFileVolume && (fsType == "" || fsType == "ext4") {
+		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", NfsV4FsType)
+		fsType = NfsV4FsType
+	} else if !isFileVolume && fsType == "" {
+		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", Ext4FsType)
+		fsType = Ext4FsType
+	}
+	return fsType
+}
+
+// IsVolumeReadOnly checks the access mode in Volume Capability and decides if volume is readonly or not
+func IsVolumeReadOnly(capability *csi.VolumeCapability) bool {
+	accMode := capability.GetAccessMode().GetMode()
+	ro := false
+	if accMode == csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY ||
+		accMode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY {
+		ro = true
+	}
+	return ro
+}
+
+// validateVolumeCapabilities validates the access mode in given volume capabilities in validAccessModes.
+func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessModes []csi.VolumeCapability_AccessMode) bool {
+	// Validate if all capabilities of the volume
+	// are supported.
+	for _, volCap := range volCaps {
+		found := false
+		for _, validAccessMode := range validAccessModes {
+			if volCap.AccessMode.GetMode() == validAccessMode.GetMode() {
+				found = true
+				break
 			}
 		}
-		return false
-	}
-	foundAll := true
-	for _, c := range volCaps {
-		if !hasSupport(c) {
-			foundAll = false
+		if !found {
+			return false
+		}
+		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
+			if volCap.GetMount() != nil && (volCap.GetMount().FsType == NfsV4FsType || volCap.GetMount().FsType == NfsFsType) {
+				return false
+			}
 		}
 	}
-	return foundAll
+	return true
+}
+
+// IsValidVolumeCapabilities helps validate the given volume capabilities based on volume type.
+func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapability) bool {
+	if IsFileVolumeRequest(ctx, volCaps) {
+		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
+	}
+	return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
+}
+
+// IsFileVolumeMount loops through the list of mount points and
+// checks if the target path mount point is a file volume type or not
+// Returns an error if the target path is not found in the mount points
+func IsFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
+	log := logger.GetLogger(ctx)
+	for _, m := range mnts {
+		if m.Path == target {
+			if m.Type == NfsFsType || m.Type == NfsV4FsType {
+				log.Debug("IsFileVolumeMount: Found file volume")
+				return true, nil
+			}
+			log.Debug("IsFileVolumeMount: Found block volume")
+			return false, nil
+		}
+	}
+	// Target path mount point not found in list of mounts
+	return false, fmt.Errorf("could not find target path %q in list of mounts", target)
+}
+
+// IsTargetInMounts checks if the given target path is present in list of mount points
+func IsTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
+	log := logger.GetLogger(ctx)
+	for _, m := range mnts {
+		if m.Path == target {
+			log.Debugf("Found target %q in list of mounts", target)
+			return true
+		}
+	}
+	log.Debugf("Target %q not found in list of mounts", target)
+	return false
+}
+
+// ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API call back
+// to StorageClassParams structure.
+func ParseStorageClassParams(ctx context.Context, params map[string]string) (*StorageClassParams, error) {
+	log := logger.GetLogger(ctx)
+	scParams := &StorageClassParams{
+		DatastoreURL:      "",
+		StoragePolicyName: "",
+	}
+
+	for param, value := range params {
+		param = strings.ToLower(param)
+		if param == AttributeDatastoreURL {
+			scParams.DatastoreURL = value
+		} else if param == AttributeStoragePolicyName {
+			scParams.StoragePolicyName = value
+		} else if param == AttributeFsType {
+			log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+		} else {
+			return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
+		}
+	}
+	return scParams, nil
+}
+
+// GetConfigPath returns ConfigPath depending on the environment variable specified and the cluster flavor set
+func GetConfigPath(ctx context.Context) string {
+	var cfgPath string
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	}
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Config path for Guest Cluster
+		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultGCConfigPath
+		}
+	} else {
+		// Config path for SuperVisor and Vanilla Cluster
+		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultCloudConfigPath
+		}
+	}
+	return cfgPath
+}
+
+// GetConfig loads configuration from secret and returns config object
+func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
+	var cfg *cnsconfig.Config
+	var err error
+	cfgPath := GetConfigPath(ctx)
+	if cfgPath == cnsconfig.DefaultGCConfigPath {
+		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
+	} else {
+		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+	}
+	return cfg, err
 }

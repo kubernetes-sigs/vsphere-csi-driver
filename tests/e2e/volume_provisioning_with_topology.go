@@ -28,10 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provisioning", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisioning", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
@@ -85,12 +84,12 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provision
 
 	verifyBasicTopologyBasedVolumeProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to pass provisioning volume")
 		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
@@ -105,10 +104,11 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provision
 		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify volume is attached to the node")
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		ginkgo.By(fmt.Sprintf("Verify volume:%s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify Pod is scheduled on a node belonging to same topology as the PV it is attached to")
 		err = verifyPodLocation(pod, nodeList, pvZone, pvRegion)
@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provision
 
 	invokeTopologyBasedVolumeProvisioningWithInaccessibleParameters := func(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement, expectedErrMsg string) {
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 
 		ginkgo.By("Expect claim to fail provisioning volume on inaccessible non shared datastore")
@@ -127,8 +127,8 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provision
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	}
 

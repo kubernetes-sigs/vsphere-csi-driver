@@ -39,4 +39,5 @@ func bootstrap() {
 	if framework.TestContext.RepoRoot != "" {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
 	}
+	framework.TestContext.Provider = "vsphere"
 }

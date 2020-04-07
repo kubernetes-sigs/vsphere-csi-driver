@@ -18,19 +18,33 @@ package common
 
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 var (
-	// VolumeCaps represents how the volume could be accessed.
-	// It is SINGLE_NODE_WRITER since vSphere CNS Block volume could only be
+	// BlockVolumeCaps represents how the block volume could be accessed.
+	// CNS block volumes support only SINGLE_NODE_WRITER where the volume is
 	// attached to a single node at any given time.
-	VolumeCaps = []csi.VolumeCapability_AccessMode{
+	BlockVolumeCaps = []csi.VolumeCapability_AccessMode{
 		{
 			Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+		},
+	}
+
+	// FileVolumeCaps represents how the file volume could be accessed.
+	// CNS file volumes supports MULTI_NODE_READER_ONLY, MULTI_NODE_SINGLE_WRITER
+	// and MULTI_NODE_MULTI_WRITER
+	FileVolumeCaps = []csi.VolumeCapability_AccessMode{
+		{
+			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+		},
+		{
+			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+		},
+		{
+			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 		},
 	}
 )
@@ -45,9 +59,18 @@ type Manager struct {
 
 // CreateVolumeSpec is the Volume Spec used by CSI driver
 type CreateVolumeSpec struct {
-	Name              string
-	StoragePolicyName string
-	StoragePolicyID   string
+	Name     string
+	ScParams *StorageClassParams
+	// TODO: Move this StorageClassParams
+	StoragePolicyID string
+	CapacityMB      int64
+	// TODO: Move this StorageClassParams
+	AffineToHost string
+	VolumeType   string
+}
+
+// StorageClassParams represents the storage class parameterss
+type StorageClassParams struct {
 	DatastoreURL      string
-	CapacityMB        int64
+	StoragePolicyName string
 }

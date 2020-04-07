@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
 )
 
 // Constants to store invalid/non-existing region and zone
@@ -36,7 +35,7 @@ const (
 	NonExistingZone   = "NonExistingZone"
 )
 
-var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-With-Invalid-Zone-And-Region", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Invalid-Zone-And-Region", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client            clientset.Interface
@@ -75,7 +74,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 	ginkgo.It("Verify provisioning fails with region and zone having no nodes specified in the storage class", func() {
 		topologyWithNoNodes := NonExistingRegion + ":" + NonExistingZone
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyWithNoNodes)
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -87,9 +86,9 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 
@@ -110,7 +109,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		inputZone := regionZone[1]
 		topologyNonExistingRegion := NonExistingRegion + ":" + inputZone
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyNonExistingRegion)
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -122,9 +121,9 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 
@@ -145,7 +144,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		inputRegion := regionZone[0]
 		topologyNonExistingZone := inputRegion + ":" + NonExistingZone
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyNonExistingZone)
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
 		defer framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -157,9 +156,9 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Topology-Aware-Provisioning-Wi
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		e2elog.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
+		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "Failed to get shared datastores in topology"
-		e2elog.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(), fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
 	})
 })

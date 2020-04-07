@@ -22,26 +22,34 @@ import (
 	"os"
 	"strings"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
+
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
-	"k8s.io/klog"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/cns"
-	vTypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 const (
-	// Name is the name of this CSI SP.
-	Name = "csi.vsphere.vmware.com"
+	defaultClusterFlavor = cnstypes.CnsClusterFlavorVanilla
 
 	// UnixSocketPrefix is the prefix before the path on disk
 	UnixSocketPrefix = "unix://"
 )
 
 var (
-	cfgPath = cnsconfig.DefaultCloudConfigPath
+	clusterFlavor = defaultClusterFlavor
+	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
 
 // Service is a CSI SP and idempotency.Provider.
@@ -53,8 +61,8 @@ type Service interface {
 }
 
 type service struct {
-	mode string
-	cs   vTypes.Controller
+	mode  string
+	cnscs csitypes.CnsController
 }
 
 // This works around a bug that if k8s node dies, this will clean up the sock file
@@ -74,37 +82,44 @@ func New() Service {
 }
 
 func (s *service) GetController() csi.ControllerServer {
-	s.cs = cns.New()
-	return s.cs
+	// check which controller type to use
+	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	switch clusterFlavor {
+	case cnstypes.CnsClusterFlavorWorkload:
+		s.cnscs = wcp.New()
+	case cnstypes.CnsClusterFlavorGuest:
+		s.cnscs = wcpguest.New()
+	default:
+		clusterFlavor = defaultClusterFlavor
+		s.cnscs = vanilla.New()
+	}
+	return s.cnscs
 }
 
 func (s *service) BeforeServe(
 	ctx context.Context, sp *gocsi.StoragePlugin, lis net.Listener) error {
-
+	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+	logger.SetLoggerLevel(logType)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	defer func() {
-		fields := map[string]interface{}{
-			"mode": s.mode,
-		}
-		klog.V(2).Infof("configured: %s with %+v", Name, fields)
+		log.Infof("configured: %q with clusterFlavor: %q and mode: %q", csitypes.Name, clusterFlavor, s.mode)
 	}()
 
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
 		var cfg *cnsconfig.Config
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvCloudConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
-		}
-		cfg, err := cnsconfig.GetCnsconfig(cfgPath)
+		var err error
+
+		cfg, err = common.GetConfig(ctx)
 		if err != nil {
-			klog.Errorf("Failed to read cnsconfig. Error: %v", err)
+			log.Errorf("failed to read config. Error: %+v", err)
 			return err
 		}
-		if err := s.cs.Init(cfg); err != nil {
-			klog.Errorf("Failed to init controller. Error: %v", err)
+		if err := s.cnscs.Init(cfg); err != nil {
+			log.Errorf("failed to init controller. Error: %+v", err)
 			return err
 		}
 	}

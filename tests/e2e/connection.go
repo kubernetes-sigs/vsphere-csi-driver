@@ -28,7 +28,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
-	e2elog "k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 type cnsClient struct {
@@ -65,7 +65,7 @@ func connect(ctx context.Context, vs *vSphere) {
 	if userSession != nil {
 		return
 	}
-	e2elog.Logf("Creating new client session since the existing session is not valid or not authenticated")
+	framework.Logf("Creating new client session since the existing session is not valid or not authenticated")
 	vs.Client.Logout(ctx)
 	vs.Client = newClient(ctx, vs)
 }

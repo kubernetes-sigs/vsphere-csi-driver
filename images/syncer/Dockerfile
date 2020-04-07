@@ -14,10 +14,10 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.12.10
+ARG GOLANG_IMAGE=golang:1.13
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=photon:2.0
+ARG BASE_IMAGE=photon:3.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
