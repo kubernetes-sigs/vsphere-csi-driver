@@ -23,20 +23,21 @@ import (
 	"strconv"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
-	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
@@ -92,9 +93,80 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
+<<<<<<< HEAD
 // getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
 // k8sCloudOperator GRPC service running on syncer container
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
+=======
+// validateWCPControllerExpandVolumeRequest is the helper function to validate
+// ExpandVolumeRequest for WCP CSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest, manager *common.Manager) error {
+	log := logger.GetLogger(ctx)
+	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
+		return err
+	}
+
+	var nodes []*cnsvsphere.VirtualMachine
+
+	// TODO: Currently we only check if disk is attached to TKG nodes
+	// We need to check if the disk is attached to a PodVM as well.
+
+	// Get datacenter object from config
+	vc, err := common.GetVCenter(ctx, manager)
+	if err != nil {
+		msg := fmt.Sprintf("failed to get vcenter object with error: %+v", err)
+		log.Errorf(msg)
+		return status.Errorf(codes.Internal, msg)
+	}
+	dc := &cnsvsphere.Datacenter{
+		Datacenter: object.NewDatacenter(vc.Client.Client,
+			vimtypes.ManagedObjectReference{
+				Type:  "Datacenter",
+				Value: vc.Config.DatacenterPaths[0],
+			}),
+		VirtualCenterHost: vc.Config.Host,
+	}
+
+	// Create client to list virtualmachine instances from the supervisor cluster API server
+	cfg, err := config.GetConfig()
+	if err != nil {
+		msg := fmt.Sprintf("failed to get config with error: %+v", err)
+		log.Error(msg)
+		return status.Errorf(codes.Internal, msg)
+	}
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
+	if err != nil {
+		msg := fmt.Sprintf("failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
+		log.Error(msg)
+		return status.Errorf(codes.Internal, msg)
+	}
+	vmList := &vmoperatorv1alpha1.VirtualMachineList{}
+	err = vmOperatorClient.List(ctx, vmList)
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return status.Errorf(codes.Internal, msg)
+	}
+
+	// Get BIOS UUID from virtualmachine instances to create VirtualMachine object
+	for _, vmInstance := range vmList.Items {
+		biosUUID := vmInstance.Status.BiosUUID
+		vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
+		}
+		nodes = append(nodes, vm)
+	}
+
+	return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+}
+
+// getVMUUIDFromPodListenerService gets the vmuuid from pod listener gRPC service
+func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeName string) (string, error) {
+>>>>>>> b0cefe7... ControllerExpandVolume for Supervisor Cluster.
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	port := common.GetK8sCloudOperatorServicePort(ctx)
@@ -166,7 +238,7 @@ func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string
 }
 
 // getDatacenterFromConfig gets the vcenter-datacenter where WCP PodVM cluster is deployed
-func getDatacenterFromConfig(cfg *config.Config) (map[string]string, error) {
+func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 	vcdcMap := make(map[string]string)
 	vcdcListMap, err := getVCDatacentersFromConfig(cfg)
 	if err != nil {
@@ -186,7 +258,7 @@ func getDatacenterFromConfig(cfg *config.Config) (map[string]string, error) {
 }
 
 // GetVCDatacenters returns list of datacenters for each vCenter that is registered
-func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
+func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, error) {
 	var err error
 	vcdcMap := make(map[string][]string)
 	for key, value := range cfg.VirtualCenter {
@@ -233,7 +305,7 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 // getDatastoreURLFromStoragePool returns the datastoreUrl that the given StoragePool represents
 func getDatastoreURLFromStoragePool(spName string) (string, error) {
 	// Get a config to talk to the apiserver
-	cfg, err := clientconfig.GetConfig()
+	cfg, err := config.GetConfig()
 	if err != nil {
 		return "", fmt.Errorf("Failed to get Kubernetes config. Err: %+v", err)
 	}

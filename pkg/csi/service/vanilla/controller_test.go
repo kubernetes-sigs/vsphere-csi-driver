@@ -469,6 +469,7 @@ func TestExtendVolume(t *testing.T) {
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: newSize,
 		},
+		VolumeCapability: capabilities[0],
 	}
 	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
 	respExpand, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)

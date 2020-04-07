@@ -394,17 +394,27 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 }
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given volumeId
-func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
+func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) (bool, error) {
 	var err error
 	log := logger.GetLogger(ctx)
-	log.Debugf("vSphere CNS driver expanding volume %q to new size %d MB.", volumeID, capacityInMb)
-	err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+	log.Debugf("vSphere CNS driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
+
+	expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager)
 	if err != nil {
-		log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-		return err
+		return false, err
 	}
-	log.Debugf("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
-	return nil
+	if expansionRequired {
+		log.Infof("Requested size %d Mb is greater than current size for volumeID: %q. Need volume expansion.", capacityInMb, volumeID)
+		err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+		if err != nil {
+			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
+		} else {
+			log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
+		}
+	} else {
+		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
+	}
+	return expansionRequired, err
 }
 
 // QueryVolumeByID is the helper function to query volume by volumeID
@@ -555,4 +565,28 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 		}
 	}
 	return dsToFileServiceEnabledMap, nil
+}
+
+// isExpansionRequired verifies if the requested size to expand a volume is greater than the current size
+func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64, manager *Manager) (bool, error) {
+	log := logger.GetLogger(ctx)
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+	}
+	queryResult, err := manager.VolumeManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
+		return false, err
+	}
+	var currentSize int64
+	if len(queryResult.Volumes) > 0 {
+		currentSize = queryResult.Volumes[0].BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
+	} else {
+		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
+		log.Error(msg)
+		return false, err
+	}
+
+	return currentSize < requestedSize, nil
 }

@@ -52,7 +52,7 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 				if virtualDisk.VDiskId != nil && virtualDisk.VDiskId.Id == volumeID {
 					virtualDevice := device.GetVirtualDevice()
 					if backing, ok := virtualDevice.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
-						log.Debugf("Found diskUUID %s for volume %s on vm %s", backing.Uuid, volumeID, vm.InventoryPath)
+						log.Debugf("Found diskUUID %s for volume %s on vm %+v", backing.Uuid, volumeID, vm)
 						return backing.Uuid, nil
 					}
 				}
@@ -60,5 +60,17 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 		}
 	}
 	log.Debugf("Volume %s is not attached to VM: %+v", volumeID, vm)
+	return "", nil
+}
+
+// IsDiskAttachedToVMs checks if the volume is attached to any of the input VMs.
+// If the volume is attached to the VM, return disk uuid of the volume, else return empty string
+func IsDiskAttachedToVMs(ctx context.Context, volumeID string, vms []*cnsvsphere.VirtualMachine) (string, error) {
+	for _, vm := range vms {
+		diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+		if diskUUID != "" || err != nil {
+			return diskUUID, err
+		}
+	}
 	return "", nil
 }

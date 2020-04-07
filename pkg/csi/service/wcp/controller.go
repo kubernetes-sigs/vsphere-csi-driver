@@ -35,7 +35,7 @@ import (
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -45,6 +45,7 @@ var (
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
 )
 
@@ -60,7 +61,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *config.Config) error {
+func (c *controller) Init(config *cnsconfig.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -522,5 +523,31 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+
+	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager)
+	if err != nil {
+		log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+		return nil, err
+	}
+	volumeID := req.GetVolumeId()
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	volumeExpanded, err := common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
+	if err != nil {
+		msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	nodeExpansionRequired := true
+	// Set NodeExpansionRequired to false for raw block volumes
+	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+		nodeExpansionRequired = false
+	}
+	resp := &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
+		NodeExpansionRequired: volumeExpanded && nodeExpansionRequired,
+	}
+	return resp, nil
 }
