@@ -14,7 +14,7 @@ Install instructions for the CSI driver are available here:
 
 ## CSI Driver Images
 
-The CSI driver container images are available here:
+The CSI driver container images are available here:-
 
 * gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.2
 * gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.2
