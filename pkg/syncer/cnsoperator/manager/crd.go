@@ -62,7 +62,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 		log.Debugf("%q CRD already exists", crdName)
 		return nil
 	} else {
-		log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
+		log.Errorf("failed to create %q CRD with err: %+v", crdName, err)
 		return err
 	}
 
@@ -71,7 +71,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
 		crd, err = clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(crdName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
+			log.Errorf("failed to get %q CRD with err: %+v", crdName, err)
 			return false, err
 		}
 		for _, cond := range crd.Status.Conditions {
@@ -95,7 +95,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 		log.Infof("Cleanup %q CRD because the CRD created was not succesfully established. Error: %+v", crdName, err)
 		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(crdName, nil)
 		if deleteErr != nil {
-			log.Errorf("Failed to delete %q CRD with error: %+v", crdName, deleteErr)
+			log.Errorf("failed to delete %q CRD with error: %+v", crdName, deleteErr)
 		}
 	}
 	return err

@@ -28,12 +28,12 @@ func (vc *VirtualCenter) ConnectPbm(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		log.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
+		log.Errorf("failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.PbmClient == nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create pbm client with err: %v", err)
+			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
 	}
@@ -56,7 +56,7 @@ func (vc *VirtualCenter) GetStoragePolicyIDByName(ctx context.Context, storagePo
 	log := logger.GetLogger(ctx)
 	storagePolicyID, err := vc.PbmClient.ProfileIDByName(ctx, storagePolicyName)
 	if err != nil {
-		log.Errorf("Failed to get StoragePolicyID from StoragePolicyName %s with err: %v", storagePolicyName, err)
+		log.Errorf("failed to get StoragePolicyID from StoragePolicyName %s with err: %v", storagePolicyName, err)
 		return "", err
 	}
 	return storagePolicyID, nil

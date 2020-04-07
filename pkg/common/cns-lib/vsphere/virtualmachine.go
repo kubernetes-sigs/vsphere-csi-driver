@@ -57,7 +57,7 @@ func (vm *VirtualMachine) IsActive(ctx context.Context) (bool, error) {
 	log := logger.GetLogger(ctx)
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*VirtualMachine{vm}, []string{"summary"})
 	if err != nil {
-		log.Errorf("Failed to get VM Managed object with property summary. err: +%v", err)
+		log.Errorf("failed to get VM Managed object with property summary. err: +%v", err)
 		return false, err
 	}
 	if vmMoList[0].Summary.Runtime.PowerState == types.VirtualMachinePowerStatePoweredOn {
@@ -77,7 +77,7 @@ func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]*Da
 	log := logger.GetLogger(ctx)
 	host, err := vm.HostSystem(ctx)
 	if err != nil {
-		log.Errorf("Failed to get host system for VM %v with err: %v", vm.InventoryPath, err)
+		log.Errorf("failed to get host system for VM %v with err: %v", vm.InventoryPath, err)
 		return nil, err
 	}
 	hostObj := &HostSystem{
@@ -92,7 +92,7 @@ func (vm *VirtualMachine) Renew(ctx context.Context, reconnect bool) error {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vm.VirtualCenterHost)
 	if err != nil {
-		log.Errorf("Failed to get VC while renewing VM %v with err: %v", vm, err)
+		log.Errorf("failed to get VC while renewing VM %v with err: %v", vm, err)
 		return err
 	}
 
@@ -200,13 +200,13 @@ func (vm *VirtualMachine) GetHostSystem(ctx context.Context) (*object.HostSystem
 	log := logger.GetLogger(ctx)
 	vmHost, err := vm.VirtualMachine.HostSystem(ctx)
 	if err != nil {
-		log.Errorf("Failed to get host system for vm: %v. err: %+v", vm, err)
+		log.Errorf("failed to get host system for vm: %v. err: %+v", vm, err)
 		return nil, err
 	}
 	var oHost mo.HostSystem
 	err = vmHost.Properties(ctx, vmHost.Reference(), []string{"summary"}, &oHost)
 	if err != nil {
-		log.Errorf("Failed to get host system properties. err: %+v", err)
+		log.Errorf("failed to get host system properties. err: %+v", err)
 		return nil, err
 	}
 	log.Debugf("Host owning node vm: %v is %s", vm, oHost.Summary.Config.Name)
@@ -219,12 +219,12 @@ func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, err
 	restClient := rest.NewClient(vm.Client())
 	virtualCenter, err := GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vm.VirtualCenterHost)
 	if err != nil {
-		log.Errorf("Failed to get virtualCenter. Error: %v", err)
+		log.Errorf("failed to get virtualCenter. Error: %v", err)
 		return nil, err
 	}
 	signer, err := signer(ctx, vm.Client(), virtualCenter.Config.Username, virtualCenter.Config.Password)
 	if err != nil {
-		log.Errorf("Failed to create the Signer. Error: %v", err)
+		log.Errorf("failed to create the Signer. Error: %v", err)
 		return nil, err
 	}
 	if signer == nil {
@@ -236,11 +236,11 @@ func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, err
 		err = restClient.LoginByToken(restClient.WithSigner(ctx, signer))
 	}
 	if err != nil {
-		log.Errorf("Failed to login for the rest client. Error: %v", err)
+		log.Errorf("failed to login for the rest client. Error: %v", err)
 	}
 	tagManager := tags.NewManager(restClient)
 	if tagManager == nil {
-		log.Errorf("Failed to create a tagManager")
+		log.Errorf("failed to create a tagManager")
 	}
 	return tagManager, nil
 }
@@ -251,7 +251,7 @@ func (vm *VirtualMachine) GetAncestors(ctx context.Context) ([]mo.ManagedEntity,
 	log := logger.GetLogger(ctx)
 	vmHost, err := vm.GetHostSystem(ctx)
 	if err != nil {
-		log.Errorf("Failed to get host system for vm: %v. err: %+v", vm, err)
+		log.Errorf("failed to get host system for vm: %v. err: %+v", vm, err)
 		return nil, err
 	}
 	var objects []mo.ManagedEntity
@@ -272,7 +272,7 @@ func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName st
 	log.Debugf("GetZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s", zoneCategoryName, regionCategoryName)
 	tagManager, err := vm.GetTagManager(ctx)
 	if err != nil || tagManager == nil {
-		log.Errorf("Failed to get tagManager. Error: %v", err)
+		log.Errorf("failed to get tagManager. Error: %v", err)
 		return "", "", err
 	}
 	defer tagManager.Logout(ctx)
@@ -297,13 +297,13 @@ func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName st
 		for _, value := range tags {
 			tag, err := tagManager.GetTag(ctx, value)
 			if err != nil {
-				log.Errorf("Failed to get tag:%s, error:%v", value, err)
+				log.Errorf("failed to get tag:%s, error:%v", value, err)
 				return "", "", err
 			}
 			log.Infof("Found tag: %s for object %v", tag.Name, obj)
 			category, err := tagManager.GetCategory(ctx, tag.CategoryID)
 			if err != nil {
-				log.Errorf("Failed to get category for tag: %s, error: %v", tag.Name, tag)
+				log.Errorf("failed to get category for tag: %s, error: %v", tag.Name, tag)
 				return "", "", err
 			}
 			log.Debugf("Found category: %s for object %v with tag: %s", category.Name, obj, tag.Name)
@@ -328,7 +328,7 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 	log.Infof("IsInZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s, zoneValue: %s, regionValue: %s", zoneCategoryName, regionCategoryName, zoneValue, regionValue)
 	tagManager, err := vm.GetTagManager(ctx)
 	if err != nil || tagManager == nil {
-		log.Errorf("Failed to get tagManager. Error: %v", err)
+		log.Errorf("failed to get tagManager. Error: %v", err)
 		return false, err
 	}
 	defer tagManager.Logout(ctx)

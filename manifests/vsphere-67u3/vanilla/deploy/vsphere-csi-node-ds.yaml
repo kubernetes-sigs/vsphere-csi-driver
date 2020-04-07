@@ -1,3 +1,5 @@
+# Minimum Kubernetes version - 1.16
+# For prior releases make sure to add required --feature-gates flags
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:

@@ -29,7 +29,7 @@ func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
 	log := logger.GetLogger(ctx)
 	cnsClient, err := cns.NewClient(ctx, c)
 	if err != nil {
-		log.Errorf("Failed to create a new client for CNS. err: %v", err)
+		log.Errorf("failed to create a new client for CNS. err: %v", err)
 		return nil, err
 	}
 	return cnsClient, nil
@@ -40,12 +40,12 @@ func (vc *VirtualCenter) ConnectCns(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		log.Errorf("Failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
+		log.Errorf("failed to connect to Virtual Center host %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.CnsClient == nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
+			log.Errorf("failed to create CNS client on vCenter host %q with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}

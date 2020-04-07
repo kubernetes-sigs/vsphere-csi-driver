@@ -241,7 +241,7 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create a StorageClass. Error: %v", err))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create a StorageClass. Error: %v", err))
 
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)

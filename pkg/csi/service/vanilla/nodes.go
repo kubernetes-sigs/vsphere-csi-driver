@@ -62,7 +62,7 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 	}
 	err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
-		log.Warnf("Failed to register node:%q. err=%v", node.Name, err)
+		log.Warnf("failed to register node:%q. err=%v", node.Name, err)
 	}
 }
 
@@ -97,7 +97,7 @@ func (nodes *Nodes) nodeDelete(obj interface{}) {
 	}
 	err := nodes.cnsNodeManager.UnregisterNode(ctx, node.Name)
 	if err != nil {
-		log.Warnf("Failed to unregister node:%q. err=%v", node.Name, err)
+		log.Warnf("failed to unregister node:%q. err=%v", node.Name, err)
 	}
 }
 
@@ -138,7 +138,7 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	log.Debugf("GetSharedDatastoresInTopology: called with topologyRequirement: %+v, zoneCategoryName: %s, regionCategoryName: %s", topologyRequirement, zoneCategoryName, regionCategoryName)
 	allNodes, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
-		log.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
+		log.Errorf("failed to get Nodes from nodeManager with err %+v", err)
 		return nil, nil, err
 	}
 	if len(allNodes) == 0 {
@@ -177,13 +177,13 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 			log.Debugf("Getting list of nodeVMs for zone [%s] and region [%s]", zone, region)
 			nodeVMsInZoneRegion, err := getNodesInZoneRegion(zone, region)
 			if err != nil {
-				log.Errorf("Failed to find Nodes in the zone: [%s] and region: [%s]. Error: %+v", zone, region, err)
+				log.Errorf("failed to find Nodes in the zone: [%s] and region: [%s]. Error: %+v", zone, region, err)
 				return nil, nil, err
 			}
 			log.Debugf("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]", nodeVMsInZoneRegion, zone, region)
 			sharedDatastoresInZoneRegion, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
 			if err != nil {
-				log.Errorf("Failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v", nodeVMsInZoneRegion, zone, region, err)
+				log.Errorf("failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v", nodeVMsInZoneRegion, zone, region, err)
 				return nil, nil, err
 			}
 			log.Debugf("Obtained shared datastores : %+v for topology: %+v", sharedDatastores, topology)
@@ -229,7 +229,7 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cns
 	log := logger.GetLogger(ctx)
 	nodeVMs, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
-		log.Errorf("Failed to get Nodes from nodeManager with err %+v", err)
+		log.Errorf("failed to get Nodes from nodeManager with err %+v", err)
 		return nil, err
 	}
 	if len(nodeVMs) == 0 {
@@ -239,7 +239,7 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cns
 	}
 	sharedDatastores, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMs)
 	if err != nil {
-		log.Errorf("Failed to get shared datastores for node VMs. Err: %+v", err)
+		log.Errorf("failed to get shared datastores for node VMs. Err: %+v", err)
 		return nil, err
 	}
 	log.Debugf("sharedDatastores : %+v", sharedDatastores)

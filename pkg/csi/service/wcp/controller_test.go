@@ -213,7 +213,7 @@ func getFakeDatastores(ctx context.Context, controller *controller) ([]*cnsvsphe
 		}
 	}
 	if sharedDatastoreManagedObject == nil {
-		return nil, fmt.Errorf("Failed to get shared datastores")
+		return nil, fmt.Errorf("failed to get shared datastores")
 	}
 	return []*cnsvsphere.DatastoreInfo{
 		{
@@ -290,11 +290,11 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	if queryResult.Volumes[0].StoragePolicyId != profileID {
-		t.Fatalf("Failed to match volume policy ID: %s", profileID)
+		t.Fatalf("failed to match volume policy ID: %s", profileID)
 	}
 
 	// QueryAll
@@ -312,7 +312,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	// Delete

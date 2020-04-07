@@ -68,13 +68,13 @@ func (c *controller) Init(config *config.Config) error {
 	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
-		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 	if err != nil {
-		log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
 	c.manager = &common.Manager{
@@ -86,7 +86,7 @@ func (c *controller) Init(config *config.Config) error {
 
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		log.Errorf("Failed to get vcenter. err=%v", err)
+		log.Errorf("failed to get vcenter. err=%v", err)
 		return err
 	}
 	// Check vCenter API Version
@@ -98,7 +98,7 @@ func (c *controller) Init(config *config.Config) error {
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
 	go func() {
@@ -126,7 +126,7 @@ func (c *controller) Init(config *config.Config) error {
 	log.Infof("Adding watch on path: %q", cfgDirPath)
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
 	return nil
@@ -139,11 +139,11 @@ func (c *controller) ReloadConfiguration() {
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to read config. Error: %+v", err)
+		log.Errorf("failed to read config. Error: %+v", err)
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 	if err != nil {
-		log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 	}
 	if newVCConfig != nil {
 		var vcenter *cnsvsphere.VirtualCenter
@@ -153,18 +153,18 @@ func (c *controller) ReloadConfiguration() {
 			log.Debugf("Unregistering virtual center: %q from virtualCenterManager", c.manager.VcenterConfig.Host)
 			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
 			if err != nil {
-				log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
+				log.Errorf("failed to unregister vcenter with virtualCenterManager.")
 			}
 			log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
 			vcenter, err = c.manager.VcenterManager.RegisterVirtualCenter(ctx, newVCConfig)
 			if err != nil {
-				log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+				log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 			}
 			c.manager.VcenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
 		} else {
 			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, newVCConfig.Host)
 			if err != nil {
-				log.Errorf("Failed to get VirtualCenter. err=%v", err)
+				log.Errorf("failed to get VirtualCenter. err=%v", err)
 				return
 			}
 		}
@@ -224,13 +224,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	// Get shared datastores for the Kubernetes cluster
 	sharedDatastores, err := getSharedDatastores(ctx, c)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to obtain shared datastores. Error: %+v", err)
+		msg := fmt.Sprintf("failed to obtain shared datastores. Error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to create volume. Error: %+v", err)
+		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -261,7 +261,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	}
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)
+		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -284,14 +284,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	vmuuid, err := getVMUUIDFromPodListenerService(ctx, req.VolumeId, req.NodeId)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
+		msg := fmt.Sprintf("failed to get the pod vmuuid annotation from the pod listener service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get datacenter from config with error: %+v", err)
+		msg := fmt.Sprintf("failed to get datacenter from config with error: %+v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -313,14 +313,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	defer cancel()
 	err = vc.Connect(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to connect to Virtual Center: %s", vc.Config.Host)
+		msg := fmt.Sprintf("failed to connect to Virtual Center: %s", vc.Config.Host)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
+		msg := fmt.Sprintf("failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -328,7 +328,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	// Attach the volume to the node
 	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
+		msg := fmt.Sprintf("failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -452,12 +452,12 @@ func getSharedDatastoresInPodVMK8SCluster(ctx context.Context, c *controller) ([
 	log := logger.GetLogger(ctx)
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		log.Errorf("Failed to get vCenter from Manager, err=%+v", err)
+		log.Errorf("failed to get vCenter from Manager, err=%+v", err)
 		return nil, err
 	}
 	hosts, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
 	if err != nil {
-		log.Errorf("Failed to get hosts from VC with err %+v", err)
+		log.Errorf("failed to get hosts from VC with err %+v", err)
 		return nil, err
 	}
 	if len(hosts) == 0 {

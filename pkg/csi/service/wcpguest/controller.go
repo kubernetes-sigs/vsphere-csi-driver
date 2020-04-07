@@ -86,23 +86,23 @@ func (c *controller) Init(config *config.Config) error {
 	restClientConfig := k8s.GetRestClientConfig(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
-		log.Errorf("Failed to create supervisorClient. Error: %+v", err)
+		log.Errorf("failed to create supervisorClient. Error: %+v", err)
 		return err
 	}
 	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
-		log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+		log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
 	c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
 	if err != nil {
-		log.Errorf("Failed to create vmWatcher. Error: %+v", err)
+		log.Errorf("failed to create vmWatcher. Error: %+v", err)
 		return err
 	}
 	pvcsiConfigPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
 	go func() {
@@ -130,13 +130,13 @@ func (c *controller) Init(config *config.Config) error {
 	log.Infof("Adding watch on path: %q", cfgDirPath)
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
 	log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
 	err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
 	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
 	return nil
@@ -149,25 +149,25 @@ func (c *controller) ReloadConfiguration() {
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to read config. Error: %+v", err)
+		log.Errorf("failed to read config. Error: %+v", err)
 		return
 	}
 	if cfg != nil {
 		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, cfg.GC.Port)
 		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
-			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
+			log.Errorf("failed to create supervisorClient. Error: %+v", err)
 			return
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
 		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 		if err != nil {
-			log.Errorf("Failed to create vmOperatorClient. Error: %+v", err)
+			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return
 		}
 		c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
 		if err != nil {
-			log.Errorf("Failed to create vmWatcher. Error: %+v", err)
+			log.Errorf("failed to create vmWatcher. Error: %+v", err)
 			return
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
@@ -217,19 +217,19 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(claim)
 			if err != nil {
-				msg := fmt.Sprintf("Failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+				msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 		} else {
-			msg := fmt.Sprintf("Failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+			msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
 	isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 	if !isBound {
-		msg := fmt.Sprintf("Failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
+		msg := fmt.Sprintf("failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -294,7 +294,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		Name:      req.NodeId,
 	}
 	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
+		msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -338,7 +338,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				break
 			}
 			if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-				msg := fmt.Sprintf("Failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
+				msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
@@ -433,7 +433,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		Name:      req.NodeId,
 	}
 	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
+		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -455,7 +455,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			break
 		}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-			msg := fmt.Sprintf("Failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
+			msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -474,7 +474,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		TimeoutSeconds:  &timeoutSeconds,
 	})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
+		msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -504,7 +504,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name))
 				isVolumeDetached = false
 				if volume.Attached && volume.Error != "" {
-					msg := fmt.Sprintf("Failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
+					msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
 					log.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)
 				}

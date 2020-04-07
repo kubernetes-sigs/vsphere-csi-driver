@@ -119,7 +119,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Errorf("Failed to create fsnotify watcher. err=%v", err)
+		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
 	go func() {
@@ -152,14 +152,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	log.Infof("Adding watch on path: %q", cfgDirPath)
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
 		err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
 		if err != nil {
-			log.Errorf("Failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+			log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 			return err
 		}
 	}
@@ -223,7 +223,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	log := logger.GetLogger(ctx)
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to read config. Error: %+v", err)
+		log.Errorf("failed to read config. Error: %+v", err)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -237,7 +237,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	} else {
 		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 		if err != nil {
-			log.Errorf("Failed to get VirtualCenterConfig. err=%v", err)
+			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 			return
 		}
 		if newVCConfig != nil {
@@ -249,19 +249,19 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 				log.Debugf("Unregistering virtual center: %q from virtualCenterManager", metadataSyncer.configInfo.Cfg.Global.VCenterIP)
 				err = vcManager.UnregisterAllVirtualCenters(ctx)
 				if err != nil {
-					log.Errorf("Failed to unregister vcenter with virtualCenterManager.")
+					log.Errorf("failed to unregister vcenter with virtualCenterManager.")
 					return
 				}
 				log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
 				vcenter, err = vcManager.RegisterVirtualCenter(ctx, newVCConfig)
 				if err != nil {
-					log.Errorf("Failed to register VC with virtualCenterManager. err=%v", err)
+					log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 					return
 				}
 			} else {
 				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg})
 				if err != nil {
-					log.Errorf("Failed to get VirtualCenter. err=%v", err)
+					log.Errorf("failed to get VirtualCenter. err=%v", err)
 					return
 				}
 			}
