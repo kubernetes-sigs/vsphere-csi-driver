@@ -54,7 +54,7 @@ func TestValidateConfigWithNoNetPermissionParams(t *testing.T) {
 
 	err := validateConfig(ctx, cfg)
 	if err != nil {
-		t.Errorf("Failed to validate config %+v. Received error: %v", *cfg, err)
+		t.Errorf("failed to validate config %+v. Received error: %v", *cfg, err)
 	}
 
 	if !isConfigEqual(cfg, expectedConfig) {
@@ -119,7 +119,7 @@ func TestValidateConfigWithMultipleNetPermissionParams(t *testing.T) {
 
 	err := validateConfig(ctx, cfg)
 	if err != nil {
-		t.Errorf("Failed to validate config %+v. Received error: %v", *cfg, err)
+		t.Errorf("failed to validate config %+v. Received error: %v", *cfg, err)
 	}
 
 	if !isConfigEqual(cfg, expectedConfig) {

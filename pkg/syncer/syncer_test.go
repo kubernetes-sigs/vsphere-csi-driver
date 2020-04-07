@@ -165,7 +165,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Init VC configuration
 	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
-		t.Errorf("Failed to get virtualCenter. err=%v", err)
+		t.Errorf("failed to get virtualCenter. err=%v", err)
 		t.Fatal(err)
 	}
 
@@ -211,14 +211,14 @@ func TestSyncerWorkflows(t *testing.T) {
 	}
 	dc, err = virtualCenter.GetDatacenters(ctx)
 	if err != nil || len(dc) == 0 {
-		t.Errorf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
+		t.Errorf("failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
 		t.Fatal(err)
 		return
 	}
 
 	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
 	if err != nil {
-		t.Errorf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
+		t.Errorf("failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
 		t.Fatal(err)
 		return
 	}
@@ -297,7 +297,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volumeID.Id {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volumeID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volumeID)
 	}
 
 	// Set old and new PV labels
@@ -612,7 +612,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	volumeID, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
-		t.Errorf("Failed to create volume. Error: %+v", err)
+		t.Errorf("failed to create volume. Error: %+v", err)
 		t.Fatal(err)
 		return
 	}
@@ -633,7 +633,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volumeID.Id {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volumeID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volumeID)
 	}
 	cnsDeletionMap = make(map[string]bool)
 	// PV does not exist in K8S, but volume exist in CNS cache
@@ -768,7 +768,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Cleanup in CNS to delete the volume
 	if err = volumeManager.DeleteVolume(ctx, volumeID.Id, true); err != nil {
-		t.Logf("Failed to delete volume %v from CNS", volumeID.Id)
+		t.Logf("failed to delete volume %v from CNS", volumeID.Id)
 	}
 	t.Log("TestFullSyncWorkflows end")
 }

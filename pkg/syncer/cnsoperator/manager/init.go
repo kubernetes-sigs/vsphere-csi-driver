@@ -59,13 +59,13 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		log.Errorf("Failed to get Kubernetes config. Err: %+v", err)
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 		return err
 	}
 
 	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
-		log.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
+		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
 		return err
 	}
 
@@ -75,7 +75,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
 	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVMAttachmentPlural, crdKind)
 	if err != nil {
-		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
@@ -83,7 +83,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
 	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
 	if err != nil {
-		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
@@ -94,7 +94,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 	})
 	if err != nil {
-		log.Errorf("Failed to create new Cns operator instance. Err: %+v", err)
+		log.Errorf("failed to create new Cns operator instance. Err: %+v", err)
 		return err
 	}
 
@@ -102,13 +102,13 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 
 	// Setup Scheme for all resources
 	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("Failed to set the scheme for Cns operator. Err: %+v", err)
+		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
 		return err
 	}
 
 	// Setup all Controllers
 	if err := controller.AddToManager(mgr, configInfo, volumeManager); err != nil {
-		log.Errorf("Failed to setup the controller for Cns operator. Err: %+v", err)
+		log.Errorf("failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}
 
@@ -116,7 +116,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 
 	// Start the operator
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		log.Errorf("Failed to start Cns operator. Err: %+v", err)
+		log.Errorf("failed to start Cns operator. Err: %+v", err)
 		return err
 	}
 	return nil

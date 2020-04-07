@@ -135,7 +135,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeCla
 	}
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-		return fmt.Errorf("Failed to query cns volume %s", volumeID)
+		return fmt.Errorf("failed to query cns volume %s", volumeID)
 	}
 	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
 		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
@@ -179,7 +179,7 @@ func getVirtualDeviceByDiskID(ctx context.Context, vm *object.VirtualMachine, di
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		framework.Logf("Failed to get the devices for VM: %q. err: %+v", vmname, err)
+		framework.Logf("failed to get the devices for VM: %q. err: %+v", vmname, err)
 		return nil, err
 	}
 	for _, device := range vmDevices {
@@ -192,7 +192,7 @@ func getVirtualDeviceByDiskID(ctx context.Context, vm *object.VirtualMachine, di
 			}
 		}
 	}
-	framework.Logf("Failed to find FCDID %q attached to VM %q", diskID, vmname)
+	framework.Logf("failed to find FCDID %q attached to VM %q", diskID, vmname)
 	return nil, nil
 }
 
@@ -252,7 +252,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 	storageclass, err := client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create storage class with err: %v", err))
 	return storageclass, err
 }
 
@@ -261,7 +261,7 @@ func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels ma
 	pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
 	ginkgo.By(fmt.Sprintf("Creating PVC using the Storage Class %s with disk size %s and labels: %+v accessMode: %+v", storageclass.Name, ds, pvclaimlabels, accessMode))
 	pvclaim, err := framework.CreatePVC(client, pvcnamespace, pvcspec)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create pvc with err: %v", err))
 	return pvclaim, err
 }
 
@@ -309,7 +309,7 @@ func getDatastoreByURL(ctx context.Context, datastoreURL string, dc *object.Data
 	finder.SetDatacenter(dc)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		framework.Logf("Failed to get all the datastores. err: %+v", err)
+		framework.Logf("failed to get all the datastores. err: %+v", err)
 		return nil, err
 	}
 	var dsList []types.ManagedObjectReference
@@ -322,7 +322,7 @@ func getDatastoreByURL(ctx context.Context, datastoreURL string, dc *object.Data
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		framework.Logf("Failed to get Datastore managed objects from datastore objects."+
+		framework.Logf("failed to get Datastore managed objects from datastore objects."+
 			" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
 		return nil, err
 	}
@@ -492,7 +492,7 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
-		framework.Logf("Failed to change the password for user %s: %s", user, result.Stdout)
+		framework.Logf("failed to change the password for user %s: %s", user, result.Stdout)
 		return err
 	}
 	framework.Logf("password changed successfully for user: %s", user)

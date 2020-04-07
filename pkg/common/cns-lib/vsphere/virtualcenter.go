@@ -109,20 +109,20 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 
 	url, err := soap.ParseURL(net.JoinHostPort(vc.Config.Host, strconv.Itoa(vc.Config.Port)))
 	if err != nil {
-		log.Errorf("Failed to parse URL %s with err: %v", url, err)
+		log.Errorf("failed to parse URL %s with err: %v", url, err)
 		return nil, err
 	}
 
 	soapClient := soap.NewClient(url, vc.Config.Insecure)
 	if len(vc.Config.CAFile) > 0 && !vc.Config.Insecure {
 		if err := soapClient.SetRootCAs(vc.Config.CAFile); err != nil {
-			log.Errorf("Failed to load CA file: %v", err)
+			log.Errorf("failed to load CA file: %v", err)
 			return nil, err
 		}
 	}
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
-		log.Errorf("Failed to create new client with err: %v", err)
+		log.Errorf("failed to create new client with err: %v", err)
 		return nil, err
 	}
 	vimClient.UseServiceVersion("vsan")
@@ -163,13 +163,13 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 
 	cert, err := tls.X509KeyPair([]byte(vc.Config.Username), []byte(vc.Config.Password))
 	if err != nil {
-		log.Errorf("Failed to load X509 key pair with err: %v", err)
+		log.Errorf("failed to load X509 key pair with err: %v", err)
 		return err
 	}
 
 	tokens, err := sts.NewClient(ctx, client.Client)
 	if err != nil {
-		log.Errorf("Failed to create STS client with err: %v", err)
+		log.Errorf("failed to create STS client with err: %v", err)
 		return err
 	}
 
@@ -179,7 +179,7 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 
 	signer, err := tokens.Issue(ctx, req)
 	if err != nil {
-		log.Errorf("Failed to issue SAML token with err: %v", err)
+		log.Errorf("failed to issue SAML token with err: %v", err)
 		return err
 	}
 
@@ -208,7 +208,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	var err error
 	if vc.Client == nil {
 		if vc.Client, err = vc.newClient(ctx); err != nil {
-			log.Errorf("Failed to create govmomi client with err: %v", err)
+			log.Errorf("failed to create govmomi client with err: %v", err)
 			return err
 		}
 		return nil
@@ -219,7 +219,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
 		// Nil is returned if the session is not authenticated or timed out.
 		if userSession, err := sessionMgr.UserSession(ctx); err != nil {
-			log.Errorf("Failed to obtain user session with err: %v", err)
+			log.Errorf("failed to obtain user session with err: %v", err)
 			return err
 		} else if userSession != nil {
 			return nil
@@ -228,27 +228,27 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	// If session has expired, create a new instance.
 	log.Warnf("Creating a new client session as the existing session isn't valid or not authenticated")
 	if vc.Client, err = vc.newClient(ctx); err != nil {
-		log.Errorf("Failed to create govmomi client with err: %v", err)
+		log.Errorf("failed to create govmomi client with err: %v", err)
 		return err
 	}
 	// Recreate PbmClient If created using timed out VC Client
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create pbm client with err: %v", err)
+			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
 	}
 	// Recreate CNSClient If created using timed out VC Client
 	if vc.CnsClient != nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
+			log.Errorf("failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}
 	// Recreate VSAN client if created using timed out VC Client
 	if vc.VsanClient != nil {
 		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create vsan client with err: %v", err)
+			log.Errorf("failed to create vsan client with err: %v", err)
 			return err
 		}
 	}
@@ -261,7 +261,7 @@ func (vc *VirtualCenter) listDatacenters(ctx context.Context) ([]*Datacenter, er
 	finder := find.NewFinder(vc.Client.Client, false)
 	dcList, err := finder.DatacenterList(ctx, "*")
 	if err != nil {
-		log.Errorf("Failed to list datacenters with err: %v", err)
+		log.Errorf("failed to list datacenters with err: %v", err)
 		return nil, err
 	}
 
@@ -281,7 +281,7 @@ func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 	for _, dcPath := range dcPaths {
 		dcObj, err := finder.Datacenter(ctx, dcPath)
 		if err != nil {
-			log.Errorf("Failed to fetch datacenter given dcPath %s with err: %v", dcPath, err)
+			log.Errorf("failed to fetch datacenter given dcPath %s with err: %v", dcPath, err)
 			return nil, err
 		}
 		dc := &Datacenter{Datacenter: dcObj, VirtualCenterHost: vc.Config.Host}
@@ -310,7 +310,7 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 		return nil
 	}
 	if err := vc.Client.Logout(ctx); err != nil {
-		log.Errorf("Failed to logout with err: %v", err)
+		log.Errorf("failed to logout with err: %v", err)
 		return err
 	}
 	vc.Client = nil
@@ -327,7 +327,7 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 	clusterComputeResourceMo := mo.ClusterComputeResource{}
 	err := vc.Client.RetrieveOne(ctx, clusterMoref, []string{"host"}, &clusterComputeResourceMo)
 	if err != nil {
-		log.Errorf("Failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
+		log.Errorf("failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
 		return nil, err
 	}
 	var hostObjList []*HostSystem
@@ -345,7 +345,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
-		log.Errorf("Failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 
@@ -355,7 +355,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 		finder.SetDatacenter(dc.Datacenter)
 		datastoresList, err := finder.DatastoreList(ctx, "*")
 		if err != nil {
-			log.Errorf("Failed to get all the datastores. err: %+v", err)
+			log.Errorf("failed to get all the datastores. err: %+v", err)
 			return nil, err
 		}
 		var dsMorList []types.ManagedObjectReference
@@ -367,7 +367,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 		properties := []string{"summary"}
 		err = pc.Retrieve(ctx, dsMorList, properties, &dsMoList)
 		if err != nil {
-			log.Errorf("Failed to get Datastore managed objects from datastore objects."+
+			log.Errorf("failed to get Datastore managed objects from datastore objects."+
 				" dsObjList: %+v, properties: %+v, err: %v", dsMorList, properties, err)
 			return nil, err
 		}

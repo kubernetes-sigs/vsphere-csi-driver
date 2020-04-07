@@ -109,7 +109,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
 	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
-		log.Errorf("Failed to create new CnsNodeVmAttachment controller with error: %+v", err)
+		log.Errorf("failed to create new CnsNodeVmAttachment controller with error: %+v", err)
 		return err
 	}
 
@@ -118,7 +118,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Watch for changes to primary resource CnsNodeVmAttachment
 	err = c.Watch(&source.Kind{Type: &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsNodeVmAttachment resource with error: %+v", err)
+		log.Errorf("failed to watch for changes to CnsNodeVmAttachment resource with error: %+v", err)
 		return err
 	}
 	return nil
@@ -182,7 +182,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 
 	vcdcMap, err := getVCDatacentersFromConfig(r.configInfo.Cfg)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+		msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		instance.Status.Error = err.Error()
 		updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -198,7 +198,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	var dc *vsphere.Datacenter
 	vcenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get virtual center instance with error: %v", err)
+		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 		instance.Status.Error = err.Error()
 		updateCnsNodeVMAttachment(ctx, r.client, instance)
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -216,16 +216,16 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if !instance.Status.Attached && instance.DeletionTimestamp == nil {
 		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
-			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
+			instance.Status.Error = fmt.Sprintf("failed to find the VM with UUID: %q", nodeUUID)
 			updateCnsNodeVMAttachment(ctx, r.client, instance)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
+			msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
 			updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -260,7 +260,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			instance.Status.AttachmentMetadata = attachmentMetadata
 			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
-				msg := fmt.Sprintf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+				msg := fmt.Sprintf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, nil
@@ -272,7 +272,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		diskUUID, attachErr := volumes.GetManager(ctx, vcenter).AttachVolume(ctx, nodeVM, volumeID)
 
 		if attachErr != nil {
-			log.Errorf("Failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				volumeID, nodeVM, request.Name, request.Namespace, attachErr)
 		}
 
@@ -302,7 +302,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 
 		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to update attach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+			msg := fmt.Sprintf("failed to update attach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -324,7 +324,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if instance.DeletionTimestamp != nil {
 		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
 			// TODO : Need to check for VirtualMachine CRD instance existence.
 			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
@@ -356,7 +356,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 				return reconcile.Result{}, nil
 			}
 			// Update CnsNodeVMAttachment instance with detach error message
-			log.Errorf("Failed to detach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
+			log.Errorf("failed to detach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				cnsVolumeID, nodeVM, request.Name, request.Namespace, detachErr)
 			instance.Status.Error = detachErr.Error()
 		} else {
@@ -364,7 +364,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		}
 		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to update detach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+			msg := fmt.Sprintf("failed to update detach status on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 				request.Name, request.Namespace, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -420,7 +420,7 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	pvc := &v1.PersistentVolumeClaim{}
 	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
 	if err != nil {
-		log.Errorf("Failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 			pvcName, namespace, err)
 		return "", err
 	}
@@ -429,7 +429,7 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	pv := &v1.PersistentVolume{}
 	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
 	if err != nil {
-		log.Errorf("Failed to get PV with name: %q for PVC: %q. Err: %+v",
+		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
 			pvc.Spec.VolumeName, pvcName, err)
 		return "", err
 	}
@@ -440,7 +440,7 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {
-		log.Errorf("Failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+		log.Errorf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 			instance.Name, instance.Namespace, err)
 	}
 	return err

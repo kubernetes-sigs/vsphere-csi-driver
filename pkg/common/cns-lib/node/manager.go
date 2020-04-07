@@ -103,7 +103,7 @@ func (m *defaultManager) RegisterNode(ctx context.Context, nodeUUID string, node
 	log.Infof("Successfully registered node: %q with nodeUUID %q", nodeName, nodeUUID)
 	err := m.DiscoverNode(ctx, nodeUUID)
 	if err != nil {
-		log.Errorf("Failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)
+		log.Errorf("failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)
 		return err
 	}
 	log.Infof("Successfully discovered node: %q with nodeUUID %q", nodeName, nodeUUID)
@@ -139,7 +139,7 @@ func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*v
 	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
 	k8snodeUUID, err := k8s.GetNodeVMUUID(ctx, m.k8sClient, nodeName)
 	if err != nil {
-		log.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+		log.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
 		return nil, err
 	}
 	m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
@@ -159,13 +159,13 @@ func (m *defaultManager) GetNode(ctx context.Context, nodeUUID string, dc *vsphe
 		if dc != nil {
 			vm, err = dc.GetVirtualMachineByUUID(context.TODO(), nodeUUID, false)
 			if err != nil {
-				log.Errorf("Failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
+				log.Errorf("failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
 				return nil, err
 			}
 			m.nodeVMs.Store(nodeUUID, vm)
 		} else {
 			if err = m.DiscoverNode(ctx, nodeUUID); err != nil {
-				log.Errorf("Failed to discover node with nodeUUID %s with err: %v", nodeUUID, err)
+				log.Errorf("failed to discover node with nodeUUID %s with err: %v", nodeUUID, err)
 				return nil, err
 			}
 
@@ -180,7 +180,7 @@ func (m *defaultManager) GetNode(ctx context.Context, nodeUUID string, dc *vsphe
 	log.Debugf("Renewing virtual machine %v with nodeUUID %q", vm, nodeUUID)
 
 	if err := vm.Renew(ctx, true); err != nil {
-		log.Errorf("Failed to renew VM %v with nodeUUID %q with err: %v", vm, nodeUUID, err)
+		log.Errorf("failed to renew VM %v with nodeUUID %q with err: %v", vm, nodeUUID, err)
 		return nil, err
 	}
 
@@ -200,7 +200,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 			log.Infof("Empty node UUID observed for the node: %q", nodeName)
 			k8snodeUUID, err := k8s.GetNodeVMUUID(ctx, m.k8sClient, nodeName.(string))
 			if err != nil {
-				log.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+				log.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
 				return true
 			}
 			if k8snodeUUID == "" {
@@ -238,7 +238,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 		}
 
 		if err != nil {
-			log.Errorf("Failed to renew VM %v with nodeUUID %s, aborting get all nodes", vm, nodeUUID)
+			log.Errorf("failed to renew VM %v with nodeUUID %s, aborting get all nodes", vm, nodeUUID)
 			return false
 		}
 

@@ -46,7 +46,7 @@ func InitConfigInfo(ctx context.Context) (*ConfigInfo, error) {
 	log := logger.GetLogger(ctx)
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to read config. Error: %+v", err)
+		log.Errorf("failed to read config. Error: %+v", err)
 		return nil, err
 	}
 	configInfo := &ConfigInfo{
@@ -63,7 +63,7 @@ func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo) (*cn
 		var vcconfig *cnsvsphere.VirtualCenterConfig
 		vcconfig, vcerror := cnsvsphere.GetVirtualCenterConfig(configTypes.Cfg)
 		if vcerror != nil {
-			log.Errorf("Failed to get VirtualCenterConfig. Err: %+v", vcerror)
+			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", vcerror)
 			return
 		}
 
@@ -73,14 +73,14 @@ func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo) (*cn
 		// Register virtual center manager
 		vcenter, vcerror = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
 		if vcerror != nil {
-			log.Errorf("Failed to register VirtualCenter . Err: %+v", vcerror)
+			log.Errorf("failed to register VirtualCenter . Err: %+v", vcerror)
 			return
 		}
 
 		// Connect to VC
 		vcerror = vcenter.Connect(ctx)
 		if vcerror != nil {
-			log.Errorf("Failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, vcerror)
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, vcerror)
 			return
 		}
 	})

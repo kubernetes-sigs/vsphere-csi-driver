@@ -277,7 +277,7 @@ func TestParseStorageClassParamsWithDeprecatedFSType(t *testing.T) {
 	expectedScParams := &StorageClassParams{}
 	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
-		t.Errorf("Failed to parse params: %+v", params)
+		t.Errorf("failed to parse params: %+v", params)
 	}
 	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
 		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
@@ -296,7 +296,7 @@ func TestParseStorageClassParamsWithValidParams(t *testing.T) {
 
 	actualScParams, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
-		t.Errorf("Failed to parse params: %+v", params)
+		t.Errorf("failed to parse params: %+v", params)
 	}
 	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
 		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)

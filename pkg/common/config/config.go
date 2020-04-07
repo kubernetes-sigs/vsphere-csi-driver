@@ -105,7 +105,7 @@ func getEnvKeyValue(match string, partial bool) (string, string, error) {
 		matchType = "partial match"
 	}
 
-	return "", "", fmt.Errorf("Failed to find %s with %s", matchType, match)
+	return "", "", fmt.Errorf("failed to find %s with %s", matchType, match)
 }
 
 // FromEnv initializes the provided configuration object with values
@@ -141,7 +141,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("VSPHERE_INSECURE"); v != "" {
 		InsecureFlag, err := strconv.ParseBool(v)
 		if err != nil {
-			log.Errorf("Failed to parse VSPHERE_INSECURE: %s", err)
+			log.Errorf("failed to parse VSPHERE_INSECURE: %s", err)
 		} else {
 			cfg.Global.InsecureFlag = InsecureFlag
 		}
@@ -324,12 +324,12 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	} else {
 		config, err := os.Open(cfgPath)
 		if err != nil {
-			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			log.Errorf("failed to open %s. Err: %v", cfgPath, err)
 			return cfg, err
 		}
 		cfg, err = ReadConfig(ctx, config)
 		if err != nil {
-			log.Errorf("Failed to parse config. Err: %v", err)
+			log.Errorf("failed to parse config. Err: %v", err)
 			return cfg, err
 		}
 	}
@@ -405,12 +405,12 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	} else {
 		config, err := os.Open(cfgPath)
 		if err != nil {
-			log.Errorf("Failed to open %s. Err: %v", cfgPath, err)
+			log.Errorf("failed to open %s. Err: %v", cfgPath, err)
 			return cfg, err
 		}
 		cfg, err = ReadGCConfig(ctx, config)
 		if err != nil {
-			log.Errorf("Failed to parse config. Err: %v", err)
+			log.Errorf("failed to parse config. Err: %v", err)
 			return cfg, err
 		}
 	}

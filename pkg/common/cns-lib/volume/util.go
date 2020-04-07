@@ -43,7 +43,7 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 	// Verify if the volume id is on the VM backing virtual disk devices
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		log.Errorf("Failed to get devices from vm: %s", vm.InventoryPath)
+		log.Errorf("failed to get devices from vm: %s", vm.InventoryPath)
 		return "", err
 	}
 	for _, device := range vmDevices {

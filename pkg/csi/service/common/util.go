@@ -41,12 +41,12 @@ func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCente
 	log := logger.GetLogger(ctx)
 	vcenter, err := manager.VcenterManager.GetVirtualCenter(ctx, manager.VcenterConfig.Host)
 	if err != nil {
-		log.Errorf("Failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("failed to get VirtualCenter instance for host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	err = vcenter.Connect(ctx)
 	if err != nil {
-		log.Errorf("Failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
+		log.Errorf("failed to connect to VirtualCenter host: %q. err=%v", manager.VcenterConfig.Host, err)
 		return nil, err
 	}
 	return vcenter, nil

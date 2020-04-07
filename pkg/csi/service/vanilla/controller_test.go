@@ -181,7 +181,7 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 		}
 	}
 	if sharedDatastoreManagedObject == nil {
-		return nil, fmt.Errorf("Failed to get shared datastores")
+		return nil, fmt.Errorf("failed to get shared datastores")
 	}
 	return []*cnsvsphere.DatastoreInfo{
 		{
@@ -199,7 +199,7 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
 		nodeUUID, err := k8s.GetNodeVMUUID(ctx, f.k8sClient, nodeName)
 		if err != nil {
-			t.Errorf("Failed to get providerId from node: %q. Err: %v", nodeName, err)
+			t.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
 			return nil, err
 		}
 		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
@@ -351,11 +351,11 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	if queryResult.Volumes[0].StoragePolicyId != profileID {
-		t.Fatalf("Failed to match volume policy ID: %s", profileID)
+		t.Fatalf("failed to match volume policy ID: %s", profileID)
 	}
 
 	// QueryAll
@@ -373,7 +373,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	// Delete
@@ -441,7 +441,7 @@ func TestExtendVolume(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	// QueryAll
@@ -459,7 +459,7 @@ func TestExtendVolume(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	// Extend Volume
@@ -562,7 +562,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	// QueryAll
@@ -580,7 +580,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
-		t.Fatalf("Failed to find the newly created volume with ID: %s", volID)
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
 	var NodeID string

@@ -73,7 +73,7 @@ func InitPodListenerService(ctx context.Context) error {
 	port := flag.Int("port", podListenerServicePort, "The Pod Listener service port")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
-		log.Errorf("Failed to listen. Err: %v", err)
+		log.Errorf("failed to listen. Err: %v", err)
 		return err
 	}
 	grpcServer := grpc.NewServer()
@@ -84,7 +84,7 @@ func InitPodListenerService(ctx context.Context) error {
 	RegisterPodListenerServer(grpcServer, server)
 	err = grpcServer.Serve(lis)
 	if err != nil {
-		log.Errorf("Failed to accept incoming connections on pod listener gRPC server. Err: %+v", err)
+		log.Errorf("failed to accept incoming connections on pod listener gRPC server. Err: %+v", err)
 		return err
 	}
 	log.Infof("Successfully initialized the Pod Listener gRPC service")
@@ -124,7 +124,7 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 		var exists bool
 		pod, err := podListener.k8sClient.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("Failed to get the pod with name: %s on namespace: %s using Podlister informer. Error: %+v", podName, podNamespace, err)
+			log.Errorf("failed to get the pod with name: %s on namespace: %s using Podlister informer. Error: %+v", podName, podNamespace, err)
 			return false, err
 		}
 		annotations := pod.Annotations
@@ -199,7 +199,7 @@ func (podListener *podListener) getPVWithVolumeID(ctx context.Context, volumeID 
 	log := logger.GetLogger(ctx)
 	allPVs, err := podListener.k8sClient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
 	if err != nil {
-		log.Errorf("Failed to retrieve all PVs from API server")
+		log.Errorf("failed to retrieve all PVs from API server")
 		return nil, err
 	}
 	for _, pv := range allPVs.Items {
@@ -209,7 +209,7 @@ func (podListener *podListener) getPVWithVolumeID(ctx context.Context, volumeID 
 			return &pv, nil
 		}
 	}
-	errMsg := fmt.Sprintf("Failed to find PV referring to volume ID: %s", volumeID)
+	errMsg := fmt.Sprintf("failed to find PV referring to volume ID: %s", volumeID)
 	log.Errorf(errMsg)
 	return nil, fmt.Errorf(errMsg)
 }

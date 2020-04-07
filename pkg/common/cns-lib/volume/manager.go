@@ -154,7 +154,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	// If the VSphereUser in the CreateSpec is different from session user, update the CreateSpec
 	s, err := m.virtualCenter.Client.SessionManager.UserSession(ctx)
 	if err != nil {
-		log.Errorf("Failed to get usersession with err: %v", err)
+		log.Errorf("failed to get usersession with err: %v", err)
 		return nil, err
 	}
 	if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
@@ -189,7 +189,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	// Get the taskInfo
 	taskInfo, err = cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
 	log.Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
@@ -252,7 +252,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for AttachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for AttachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return "", err
 	}
 	log.Infof("AttachVolume: volumeID: %q, vm: %q, opId: %q", volumeID, vm.String(), taskInfo.ActivationId)
@@ -343,7 +343,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for DetachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for DetachVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	log.Infof("DetachVolume: volumeID: %q, vm: %q, opId: %q", volumeID, vm.String(), taskInfo.ActivationId)
@@ -412,7 +412,7 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
@@ -453,7 +453,7 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 	// If the VSphereUser in the VolumeMetadataUpdateSpec is different from session user, update the VolumeMetadataUpdateSpec
 	s, err := m.virtualCenter.Client.SessionManager.UserSession(ctx)
 	if err != nil {
-		log.Errorf("Failed to get usersession with err: %v", err)
+		log.Errorf("failed to get usersession with err: %v", err)
 		return err
 	}
 	if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
@@ -476,7 +476,7 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for UpdateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for UpdateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	log.Infof("UpdateVolumeMetadata: volumeID: %q, opId: %q", spec.VolumeId.Id, taskInfo.ActivationId)
@@ -538,7 +538,7 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 	// Get the taskInfo
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("Failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
 	}
 	log.Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)

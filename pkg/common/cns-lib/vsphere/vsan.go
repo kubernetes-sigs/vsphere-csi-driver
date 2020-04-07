@@ -28,12 +28,12 @@ func (vc *VirtualCenter) ConnectVsan(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err = vc.Connect(ctx)
 	if err != nil {
-		log.Errorf("Failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
+		log.Errorf("failed to connect to Virtual Center %q with err: %v", vc.Config.Host, err)
 		return err
 	}
 	if vc.VsanClient == nil {
 		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("Failed to create vsan client with err: %v", err)
+			log.Errorf("failed to create vsan client with err: %v", err)
 			return err
 		}
 	}

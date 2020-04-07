@@ -92,7 +92,7 @@ func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeN
 	// Connect to pod listerner gRPC service
 	conn, err := grpc.Dial(podListenerServiceAddr, opts...)
 	if err != nil {
-		log.Errorf("Failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
+		log.Errorf("failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
 		return "", err
 	}
 	defer conn.Close()
@@ -109,7 +109,7 @@ func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeN
 			NodeName: nodeName,
 		})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the pod listener service. Error: %+v", err)
+		msg := fmt.Sprintf("failed to get the pod vmuuid annotation from the pod listener service. Error: %+v", err)
 		log.Error(msg)
 		return "", err
 	}
@@ -178,7 +178,7 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	// Get VM by UUID from datacenter
 	vm, err := dc.GetVirtualMachineByUUID(ctx, vmInstanceUUID, true)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v", vmInstanceUUID, dc, err)
+		return nil, fmt.Errorf("failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v", vmInstanceUUID, dc, err)
 	}
 	return vm, nil
 }
