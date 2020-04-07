@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package podlistener
+package k8scloudoperator
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"time"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
@@ -35,66 +36,67 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
+
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 const (
-	vmUUIDLabel                   = "vmware-system-vm-uuid"
-	defaultPodPollIntervalInSec   = 2
-	defaultPodListenerServicePort = 10000
+	vmUUIDLabel                        = "vmware-system-vm-uuid"
+	defaultPodPollIntervalInSec        = 2
+	defaultK8sCloudOperatorServicePort = 10000
 )
 
-type podListener struct {
+type k8sCloudOperator struct {
 	k8sClient clientset.Interface
 }
 
-// initPodListenerType initializes the pod listener struct
-func initPodListenerType(ctx context.Context) (*podListener, error) {
+// initK8sCloudOperatorType initializes the k8sCloudOperator struct
+func initK8sCloudOperatorType(ctx context.Context) (*k8sCloudOperator, error) {
 	var err error
-	podListener := podListener{}
+	k8sCloudOperator := k8sCloudOperator{}
 	log := logger.GetLogger(ctx)
 
 	// Create the kubernetes client from config
-	podListener.k8sClient, err = k8s.NewClient(ctx)
+	k8sCloudOperator.k8sClient, err = k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return nil, err
 	}
-	return &podListener, nil
+	return &k8sCloudOperator, nil
 }
 
-// InitPodListenerService initializes the Pod Listener Service
-func InitPodListenerService(ctx context.Context) error {
+// InitK8sCloudOperatorService initializes the K8s Cloud Operator Service
+func InitK8sCloudOperatorService(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("Trying to initialize the Pod Listener gRPC service")
-	podListenerServicePort := getPodListenerServicePort(ctx)
-	log.Debugf("Pod Listener Service will be running on port %d", podListenerServicePort)
-	port := flag.Int("port", podListenerServicePort, "The Pod Listener service port")
+	log.Infof("Trying to initialize the K8s Cloud Operator gRPC service")
+	k8sCloudOperatorServicePort := common.GetK8sCloudOperatorServicePort(ctx)
+	log.Debugf("K8s Cloud Operator Service will be running on port %d", k8sCloudOperatorServicePort)
+	port := flag.Int("port", k8sCloudOperatorServicePort, "The k8s cloud operator service port")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Errorf("failed to listen. Err: %v", err)
 		return err
 	}
 	grpcServer := grpc.NewServer()
-	server, err := initPodListenerType(ctx)
+	server, err := initK8sCloudOperatorType(ctx)
 	if err != nil {
 		return err
 	}
-	RegisterPodListenerServer(grpcServer, server)
+	RegisterK8SCloudOperatorServer(grpcServer, server)
 	err = grpcServer.Serve(lis)
 	if err != nil {
-		log.Errorf("failed to accept incoming connections on pod listener gRPC server. Err: %+v", err)
+		log.Errorf("Failed to accept incoming connections on k8s Cloud Operator gRPC server. Err: %+v", err)
 		return err
 	}
-	log.Infof("Successfully initialized the Pod Listener gRPC service")
+	log.Infof("Successfully initialized the K8s Cloud Operator gRPC service")
 	return nil
 }
 
 /*
  * GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation interface method
  */
-func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
+func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
 	var (
 		vmuuid   string
 		err      error
@@ -105,7 +107,7 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 	)
 
 	log := logger.GetLogger(ctx)
-	pv, err := podListener.getPVWithVolumeID(ctx, volumeID)
+	pv, err := k8sCloudOperator.getPVWithVolumeID(ctx, volumeID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +116,7 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 		log.Errorf(errMsg)
 		return nil, fmt.Errorf(errMsg)
 	}
-	podResult, err := podListener.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
+	podResult, err := k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +124,9 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 	podNamespace := podResult.Namespace
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
 		var exists bool
-		pod, err := podListener.k8sClient.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+		pod, err := k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("failed to get the pod with name: %s on namespace: %s using Podlister informer. Error: %+v", podName, podNamespace, err)
+			log.Errorf("Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Error: %+v", podName, podNamespace, err)
 			return false, err
 		}
 		annotations := pod.Annotations
@@ -144,28 +146,6 @@ func (podListener *podListener) GetPodVMUUIDAnnotation(ctx context.Context, req 
 	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s", vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
 	response := PodListenerResponse{VmuuidAnnotation: vmuuid}
 	return &response, nil
-}
-
-// getPodListenerServicePort return the port where the Pod Listener gRPC service
-// will be running.
-// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
-// return the interval value read from enviroment variable
-// otherwise, use the default port
-func getPodListenerServicePort(ctx context.Context) int {
-	podListenerServicePort := defaultPodListenerServicePort
-	log := logger.GetLogger(ctx)
-	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Pod Listener Service Port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
-			} else {
-				podListenerServicePort = value
-			}
-		} else {
-			log.Warnf("Pod Listener Service port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
-		}
-	}
-	return podListenerServicePort
 }
 
 // getPodPollIntervalInSecs return the Poll interval in secs to query the
@@ -195,9 +175,9 @@ func getPodPollIntervalInSecs(ctx context.Context) int {
  * getPVWithVolumeID queries API server to get PV
  * referring to the given volumeID
  */
-func (podListener *podListener) getPVWithVolumeID(ctx context.Context, volumeID string) (*v1.PersistentVolume, error) {
+func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context, volumeID string) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
-	allPVs, err := podListener.k8sClient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
+	allPVs, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("failed to retrieve all PVs from API server")
 		return nil, err
@@ -220,10 +200,10 @@ func (podListener *podListener) getPVWithVolumeID(ctx context.Context, volumeID 
  * 2. Pod is in pending state in the same namespace as pvc specified using "pvcNamespace"
  * 3. Pod has a volume with name "pvcName" associated with it
  */
-func (podListener *podListener) getPod(ctx context.Context, pvcName string, pvcNamespace string,
+func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName string, pvcNamespace string,
 	nodeName string) (*v1.Pod, error) {
 	log := logger.GetLogger(ctx)
-	pods, err := podListener.k8sClient.CoreV1().Pods(pvcNamespace).List(metav1.ListOptions{
+	pods, err := k8sCloudOperator.k8sClient.CoreV1().Pods(pvcNamespace).List(metav1.ListOptions{
 		FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"spec.nodeName": string(nodeName)}), fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)})).String(),
 	})
 
@@ -254,14 +234,14 @@ func (podListener *podListener) getPod(ctx context.Context, pvcName string, pvcN
 /*
  * GetHostAnnotation provide the implementation for the GetHostAnnotation interface method
  */
-func (podListener *podListener) GetHostAnnotation(ctx context.Context,
+func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	req *HostAnnotationRequest) (*HostAnnotationResponse, error) {
 	var (
 		key      = req.AnnotationKey
 		nodeName = req.HostName
 	)
 	log := logger.GetLogger(ctx)
-	node, err := podListener.k8sClient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	node, err := k8sCloudOperator.k8sClient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("failed to get the node object for node %s: %s", nodeName, err)
 		return nil, err

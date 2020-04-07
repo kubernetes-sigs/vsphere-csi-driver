@@ -30,7 +30,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -58,13 +58,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize PodListener for every instance of vsphere-syncer in the Supervisor
+	// Initialize K8sCloudOperator for every instance of vsphere-syncer in the Supervisor
 	// Cluster, independent of whether leader election is enabled.
-	// PodListener should run on every node where csi controller can run.
+	// K8sCloudOperator should run on every node where csi controller can run.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
-			if err := podlistener.InitPodListenerService(ctx); err != nil {
-				log.Errorf("Error initializing Pod Listener gRPC sever. Error: %+v", err)
+			if err := k8scloudoperator.InitK8sCloudOperatorService(ctx); err != nil {
+				log.Errorf("Error initializing K8s Cloud Operator gRPC sever. Error: %+v", err)
 				os.Exit(1)
 			}
 		}()

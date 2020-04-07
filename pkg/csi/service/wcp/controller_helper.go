@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -39,12 +38,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
-)
-
-const (
-	defaultPodListenerServicePort = 10000
 )
 
 // validateParam is a helper function used to validate the parameter name
@@ -97,70 +92,71 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-// getVMUUIDFromPodListenerService gets the vmuuid from pod listener gRPC service
-func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeName string) (string, error) {
+// getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
+// k8sCloudOperator GRPC service running on syncer container
+func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
-	log := logger.GetLogger(ctx)
 	opts = append(opts, grpc.WithInsecure())
-	port := getPodListenerServicePort(ctx)
-	podListenerServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
-	// Connect to pod listerner gRPC service
-	conn, err := grpc.Dial(podListenerServiceAddr, opts...)
+	port := common.GetK8sCloudOperatorServicePort(ctx)
+	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
+	// Connect to k8s cloud operator gRPC service
+	conn, err := grpc.Dial(k8sCloudOperatorServiceAddr, opts...)
 	if err != nil {
-		log.Errorf("failed to establish the connection to pod listener service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
+		return nil, err
+	}
+	return conn, nil
+}
+
+// getVMUUIDFromK8sCloudOperatorService gets the vmuuid from K8sCloudOperator gRPC service
+func getVMUUIDFromK8sCloudOperatorService(ctx context.Context, volumeID string, nodeName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	conn, err := getK8sCloudOperatorClientConnection(ctx)
+	if err != nil {
+		log.Errorf("Failed to establish the connection to k8s cloud operator service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
 		return "", err
 	}
 	defer conn.Close()
 
-	// Create a client stub for pod Listener gRPC service
-	client := podlistener.NewPodListenerClient(conn)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create a client stub for k8s cloud operator gRPC service
+	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
 
 	// Call GetPodVMUUIDAnnotation method on the client stub
 	res, err := client.GetPodVMUUIDAnnotation(ctx,
-		&podlistener.PodListenerRequest{
+		&k8scloudoperator.PodListenerRequest{
 			VolumeID: volumeID,
 			NodeName: nodeName,
 		})
 	if err != nil {
-		msg := fmt.Sprintf("failed to get the pod vmuuid annotation from the pod listener service. Error: %+v", err)
+		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8s cloud operator service. Error: %+v", err)
 		log.Error(msg)
 		return "", err
 	}
 
-	log.Infof("Got vmuuid: %s annotation from Pod Listener gRPC service", res.VmuuidAnnotation)
+	log.Infof("Got vmuuid: %s annotation from K8sCloudOperator gRPC service", res.VmuuidAnnotation)
 	return res.VmuuidAnnotation, nil
 }
 
-// getHostMOIDFromK8sCloudOperatorGRPCService gets the host-moid from K8sCloudOperator gRPC service
-func getHostMOIDFromK8sCloudOperatorGRPCService(ctx context.Context, nodeName string) (string, error) {
-	var opts []grpc.DialOption
+// getHostMOIDFromK8sCloudOperatorService gets the host-moid from K8sCloudOperator gRPC service
+func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
-	opts = append(opts, grpc.WithInsecure())
-	port := getPodListenerServicePort(ctx)
-	gRPCServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
-	// Connect to gRPC service running on syncer container
-	conn, err := grpc.Dial(gRPCServiceAddr, opts...)
+	conn, err := getK8sCloudOperatorClientConnection(ctx)
 	if err != nil {
-		log.Errorf("Failed to establish the connection to pod listener service. Error: %+v", err)
+		log.Errorf("failed to establish the connection to k8s cloud operator service. Error: %+v", err)
 		return "", err
 	}
 	defer conn.Close()
 
 	// Create a client stub for gRPC service
-	client := podlistener.NewPodListenerClient(conn)
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
 
-	// Call GetHostMOIDAnnotation method on the client stub
+	// Call GetHostAnnotation method on the client stub
 	res, err := client.GetHostAnnotation(ctx,
-		&podlistener.HostAnnotationRequest{
+		&k8scloudoperator.HostAnnotationRequest{
 			HostName:      nodeName,
 			AnnotationKey: common.HostMoidAnnotationKey,
 		})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get the host moid annotation from the gRPC service. Error: %+v", err)
+		msg := fmt.Sprintf("failed to get the host moid annotation from the gRPC service. Error: %+v", err)
 		log.Error(msg)
 		return "", err
 	}
@@ -232,28 +228,6 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 		return nil, fmt.Errorf("failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v", vmInstanceUUID, dc, err)
 	}
 	return vm, nil
-}
-
-// getPodListenerServicePort return the port to connect the Pod Listener gRPC service.
-// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
-// return the interval value read from enviroment variable
-// otherwise, use the default port
-func getPodListenerServicePort(ctx context.Context) int {
-	podListenerServicePort := defaultPodListenerServicePort
-	log := logger.GetLogger(ctx)
-	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Connecting to Pod Listener Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultPodListenerServicePort)
-			} else {
-				podListenerServicePort = value
-				log.Infof("Connecting to Pod Listener Service on port %d", podListenerServicePort)
-			}
-		} else {
-			log.Warnf("Connecting to Pod Listener Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultPodListenerServicePort)
-		}
-	}
-	return podListenerServicePort
 }
 
 // getDatastoreURLFromStoragePool returns the datastoreUrl that the given StoragePool represents
