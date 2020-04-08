@@ -18,8 +18,8 @@ package controller
 
 import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
 )
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager

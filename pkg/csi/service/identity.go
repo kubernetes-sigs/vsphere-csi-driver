@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 // Version of the driver. This should be set via ldflags.

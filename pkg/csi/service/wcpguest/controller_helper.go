@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -34,7 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 )
 
 const (

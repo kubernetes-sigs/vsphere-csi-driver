@@ -24,7 +24,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // Datastore holds Datastore and Datacenter information.

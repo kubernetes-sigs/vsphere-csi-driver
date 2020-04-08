@@ -21,7 +21,7 @@ import (
 
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/vim25"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // NewCnsClient creates a new CNS client

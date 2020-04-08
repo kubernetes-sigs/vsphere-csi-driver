@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
@@ -31,7 +31,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 )
 
 const (

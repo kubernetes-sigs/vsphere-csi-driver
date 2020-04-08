@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"

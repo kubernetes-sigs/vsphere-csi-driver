@@ -28,7 +28,7 @@ import (
 
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"gopkg.in/gcfg.v1"
 )

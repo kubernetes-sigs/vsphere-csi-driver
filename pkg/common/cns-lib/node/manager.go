@@ -21,11 +21,11 @@ import (
 	"errors"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	clientset "k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var (

@@ -24,7 +24,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 )
 
 // validateVanillaCreateVolumeRequest is the helper function to validate

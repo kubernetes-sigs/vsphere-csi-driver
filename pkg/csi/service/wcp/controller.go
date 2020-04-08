@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -30,11 +30,11 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 var (

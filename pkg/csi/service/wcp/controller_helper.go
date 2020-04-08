@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/object"
@@ -32,10 +32,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/podlistener"
 )
 
 const (

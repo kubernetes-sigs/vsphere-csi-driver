@@ -23,15 +23,15 @@ import (
 
 	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 )
 
 // GetVCenter returns VirtualCenter object from specified Manager object.

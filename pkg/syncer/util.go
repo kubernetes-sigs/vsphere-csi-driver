@@ -7,9 +7,9 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released state

@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/apis"
 )
 
 const (

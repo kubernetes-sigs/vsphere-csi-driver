@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
@@ -35,8 +35,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 const (

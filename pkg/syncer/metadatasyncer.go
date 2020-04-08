@@ -26,7 +26,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -37,14 +37,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/apis"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
 )
 
 // newInformer returns uninitialized metadataSyncInformer

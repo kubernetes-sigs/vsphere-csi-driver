@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
@@ -40,11 +40,11 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 )
 
 var (

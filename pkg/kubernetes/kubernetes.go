@@ -39,11 +39,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/apis"
 )
 
 // NewClient creates a newk8s client based on a service account

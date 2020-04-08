@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -41,16 +41,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
-	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	cnsnode "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
 )
 
 const (

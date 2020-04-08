@@ -31,7 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -45,10 +45,10 @@ import (
 	"k8s.io/kubernetes/pkg/util/resizefs"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const (

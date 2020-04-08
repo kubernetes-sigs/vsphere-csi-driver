@@ -21,17 +21,17 @@ import (
 	"flag"
 	"os"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/manager"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/podlistener"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
 )
 
 var (

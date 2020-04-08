@@ -20,8 +20,8 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/types"
 )
 
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata

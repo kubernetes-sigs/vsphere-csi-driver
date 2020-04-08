@@ -38,13 +38,13 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 )
 
 const (

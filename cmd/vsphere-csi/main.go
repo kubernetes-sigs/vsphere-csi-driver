@@ -23,9 +23,9 @@ import (
 
 	"github.com/rexray/gocsi"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/provider"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 var printVersion = flag.Bool("version", false, "Print driver version and exit")

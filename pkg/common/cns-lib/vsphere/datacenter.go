@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"

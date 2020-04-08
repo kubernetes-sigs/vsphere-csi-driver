@@ -20,11 +20,11 @@ import (
 	"context"
 	"fmt"
 
-	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	cnsnode "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	v1 "k8s.io/api/core/v1"

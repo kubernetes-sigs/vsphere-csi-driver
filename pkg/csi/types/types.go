@@ -18,7 +18,7 @@ package types
 
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 )
 
 // CnsController is the interface for the CSI Controller Server plus extra methods

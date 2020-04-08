@@ -23,9 +23,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/types"
 )
 
 const (

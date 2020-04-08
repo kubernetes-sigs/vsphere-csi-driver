@@ -20,10 +20,10 @@ import (
 	"context"
 	"errors"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 )
 
 func validateManager(ctx context.Context, m *defaultManager) error {

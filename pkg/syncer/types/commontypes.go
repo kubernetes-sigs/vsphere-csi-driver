@@ -20,11 +20,11 @@ import (
 	"context"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 )
 
 // ConfigInfo is a struct that used to capture config param details

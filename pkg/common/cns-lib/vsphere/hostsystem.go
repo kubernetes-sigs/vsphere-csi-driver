@@ -19,7 +19,7 @@ package vsphere
 import (
 	"context"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
