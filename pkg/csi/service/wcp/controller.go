@@ -32,6 +32,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -206,12 +207,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	var storagePolicyID string
-
-	var affineToHost string
-	var storagePool string
-	var hostLocalNodeName string
-	hostLocalMode := false
+	var (
+		storagePolicyID     string
+		affineToHost        string
+		storagePool         string
+		hostLocalNodeName   string
+		hostLocalMode       bool
+		topologyRequirement *csi.TopologyRequirement
+	)
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -223,7 +226,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			storagePool = req.Parameters[paramName]
 		} else if param == common.AttributeHostLocal {
 			hostLocalMode = true
-			topologyRequirement := req.GetAccessibilityRequirements()
+			topologyRequirement = req.GetAccessibilityRequirements()
 			if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
 				return nil, status.Errorf(codes.InvalidArgument, "accessibility requirements not found")
 			}
@@ -240,7 +243,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 	}
 
-	// Query API server to get ESX Host Moid from the hostLocalNodeName	
+	// Query API server to get ESX Host Moid from the hostLocalNodeName
 	if hostLocalMode && hostLocalNodeName != "" {
 		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
 		if err != nil {
@@ -299,6 +302,24 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			VolumeContext: attributes,
 		},
+	}
+	// Configure the volumeTopology in the response so that the external provisioner will properly sets up the
+	// nodeAffinity for this volume
+	if topologyRequirement != nil && topologyRequirement.GetPreferred() != nil {
+		for _, topology := range topologyRequirement.GetPreferred() {
+			for key, value := range topology.Segments {
+				// add the hostname only if hostLocal is given in the param
+				if key == v1.LabelHostname && !hostLocalMode {
+					continue
+				}
+				volumeTopology := &csi.Topology{
+					Segments: map[string]string{
+						key: value,
+					},
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
+		}
 	}
 	return resp, nil
 }
