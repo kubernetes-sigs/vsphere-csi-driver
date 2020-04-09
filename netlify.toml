@@ -1,0 +1,24 @@
+# Netlify build
+[build]
+    command = "./hack/build-gitbooks.sh"
+    publish = "docs/book/_book"
+
+# Netlify redirects
+[[redirects]]
+    from = "https://kubernetes-sigs-vsphere-csi-driver.netlify.com/*"
+    to = "https://vsphere-csi-driver.sigs.k8s.io/:splat"
+    status = 301
+    force = true
+
+# HTTP -> HTTPS
+[[redirects]]
+    from = "http://vsphere-csi-driver.sigs.k8s.io/*"
+    to = "https://vsphere-csi-driver.sigs.k8s.io/:splat"
+    status = 301
+    force = true
+
+[[redirects]]
+    from = "http://kubernetes-sigs-vsphere-csi-driver.netlify.com/*"
+    to = "http://vsphere-csi-driver.sigs.k8s.io/:splat"
+    status = 301
+    force = true
