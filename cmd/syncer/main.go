@@ -103,6 +103,8 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					log.Errorf("Error initializing StoragePool Service. Error: %+v", err)
 					os.Exit(1)
 				}
+			}()
+			go func() {
 				if err := manager.InitCnsOperator(configInfo); err != nil {
 					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
 					os.Exit(1)
