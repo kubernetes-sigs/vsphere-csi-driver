@@ -92,7 +92,7 @@ func findAccessibleNodes(ctx context.Context, datastore *cnsvsphere.DatastoreInf
 
 // makeStoragePoolName returns the given datastore name dsName with any non-alphanumeric chars replaced with '-'
 func makeStoragePoolName(dsName string) string {
-	reg, err := regexp.Compile("[^\\.a-zA-Z0-9]+")
+	reg, err := regexp.Compile(`[^\\.a-zA-Z0-9]+`)
 	if err != nil {
 		return dsName
 	}
