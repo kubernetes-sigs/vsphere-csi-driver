@@ -28,6 +28,8 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	"sync"
+	"time"
 )
 
 const (
@@ -110,3 +112,14 @@ type metadataSyncInformer struct {
 	pvcLister          corelisters.PersistentVolumeClaimLister
 	podLister          corelisters.PodLister
 }
+
+const (
+	// resizeResyncPeriod represents the interval between two resize reconciler syncs
+	resizeResyncPeriod = 10 * time.Minute
+	// resizeRetryIntervalStart represents the start retry interval of the resize reconciler
+	resizeRetryIntervalStart = time.Second
+	// resizeRetryIntervalMax represents the max retry interval of the resize reconciler
+	resizeRetryIntervalMax = 5 * time.Minute
+	// resizeWorkers represents the number of running worker threads
+	resizeWorkers = 10
+)
