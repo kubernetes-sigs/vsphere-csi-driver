@@ -18,6 +18,8 @@ package syncer
 
 import (
 	"context"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/util/workqueue"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,7 +28,9 @@ import (
 
 	"github.com/pkg/errors"
 
+	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -34,12 +38,14 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
 
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -103,7 +109,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			log.Errorf("Creating Cns Operator client failed. Err: %v", err)
 			return err
 		}
-		// Initialize supervisor client for Volume Health
+
+		// Initialize supervisor cluser client
 		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
 			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
@@ -244,6 +251,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}()
 
+	// Trigger resize reconciler
+	go func() {
+		ctx, log = logger.GetNewContextWithLogger()
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+			initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+		}
+	}()
 	<-stopCh
 	return nil
 }
@@ -264,7 +278,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			log.Errorf("failed to create cns operator client. Err: %v", err)
 			return
 		}
-		// Initialize supervisor client for Volume Health
+
 		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
 			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
@@ -860,4 +874,21 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 	tkgInformerFactory.Start(wait.NeverStop)
 	svcInformerFactory.Start(wait.NeverStop)
 	rc.Run(ctx, volumeHealthWorkers)
-}
+
+func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, supervisorClient clientset.Interface) {
+	log := logger.GetLogger(ctx)
+	log.Infof("initResizeReconciler is triggered")
+	informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("resize: could not get supervisor namespace in which Tanzu Kubernetes Grid was deployed. Resize reconciler is not running for err: %v", err)
+		return
+	}
+
+	rc := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
+		workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
+	)
+	informerFactory.Start(wait.NeverStop)
+	rc.Run(ctx, resizeWorkers)
+
+	}
