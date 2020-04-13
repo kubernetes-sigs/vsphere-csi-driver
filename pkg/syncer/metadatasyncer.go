@@ -141,9 +141,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
+					log.Errorf("fsnotify error: %+v", err)
 					return
 				}
-				log.Errorf("fsnotify error: %+v", err)
 			}
 			log.Debugf("fsnotify event processed")
 		}

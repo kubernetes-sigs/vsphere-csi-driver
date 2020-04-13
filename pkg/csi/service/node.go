@@ -527,7 +527,7 @@ func (s *service) NodeGetVolumeStats(
 
 	available, ok := (*(volMetrics.Available)).AsInt64()
 	if !ok {
-		log.Errorf("failed to fetch available bytes")
+		log.Warn("failed to fetch available bytes")
 	}
 	capacity, ok := (*(volMetrics.Capacity)).AsInt64()
 	if !ok {
@@ -536,22 +536,20 @@ func (s *service) NodeGetVolumeStats(
 	}
 	used, ok := (*(volMetrics.Used)).AsInt64()
 	if !ok {
-		log.Errorf("failed to fetch used bytes")
+		log.Warn("failed to fetch used bytes")
 	}
 	inodes, ok := (*(volMetrics.Inodes)).AsInt64()
 	if !ok {
-		log.Errorf("failed to fetch available inodes")
-		return nil, status.Error(codes.Unknown, "failed to fetch available inodes")
-
+		log.Errorf("failed to fetch total number of inodes")
+		return nil, status.Error(codes.Unknown, "failed to fetch total number of inodes")
 	}
 	inodesFree, ok := (*(volMetrics.InodesFree)).AsInt64()
 	if !ok {
-		log.Errorf("failed to fetch free inodes")
+		log.Warn("failed to fetch free inodes")
 	}
-
 	inodesUsed, ok := (*(volMetrics.InodesUsed)).AsInt64()
 	if !ok {
-		log.Errorf("failed to fetch used inodes")
+		log.Warn("failed to fetch used inodes")
 	}
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
