@@ -18,4 +18,3 @@
 * [Known Issues](known_issues.md)
 * [Troubleshooting](troubleshooting.md)
 * [Development](development.md)
-  * [Testing](testing.md)
