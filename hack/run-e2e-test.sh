@@ -20,11 +20,14 @@ set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
-if ! go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo
+if ! (go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo)
 then
     echo "go mod vendor or go get ginkgo error"
     exit 1
 fi
+
+# Add GOPATH/BIN to PATH
+PATH=$PATH:$(go env GOPATH)/bin
 
 # Exporting KUBECONFIG path if not set
 if [ -z "${KUBECONFIG-}" ]; then
