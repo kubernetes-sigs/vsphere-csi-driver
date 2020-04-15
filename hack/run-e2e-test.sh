@@ -42,14 +42,15 @@ then
     FOCUS="csi-block-vanilla"
 fi
 
-OPTS=""
+OPTS=()
+
 if [ -z "${GINKGO_OPTS-}" ]; then
-    OPTS="-v"
+    OPTS=(-v)
 else
-    OPTS="-v $GINKGO_OPTS"
+    read -ra OPTS <<< "-v $GINKGO_OPTS"
 fi
 
-ginkgo "$OPTS" --focus="$FOCUS" tests/e2e
+ginkgo "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?
