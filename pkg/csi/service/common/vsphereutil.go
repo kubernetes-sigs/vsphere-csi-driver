@@ -57,8 +57,45 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 	var datastores []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
-		//  If DatastoreURL is not specified in StorageClass, get all shared datastores
-		datastores = getDatastoreMoRefs(sharedDatastores)
+		// Check if datastore URL is specified by the storage pool parameter
+		if spec.VsanDirectDatastoreURL != "" {
+			// Create Datacenter object
+			var dcList []*vsphere.Datacenter
+			for _, dc := range vc.Config.DatacenterPaths {
+				dcList = append(dcList,
+					&vsphere.Datacenter{
+						Datacenter: object.NewDatacenter(
+							vc.Client.Client,
+							vim25types.ManagedObjectReference{
+								Type:  "Datacenter",
+								Value: dc,
+							}),
+						VirtualCenterHost: vc.Config.Host,
+					})
+			}
+			// Search the datastore from the URL in the datacenter list
+			var datastoreObj *vsphere.Datastore
+			for _, datacenter := range dcList {
+				datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.VsanDirectDatastoreURL)
+				if err != nil {
+					log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+						spec.VsanDirectDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+					continue
+				}
+				log.Debugf("Successfully fetched the datastore %v from the URL: %v",
+					datastoreObj.Reference(), spec.VsanDirectDatastoreURL)
+				datastores = append(datastores, datastoreObj.Reference())
+				break
+			}
+			if datastores == nil {
+				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the create volume spec is not found.",
+					spec.VsanDirectDatastoreURL)
+				return "", errors.New(errMsg)
+			}
+		} else {
+			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
+			datastores = getDatastoreMoRefs(sharedDatastores)
+		}
 	} else {
 		// Check datastore specified in the StorageClass should be shared datastore across all nodes.
 

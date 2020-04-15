@@ -232,14 +232,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
-		CapacityMB:      volSizeMB,
-		Name:            req.Name,
-		StoragePolicyID: storagePolicyID,
-		ScParams: &common.StorageClassParams{
-			DatastoreURL: selectedDatastoreURL,
-		},
-		AffineToHost: affineToHost,
-		VolumeType:   common.BlockVolumeType,
+		CapacityMB:             volSizeMB,
+		Name:                   req.Name,
+		StoragePolicyID:        storagePolicyID,
+		ScParams:               &common.StorageClassParams{},
+		AffineToHost:           affineToHost,
+		VolumeType:             common.BlockVolumeType,
+		VsanDirectDatastoreURL: selectedDatastoreURL,
 	}
 	// Get candidate datastores for the Kubernetes cluster
 	vc, err := common.GetVCenter(ctx, c.manager)
