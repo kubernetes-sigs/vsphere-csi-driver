@@ -85,6 +85,12 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		return err
 	}
 
+	err = createCustomResourceDefinitionFromManifest(ctx, apiextensionsClientSet, "cnsregistervolume_crd.yaml")
+	if err != nil {
+		log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsRegisterVolumePlural, err)
+		return err
+	}
+
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
 	mgr, err := manager.New(cfg, manager.Options{
