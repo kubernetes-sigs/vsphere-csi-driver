@@ -33,6 +33,9 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
 		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolume":           schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolume(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec":       schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus":     schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeStatus(ref),
 	}
 }
 
@@ -165,5 +168,72 @@ func schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref common.ReferenceCa
 				Type:        []string{"object"},
 			},
 		},
+	}
+}
+
+func schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolume(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsRegisterVolume is the Schema for the cnsregistervolumes API",
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec"),
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"},
+	}
+}
+
+func schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsRegisterVolumeSpec defines the desired state of CnsRegisterVolume",
+				Properties:  map[string]spec.Schema{},
+			},
+		},
+		Dependencies: []string{},
+	}
+}
+
+func schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume",
+				Properties:  map[string]spec.Schema{},
+			},
+		},
+		Dependencies: []string{},
 	}
 }
