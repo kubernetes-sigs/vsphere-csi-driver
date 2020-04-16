@@ -23,8 +23,8 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
-// set via ldflags
-var version string
+// Version of the driver. This should be set via ldflags.
+var Version string
 
 func (s *service) Probe(
 	ctx context.Context,
@@ -41,7 +41,7 @@ func (s *service) GetPluginInfo(
 
 	return &csi.GetPluginInfoResponse{
 		Name:          csitypes.Name,
-		VendorVersion: version,
+		VendorVersion: Version,
 	}, nil
 }
 

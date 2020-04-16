@@ -19,16 +19,25 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 
 	"github.com/rexray/gocsi"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
+
+var printVersion = flag.Bool("version", false, "Print driver version and exit")
 
 // main is ignored when this package is built as a go plug-in.
 func main() {
 	flag.Parse()
+	if *printVersion {
+		fmt.Printf("%s\n", service.Version)
+		return
+	}
+
 	gocsi.Run(
 		context.Background(),
 		csitypes.Name,

@@ -22,7 +22,7 @@
 
   ``` sh
   make build
-  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-extldflags "-static" -w -s -X "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.version=v0.2.1-359-g167910f-dirty"' -o /Users/lipingx/go/src/vsphere-csi-driver/.build/bin/vsphere-csi.linux_amd64 cmd/vsphere-csi/main.go
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-extldflags "-static" -w -s -X "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.Version=v0.2.1-359-g167910f-dirty"' -o /Users/lipingx/go/src/vsphere-csi-driver/.build/bin/vsphere-csi.linux_amd64 cmd/vsphere-csi/main.go
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-extldflags "-static" -w -s' -o /Users/lipingx/go/src/vsphere-csi-driver/.build/bin/syncer.linux_amd64 cmd/syncer/main.go
   ```
 
@@ -81,7 +81,7 @@ vSphere CSI driver includes two images:
   Step 11/16 : ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
   ---> Using cache
   ---> 941f37953062
-  Step 12/16 : RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
+  Step 12/16 : RUN go build -a -ldflags='-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/csi/service.Version=${VERSION}' -o vsphere-csi ./cmd/vsphere-csi
   ---> Using cache
   ---> 48fa690544af
   Step 13/16 : FROM ${BASE_IMAGE}
