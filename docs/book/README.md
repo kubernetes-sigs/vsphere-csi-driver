@@ -6,7 +6,7 @@ The main goal of CNS is to make vSphere and vSphere storage (including vSAN) a g
 
 ## CNS Architecture
 
-![CNS_ARCHITECTURE](https://raw.githubusercontent.com/SandeepPissay/vsphere-csi-driver/cns-intro1/docs/images/CNS-Architecture.png)
+![CNS_ARCHITECTURE](https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/docs/images/CNS-Architecture.png)
 
 There are 2 new components we built in this stack:
 
