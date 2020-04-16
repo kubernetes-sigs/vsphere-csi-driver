@@ -19,7 +19,7 @@ rules:
     resources: ["volumeattachments"]
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsnodevmattachments", "cnsvolumemetadatas"]
+    resources: ["cnsnodevmattachments", "cnsvolumemetadatas", "cnsregistervolumes"]
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["storagepools"]
