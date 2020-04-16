@@ -44,6 +44,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/util/resizefs"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -652,6 +653,12 @@ func (s *service) NodeGetInfo(
 	}
 	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+			return &csi.NodeGetInfoResponse{
+				NodeId: nodeID,
+			}, nil
+		}
 		log.Errorf("failed to read cnsconfig. Error: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -659,6 +666,7 @@ func (s *service) NodeGetInfo(
 	topology := &csi.Topology{}
 
 	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
+		log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig from cns config. err=%v", err)

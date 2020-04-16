@@ -315,10 +315,11 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	var cfg *Config
 	//Read in the vsphere.conf if it exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		log.Infof("Could not stat %s, reading config params from env", cfgPath)
 		// config from Env var only
 		cfg = &Config{}
-		if err := FromEnv(ctx, cfg); err != nil {
-			log.Errorf("Error reading vsphere.conf\n")
+		if fromEnvErr := FromEnv(ctx, cfg); fromEnvErr != nil {
+			log.Errorf("Failed to get config params from env. Err: %v", fromEnvErr)
 			return cfg, err
 		}
 	} else {
