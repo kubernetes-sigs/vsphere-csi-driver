@@ -120,12 +120,14 @@ func (c *controller) Init(config *config.Config) error {
 	// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
 	dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
 	if err != nil {
-		log.Errorf("File service enablement validation failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
+		msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
+		log.Errorf(msg)
+		return errors.New(msg)
 	}
 	for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 		isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
 		if !isFSEnabled {
-			msg := fmt.Sprintf("File service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+			msg := fmt.Sprintf("file service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
 			log.Errorf(msg)
 			return errors.New(msg)
 		}
@@ -165,9 +167,9 @@ func (c *controller) Init(config *config.Config) error {
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
+					log.Errorf("fsnotify error: %+v", err)
 					return
 				}
-				log.Errorf("fsnotify error: %+v", err)
 			}
 			log.Debugf("fsnotify event processed")
 		}
