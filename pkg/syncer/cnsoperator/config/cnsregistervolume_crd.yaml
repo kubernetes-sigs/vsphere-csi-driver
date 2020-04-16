@@ -1,0 +1,67 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cnsregistervolumes.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsRegisterVolume
+    listKind: CnsRegisterVolumeList
+    plural: cnsregistervolumes
+    singular: cnsregistervolume
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      description: CnsRegisterVolume is the Schema for the cnsregistervolumes API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          type: object
+          description: CnsRegisterVolumeSpec defines the desired state of CnsRegisterVolume
+          properties:
+            pvcName:
+              description: Name of the PVC
+              type: string
+            volumeID:
+              description: VolumeID indicates an existing vsphere volume to be imported
+                into Project Pacific cluster
+              type: string
+            accessMode:
+              description: AccessMode contains the actual access mode the volume backing
+                the CnsRegisterVolume has
+              type: string
+            diskURLPath:
+              description: DiskUrlPath is URL path to an existing block volume to be
+                imported into Project Pacific cluster.
+              type: string
+          required:
+          - pvcName
+          type: object
+        status:
+          type: object
+          description: CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
+          properties:
+            success:
+              description: Indicates the volume is successfully imported.
+              type: bool
+            error:
+              description: The last error encountered during import operation, if any.
+              type: string
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
