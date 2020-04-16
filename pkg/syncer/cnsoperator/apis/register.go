@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
@@ -43,6 +44,8 @@ var (
 	CnsVolumeMetadataSingular = "cnsvolumemetadata"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
+	// CnsRegisterVolumePlural is plural of CnsRegisterVolume
+	CnsRegisterVolumePlural = "cnsregistervolumes"
 )
 
 var (
@@ -65,6 +68,12 @@ func Resource(resource string) schema.GroupResource {
 
 // Adds the list of known types to the given scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsregistervolumev1alpha1.CnsRegisterVolume{},
+		&cnsregistervolumev1alpha1.CnsRegisterVolumeList{},
+	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&cnsvolumemetadatav1alpha1.CnsVolumeMetadata{},
