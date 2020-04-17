@@ -32,8 +32,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 
 	"sort"
 	"strconv"

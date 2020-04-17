@@ -27,15 +27,15 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolume":           schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolume(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec":       schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus":     schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolume":           schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolume(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec":       schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus":     schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolumeStatus(ref),
 	}
 }
 
@@ -67,19 +67,19 @@ func schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref common.ReferenceCallba
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus"},
 	}
 }
 
@@ -133,19 +133,19 @@ func schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref common.ReferenceCallback
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus"},
 	}
 }
 
@@ -198,19 +198,19 @@ func schema_pkg_apis_cnsregistervolume_v1alpha1_CnsRegisterVolume(ref common.Ref
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"),
+							Ref: ref("sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeSpec", "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1.CnsRegisterVolumeStatus"},
 	}
 }
 
