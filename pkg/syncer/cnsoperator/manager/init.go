@@ -25,18 +25,17 @@ import (
 
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"github.com/fsnotify/fsnotify"
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
-	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
+	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )

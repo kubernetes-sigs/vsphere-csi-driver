@@ -17,7 +17,7 @@ limitations under the License.
 package apis
 
 import (
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 )
 
 func init() {

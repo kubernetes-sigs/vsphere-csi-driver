@@ -31,10 +31,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
 )
 
 var mutex sync.Mutex

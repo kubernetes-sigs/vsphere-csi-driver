@@ -32,9 +32,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
-	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters

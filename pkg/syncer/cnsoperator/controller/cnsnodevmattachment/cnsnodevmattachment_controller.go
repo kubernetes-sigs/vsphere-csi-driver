@@ -45,12 +45,12 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -91,7 +91,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder))
 }
 

@@ -22,8 +22,8 @@ import (
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
