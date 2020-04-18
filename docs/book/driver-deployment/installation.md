@@ -169,26 +169,26 @@ rm csi-vsphere.conf
 Create ClusterRole, ServiceAccounts and ClusterRoleBinding needed for installation of vSphere CSI Driver
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vsphere-7.0/vanilla/rbac/vsphere-csi-controller-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-7.0/vanilla/rbac/vsphere-csi-controller-rbac.yaml
 ```
 
-Click [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/vsphere-7.0/vanilla/rbac) to view the roles assigned to vSphere CSI Driver.
+Click [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.0.0/vsphere-7.0/vanilla/rbac) to view the roles assigned to vSphere CSI Driver.
 
 ## Install vSphere CSI driver <a id="install"></a>
 
 Our CSI Controller runs as a Kubernetes deployment, with a replica count of 1. For version `v2.0.0`, the `vsphere-csi-controller` Pod consists of 6 containers – the CSI controller, External Provisioner, External Attacher, External Resizer, Liveness probe and [vSphere Syncer](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/pkg/syncer).
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vsphere-7.0/vanilla/deploy/vsphere-csi-controller-deployment.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-7.0/vanilla/deploy/vsphere-csi-controller-deployment.yaml
 ```
 
 There is also a CSI node Daemonset to be deployed, that will run on every node.
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vsphere-7.0/vanilla/deploy/vsphere-csi-node-ds.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-7.0/vanilla/deploy/vsphere-csi-node-ds.yaml
 ```
 
-Click [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/vsphere-7.0/vanilla/deploy) to view the deployment manifest for vSphere CSI driver.
+Click [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.0.0/vsphere-7.0/vanilla/deploy) to view the deployment manifest for vSphere CSI driver.
 
 NOTE: Visit [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
 
