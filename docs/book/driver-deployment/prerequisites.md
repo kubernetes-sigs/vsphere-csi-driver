@@ -154,3 +154,14 @@ Taints:             node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedu
 When the kubelet is started with an “external” cloud provider, this taint is set on a node to mark it as unusable. After a controller from the cloud-controller-manager initializes this node, the kubelet removes this taint.
 
 Follow the steps described under “Install the vSphere Cloud Provider Interface” in [https://github.com/kubernetes/cloud-provider-vsphere/blob/master/docs/book/tutorials/kubernetes-on-vsphere-with-kubeadm.md](https://github.com/kubernetes/cloud-provider-vsphere/blob/master/docs/book/tutorials/kubernetes-on-vsphere-with-kubeadm.md) to deploy CPI.
+
+Verify `ProviderID` is set for all nodes.
+
+```bash
+$ kubectl describe nodes | grep "ProviderID"
+ProviderID: vsphere://<provider-id1>
+ProviderID: vsphere://<provider-id2>
+ProviderID: vsphere://<provider-id3>
+ProviderID: vsphere://<provider-id4>
+ProviderID: vsphere://<provider-id5>
+```
