@@ -22,7 +22,7 @@ rules:
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: [""]
     resources: ["persistentvolumes"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
@@ -39,6 +39,9 @@ rules:
     resources: ["podsecuritypolicies"]
     verbs: ["use"]
     resourceNames: ["vmware-system-privileged"]
+  - apiGroups: [""]
+      resources: ["persistentvolumeclaims/status"]
+      verbs: ["update", "patch"]
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -143,6 +146,8 @@ spec:
               value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
               value: "4"
+            - name: RESIZE_TIMEOUT_MINUTES
+              value: "4"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: SUPERVISOR_CLIENT_QPS
@@ -199,6 +204,19 @@ spec:
             - "--enable-leader-election"
             - "--leader-election-type=leases"
           imagePullPolicy: "IfNotPresent"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+        - name: csi-resizer
+          image: quay.io/k8scsi/csi-resizer:v0.5.0  # TODO: Change this to vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v0.5.0
+          args:
+            - "--v=4"
+            - "--csiTimeout=300s"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
