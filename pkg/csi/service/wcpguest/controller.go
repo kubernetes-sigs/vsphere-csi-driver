@@ -23,8 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
@@ -34,15 +32,16 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -52,6 +51,7 @@ var (
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
 )
 
@@ -69,7 +69,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *config.Config) error {
+func (c *controller) Init(config *cnsconfig.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -517,6 +517,63 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
+// ControllerExpandVolume expands a volume.
+// volume id and size is retrieved from ControllerExpandVolumeRequest
+func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerExpandVolume: called with args %+v", *req)
+
+	err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+	// Retrieve Supervisor PVC
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(volumeID, metav1.GetOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+	// Update requested storage in PVC spec
+	pvcClone := pvc.DeepCopy()
+	pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
+	// Make a call to SV ControllerExpandVolume
+	log.Debugf("Calling volume expansion for supervisor PVC %q in namespace %q", volumeID, c.supervisorNamespace)
+	updatedPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(pvcClone)
+	if err != nil {
+		msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	// Wait for Supervisor PVC to change status to FilesystemResizePending
+	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, updatedPVC,
+		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx)) * time.Minute)
+	if err != nil {
+		msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	nodeExpansionRequired := true
+	// Set NodeExpansionRequired to false for raw block volumes
+	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+		log.Infof("Node Expansion not supported for raw block volume ID %q in namespace %s of supervisor", volumeID, c.supervisorNamespace)
+		nodeExpansionRequired = false
+	}
+	resp := &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         volSizeBytes,
+		NodeExpansionRequired: nodeExpansionRequired,
+	}
+	return resp, nil
+}
+
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
@@ -593,14 +650,5 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
-}
-
-// ControllerExpandVolume expands a volume.
-func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
-	*csi.ControllerExpandVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }

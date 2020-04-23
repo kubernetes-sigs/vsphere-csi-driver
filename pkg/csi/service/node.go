@@ -796,7 +796,7 @@ func (s *service) NodeExpandVolume(
 		return nil, status.Errorf(codes.Internal, "requested volume size was %v, but got volume with size %v", volSizeBytes, gotBlockSizeBytes)
 	}
 
-	log.Debugf("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(volSizeMB*common.MbInBytes)))
+	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(volSizeMB*common.MbInBytes)))
 
 	return &csi.NodeExpandVolumeResponse{
 		CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),

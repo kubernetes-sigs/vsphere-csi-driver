@@ -43,6 +43,9 @@ const (
 
 	// timeout for attach and detach operation for watching on VirtualMachines instances, used unless overridden by user in csi-controller YAML
 	defaultAttacherTimeoutInMin = 4
+
+	// default timeout for resize, used unless overridden by user in csi-controller YAML
+	defaultResizeTimeoutInMin = 4
 )
 
 // validateGuestClusterCreateVolumeRequest is the helper function to validate
@@ -94,6 +97,54 @@ func validateGuestClusterControllerPublishVolumeRequest(ctx context.Context, req
 // pvcsi ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
 func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
+}
+
+func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+	err := common.ValidateControllerExpandVolumeRequest(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// TODO: Check if it is offline expansion or not
+
+	return nil
+}
+
+// checkForSupervisorPVCCondition returns nil if the PVC condition is set as required in the supervisor cluster before timeout, otherwise returns error
+func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType, timeout time.Duration) error {
+	log := logger.GetLogger(ctx)
+	pvcName := claim.Name
+	ns := claim.Namespace
+	timeoutSeconds := int64(timeout.Seconds())
+
+	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition", timeoutSeconds, pvcName, ns, reqCondition)
+	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
+		metav1.ListOptions{
+			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
+			TimeoutSeconds: &timeoutSeconds,
+			Watch:          true,
+		})
+	if err != nil {
+		errMsg := fmt.Errorf("failed to watch supervisor PersistentVolumeClaim %s in namespace %s with Error: %+v", pvcName, ns, err)
+		log.Error(errMsg)
+		return errMsg
+	}
+	defer watchClaim.Stop()
+
+	for event := range watchClaim.ResultChan() {
+		pvc, ok := event.Object.(*v1.PersistentVolumeClaim)
+		if !ok {
+			continue
+		}
+		for _, condition := range pvc.Status.Conditions {
+			log.Debugf("Supervisor PersistentVolumeClaim %s in namespace %s is in %s condition", pvcName, ns, condition.Type)
+			if condition.Type == reqCondition {
+				log.Infof("Supervisor PersistentVolumeClaim %s in namespace %s is in %s condition", pvcName, ns, condition.Type)
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("supervisor persistentVolumeClaim %s in namespace %s not in %q condition within %d seconds", pvcName, ns, reqCondition, timeoutSeconds)
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode
@@ -171,7 +222,7 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 // getProvisionTimeoutInMin() return the timeout for volume provision.
 // If environment variable PROVISION_TIMEOUT_MINUTES is set and valid,
 // return the interval value read from environment variable
-// otherwise, use the default timeout 5 mins
+// otherwise, use the default timeout 4 mins
 func getProvisionTimeoutInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	provisionTimeoutInMin := defaultProvisionTimeoutInMin
@@ -190,10 +241,32 @@ func getProvisionTimeoutInMin(ctx context.Context) int {
 	return provisionTimeoutInMin
 }
 
+// getResizeTimeoutInMin returns the timeout for volume resize.
+// If environment variable RESIZE_TIMEOUT_MINUTES is set and valid,
+// return the interval value read from environment variable
+// otherwise, use the default timeout 4 mins
+func getResizeTimeoutInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	resizeTimeoutInMin := defaultResizeTimeoutInMin
+	if v := os.Getenv("RESIZE_TIMEOUT_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout of %d minutes", v, resizeTimeoutInMin)
+			} else {
+				resizeTimeoutInMin = value
+				log.Infof("resizeTimeout is set to %d minutes", resizeTimeoutInMin)
+			}
+		} else {
+			log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is invalid, will use the default timeout of %d minutes", v, resizeTimeoutInMin)
+		}
+	}
+	return resizeTimeoutInMin
+}
+
 // getAttacherTimeoutInMin() return the timeout for volume attach and detach.
 // If environment variable ATTACHER_TIMEOUT_MINUTES is set and valid,
 // return the interval value read from environment variable
-// otherwise, use the default timeout 5 mins
+// otherwise, use the default timeout 4 mins
 func getAttacherTimeoutInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	attacherTimeoutInMin := defaultAttacherTimeoutInMin
