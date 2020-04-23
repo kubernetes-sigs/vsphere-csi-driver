@@ -117,19 +117,22 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("failed to get vcenter. err=%v", err)
 		return err
 	}
-	// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
-	dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
-	if err != nil {
-		msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
-		log.Errorf(msg)
-		return errors.New(msg)
-	}
-	for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-		isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
-		if !isFSEnabled {
-			msg := fmt.Sprintf("file service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+
+	if len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
+		// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
+		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
+		if err != nil {
+			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
 			log.Errorf(msg)
 			return errors.New(msg)
+		}
+		for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+			isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
+			if !isFSEnabled {
+				msg := fmt.Sprintf("file service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+				log.Errorf(msg)
+				return errors.New(msg)
+			}
 		}
 	}
 
