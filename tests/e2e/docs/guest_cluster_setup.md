@@ -77,6 +77,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="non-shared-ds-policy"
     export CLUSTER_FLAVOR="GUEST_CLUSTER"
     export GINKGO_FOCUS="csi-guest"
+    export SVC_NAMESPACE="test-gc-e2e-demo-ns"
 
 ## Requirements
 
