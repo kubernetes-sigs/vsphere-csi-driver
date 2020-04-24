@@ -6,18 +6,33 @@ The CSI driver, when used on Kubernetes, also requires the use of the out-of-tre
 
 The driver has been tested with, and is supported on, K8s 1.14 and above.
 
-## Installation
+## Documentation
 
-Install instructions for the CSI driver are available here:
+Documentation for vSphere CSI Driver is available here:
 
-* <https://cloud-provider-vsphere.sigs.k8s.io/tutorials/kubernetes-on-vsphere-with-kubeadm.html>
+* <https://vsphere-csi-driver.sigs.k8s.io>
 
-## CSI Driver Images
+## vSphere CSI Driver Images
 
-The CSI driver container images are available here:
+Please use appropriate deployment yaml files available here - <https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests>
+
+Note: `v1.0.2`, deployment yamls files are compatible with `v1.0.1`.
+For `v2.0.0-rc.1` and above use `v2.0.0` deployment yamls.
+
+### v2.0.0-rc-1
+
+* gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0-rc.1
+* gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.0-rc.1
+
+### v1.0.2
 
 * gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.2
 * gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.2
+
+### v1.0.1
+
+* gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
+* gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.1
 
 ## Contributing
 
