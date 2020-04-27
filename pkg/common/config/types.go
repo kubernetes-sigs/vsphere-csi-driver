@@ -64,6 +64,8 @@ type Config struct {
 // FeatureStateSwitches contains flags to enable/disable features
 type FeatureStateSwitches struct {
 	CSIMigration bool `gcfg:"csi-migration"`
+	VolumeExtend bool `gcfg:"volume-extend"`
+	VolumeHealth bool `gcfg:"volume-health"`
 }
 
 // NetPermissionConfig consists of information used to restrict the
