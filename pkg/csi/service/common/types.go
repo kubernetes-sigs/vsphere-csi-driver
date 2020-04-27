@@ -17,6 +17,8 @@ limitations under the License.
 package common
 
 import (
+	"errors"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -47,6 +49,9 @@ var (
 			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 		},
 	}
+
+	// ErrNotFound represents not found error
+	ErrNotFound = errors.New("not found")
 )
 
 // Manager type comprises VirtualCenterConfig, CnsConfig, VolumeManager and VirtualCenterManager

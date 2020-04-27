@@ -29,7 +29,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
-
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -380,16 +380,16 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 }
 
 // DeleteVolumeUtil is the helper function to delete CNS volume for given volumeId
-func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, deleteDisk bool) error {
+func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	log.Debugf("vSphere Cloud Provider deleting volume: %s", volumeID)
-	err = manager.VolumeManager.DeleteVolume(ctx, volumeID, deleteDisk)
+	log.Debugf("vSphere Cloud Provider deleting volume: %s with deleteDisk flag: %t", volumeID, deleteDisk)
+	err = volManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
-		log.Errorf("failed to delete disk %s with error %+v", volumeID, err)
+		log.Errorf("failed to delete disk %s, deleteDisk flag: %t with error %+v", volumeID, deleteDisk, err)
 		return err
 	}
-	log.Debugf("Successfully deleted disk for volumeid: %s", volumeID)
+	log.Debugf("Successfully deleted disk for volumeid: %s, deleteDisk flag: %t", volumeID, deleteDisk)
 	return nil
 }
 
@@ -405,6 +405,26 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 	}
 	log.Debugf("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
 	return nil
+}
+
+// QueryVolumeByID is the helper function to query volume by volumeID
+func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) (*cnstypes.CnsVolume, error) {
+	log := logger.GetLogger(ctx)
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	queryResult, err := volManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		msg := fmt.Sprintf("QueryVolume failed for volumeID: %s with error %+v", volumeID, err)
+		log.Error(msg)
+		return nil, err
+	}
+	if len(queryResult.Volumes) == 0 {
+		msg := fmt.Sprintf("volumeID %q not found in QueryVolume", volumeID)
+		log.Error(msg)
+		return nil, ErrNotFound
+	}
+	return &queryResult.Volumes[0], nil
 }
 
 // Helper function to get DatastoreMoRefs

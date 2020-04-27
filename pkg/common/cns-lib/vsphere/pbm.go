@@ -61,3 +61,19 @@ func (vc *VirtualCenter) GetStoragePolicyIDByName(ctx context.Context, storagePo
 	}
 	return storagePolicyID, nil
 }
+
+// GetStoragePolicyNameByID gets storage policy name by ID.
+func (vc *VirtualCenter) GetStoragePolicyNameByID(ctx context.Context, storagePolicyID string) (string, error) {
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return "", err
+	}
+	storagePolicyName, err := vc.PbmClient.GetProfileNameByID(ctx, storagePolicyID)
+	if err != nil {
+		log.Errorf("Failed to get StoragePolicyName from StoragePolicyID %s with err: %+v", storagePolicyName, err)
+		return "", err
+	}
+	return storagePolicyName, nil
+}
