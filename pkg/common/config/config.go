@@ -55,6 +55,8 @@ const (
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
+	// DefaultFeatureStateValue is the default value for Feature state switches
+	DefaultFeatureStateValue = false
 )
 
 // Errors
@@ -289,6 +291,19 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 				netPerm.Ips = "*"
 			}
 		}
+	}
+	if cfg.FeatureStates != (FeatureStateSwitches{}) {
+		if !cfg.FeatureStates.VolumeExtend {
+			log.Infof("Volume resize feature is disabled.")
+		}
+		if !cfg.FeatureStates.VolumeHealth {
+			log.Infof("Volume health feature is disabled.")
+		}
+	}
+	if cfg.FeatureStates == (FeatureStateSwitches{}) {
+		log.Debugf("No Feature State Switches defined in the Config.")
+		cfg.FeatureStates.VolumeExtend = DefaultFeatureStateValue
+		cfg.FeatureStates.VolumeHealth = DefaultFeatureStateValue
 	}
 	return nil
 }
