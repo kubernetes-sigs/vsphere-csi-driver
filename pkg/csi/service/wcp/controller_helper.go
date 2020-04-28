@@ -40,6 +40,8 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool/apis/cns/v1alpha1"
 )
 
@@ -93,11 +95,6 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-<<<<<<< HEAD
-// getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
-// k8sCloudOperator GRPC service running on syncer container
-func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
-=======
 // validateWCPControllerExpandVolumeRequest is the helper function to validate
 // ExpandVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
@@ -164,9 +161,9 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 	return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
 }
 
-// getVMUUIDFromPodListenerService gets the vmuuid from pod listener gRPC service
-func getVMUUIDFromPodListenerService(ctx context.Context, volumeID string, nodeName string) (string, error) {
->>>>>>> b0cefe7... ControllerExpandVolume for Supervisor Cluster.
+// getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
+// k8sCloudOperator GRPC service running on syncer container
+func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	port := common.GetK8sCloudOperatorServicePort(ctx)

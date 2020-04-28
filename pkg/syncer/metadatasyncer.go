@@ -18,8 +18,6 @@ package syncer
 
 import (
 	"context"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/util/workqueue"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,18 +25,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	clientset "k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
-
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -46,6 +35,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -54,6 +44,8 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+
 )
 
 // newInformer returns uninitialized metadataSyncInformer
@@ -874,6 +866,7 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 	tkgInformerFactory.Start(wait.NeverStop)
 	svcInformerFactory.Start(wait.NeverStop)
 	rc.Run(ctx, volumeHealthWorkers)
+}
 
 func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, supervisorClient clientset.Interface) {
 	log := logger.GetLogger(ctx)
@@ -891,4 +884,4 @@ func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, su
 	informerFactory.Start(wait.NeverStop)
 	rc.Run(ctx, resizeWorkers)
 
-	}
+}

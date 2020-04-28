@@ -144,19 +144,7 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 	}
 }
 
-// getPVCKey helps to get the PVC name from PVC object
-func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
-	log := logger.GetLogger(ctx)
-	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok && unknown.Obj != nil {
-		obj = unknown.Obj
-	}
-	objKey, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-	if err != nil {
-		log.Errorf("Failed to get key from object: %v", err)
-		return "", err
-	}
-	return objKey, nil
-}
+
 
 // Run starts the reconciler
 func (rc *resizeReconciler) Run(ctx context.Context, workers int) {

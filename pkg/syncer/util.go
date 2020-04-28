@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"k8s.io/client-go/tools/cache"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -117,3 +118,20 @@ func getQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clus
 	}
 	return allQueryResults, nil
 }
+
+// getPVCKey helps to get the PVC name from PVC object
+func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok && unknown.Obj != nil {
+		obj = unknown.Obj
+	}
+	objKey, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	if err != nil {
+		log.Errorf("Failed to get key from object: %v", err)
+		return "", err
+	}
+	log.Infof("getPVCKey: PVC key %s", objKey)
+	return objKey, nil
+}
+
