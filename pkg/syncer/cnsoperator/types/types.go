@@ -26,6 +26,6 @@ const (
 	// GCKind is the Kind value for TanzuKubernetes Cluster
 	GCKind = "TanzuKubernetesCluster"
 
-	// VSphereCSIBlockDriverName is the vsphere CSI driver name
+	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 )
