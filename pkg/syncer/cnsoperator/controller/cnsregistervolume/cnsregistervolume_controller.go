@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -57,7 +58,10 @@ const (
 // Initialized to 1 second for new instances and for instances whose latest reconcile
 // operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
-var backOffDuration map[string]time.Duration
+var (
+	backOffDuration         map[string]time.Duration
+	backOffDurationMapMutex = sync.Mutex{}
+)
 
 // Add creates a new CnsRegisterVolume Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
@@ -145,11 +149,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{}, err
 	}
 	// Initialize backOffDuration for the instance, if required.
+	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
 	if _, exists := backOffDuration[instance.Name]; !exists {
 		backOffDuration[instance.Name] = time.Second
 	}
 	timeout = backOffDuration[instance.Name]
+	backOffDurationMapMutex.Unlock()
 
 	// If the CnsRegistereVolume instance is already registered, remove the instance from the queue
 	if instance.Status.Registered {
@@ -438,12 +444,16 @@ func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume, instance *c
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", msg)
+		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsRegisterVolumeSucceeded", msg)
+		backOffDurationMapMutex.Unlock()
 	}
 }
 
