@@ -18,18 +18,15 @@ package cnsregistervolume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"golang.org/x/text/transform"
-	"golang.org/x/text/unicode/norm"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -97,32 +94,27 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 	return createSpec
 }
 
-// This function  is to deal with non-ascii characters like some non-english languages
-// to convert to more similar and meaningful characters for further consideration.
-func isMn(r rune) bool {
-	return unicode.Is(unicode.Mn, r)
-}
-
-// The function converts storage policy name to limited set of charactes which kubernetes names support.Here is link
-// for the naming rules: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-func convertStoragePolicyNameToSCName(policy string) string {
-	t := transform.Chain(norm.NFD, transform.RemoveFunc(isMn), norm.NFC)
-	policy, _, _ = transform.String(t, policy)
-	str := strings.ToLower(policy)
-	reg := regexp.MustCompile("[^a-z0-9.]+")
-
-	convertedString := reg.ReplaceAllString(str, "-")
-
-	// StorageClass cannot begin with '-' or '.', simply add '0' to resolve it.
-	if convertedString[0] == '-' || convertedString[0] == '.' {
-		convertedString = "0" + convertedString
+// getK8sStorageClassName gets the storage class name in K8S mapping the vsphere
+// storagepolicy id.
+func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, storagePolicyID string) (string, error) {
+	log := logger.GetLogger(ctx)
+	scList, err := k8sClient.StorageV1().StorageClasses().List(metav1.ListOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get Storageclasses from API server. Error: %+v", err)
+		log.Error(msg)
+		return "", errors.New(msg)
 	}
-
-	// StorageClass cannot end with '-' or '.' as well, add another '0' if so.
-	if convertedString[len(convertedString)-1] == '-' || convertedString[len(convertedString)-1] == '.' {
-		convertedString = convertedString + "0"
+	for _, sc := range scList.Items {
+		scParams := sc.Parameters
+		for paramName, val := range scParams {
+			param := strings.ToLower(paramName)
+			if param == common.AttributeStoragePolicyID && val == storagePolicyID {
+				return sc.Name, nil
+			}
+		}
 	}
-	return convertedString
+	msg := fmt.Sprintf("Failed to find K8s Storageclass mapping storagepolicyId: %s", storagePolicyID)
+	return "", errors.New(msg)
 }
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params
