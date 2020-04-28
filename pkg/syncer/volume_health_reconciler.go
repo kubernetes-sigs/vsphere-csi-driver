@@ -102,9 +102,9 @@ func NewVolumeHealthReconciler(
 }
 
 func (rc *volumeHealthReconciler) svcAddPVC(obj interface{}) {
-	_, log := logger.GetNewContextWithLogger()
+	ctx, log := logger.GetNewContextWithLogger()
 	log.Debugf("addPVC: %+v", obj)
-	objKey, err := getPVCKey(obj)
+	objKey, err := getPVCKey(ctx, obj)
 	if err != nil {
 		return
 	}
@@ -141,20 +141,7 @@ func (rc *volumeHealthReconciler) svcUpdatePVC(oldObj, newObj interface{}) {
 	}
 }
 
-func getPVCKey(obj interface{}) (string, error) {
-	_, log := logger.GetNewContextWithLogger()
 
-	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok && unknown.Obj != nil {
-		obj = unknown.Obj
-	}
-	objKey, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-	if err != nil {
-		log.Errorf("Failed to get key from object: %v", err)
-		return "", err
-	}
-	log.Infof("getPVCKey: PVC key %s", objKey)
-	return objKey, nil
-}
 
 // Run starts the reconciler.
 func (rc *volumeHealthReconciler) Run(
