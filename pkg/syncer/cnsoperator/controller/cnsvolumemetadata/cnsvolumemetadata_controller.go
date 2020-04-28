@@ -22,6 +22,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -64,7 +65,10 @@ const (
 // Initialized to 1 second for new instances and for instances whose latest reconcile
 // operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
-var backOffDuration map[string]time.Duration
+var (
+	backOffDuration         map[string]time.Duration
+	backOffDurationMapMutex = sync.Mutex{}
+)
 
 // Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigInfo,
 // volumeManager and k8sclient. The Manager will set fields on the Controller
@@ -191,12 +195,13 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 	log.Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q", instance.Name, instance.Spec.EntityType)
 
 	// Initialize backOffDuration for the instance, if required.
+	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
 	if _, exists := backOffDuration[instance.Name]; !exists {
 		backOffDuration[instance.Name] = time.Second
 	}
 	timeout = backOffDuration[instance.Name]
-
+	backOffDurationMapMutex.Unlock()
 	// Validate input instance fields
 	if err = validateReconileRequest(instance); err != nil {
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to validate reconcile request with error: %v", err)
@@ -459,12 +464,16 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "UpdateSucceeded", msg)
 		log.Info(msg)
 	}

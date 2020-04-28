@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -63,7 +64,10 @@ const (
 // Initialized to 1 second for new instances and for instances whose latest reconcile
 // operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
-var backOffDuration map[string]time.Duration
+var (
+	backOffDuration         map[string]time.Duration
+	backOffDurationMapMutex = sync.Mutex{}
+)
 
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
@@ -166,11 +170,13 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	}
 
 	// Initialize backOffDuration for the instance, if required.
+	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
 	if _, exists := backOffDuration[instance.Name]; !exists {
 		backOffDuration[instance.Name] = time.Second
 	}
 	timeout = backOffDuration[instance.Name]
+	backOffDurationMapMutex.Unlock()
 	log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q instance %q timeout %q seconds", request.Name, instance.Name, timeout)
 
 	// If the CnsNodeVMAttachment instance is already attached and
@@ -482,12 +488,16 @@ func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment, instance 
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
 	}
