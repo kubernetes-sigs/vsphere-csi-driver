@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svol "k8s.io/kubernetes/pkg/volume"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
@@ -47,7 +48,6 @@ import (
 	utilexec "k8s.io/utils/exec"
 	"k8s.io/utils/mount"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -650,8 +650,11 @@ func (s *service) NodeGetInfo(
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
+
+	var topologyAware, _ = strconv.ParseBool(os.Getenv("TOPOLOGY_AWARE"))
+
 	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
-	if err != nil {
+	if err != nil && !topologyAware {
 		if os.IsNotExist(err) {
 			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
 			return &csi.NodeGetInfoResponse{
@@ -664,58 +667,15 @@ func (s *service) NodeGetInfo(
 	var accessibleTopology map[string]string
 	topology := &csi.Topology{}
 
-	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
-		log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
-		if err != nil {
-			log.Errorf("failed to get VirtualCenterConfig from cns config. err=%v", err)
-			return nil, status.Errorf(codes.Internal, err.Error())
+	if (cfg.Labels.Zone != "" && cfg.Labels.Region != "") || topologyAware {
+		if topologyAware {
+			log.Infof("node damonset started with TOPOLOGY_AWARE setting. Looking for node labels for topology settings")
+		} else {
+			log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
 		}
-		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
-		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+		region, zone, err := getTopologyFromK8sNode(ctx, nodeID)
 		if err != nil {
-			log.Errorf("failed to register vcenter with virtualCenterManager.")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		defer func() {
-			if vcManager != nil {
-				err = vcManager.UnregisterAllVirtualCenters(ctx)
-				if err != nil {
-					log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
-				}
-			}
-		}()
-		//Connect to vCenter
-		err = vcenter.Connect(ctx)
-		if err != nil {
-			log.Errorf("failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		// Get VM UUID
-		uuid, err := getSystemUUID(ctx)
-		if err != nil {
-			log.Errorf("failed to get system uuid for node VM")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
-		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-		if err != nil || nodeVM == nil {
-			log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			uuid, err = convertUUID(uuid)
-			if err != nil {
-				log.Errorf("convertUUID failed with error: %v", err)
-				return nil, status.Errorf(codes.Internal, err.Error())
-			}
-			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-			if err != nil || nodeVM == nil {
-				log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-				return nil, status.Errorf(codes.Internal, err.Error())
-			}
-		}
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
-		if err != nil {
-			log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
-			return nil, status.Errorf(codes.Internal, err.Error())
+			log.Errorf("Could not find topology labels from kubernetes node %s, in topology aware setup, error: %v", nodeID, err)
 		}
 		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
 		if zone != "" && region != "" {
@@ -1333,4 +1293,23 @@ func getDevFromMount(target string) (*Device, error) {
 
 	// Did not identify a device mounted to target
 	return nil, nil
+}
+
+// getTopologyFromK8sNode gathers topology labels from the kubernetes node object
+// This enables topology aware clusters without vCenter access on every node
+func getTopologyFromK8sNode(ctx context.Context, nodeName string) (string, string, error) {
+	log := logger.GetLogger(ctx)
+
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return "", "", err
+	}
+	node, err := k8sclient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return "", "", err
+	}
+	labels := node.GetLabels()
+
+	return labels[v1.LabelZoneRegion], labels[v1.LabelZoneFailureDomain], err
 }
