@@ -1151,7 +1151,7 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 			instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata type crd instance: %v", instance.Name))
+			framework.Logf("Found CNSVolumeMetadata type crd instance: %v", instance.Name)
 
 			if expectedInstanceName == instance.Name {
 				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))

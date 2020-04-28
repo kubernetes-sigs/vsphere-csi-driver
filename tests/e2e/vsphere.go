@@ -257,11 +257,18 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 				continue
 			}
 			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-			if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName && kubernetesMetadata.Namespace == entityNamespace {
+			k8sEntityName := kubernetesMetadata.EntityName
+			if guestCluster {
+				k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
+			}
+			if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName && kubernetesMetadata.Namespace == entityNamespace {
 				if matchLabels == nil {
 					return true, nil
 				}
 				labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+				if guestCluster {
+					labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels), matchLabels)
+				}
 				if labelsMatch {
 					return true, nil
 				}
