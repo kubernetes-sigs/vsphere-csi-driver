@@ -239,19 +239,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Get storagepolicy name from storagepolicy id
-	storagePolicyName, err := vc.GetStoragePolicyNameByID(ctx, volume.StoragePolicyId)
-	if err != nil {
-		instanceErrMsg := fmt.Sprintf("Failed to get storagePolicyName for the volume with storagepolicyId: %s", volume.StoragePolicyId)
-		log.Errorf("%s. Error: %+v", instanceErrMsg, err)
-		setInstanceError(ctx, r, instance, instanceErrMsg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-	// Convert storagepolicy name to a compatible K8S storageclass name
-	storageClassName := convertStoragePolicyNameToSCName(storagePolicyName)
-	log.Debugf("Volume: %s is mapped to %s storageclass in K8S", volumeID, storageClassName)
-
-	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Failed to initialize K8S client when registering the CnsRegisterVolume instance: %s on namespace: %s. Error: %+v",
@@ -259,6 +246,18 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume registration")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	// Get K8S storageclass name mapping the storagepolicy id
+	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s", volume.StoragePolicyId)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s", volume.StoragePolicyId, storageClassName)
+
+	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
 	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -309,7 +308,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 				setInstanceError(ctx, r, instance, msg)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
-			if pvc.Status.Phase == v1.ClaimBound && pv.Spec.ClaimRef.Name != instance.Spec.PvcName {
+			if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
 				// This is handle cases where PVC with this name already exists and is bound
 				// This happens when a new CnsRegisterVolume instance is created to import a new
 				// volume with PVC name which is already created and is bound.
@@ -349,7 +348,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 
 	// Update the instance to indicate the volume registration is successful
 	msg := fmt.Sprintf("Successfully registered the volume on namespace: %s", instance.Namespace)
-	err = setInstanceSuccess(ctx, r, instance, instance.Spec.PvcName, pvc.UID, pvc.APIVersion, msg)
+	err = setInstanceSuccess(ctx, r, instance, instance.Spec.PvcName, pvc.UID, msg)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to update CnsRegistered instance with error: %+v", err)
 		log.Error(msg)
@@ -400,11 +399,10 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 
 // setInstanceSuccess sets instance to success and records an event on the CnsRegisterVolume instance
 func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
-	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string, pvcUID apitypes.UID,
-	pvcAPIVersion string, msg string) error {
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string, pvcUID apitypes.UID, msg string) error {
 	instance.Status.Registered = true
 	instance.Status.Error = ""
-	setInstanceOwnerRef(instance, pvcName, pvcUID, pvcAPIVersion)
+	setInstanceOwnerRef(instance, pvcName, pvcUID)
 	err := updateCnsRegisterVolume(ctx, r.client, instance)
 	if err != nil {
 		return err
@@ -415,13 +413,13 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 
 // setInstanceOwnerRef sets instance ownerRef to PVC instance that it created
 func setInstanceOwnerRef(instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string,
-	pvcUID apitypes.UID, pvcAPIVersion string) {
+	pvcUID apitypes.UID) {
 	bController := true
 	bOwnerDeletion := true
 	kind := reflect.TypeOf(v1.PersistentVolumeClaim{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
 		metav1.OwnerReference{
-			APIVersion:         pvcAPIVersion,
+			APIVersion:         "v1",
 			Controller:         &bController,
 			BlockOwnerDeletion: &bOwnerDeletion,
 			Kind:               kind,
