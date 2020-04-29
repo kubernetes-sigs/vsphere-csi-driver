@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -62,7 +63,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 
 	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
-			"HEALTH_STATUS",
+			string(cnstypes.QuerySelectionNameTypeHealthStatus),
 		},
 	}
 
@@ -79,7 +80,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 			log.Debugf("csiGetVolumeHealthStatus: Found pvc %q for volume %q", pvc, vol.VolumeId.Id)
 
 			// only update PVC health annotation if the HealthStatus of volume is not "unknown"
-			if vol.HealthStatus != volHealthStatusUnknown {
+			if vol.HealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
 				volHealthStatus, err := convertVolumeHealthStatus(vol.HealthStatus)
 				if err != nil {
 					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", vol.HealthStatus, vol.VolumeId.Id)
@@ -102,14 +103,14 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 // convertVolumeHealthStatus convert the volume health status into accessible/inaccessible status
 func convertVolumeHealthStatus(volHealthStatus string) (string, error) {
 	switch volHealthStatus {
-	case volHealthStatusRed:
+	case string(pbmtypes.PbmHealthStatusForEntityRed):
 		return volHealthStatusInAccessible, nil
-	case volHealthStatusGreen:
+	case string(pbmtypes.PbmHealthStatusForEntityGreen):
 		return volHealthStatusAccessible, nil
-	case volHealthStatusYellow:
+	case string(pbmtypes.PbmHealthStatusForEntityYellow):
 		return volHealthStatusAccessible, nil
-	case volHealthStatusUnknown:
-		return volHealthStatusUnknown, nil
+	case string(pbmtypes.PbmHealthStatusForEntityUnknown):
+		return string(pbmtypes.PbmHealthStatusForEntityUnknown), nil
 	default:
 		return "", fmt.Errorf("cannot convert invalid volume health status %s", volHealthStatus)
 	}
