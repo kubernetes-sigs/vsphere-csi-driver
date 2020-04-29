@@ -7,7 +7,7 @@ spec:
   containers:
     - name: test-container
       image: gcr.io/google_containers/busybox:1.24
-      command: ["/bin/sh", "-c", "echo 'example-vanilla-file-pod1' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
+      command: ["/bin/sh", "-c", "echo 'Hello! This is Pod1' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
       volumeMounts:
         - name: test-volume
           mountPath: /mnt/volume1
@@ -17,7 +17,8 @@ spec:
       persistentVolumeClaim:
         claimName: example-vanilla-file-pvc
 ---
-# Example read-write pod to use the same PVC and mount as above.
+# Example read-write pod using the same PVC as above.
+# example-vanilla-file-pod1 and example-vanilla-file-pod2 share RW privileges to the underlying file share.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -26,7 +27,7 @@ spec:
   containers:
     - name: test-container
       image: gcr.io/google_containers/busybox:1.24
-      command: ["/bin/sh", "-c", "echo 'example-vanilla-file-pod2' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
+      command: ["/bin/sh", "-c", "echo 'Hello! This is Pod2' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
       volumeMounts:
         - name: test-volume
           mountPath: /mnt/volume1
@@ -36,8 +37,7 @@ spec:
       persistentVolumeClaim:
         claimName: example-vanilla-file-pvc
 ---
-# Example pod with readOnly=true mentioned on the PVC.
-# Ideally this method is preferred than the one below to create a read-only pod
+# Example read-only pod using the same PVC as above.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -55,25 +55,4 @@ spec:
     - name: test-volume
       persistentVolumeClaim:
         claimName: example-vanilla-file-pvc
-        readOnly: true # This will make the volume read-only at the pod level. The Volume at the node stage might be Read-write
----
-# Example pod with readOnly=true at the VolumeMount level.
-# This method will not set the NodePublishVolumeRequest.readOnly flag but still ensures that the volume is read-only.
-apiVersion: v1
-kind: Pod
-metadata:
-  name: example-vanilla-file-pod4
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox:1.24
-      command: ["/bin/sh", "-c", "while true ; do sleep 2 ; done"]
-      volumeMounts:
-        - name: test-volume
-          mountPath: /mnt/volume1
-          readOnly: true # This will make the volume read-only at the pod level. The Volume at the node stage might be Read-write
-  restartPolicy: Never
-  volumes:
-    - name: test-volume
-      persistentVolumeClaim:
-        claimName: example-vanilla-file-pvc
+        readOnly: true # This will make the volume read-only
