@@ -58,18 +58,6 @@ const (
 
 	// description of volume health status for inaccessible volume
 	volHealthStatusInAccessible = "inaccessible"
-
-	// volume health status with "red" level
-	volHealthStatusRed = "red"
-
-	// volume health status with "green" level
-	volHealthStatusGreen = "green"
-
-	// volume health status with "yellow" level
-	volHealthStatusYellow = "yellow"
-
-	// volume health status with "unknown" level
-	volHealthStatusUnknown = "unknown"
 )
 
 var (
