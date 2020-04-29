@@ -141,8 +141,6 @@ func (rc *volumeHealthReconciler) svcUpdatePVC(oldObj, newObj interface{}) {
 	}
 }
 
-
-
 // Run starts the reconciler.
 func (rc *volumeHealthReconciler) Run(
 	ctx context.Context, workers int) {

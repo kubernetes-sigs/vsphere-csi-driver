@@ -225,19 +225,20 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	ticker = time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
 
 	// Trigger get volume health status
-	go func() {
-		for ; true; <-ticker.C {
-			ctx, log = logger.GetNewContextWithLogger()
-			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		go func() {
+			for ; true; <-ticker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
 					log.Warnf("VolumeHealth feature is disabled on the cluster")
 				} else {
 					log.Infof("getVolumeHealthStatus is triggered")
 					csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
 				}
 			}
-		}
-	}()
+		}()
+	}
+
 	// Trigger volume health reconciler
 	go func() {
 		ctx, log = logger.GetNewContextWithLogger()
