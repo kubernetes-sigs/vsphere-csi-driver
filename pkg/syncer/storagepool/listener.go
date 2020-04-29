@@ -57,7 +57,7 @@ func InitHostMountListener(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 	// Start listening to property collector for changes to 'datastore' property
 	// in any of the hosts
 	p := property.DefaultCollector(vc.Client.Client)
-	property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
+	go property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
 		log.Infof("Got %d update(s) for host mounts", len(updates))
 		for _, update := range updates {
 			propChange := update.ChangeSet
@@ -92,11 +92,11 @@ func InitDatastoreCapacityListener(ctx context.Context, vc *cnsvsphere.VirtualCe
 	filter := new(property.WaitFilter)
 	for _, ds := range datastores {
 		obj := ds.Reference()
-		filter = filter.Add(obj, obj.Type, []string{"summary.capacity, summary.freeSpace"})
+		filter = filter.Add(obj, obj.Type, []string{"name", "summary.capacity", "summary.freeSpace"})
 	}
 	// Start listening to property collector for changes to datastore's capacity and freeSpace property
 	p := property.DefaultCollector(vc.Client.Client)
-	property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
+	go property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
 		log.Infof("Got %d update(s) for datastore capacity/freeSpace", len(updates))
 		for _, update := range updates {
 			propChange := update.ChangeSet
