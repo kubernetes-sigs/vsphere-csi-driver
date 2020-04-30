@@ -61,6 +61,7 @@ type controller struct {
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
+	featureStates             *cnsconfig.FeatureStateSwitches
 }
 
 // New creates a CNS controller
@@ -99,6 +100,8 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to create vmWatcher. Error: %+v", err)
 		return err
 	}
+
+	c.featureStates = &config.FeatureStates
 	pvcsiConfigPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -172,6 +175,7 @@ func (c *controller) ReloadConfiguration() {
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
 	}
+	c.featureStates = &cfg.FeatureStates
 	log.Info("Successfully reloaded configuration")
 }
 
@@ -523,6 +527,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	if !c.featureStates.VolumeExtend {
+		msg := "ExpandVolume feature is disabled on the cluster."
+		log.Warn(msg)
+		return nil, status.Errorf(codes.Unimplemented, msg)
+	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
 	err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
@@ -554,7 +563,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 	// Wait for Supervisor PVC to change status to FilesystemResizePending
 	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, updatedPVC,
-		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx)) * time.Minute)
+		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
 		log.Error(msg)

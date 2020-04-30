@@ -24,28 +24,27 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pkg/errors"
-	"k8s.io/client-go/informers"
-	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/util/workqueue"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
+	"github.com/pkg/errors"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/workqueue"
 
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 )
 
 // newInformer returns uninitialized metadataSyncInformer
@@ -224,22 +223,30 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}()
 
 	ticker = time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
+
 	// Trigger get volume health status
 	go func() {
 		for ; true; <-ticker.C {
 			ctx, log = logger.GetNewContextWithLogger()
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				log.Infof("getVolumeHealthStatus is triggered")
-				csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
+				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
+					log.Warnf("VolumeHealth feature is disabled on the cluster")
+				} else {
+					log.Infof("getVolumeHealthStatus is triggered")
+					csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
+				}
 			}
 		}
 	}()
-
 	// Trigger volume health reconciler
 	go func() {
 		ctx, log = logger.GetNewContextWithLogger()
 		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+			if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
+				log.Warnf("VolumeHealth feature is disabled on the cluster")
+			} else {
+				initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+			}
 		}
 	}()
 
@@ -247,7 +254,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	go func() {
 		ctx, log = logger.GetNewContextWithLogger()
 		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+			if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeExtend {
+				log.Warnf("ExpandVolume feature is disabled on the cluster")
+			} else {
+				initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+			}
 		}
 	}()
 	<-stopCh
@@ -264,6 +275,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
+		metadataSyncer.configInfo.Cfg.FeatureStates = cfg.FeatureStates
 		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {

@@ -522,6 +522,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	if !c.manager.CnsConfig.FeatureStates.VolumeExtend {
+		msg := "ExpandVolume feature is disabled on the cluster"
+		log.Warn(msg)
+		return nil, status.Errorf(codes.Unimplemented, msg)
+	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
 	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager)
