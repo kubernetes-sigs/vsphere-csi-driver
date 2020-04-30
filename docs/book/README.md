@@ -10,7 +10,7 @@ The main goal of CNS is to make vSphere and vSphere storage, including vSAN, a p
 
 CNS offers the following two components:
 
-- CNS in vCenter Center
+- CNS in vCenter Server
 - vSphere volume driver in Kubernetes
 
 CNS control plane introduces a concept of volumes, such as container volumes and persistent volumes, in vSphere. It is the storage control plane for container volumes. CNS is responsible for managing the lifecycle of volumes, including such operations as create, read, update, and delete.  It is also responsible for managing volume metadata, snapshot and restore, volume copy and clone, as well as monitoring the health and compliance of volumes. These volumes are independent of the virtual machine lifecycle and have their own identity in vSphere.
