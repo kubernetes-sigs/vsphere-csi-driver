@@ -24,5 +24,5 @@ In Kubernetes, CNS provides a volume driver that has two sub-components – the 
 CNS supports the following Kubernetes distributions:
 
 - [Vanilla Kubernetes](https://github.com/kubernetes/kubernetes)
-- [vSphere with Kubernetes](https://blogs.vmware.com/vsphere/2019/08/introducing-project-pacific.html). Also see [vSphere with Kubernetes Configuration and Management](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-152BE7D2-E227-4DAA-B527-557B564D9718.html).
-- [Tanzu Kubernetes Grid Service](https://blogs.vmware.com/vsphere/2020/03/vsphere-7-tanzu-kubernetes-clusters.html). Also see [Provisioning and Managing Tanzu Kubernetes Clusters Using the Tanzu Kubernetes Grid Service](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-7E00E7C2-D1A1-4F7D-9110-620F30C02547.html).
+- [vSphere with Kubernetes](https://blogs.vmware.com/vsphere/2019/08/introducing-project-pacific.html). For more information, see [vSphere with Kubernetes Configuration and Management](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-152BE7D2-E227-4DAA-B527-557B564D9718.html).
+- [Tanzu Kubernetes Grid Service](https://blogs.vmware.com/vsphere/2020/03/vsphere-7-tanzu-kubernetes-clusters.html). For more information, see [Provisioning and Managing Tanzu Kubernetes Clusters Using the Tanzu Kubernetes Grid Service](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-7E00E7C2-D1A1-4F7D-9110-620F30C02547.html).
