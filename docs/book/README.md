@@ -19,7 +19,7 @@ CNS leverages the existing Storage Policy Based Management (SPBM) functionality 
 
 CNS supports block volumes backed by First Class Disk (FCD) and file volumes backed by vSAN file shares. A block volume can only be attached to one Kubernetes pod with ReadWriteOnce access mode at any point in time. A file volume can be attached to one or more pods with ReadWriteMany/ReadOnlyMany access modes.
 
-In Kubernetes, CNS provides a volume driver that has two sub-components – the CSI driver and the syncer. The CSI driver is responsible for volume provisioning, attaching and detaching the volume to VMs, mounting, formatting and unmounting volumes from the pod within the node VM, and so on. The CSI deriver is built as an out-of-tree CSI plugin for Kubernetes. The syncer is responsible for pushing PV, PVC, and pod metadata to CNS.  It also has a CNS operator that is used in the context of vSphere with Kubernetes, formerly called Project Pacific.
+In Kubernetes, CNS provides a volume driver that has two sub-components – the CSI driver and the syncer. The CSI driver is responsible for volume provisioning, attaching and detaching the volume to VMs, mounting, formatting and unmounting volumes from the pod within the node VM, and so on. The CSI driver is built as an out-of-tree CSI plugin for Kubernetes. The syncer is responsible for pushing PV, PVC, and pod metadata to CNS.  It also has a CNS operator that is used in the context of vSphere with Kubernetes, formerly called Project Pacific.
 
 CNS supports the following Kubernetes distributions:
 
