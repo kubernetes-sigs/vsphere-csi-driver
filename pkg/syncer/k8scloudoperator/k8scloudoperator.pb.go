@@ -13,19 +13,20 @@ It has these top-level messages:
 	PodListenerResponse
 	HostAnnotationRequest
 	HostAnnotationResponse
+        PVCPlacementRequest
+        PVCPlacementResponse
 */
 package k8scloudoperator
 
 import (
-	fmt "fmt"
-
+	"context"
+	"fmt"
+	spec "github.com/container-storage-interface/spec/lib/go/csi"
 	proto "github.com/golang/protobuf/proto"
-
-	math "math"
-
-	context "golang.org/x/net/context"
-
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
+	"math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -37,57 +38,328 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type PodListenerRequest struct {
 	// The volumeID that needs to be attached to the node.
-	VolumeID string `protobuf:"bytes,1,opt,name=volumeID" json:"volumeID,omitempty"`
+	VolumeID string `protobuf:"bytes,1,opt,name=volumeID,proto3" json:"volumeID,omitempty"`
 	// Name of the node where the Pod is running.
-	NodeName string `protobuf:"bytes,2,opt,name=nodeName" json:"nodeName,omitempty"`
+	NodeName             string   `protobuf:"bytes,2,opt,name=nodeName,proto3" json:"nodeName,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PodListenerRequest) Reset()                    { *m = PodListenerRequest{} }
-func (m *PodListenerRequest) String() string            { return proto.CompactTextString(m) }
-func (*PodListenerRequest) ProtoMessage()               {}
-func (*PodListenerRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (m *PodListenerRequest) Reset()         { *m = PodListenerRequest{} }
+func (m *PodListenerRequest) String() string { return proto.CompactTextString(m) }
+func (*PodListenerRequest) ProtoMessage()    {}
+func (*PodListenerRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{0}
+}
+
+func (m *PodListenerRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PodListenerRequest.Unmarshal(m, b)
+}
+func (m *PodListenerRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PodListenerRequest.Marshal(b, m, deterministic)
+}
+func (m *PodListenerRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PodListenerRequest.Merge(m, src)
+}
+func (m *PodListenerRequest) XXX_Size() int {
+	return xxx_messageInfo_PodListenerRequest.Size(m)
+}
+func (m *PodListenerRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PodListenerRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PodListenerRequest proto.InternalMessageInfo
+
+func (m *PodListenerRequest) GetVolumeID() string {
+	if m != nil {
+		return m.VolumeID
+	}
+	return ""
+}
+
+func (m *PodListenerRequest) GetNodeName() string {
+	if m != nil {
+		return m.NodeName
+	}
+	return ""
+}
 
 type PodListenerResponse struct {
 	// VM UUID annotation of the pod.
-	VmuuidAnnotation string `protobuf:"bytes,1,opt,name=vmuuidAnnotation" json:"vmuuidAnnotation,omitempty"`
+	VmuuidAnnotation     string   `protobuf:"bytes,1,opt,name=vmuuidAnnotation,proto3" json:"vmuuidAnnotation,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PodListenerResponse) Reset()                    { *m = PodListenerResponse{} }
-func (m *PodListenerResponse) String() string            { return proto.CompactTextString(m) }
-func (*PodListenerResponse) ProtoMessage()               {}
-func (*PodListenerResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+func (m *PodListenerResponse) Reset()         { *m = PodListenerResponse{} }
+func (m *PodListenerResponse) String() string { return proto.CompactTextString(m) }
+func (*PodListenerResponse) ProtoMessage()    {}
+func (*PodListenerResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{1}
+}
+
+func (m *PodListenerResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PodListenerResponse.Unmarshal(m, b)
+}
+func (m *PodListenerResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PodListenerResponse.Marshal(b, m, deterministic)
+}
+func (m *PodListenerResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PodListenerResponse.Merge(m, src)
+}
+func (m *PodListenerResponse) XXX_Size() int {
+	return xxx_messageInfo_PodListenerResponse.Size(m)
+}
+func (m *PodListenerResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PodListenerResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PodListenerResponse proto.InternalMessageInfo
+
+func (m *PodListenerResponse) GetVmuuidAnnotation() string {
+	if m != nil {
+		return m.VmuuidAnnotation
+	}
+	return ""
+}
 
 type HostAnnotationRequest struct {
 	// Name of the host
-	HostName string `protobuf:"bytes,1,opt,name=hostName" json:"hostName,omitempty"`
+	HostName string `protobuf:"bytes,1,opt,name=hostName,proto3" json:"hostName,omitempty"`
 	// Name of the annotation key of interest
-	AnnotationKey string `protobuf:"bytes,2,opt,name=annotationKey" json:"annotationKey,omitempty"`
+	AnnotationKey        string   `protobuf:"bytes,2,opt,name=annotationKey,proto3" json:"annotationKey,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *HostAnnotationRequest) Reset()                    { *m = HostAnnotationRequest{} }
-func (m *HostAnnotationRequest) String() string            { return proto.CompactTextString(m) }
-func (*HostAnnotationRequest) ProtoMessage()               {}
-func (*HostAnnotationRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+func (m *HostAnnotationRequest) Reset()         { *m = HostAnnotationRequest{} }
+func (m *HostAnnotationRequest) String() string { return proto.CompactTextString(m) }
+func (*HostAnnotationRequest) ProtoMessage()    {}
+func (*HostAnnotationRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{2}
+}
+
+func (m *HostAnnotationRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_HostAnnotationRequest.Unmarshal(m, b)
+}
+func (m *HostAnnotationRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_HostAnnotationRequest.Marshal(b, m, deterministic)
+}
+func (m *HostAnnotationRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_HostAnnotationRequest.Merge(m, src)
+}
+func (m *HostAnnotationRequest) XXX_Size() int {
+	return xxx_messageInfo_HostAnnotationRequest.Size(m)
+}
+func (m *HostAnnotationRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_HostAnnotationRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_HostAnnotationRequest proto.InternalMessageInfo
+
+func (m *HostAnnotationRequest) GetHostName() string {
+	if m != nil {
+		return m.HostName
+	}
+	return ""
+}
+
+func (m *HostAnnotationRequest) GetAnnotationKey() string {
+	if m != nil {
+		return m.AnnotationKey
+	}
+	return ""
+}
 
 type HostAnnotationResponse struct {
 	// Value of the annotation key on the node `hostName`
-	AnnotationValue string `protobuf:"bytes,2,opt,name=annotationValue" json:"annotationValue,omitempty"`
+	AnnotationValue      string   `protobuf:"bytes,2,opt,name=annotationValue,proto3" json:"annotationValue,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *HostAnnotationResponse) Reset()                    { *m = HostAnnotationResponse{} }
-func (m *HostAnnotationResponse) String() string            { return proto.CompactTextString(m) }
-func (*HostAnnotationResponse) ProtoMessage()               {}
-func (*HostAnnotationResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+func (m *HostAnnotationResponse) Reset()         { *m = HostAnnotationResponse{} }
+func (m *HostAnnotationResponse) String() string { return proto.CompactTextString(m) }
+func (*HostAnnotationResponse) ProtoMessage()    {}
+func (*HostAnnotationResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{3}
+}
+
+func (m *HostAnnotationResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_HostAnnotationResponse.Unmarshal(m, b)
+}
+func (m *HostAnnotationResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_HostAnnotationResponse.Marshal(b, m, deterministic)
+}
+func (m *HostAnnotationResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_HostAnnotationResponse.Merge(m, src)
+}
+func (m *HostAnnotationResponse) XXX_Size() int {
+	return xxx_messageInfo_HostAnnotationResponse.Size(m)
+}
+func (m *HostAnnotationResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_HostAnnotationResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_HostAnnotationResponse proto.InternalMessageInfo
+
+func (m *HostAnnotationResponse) GetAnnotationValue() string {
+	if m != nil {
+		return m.AnnotationValue
+	}
+	return ""
+}
+
+type PVCPlacementRequest struct {
+	// Name of the PVC to place
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Namespace of the PVC to place
+	Namespace string `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// Topology in AccessibilityRequirements to place a PVC
+	AccessibilityRequirements *spec.TopologyRequirement `protobuf:"bytes,3,opt,name=accessibility_requirements,json=accessibilityRequirements,proto3" json:"accessibility_requirements,omitempty"`
+	XXX_NoUnkeyedLiteral      struct{}                  `json:"-"`
+	XXX_unrecognized          []byte                    `json:"-"`
+	XXX_sizecache             int32                     `json:"-"`
+}
+
+func (m *PVCPlacementRequest) Reset()         { *m = PVCPlacementRequest{} }
+func (m *PVCPlacementRequest) String() string { return proto.CompactTextString(m) }
+func (*PVCPlacementRequest) ProtoMessage()    {}
+func (*PVCPlacementRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{4}
+}
+
+func (m *PVCPlacementRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PVCPlacementRequest.Unmarshal(m, b)
+}
+func (m *PVCPlacementRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PVCPlacementRequest.Marshal(b, m, deterministic)
+}
+func (m *PVCPlacementRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PVCPlacementRequest.Merge(m, src)
+}
+func (m *PVCPlacementRequest) XXX_Size() int {
+	return xxx_messageInfo_PVCPlacementRequest.Size(m)
+}
+func (m *PVCPlacementRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PVCPlacementRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PVCPlacementRequest proto.InternalMessageInfo
+
+func (m *PVCPlacementRequest) GetName() string {
+	if m != nil {
+		return m.Name
+	}
+	return ""
+}
+
+func (m *PVCPlacementRequest) GetNamespace() string {
+	if m != nil {
+		return m.Namespace
+	}
+	return ""
+}
+
+func (m *PVCPlacementRequest) GetAccessibilityRequirements() *spec.TopologyRequirement {
+	if m != nil {
+		return m.AccessibilityRequirements
+	}
+	return nil
+}
+
+type PVCPlacementResponse struct {
+	//Succeed or not for placement engine to find proper storage pool
+	PlaceSuccess         bool     `protobuf:"varint,1,opt,name=placeSuccess,proto3" json:"placeSuccess,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *PVCPlacementResponse) Reset()         { *m = PVCPlacementResponse{} }
+func (m *PVCPlacementResponse) String() string { return proto.CompactTextString(m) }
+func (*PVCPlacementResponse) ProtoMessage()    {}
+func (*PVCPlacementResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_acda4807ad521f9a, []int{5}
+}
+
+func (m *PVCPlacementResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PVCPlacementResponse.Unmarshal(m, b)
+}
+func (m *PVCPlacementResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PVCPlacementResponse.Marshal(b, m, deterministic)
+}
+func (m *PVCPlacementResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PVCPlacementResponse.Merge(m, src)
+}
+func (m *PVCPlacementResponse) XXX_Size() int {
+	return xxx_messageInfo_PVCPlacementResponse.Size(m)
+}
+func (m *PVCPlacementResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PVCPlacementResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PVCPlacementResponse proto.InternalMessageInfo
+
+func (m *PVCPlacementResponse) GetPlaceSuccess() bool {
+	if m != nil {
+		return m.PlaceSuccess
+	}
+	return false
+}
 
 func init() {
 	proto.RegisterType((*PodListenerRequest)(nil), "k8scloudoperator.PodListenerRequest")
 	proto.RegisterType((*PodListenerResponse)(nil), "k8scloudoperator.PodListenerResponse")
 	proto.RegisterType((*HostAnnotationRequest)(nil), "k8scloudoperator.HostAnnotationRequest")
 	proto.RegisterType((*HostAnnotationResponse)(nil), "k8scloudoperator.HostAnnotationResponse")
+	proto.RegisterType((*PVCPlacementRequest)(nil), "k8scloudoperator.PVCPlacementRequest")
+	proto.RegisterType((*PVCPlacementResponse)(nil), "k8scloudoperator.PVCPlacementResponse")
+}
+
+func init() {
+	proto.RegisterFile("k8scloudoperator.proto", fileDescriptor_acda4807ad521f9a)
+}
+
+var fileDescriptor_acda4807ad521f9a = []byte{
+	// 460 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x84, 0x53, 0x51, 0x6f, 0xd3, 0x30,
+	0x10, 0xa6, 0x03, 0xa1, 0xed, 0x00, 0x51, 0x3c, 0xa8, 0x4a, 0xc6, 0xc3, 0x14, 0x0d, 0xa8, 0x90,
+	0x96, 0x8a, 0x21, 0xa4, 0x89, 0xb7, 0xd1, 0x49, 0x63, 0xda, 0x80, 0x28, 0xb0, 0x4a, 0xf0, 0x82,
+	0x5c, 0xe7, 0x68, 0x2d, 0x12, 0x5f, 0x66, 0x3b, 0x95, 0xfa, 0x7b, 0xf8, 0x4d, 0xfc, 0x1f, 0x14,
+	0x37, 0x69, 0x96, 0x66, 0x52, 0x9f, 0x92, 0xfb, 0xee, 0xee, 0xbb, 0xcf, 0xbe, 0xcf, 0xd0, 0xfb,
+	0x73, 0x6c, 0x44, 0x42, 0x79, 0x4c, 0x19, 0x6a, 0x6e, 0x49, 0x07, 0x99, 0x26, 0x4b, 0xac, 0xbb,
+	0x8e, 0x7b, 0xef, 0xa7, 0xd2, 0xce, 0xf2, 0x49, 0x20, 0x28, 0x1d, 0x0a, 0x52, 0x96, 0x4b, 0x85,
+	0xfa, 0xd0, 0x58, 0xd2, 0x7c, 0x8a, 0x87, 0x52, 0x59, 0xd4, 0xbf, 0xb9, 0xc0, 0xa1, 0xc9, 0x50,
+	0x0c, 0x85, 0x91, 0x4b, 0x22, 0xff, 0x12, 0x58, 0x48, 0xf1, 0xa5, 0x34, 0x16, 0x15, 0xea, 0x08,
+	0xaf, 0x73, 0x34, 0x96, 0x79, 0xb0, 0x3d, 0xa7, 0x24, 0x4f, 0xf1, 0xfc, 0xb4, 0xdf, 0xd9, 0xef,
+	0x0c, 0x76, 0xa2, 0x55, 0x5c, 0xe4, 0x14, 0xc5, 0xf8, 0x85, 0xa7, 0xd8, 0xdf, 0x5a, 0xe6, 0xaa,
+	0xd8, 0x3f, 0x81, 0xdd, 0x06, 0x9b, 0xc9, 0x48, 0x19, 0x64, 0x6f, 0xa0, 0x3b, 0x4f, 0xf3, 0x5c,
+	0xc6, 0x27, 0x4a, 0x91, 0xe5, 0x56, 0x92, 0x2a, 0x69, 0x5b, 0xb8, 0xff, 0x03, 0x9e, 0x7d, 0x22,
+	0x63, 0x6b, 0xe4, 0x86, 0xa6, 0x19, 0x19, 0xeb, 0xe6, 0x96, 0x9a, 0xaa, 0x98, 0x1d, 0xc0, 0x23,
+	0xbe, 0x6a, 0xb8, 0xc0, 0x45, 0x29, 0xac, 0x09, 0xfa, 0x1f, 0xa1, 0xb7, 0x4e, 0x5d, 0x0a, 0x1c,
+	0xc0, 0xe3, 0xba, 0x74, 0xcc, 0x93, 0xbc, 0x3a, 0xda, 0x3a, 0xec, 0xff, 0xed, 0xc0, 0x6e, 0x38,
+	0x1e, 0x85, 0x09, 0x17, 0x98, 0xa2, 0xb2, 0x95, 0x3a, 0x06, 0xf7, 0x54, 0xad, 0xcc, 0xfd, 0xb3,
+	0x17, 0xb0, 0x53, 0x7c, 0x4d, 0xc6, 0x45, 0xc5, 0x57, 0x03, 0xec, 0x27, 0x78, 0x5c, 0x08, 0x34,
+	0x46, 0x4e, 0x64, 0x22, 0xed, 0xe2, 0x97, 0xc6, 0xeb, 0x5c, 0x6a, 0xc7, 0x6a, 0xfa, 0x77, 0xf7,
+	0x3b, 0x83, 0x07, 0x47, 0x7b, 0x41, 0xb1, 0xa9, 0xf9, 0xdb, 0xe0, 0x3b, 0x65, 0x94, 0xd0, 0x74,
+	0x11, 0xd5, 0x35, 0xd1, 0xf3, 0x46, 0xfb, 0x8d, 0x8c, 0xf1, 0x3f, 0xc0, 0xd3, 0xa6, 0xc8, 0xf2,
+	0x9c, 0x3e, 0x3c, 0xcc, 0x0a, 0xf0, 0x5b, 0xee, 0x5a, 0x9d, 0xda, 0xed, 0xa8, 0x81, 0x1d, 0xfd,
+	0xdb, 0x82, 0xee, 0xc5, 0xb1, 0x19, 0x15, 0xee, 0xfa, 0x5a, 0xba, 0x8b, 0x4d, 0xa1, 0x77, 0x86,
+	0x36, 0xa4, 0x78, 0xfc, 0xf9, 0xea, 0xea, 0xfc, 0xb4, 0xbe, 0x42, 0x76, 0x10, 0xb4, 0x2c, 0xda,
+	0x36, 0x94, 0xf7, 0x72, 0x43, 0xd5, 0x52, 0x9f, 0x7f, 0x87, 0xcd, 0xe0, 0xc9, 0x19, 0xda, 0xe6,
+	0x9a, 0xd8, 0xeb, 0x76, 0xf7, 0xad, 0x1e, 0xf1, 0x06, 0x9b, 0x0b, 0x57, 0x93, 0x14, 0xec, 0xb9,
+	0x0b, 0x0a, 0x51, 0x1b, 0xa7, 0x43, 0xe0, 0xd8, 0x79, 0x7c, 0x94, 0x70, 0x99, 0xb2, 0xdb, 0x14,
+	0xb7, 0xf7, 0xee, 0xbd, 0xda, 0x54, 0x56, 0xcd, 0x9b, 0xdc, 0x77, 0x0f, 0xee, 0xdd, 0xff, 0x00,
+	0x00, 0x00, 0xff, 0xff, 0x61, 0x6b, 0x91, 0xf1, 0xd3, 0x03, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -98,8 +370,9 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// Client API for K8SCloudOperator service
-
+// K8SCloudOperatorClient is the client API for K8SCloudOperator service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type K8SCloudOperatorClient interface {
 	//
 	// GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
@@ -118,6 +391,16 @@ type K8SCloudOperatorClient interface {
 	// GetHostAnnotation gets the annotation value by querying the API server referring to the annotation key
 	// and the host specified in the HostAnnotationRequest
 	GetHostAnnotation(ctx context.Context, in *HostAnnotationRequest, opts ...grpc.CallOption) (*HostAnnotationResponse, error)
+	//
+	// PlacePersistenceVolumeClaim select storage pool to place a new PVC by querying the API server referring to the PVC request
+	// and the topology information specified in the AccessibilityRequirements
+	// response of DoPVCPlacement RPC call include only success tag
+	// pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
+	// pvc already has a annotation  - case 2
+	// pvc needs a storage pool annotation and we cant find one - case 3
+	// pvc needs an annotation and we can find one - case 4
+	// everything other than case 3 is success
+	PlacePersistenceVolumeClaim(ctx context.Context, in *PVCPlacementRequest, opts ...grpc.CallOption) (*PVCPlacementResponse, error)
 }
 
 type k8SCloudOperatorClient struct {
@@ -130,7 +413,7 @@ func NewK8SCloudOperatorClient(cc *grpc.ClientConn) K8SCloudOperatorClient {
 
 func (c *k8SCloudOperatorClient) GetPodVMUUIDAnnotation(ctx context.Context, in *PodListenerRequest, opts ...grpc.CallOption) (*PodListenerResponse, error) {
 	out := new(PodListenerResponse)
-	err := grpc.Invoke(ctx, "/k8scloudoperator.K8sCloudOperator/GetPodVMUUIDAnnotation", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/k8scloudoperator.K8sCloudOperator/GetPodVMUUIDAnnotation", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -139,15 +422,23 @@ func (c *k8SCloudOperatorClient) GetPodVMUUIDAnnotation(ctx context.Context, in 
 
 func (c *k8SCloudOperatorClient) GetHostAnnotation(ctx context.Context, in *HostAnnotationRequest, opts ...grpc.CallOption) (*HostAnnotationResponse, error) {
 	out := new(HostAnnotationResponse)
-	err := grpc.Invoke(ctx, "/k8scloudoperator.K8sCloudOperator/GetHostAnnotation", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/k8scloudoperator.K8sCloudOperator/GetHostAnnotation", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// Server API for K8SCloudOperator service
+func (c *k8SCloudOperatorClient) PlacePersistenceVolumeClaim(ctx context.Context, in *PVCPlacementRequest, opts ...grpc.CallOption) (*PVCPlacementResponse, error) {
+	out := new(PVCPlacementResponse)
+	err := c.cc.Invoke(ctx, "/k8scloudoperator.K8sCloudOperator/PlacePersistenceVolumeClaim", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
+// K8SCloudOperatorServer is the server API for K8SCloudOperator service.
 type K8SCloudOperatorServer interface {
 	//
 	// GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
@@ -166,6 +457,30 @@ type K8SCloudOperatorServer interface {
 	// GetHostAnnotation gets the annotation value by querying the API server referring to the annotation key
 	// and the host specified in the HostAnnotationRequest
 	GetHostAnnotation(context.Context, *HostAnnotationRequest) (*HostAnnotationResponse, error)
+	//
+	// PlacePersistenceVolumeClaim select storage pool to place a new PVC by querying the API server referring to the PVC request
+	// and the topology information specified in the AccessibilityRequirements
+	// response of DoPVCPlacement RPC call include only success tag
+	// pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
+	// pvc already has a annotation  - case 2
+	// pvc needs a storage pool annotation and we cant find one - case 3
+	// pvc needs an annotation and we can find one - case 4
+	// everything other than case 3 is success
+	PlacePersistenceVolumeClaim(context.Context, *PVCPlacementRequest) (*PVCPlacementResponse, error)
+}
+
+// UnimplementedK8SCloudOperatorServer can be embedded to have forward compatible implementations.
+type UnimplementedK8SCloudOperatorServer struct {
+}
+
+func (*UnimplementedK8SCloudOperatorServer) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPodVMUUIDAnnotation not implemented")
+}
+func (*UnimplementedK8SCloudOperatorServer) GetHostAnnotation(ctx context.Context, req *HostAnnotationRequest) (*HostAnnotationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetHostAnnotation not implemented")
+}
+func (*UnimplementedK8SCloudOperatorServer) PlacePersistenceVolumeClaim(ctx context.Context, req *PVCPlacementRequest) (*PVCPlacementResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PlacePersistenceVolumeClaim not implemented")
 }
 
 func RegisterK8SCloudOperatorServer(s *grpc.Server, srv K8SCloudOperatorServer) {
@@ -208,6 +523,24 @@ func _K8SCloudOperator_GetHostAnnotation_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _K8SCloudOperator_PlacePersistenceVolumeClaim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PVCPlacementRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(K8SCloudOperatorServer).PlacePersistenceVolumeClaim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/k8scloudoperator.K8sCloudOperator/PlacePersistenceVolumeClaim",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(K8SCloudOperatorServer).PlacePersistenceVolumeClaim(ctx, req.(*PVCPlacementRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _K8SCloudOperator_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "k8scloudoperator.K8sCloudOperator",
 	HandlerType: (*K8SCloudOperatorServer)(nil),
@@ -220,31 +553,11 @@ var _K8SCloudOperator_serviceDesc = grpc.ServiceDesc{
 			MethodName: "GetHostAnnotation",
 			Handler:    _K8SCloudOperator_GetHostAnnotation_Handler,
 		},
+		{
+			MethodName: "PlacePersistenceVolumeClaim",
+			Handler:    _K8SCloudOperator_PlacePersistenceVolumeClaim_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "k8scloudoperator.proto",
-}
-
-func init() { proto.RegisterFile("k8scloudoperator.proto", fileDescriptor0) }
-
-var fileDescriptor0 = []byte{
-	// 280 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x84, 0x52, 0xc1, 0x4a, 0xc3, 0x40,
-	0x10, 0x35, 0x1e, 0x44, 0x07, 0xc4, 0xb8, 0x62, 0x28, 0x39, 0x49, 0xa8, 0x18, 0x3c, 0xf4, 0xa0,
-	0x97, 0x5e, 0xab, 0x85, 0x5a, 0x5a, 0xb5, 0x14, 0x5a, 0xf0, 0x18, 0xdd, 0xc1, 0x06, 0x93, 0x9d,
-	0x98, 0x9d, 0x2d, 0xf8, 0xc1, 0xfe, 0x87, 0xb4, 0xdd, 0x34, 0x26, 0x29, 0xf4, 0x38, 0x6f, 0x66,
-	0xde, 0x7b, 0xf3, 0x76, 0xc1, 0xfb, 0xea, 0xea, 0x8f, 0x84, 0x8c, 0xa4, 0x0c, 0xf3, 0x88, 0x29,
-	0xef, 0x64, 0x39, 0x31, 0x09, 0xb7, 0x8e, 0x07, 0x63, 0x10, 0x13, 0x92, 0xe3, 0x58, 0x33, 0x2a,
-	0xcc, 0xa7, 0xf8, 0x6d, 0x50, 0xb3, 0xf0, 0xe1, 0x78, 0x49, 0x89, 0x49, 0x71, 0xd8, 0x6f, 0x39,
-	0x57, 0x4e, 0x78, 0x32, 0xdd, 0xd6, 0xab, 0x9e, 0x22, 0x89, 0x2f, 0x51, 0x8a, 0xad, 0xc3, 0x4d,
-	0xaf, 0xa8, 0x83, 0x1e, 0x5c, 0x54, 0xd8, 0x74, 0x46, 0x4a, 0xa3, 0xb8, 0x05, 0x77, 0x99, 0x1a,
-	0x13, 0xcb, 0x9e, 0x52, 0xc4, 0x11, 0xc7, 0xa4, 0x2c, 0x6d, 0x03, 0x0f, 0xde, 0xe0, 0xf2, 0x89,
-	0x34, 0x97, 0xc8, 0x3f, 0x4f, 0x0b, 0xd2, 0xbc, 0xd6, 0xb5, 0x9e, 0x8a, 0x5a, 0xb4, 0xe1, 0x34,
-	0xda, 0x2e, 0x8c, 0xf0, 0xc7, 0x1a, 0xab, 0x82, 0xc1, 0x03, 0x78, 0x75, 0x6a, 0x6b, 0x30, 0x84,
-	0xb3, 0x72, 0x74, 0x1e, 0x25, 0xa6, 0x38, 0xad, 0x0e, 0xdf, 0xfd, 0x3a, 0xe0, 0x8e, 0xba, 0xfa,
-	0x71, 0x15, 0xe2, 0xab, 0x0d, 0x51, 0x7c, 0x82, 0x37, 0x40, 0x9e, 0x90, 0x9c, 0x3f, 0xcf, 0x66,
-	0xc3, 0x7e, 0x29, 0x20, 0xda, 0x9d, 0xc6, 0x4b, 0x34, 0xe3, 0xf6, 0xaf, 0xf7, 0x4c, 0x6d, 0x5c,
-	0x06, 0x07, 0x62, 0x01, 0xe7, 0x03, 0xe4, 0xea, 0x11, 0xe2, 0xa6, 0xb9, 0xbd, 0x33, 0x41, 0x3f,
-	0xdc, 0x3f, 0x58, 0x28, 0xbd, 0x1f, 0xad, 0x3f, 0xcc, 0xfd, 0x5f, 0x00, 0x00, 0x00, 0xff, 0xff,
-	0xee, 0xac, 0xa3, 0x30, 0x4a, 0x02, 0x00, 0x00,
 }

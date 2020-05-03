@@ -18,6 +18,8 @@ syntax = 'proto3';
 
 package k8scloudoperator;
 
+import "github.com/container-storage-interface/spec/csi.proto";
+
 // Interface exported by the server
 service K8sCloudOperator {
    /*
@@ -36,10 +38,19 @@ service K8sCloudOperator {
    rpc GetPodVMUUIDAnnotation(PodListenerRequest) returns (PodListenerResponse) {}
 
    /*
-    * GetHostAnnotation gets the annotation value by querying the API server referring to the annotation key
+    * GetHostAnnotation gets the annotation value by querying the API server referring to the annot:wq!ation key
     * and the host specified in the HostAnnotationRequest
     */
    rpc GetHostAnnotation(HostAnnotationRequest) returns (HostAnnotationResponse) {}
+
+   /*
+    * Placement API in PlacePersistenceVolumeClaim selects target storage pool to place the given PVC based on its profile and the topology information.
+    * If the given PVC should not be handled by PlacePersistenceVolumeClaim like on vSAN or SPBM based cases, this API is a no-op and returns immediately with PVCPlacementRequest.placeSuccess set to true
+    * If the PVC has a mapped storage pool, PlacePersistenceVolumeClaim return true
+    * If the placement is successful, the PVC will be annotated with the selected storage pool and the PVCPlacementRequest.placeSuccess is set to true.
+    * For unsuccessful placement, the PVCPlacementRequest.placeSuccess will be set to false
+    */
+   rpc PlacePersistenceVolumeClaim(PVCPlacementRequest) returns (PVCPlacementResponse) {}
 }
 
 message PodListenerRequest {
@@ -65,4 +76,18 @@ message HostAnnotationRequest {
 message HostAnnotationResponse {
     // Value of the annotation key on the node `hostName`
     string annotationValue = 2;
+}
+
+message PVCPlacementRequest {
+    // Name of the PVC to place
+    string name = 1;
+    // Namespace of the PVC to place
+    string namespace = 2;
+    // Topology in AccessibilityRequirements to place a PVC
+    csi.v1.TopologyRequirement accessibility_requirements = 3;
+}
+
+message PVCPlacementResponse {
+    //Succeed or not for placement engine to find proper storage pool
+    bool placeSuccess = 1;
 }
