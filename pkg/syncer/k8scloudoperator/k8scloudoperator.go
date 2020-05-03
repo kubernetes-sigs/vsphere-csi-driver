@@ -257,3 +257,34 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	}
 	return response, nil
 }
+
+//response of PlacePersistenceVolumeClaim RPC call include only success tag
+//pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
+//pvc already has a annotation  - case 2
+//pvc needs a storage pool annotation and we cant find one - case 3
+//pvc needs an annotation and we can find one - case 4
+//everything other than case 3 is success
+func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx context.Context,
+	req *PVCPlacementRequest) (*PVCPlacementResponse, error) {
+
+	log := logger.GetLogger(ctx)
+	out := &PVCPlacementResponse{
+		PlaceSuccess: false,
+	}
+	if req == nil || req.AccessibilityRequirements == nil || req.Name == "" || req.Namespace == "" {
+		return out, fmt.Errorf("no right inputs given to PlacePersistenceVolumeClaim")
+	}
+	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
+
+	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(req.Namespace).Get(req.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Fail to retrieve targeted PVC %s from API server with error %s", pvc, err)
+		return out, err
+	}
+
+	//todo: success and err comes from PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc, m)
+	success := true
+
+	out.PlaceSuccess = success
+	return out, err
+}
