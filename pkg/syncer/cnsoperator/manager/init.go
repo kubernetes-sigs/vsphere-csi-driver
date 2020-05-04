@@ -19,17 +19,21 @@ package manager
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"time"
 
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	"github.com/fsnotify/fsnotify"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
@@ -43,6 +47,10 @@ var (
 	metricsPort int32 = 8383
 )
 
+type cnsOperator struct {
+	configInfo *types.ConfigInfo
+}
+
 // InitCnsOperator initializes the Cns Operator
 func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -51,14 +59,16 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Initializing CNS Operator")
-	vCenter, err := types.GetVirtualCenterInstance(ctx, configInfo)
+	cnsOperator := &cnsOperator{}
+	cnsOperator.configInfo = configInfo
+	vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo)
 	if err != nil {
 		return err
 	}
 	volumeManager := volumes.GetManager(ctx, vCenter)
 
 	// Get a config to talk to the apiserver
-	cfg, err := config.GetConfig()
+	restConfig, err := config.GetConfig()
 	if err != nil {
 		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 		return err
@@ -85,15 +95,9 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		return err
 	}
 
-	err = createCustomResourceDefinitionFromManifest(ctx, apiextensionsClientSet, "cnsregistervolume_crd.yaml")
-	if err != nil {
-		log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsRegisterVolumePlural, err)
-		return err
-	}
-
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
-	mgr, err := manager.New(cfg, manager.Options{
+	mgr, err := manager.New(restConfig, manager.Options{
 		Namespace:          "",
 		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 	})
@@ -111,10 +115,28 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr, configInfo, volumeManager); err != nil {
+	if err := controller.AddToManager(mgr, cnsOperator.configInfo, volumeManager); err != nil {
 		log.Errorf("failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}
+
+	// Clean up routine to cleanup successful CnsRegisterVolume instances
+	err = watcher(ctx, cnsOperator)
+	if err != nil {
+		log.Error("Failed to watch on config file for changes to CnsRegisterVolumesCleanupIntervalInMin. Error: %+v", err)
+		return err
+	}
+	go func() {
+		for {
+			ctx, log = logger.GetNewContextWithLogger()
+			log.Infof("Triggering CnsRegisterVolume cleanup routine")
+			cleanUpCnsRegisterVolumeInstances(ctx, restConfig, cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+			log.Infof("Completed CnsRegisterVolume cleanup")
+			for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+				time.Sleep(time.Duration(1 * time.Minute))
+			}
+		}
+	}()
 
 	log.Info("Starting Cns Operator")
 
@@ -123,5 +145,64 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		log.Errorf("failed to start Cns operator. Err: %+v", err)
 		return err
 	}
+	return nil
+}
+
+// watcher watches on the vsphere.conf file mounted as secret within the syncer container
+func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
+	log := logger.GetLogger(ctx)
+	cfgPath := common.GetConfigPath(ctx)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Failed to create fsnotify watcher. Err: %+v", err)
+		return err
+	}
+	go func() {
+		for {
+			log.Debugf("Waiting for event on fsnotify watcher")
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Debugf("fsnotify event: %q", event.String())
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
+					log.Infof("Reloading Configuration")
+					err := reloadConfiguration(ctx, cnsOperator)
+					if err != nil {
+						log.Infof("Failed to reload configuration from: %q. Err: %+v", cfgPath, err)
+					} else {
+						log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					log.Errorf("fsnotify error: %+v", err)
+					return
+				}
+			}
+			log.Debugf("fsnotify event processed")
+		}
+	}()
+	cfgDirPath := filepath.Dir(cfgPath)
+	log.Infof("Adding watch on path: %q", cfgDirPath)
+	err = watcher.Add(cfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", cfgDirPath, err)
+	}
+	return err
+}
+
+//reloadConfiguration reloads configuration from the secret, and cnsOperator
+//with the latest configInfo
+func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
+	log := logger.GetLogger(ctx)
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to read config. Error: %+v", err)
+		return err
+	}
+	cnsOperator.configInfo = &types.ConfigInfo{Cfg: cfg}
+	log.Infof("Reloaded the value for CnsRegisterVolumesCleanupIntervalInMin to %d", cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
 	return nil
 }

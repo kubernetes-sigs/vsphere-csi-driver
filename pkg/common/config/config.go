@@ -57,6 +57,10 @@ const (
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
 	// DefaultFeatureStateValue is the default value for Feature state switches
 	DefaultFeatureStateValue = false
+	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
+	// interval after which successful CnsRegisterVolumes will be cleaned up.
+	// Current default value is set to 12 hours
+	DefaultCnsRegisterVolumesCleanupIntervalInMin = 720
 )
 
 // Errors
@@ -304,6 +308,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		log.Debugf("No Feature State Switches defined in the Config.")
 		cfg.FeatureStates.VolumeExtend = DefaultFeatureStateValue
 		cfg.FeatureStates.VolumeHealth = DefaultFeatureStateValue
+	}
+	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
+		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
 	}
 	return nil
 }
