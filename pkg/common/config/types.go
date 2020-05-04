@@ -40,6 +40,9 @@ type Config struct {
 		CAFile string `gcfg:"ca-file"`
 		// Datacenter in which Node VMs are located.
 		Datacenters string `gcfg:"datacenters"`
+		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
+		// successful CnsRegisterVolumes will be cleaned up.
+		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
