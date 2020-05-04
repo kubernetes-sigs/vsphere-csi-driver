@@ -36,7 +36,6 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
@@ -48,7 +47,6 @@ import (
 	utilexec "k8s.io/utils/exec"
 	"k8s.io/utils/mount"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -645,45 +643,31 @@ func (s *service) NodeGetInfo(
 			AccessibleTopology: &csi.Topology{},
 		}, nil
 	}
-	var cfg *cnsconfig.Config
-	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
 
 	var topologyAware, _ = strconv.ParseBool(os.Getenv("TOPOLOGY_AWARE"))
 
-	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
-	if err != nil && !topologyAware {
-		if os.IsNotExist(err) {
-			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-			return &csi.NodeGetInfoResponse{
-				NodeId: nodeID,
-			}, nil
-		}
-		log.Errorf("failed to read cnsconfig. Error: %v", err)
-		return nil, status.Errorf(codes.Internal, err.Error())
+	if !topologyAware {
+		log.Info("TOPOLOGY_AWARE environment variable not provided to node daemonset. Enabling non-topology aware cluster.")
+		return &csi.NodeGetInfoResponse{
+			NodeId: nodeID,
+		}, nil
 	}
 	var accessibleTopology map[string]string
 	topology := &csi.Topology{}
 
-	if (cfg.Labels.Zone != "" && cfg.Labels.Region != "") || topologyAware {
-		if topologyAware {
-			log.Infof("node damonset started with TOPOLOGY_AWARE setting. Looking for node labels for topology settings")
-		} else {
-			log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		}
-		region, zone, err := getTopologyFromK8sNode(ctx, nodeID)
-		if err != nil {
-			log.Errorf("Could not find topology labels from kubernetes node %s, in topology aware setup, error: %v", nodeID, err)
-		}
-		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
-		if zone != "" && region != "" {
-			accessibleTopology = make(map[string]string)
-			accessibleTopology[v1.LabelZoneRegion] = region
-			accessibleTopology[v1.LabelZoneFailureDomain] = zone
-		}
+	log.Info("node damonset started with TOPOLOGY_AWARE setting. Looking for node labels for topology settings")
+	region, zone, err := getTopologyFromK8sNode(ctx, nodeID)
+	if err != nil {
+		log.Errorf("Could not find topology labels from kubernetes node %s, in topology aware setup, error: %v", nodeID, err)
+		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+	log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
+	if zone != "" && region != "" {
+		accessibleTopology = make(map[string]string)
+		accessibleTopology[v1.LabelZoneRegion] = region
+		accessibleTopology[v1.LabelZoneFailureDomain] = zone
+	}
+
 	if len(accessibleTopology) > 0 {
 		topology.Segments = accessibleTopology
 	}
@@ -1311,5 +1295,5 @@ func getTopologyFromK8sNode(ctx context.Context, nodeName string) (string, strin
 	}
 	labels := node.GetLabels()
 
-	return labels[v1.LabelZoneRegion], labels[v1.LabelZoneFailureDomain], err
+	return labels[v1.LabelZoneRegion], labels[v1.LabelZoneFailureDomain], nil
 }
