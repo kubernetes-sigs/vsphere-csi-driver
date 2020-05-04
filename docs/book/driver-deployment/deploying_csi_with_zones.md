@@ -155,13 +155,15 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
 
    Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true`.
 
-   In the credential secret file, add entries for region and zone.
+   For topology aware clusters, the credential secret file needs entries for region and zone. They must match the vSphere tag category.
 
    ```bash
    [Labels]
    region = k8s-region
    zone = k8s-zone
    ```
+
+   The CSI Node DaemonSet needs to be started with the `TOPOLOGY_AWARE` environment variable. This makes use of the node labels for topology placement.
 
 4. Verify that your CSI driver installation is successful.
 

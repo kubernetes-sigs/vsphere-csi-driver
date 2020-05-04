@@ -73,9 +73,7 @@ Considering the above inventory, roles should be assigned as specified below:
 
 ## Setting up the management network <a id="setup_management_network"></a>
 
-By default, CPI and CSI Pods are scheduled on k8s master nodes. In this case, for non-topology aware Kubernetes clusters, it is sufficient to provide the k8s master node(s) credentials to the vCenter that this cluster runs on.
-
-For topology-aware clusters, every k8s node needs to discover its topology by communicating with the vCenter. This is needed to utilize the topology-aware provisioning and late binding feature.
+By default, CPI and CSI Pods are scheduled on k8s master nodes. The control plane needs to be able to communicate with the vCenter.
 
 Refer to the [Deployment with Zones](deploying_csi_with_zones.md) to understand how to provide vCenter credentials access to Kubernetes nodes.
 

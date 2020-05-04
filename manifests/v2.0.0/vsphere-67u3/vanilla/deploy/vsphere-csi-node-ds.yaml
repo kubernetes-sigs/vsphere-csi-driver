@@ -56,8 +56,8 @@ spec:
         - name: X_CSI_SPEC_REQ_VALIDATION
           value: "false"
         # needed only for topology aware setups
-        #- name: VSPHERE_CSI_CONFIG
-        #  value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
+        #- name: TOPOLOGY_AWARE
+        #  value: "true" # use topology labels on node
         - name: X_CSI_DEBUG
           value: "true"
         - name: LOGGER_LEVEL
