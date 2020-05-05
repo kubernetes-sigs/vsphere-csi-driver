@@ -103,6 +103,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 
 	c.featureStates = &config.FeatureStates
 	pvcsiConfigPath := common.GetConfigPath(ctx)
+	featureStatesCfgPath := common.GetFeatureStatesConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -142,6 +143,13 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
+	featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
+	log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
+	err = watcher.Add(featureStatesCfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
+		return err
+	}
 	return nil
 }
 
@@ -175,8 +183,6 @@ func (c *controller) ReloadConfiguration() {
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
 	}
-	c.featureStates = &cfg.FeatureStates
-	log.Info("Successfully reloaded configuration")
 }
 
 // CreateVolume is creating CNS Volume using volume request specified

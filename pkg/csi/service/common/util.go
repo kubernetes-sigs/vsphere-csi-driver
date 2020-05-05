@@ -290,8 +290,15 @@ func GetFeatureStatesConfigPath(ctx context.Context) string {
 		if featureStatesCfgPath == "" {
 			featureStatesCfgPath = cnsconfig.DefaultVanillaFeatureStateConfigPath
 		}
-	} else {
-		return ""
+	}
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if featureStatesCfgPath == "" {
+			featureStatesCfgPath = cnsconfig.DefaultGCFeatureStateConfigPath
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if featureStatesCfgPath == "" {
+			featureStatesCfgPath = cnsconfig.DefaultSVFeatureStateConfigPath
+		}
 	}
 	return featureStatesCfgPath
 }
@@ -316,8 +323,23 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 	cfgPath := GetConfigPath(ctx)
 	if cfgPath == cnsconfig.DefaultGCConfigPath {
 		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
+		if err != nil {
+			return cfg, err
+		}
 	} else {
 		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+		if err != nil {
+			return cfg, err
+		}
+	}
+	// Reading feature states information for Supervisor and Guest Cluster flavors
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		err := GetFeatureStates(ctx, cfg)
+		if err != nil {
+			log.Errorf("error while reading the feature states. Error: %+v", err)
+			return cfg, err
+		}
 	}
 	// Reading feature states information
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))

@@ -90,12 +90,17 @@ spec:
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+            - name: FEATURE_STATES
+              value: /etc/vmware/wcp/csi-feature-states/csi-feature-states.conf
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
+              readOnly: true
+            - mountPath: /etc/vmware/wcp/csi-feature-states
+              name: csi-fss-config-volume
               readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
@@ -128,6 +133,8 @@ spec:
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+            - name: FEATURE_STATES
+              value: /etc/vmware/wcp/csi-feature-states/csi-feature-states.conf
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
@@ -135,10 +142,16 @@ spec:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
               readOnly: true
+            - mountPath: /etc/vmware/wcp/csi-feature-states
+              name: csi-fss-config-volume
+              readOnly: true
       volumes:
         - name: vsphere-config-volume
           secret:
             secretName: vsphere-config-secret
+        - name: csi-fss-config-volume
+          configMap:
+            name: csi-feature-states
         - name: socket-dir
           hostPath:
             path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com

@@ -100,6 +100,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	}
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
+	featureStatesCfgPath := common.GetFeatureStatesConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -131,6 +132,13 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
+	featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
+	log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
+	err = watcher.Add(featureStatesCfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
 		return err
 	}
 	return nil
