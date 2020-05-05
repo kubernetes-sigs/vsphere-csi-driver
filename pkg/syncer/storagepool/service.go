@@ -61,13 +61,25 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
+	err = vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Failed to connect to SPBM service. Err: %+v", err)
+		return err
+	}
+
 	// Start the listeners
-	err = InitHostMountListener(ctx, vc, configInfo.Cfg.Global.ClusterID)
+	scWatch, err := startStorageClassWatch(ctx, vc, configInfo.Cfg.Global.ClusterID, cfg)
+	if err != nil {
+		log.Errorf("Failed starting the Storageclass watch. Err: %+v", err)
+		return err
+	}
+
+	err = InitHostMountListener(ctx, scWatch, vc, configInfo.Cfg.Global.ClusterID)
 	if err != nil {
 		log.Errorf("Failed starting the HostMount listener. Err: %+v", err)
 	}
 
-	err = InitDatastoreCapacityListener(ctx, vc, configInfo.Cfg.Global.ClusterID)
+	err = InitDatastoreCapacityListener(ctx, scWatch, vc, configInfo.Cfg.Global.ClusterID)
 	if err != nil {
 		log.Errorf("Failed starting the DatastoreCapacity listener. Err: %+v", err)
 	}

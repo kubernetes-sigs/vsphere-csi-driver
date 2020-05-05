@@ -36,6 +36,9 @@ type StoragePoolStatus struct {
 	// Nodes the storage pool has access to
 	// +optional
 	AccessibleNodes []string `json:"accessibleNodes,omitempty"`
+	// StorageClasses that can be used with this storage pool
+	// +optional
+	CompatibleStorageClasses []string `json:"compatibleStorageClasses,omitempty"`
 	// Total Capacity of the storage pool
 	// +optional
 	Capacity *PoolCapacity `json:"capacity,omitempty"`
