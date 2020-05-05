@@ -52,9 +52,9 @@ func newInformer() *metadataSyncInformer {
 	return &metadataSyncInformer{}
 }
 
-// getFullSyncIntervalInMin return the FullSyncInterval
+// getFullSyncIntervalInMin returns the FullSyncInterval
 // If environment variable FULL_SYNC_INTERVAL_MINUTES is set and valid,
-// return the interval value read from enviroment variable
+// return the interval value read from environment variable
 // otherwise, use the default value 30 minutes
 func getFullSyncIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
@@ -74,6 +74,28 @@ func getFullSyncIntervalInMin(ctx context.Context) int {
 		}
 	}
 	return fullSyncIntervalInMin
+}
+
+// getVolumeHealthIntervalInMin returns the VolumeHealthInterval
+// If environment variable VOLUME_HEALTH_STATUS_INTERVAL_MINUTES is set and valid,
+// return the interval value read from environment variable
+// otherwise, use the default value 5 minutes
+func getVolumeHealthIntervalInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	volumeHealthIntervalInMin := defaultVolumeHealthIntervalInMin
+	if v := os.Getenv("VOLUME_HEALTH_INTERVAL_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
+			} else {
+				volumeHealthIntervalInMin = value
+				log.Infof("VolumeHealth: VolumeHealth interval is set to %d minutes", volumeHealthIntervalInMin)
+			}
+		} else {
+			log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+		}
+	}
+	return volumeHealthIntervalInMin
 }
 
 // InitMetadataSyncer initializes the Metadata Sync Informer
@@ -239,8 +261,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}()
 
-	volumeHealthTicker := time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
+	volumeHealthTicker := time.NewTicker(time.Duration(getVolumeHealthIntervalInMin(ctx)) * time.Minute)
 	defer volumeHealthTicker.Stop()
+
 	// Trigger get volume health status
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
