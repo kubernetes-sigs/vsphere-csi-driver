@@ -146,6 +146,8 @@ spec:
               value: "6443"
             - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
+            - name: VOLUME_HEALTH_INTERVAL_MINUTES
+              value: "5"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT
