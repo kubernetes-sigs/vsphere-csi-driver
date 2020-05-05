@@ -142,6 +142,8 @@ spec:
               value: "controller"
             - name: GC_CONFIG
               value: /etc/cloud/pvcsi-config/cns-csi.conf
+            - name: FEATURE_STATES
+              value: /etc/cloud/csi-feature-states/csi-feature-states.conf
             - name: PROVISION_TIMEOUT_MINUTES
               value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
@@ -161,6 +163,9 @@ spec:
             - mountPath: /etc/cloud/pvcsi-config
               name: pvcsi-config-volume
               readOnly: true
+            - mountPath: /etc/cloud/csi-feature-states
+              name: csi-fss-config-volume
+              readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
@@ -173,6 +178,8 @@ spec:
               value: "30"
             - name: GC_CONFIG
               value: /etc/cloud/pvcsi-config/cns-csi.conf
+            - name: FEATURE_STATES
+              value: /etc/cloud/csi-feature-states/csi-feature-states.conf
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
             - name: LOGGER_LEVEL
@@ -183,6 +190,9 @@ spec:
             readOnly: true
           - mountPath: /etc/cloud/pvcsi-config
             name: pvcsi-config-volume
+            readOnly: true
+          - mountPath: /etc/cloud/csi-feature-states
+            name: csi-fss-config-volume
             readOnly: true
         - name: liveness-probe
           image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
@@ -230,6 +240,9 @@ spec:
          - name: pvcsi-config-volume
            configMap:
              name: pvcsi-config
+         - name: csi-fss-config-volume
+           configMap:
+             name: csi-feature-states
          - name: socket-dir
            hostPath:
              path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com

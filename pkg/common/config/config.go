@@ -45,6 +45,10 @@ const (
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// DefaultGCConfigPath is the default path of GC config file
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
+	// DefaultSVFeatureStateConfigPath is the default path of csi feature states config file in Supervisor Cluster
+	DefaultSVFeatureStateConfigPath = "/etc/vmware/wcp/csi-feature-states/csi-feature-states.conf"
+	// DefaultGCFeatureStateConfigPath is the default path of csi feature states config file in Guest Cluster
+	DefaultGCFeatureStateConfigPath = "/etc/cloud/csi-feature-states/csi-feature-states.conf"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
 	// EnvFeatureStates contains the path to the CSI Feature States Config
@@ -296,19 +300,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
-	if cfg.FeatureStates != (FeatureStateSwitches{}) {
-		if !cfg.FeatureStates.VolumeExtend {
-			log.Infof("Volume resize feature is disabled.")
-		}
-		if !cfg.FeatureStates.VolumeHealth {
-			log.Infof("Volume health feature is disabled.")
-		}
-	}
-	if cfg.FeatureStates == (FeatureStateSwitches{}) {
-		log.Debugf("No Feature State Switches defined in the Config.")
-		cfg.FeatureStates.VolumeExtend = DefaultFeatureStateValue
-		cfg.FeatureStates.VolumeHealth = DefaultFeatureStateValue
-	}
+
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
 	}
@@ -385,8 +377,15 @@ func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cf
 	if !cfg.FeatureStates.CSIMigration {
 		log.Infof("CSI Migration feature is disabled.")
 	}
+	if !cfg.FeatureStates.VolumeExtend {
+		log.Infof("Volume resize feature is disabled.")
+	}
+	if !cfg.FeatureStates.VolumeHealth {
+		log.Infof("Volume health feature is disabled.")
+	}
 	return nil
 }
+
 
 // GetDefaultNetPermission returns the default file share net permission.
 func GetDefaultNetPermission() *NetPermissionConfig {

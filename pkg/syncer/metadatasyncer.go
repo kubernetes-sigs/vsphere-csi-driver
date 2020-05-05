@@ -123,7 +123,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	// Initialize cnsCreationMap used by Full Sync
 	cnsCreationMap = make(map[string]bool)
 
+	var featureStatesCfgPath string
 	cfgPath := common.GetConfigPath(ctx)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		featureStatesCfgPath = common.GetFeatureStatesConfigPath(ctx)
+	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -142,6 +146,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Infof("Reloading Configuration")
 					ReloadConfiguration(ctx, metadataSyncer)
 					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+						log.Infof("Successfully reloaded feature states configuration from: %q", featureStatesCfgPath)
+					}
 					if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 						log.Infof("Successfully reloaded configuration from: %q", cnsconfig.DefaultpvCSIProviderPath)
 					}
@@ -161,6 +168,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
+	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
+		log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
+		err = watcher.Add(featureStatesCfgDirPath)
+		if err != nil {
+			log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
+			return err
+		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
@@ -277,7 +293,6 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
-		metadataSyncer.configInfo.Cfg.FeatureStates = cfg.FeatureStates
 		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
