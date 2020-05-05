@@ -208,10 +208,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 	log.Infof("Initialized metadata syncer")
 
-	ticker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
+	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
+	defer fullSyncTicker.Stop()
 	// Trigger full sync
 	go func() {
-		for ; true; <-ticker.C {
+		for ; true; <-fullSyncTicker.C {
 			ctx, log = logger.GetNewContextWithLogger()
 			log.Infof("fullSync is triggered")
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -222,12 +223,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}()
 
-	ticker = time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
-
+	volumeHealthTicker := time.NewTicker(time.Duration(defaultVolumeHealthIntervalInMin) * time.Minute)
+	defer volumeHealthTicker.Stop()
 	// Trigger get volume health status
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
-			for ; true; <-ticker.C {
+			for ; true; <-volumeHealthTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
 				if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
 					log.Warnf("VolumeHealth feature is disabled on the cluster")
