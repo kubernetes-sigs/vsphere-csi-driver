@@ -40,7 +40,7 @@ var mutex sync.Mutex
 
 // InitHostMountListener initializes a property collector listener for any new datastores mounted to
 // hosts in the k8s cluster. StoragePool instances will be created for such new datastores.
-func InitHostMountListener(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) error {
+func InitHostMountListener(ctx context.Context, scWatch *StorageClassWatch, vc *cnsvsphere.VirtualCenter, clusterID string) error {
 	log := logger.GetLogger(ctx)
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
 	if err != nil {
@@ -64,7 +64,7 @@ func InitHostMountListener(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 			log.Infof("Got update for host %v for datastores %v", update.Obj, propChange)
 		}
 		log.Infof("Reconciling StoragePool instances due to mount change...")
-		err := ReconcileStoragePools(ctx, vc, clusterID)
+		err := ReconcileStoragePools(ctx, scWatch, vc, clusterID, true /*dsListChange*/)
 		if err != nil {
 			log.Errorf("Error reconciling StoragePool instances in HostMount listener. Err: %+v", err)
 		} else {
@@ -79,7 +79,7 @@ func InitHostMountListener(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 
 // InitDatastoreCapacityListener initializes a property collector listener to handle changes to
 // datastore capacity.
-func InitDatastoreCapacityListener(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) error {
+func InitDatastoreCapacityListener(ctx context.Context, scWatch *StorageClassWatch, vc *cnsvsphere.VirtualCenter, clusterID string) error {
 	log := logger.GetLogger(ctx)
 	// Get datastores from VC
 	datastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
@@ -103,7 +103,7 @@ func InitDatastoreCapacityListener(ctx context.Context, vc *cnsvsphere.VirtualCe
 			log.Infof("Got update for datastore %v for property %v", update.Obj, propChange)
 		}
 		log.Infof("Reconciling StoragePool instances due to capacity change...")
-		err := ReconcileStoragePools(ctx, vc, clusterID)
+		err := ReconcileStoragePools(ctx, scWatch, vc, clusterID, false /*dsListChange*/)
 		if err != nil {
 			log.Errorf("Error reconciling StoragePool instances in DatastoreCapacity listener. Err: %v", err)
 		} else {
@@ -117,7 +117,7 @@ func InitDatastoreCapacityListener(ctx context.Context, vc *cnsvsphere.VirtualCe
 
 // ReconcileStoragePools creates new StoragePool instances or updates existing ones for each shared
 // datatsore found in this k8s cluster.
-func ReconcileStoragePools(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) error {
+func ReconcileStoragePools(ctx context.Context, scWatch *StorageClassWatch, vc *cnsvsphere.VirtualCenter, clusterID string, dsListChange bool) error {
 	log := logger.GetLogger(ctx)
 	// Create a client to create/udpate StoragePool instances
 	cfg, err := config.GetConfig()
@@ -143,6 +143,12 @@ func ReconcileStoragePools(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 		return err
 	}
 
+	dsPolicyCompatMap, err := scWatch.getDatastoreToPolicyCompatibility(ctx, datastores, dsListChange)
+	if err != nil {
+		log.Errorf("Failed to get dsPolicyCompatMap. Err: %+v", err)
+		return err
+	}
+
 	// Create/Update StoragePool instances for each datastore
 	validStoragePoolNames := make(map[string]bool)
 	for _, ds := range datastores {
@@ -161,12 +167,23 @@ func ReconcileStoragePools(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 		}
 		capacity, freeSpace := getDatastoreCapacityAndFreeSpace(ctx, ds)
 
+		compatSC := make([]string, 0)
+		dsPolicies, ok := dsPolicyCompatMap[ds.Datastore.Reference().Value]
+		if ok {
+			for _, policyID := range dsPolicies {
+				scName := scWatch.policyToScMap[policyID].Name
+				compatSC = append(compatSC, scName)
+			}
+		} else {
+			log.Infof("Failed to get compatible policies for %s", ds.Datastore.Reference().Value)
+		}
+
 		// Get StoragePool with spName and Update if already present, otherwise Create resource
 		sp, err := spclient.Resource(spResource).Get(spName, metav1.GetOptions{})
 		if err != nil {
 			statusErr, ok := err.(*k8serrors.StatusError)
 			if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
-				sp := createUnstructuredStoragePool(spName, dsURL, capacity, freeSpace, nodes)
+				sp := createUnstructuredStoragePool(spName, dsURL, capacity, freeSpace, nodes, compatSC)
 				newSp, err := spclient.Resource(spResource).Create(sp, metav1.CreateOptions{})
 				if err != nil {
 					log.Errorf("Error creating StoragePool %s. Err: %+v", spName, err)
@@ -177,7 +194,7 @@ func ReconcileStoragePools(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 		} else {
 			// StoragePool already exists, so Update it
 			// We don't expect ConflictErrors since updates are synchronized with a lock
-			sp := updateUnstructuredStoragePool(sp, dsURL, capacity, freeSpace, nodes)
+			sp := updateUnstructuredStoragePool(sp, dsURL, capacity, freeSpace, nodes, compatSC)
 			newSp, err := spclient.Resource(spResource).Update(sp, metav1.UpdateOptions{})
 			if err != nil {
 				log.Errorf("Error updating StoragePool %s. Err: %+v", spName, err)
@@ -211,7 +228,7 @@ func ReconcileStoragePools(ctx context.Context, vc *cnsvsphere.VirtualCenter, cl
 }
 
 func createUnstructuredStoragePool(spName string, dsURL string, capacity *resource.Quantity,
-	freeSpace *resource.Quantity, nodes []string) *unstructured.Unstructured {
+	freeSpace *resource.Quantity, nodes []string, compatSC []string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cns.vmware.com/v1alpha1",
@@ -226,7 +243,8 @@ func createUnstructuredStoragePool(spName string, dsURL string, capacity *resour
 				},
 			},
 			"status": map[string]interface{}{
-				"accessibleNodes": nodes,
+				"accessibleNodes":          nodes,
+				"compatibleStorageClasses": compatSC,
 				"capacity": map[string]interface{}{
 					"total":     capacity,
 					"freeSpace": freeSpace,
@@ -238,10 +256,11 @@ func createUnstructuredStoragePool(spName string, dsURL string, capacity *resour
 
 func updateUnstructuredStoragePool(sp *unstructured.Unstructured, dsURL string,
 	capacity *resource.Quantity, freeSpace *resource.Quantity,
-	nodes []string) *unstructured.Unstructured {
+	nodes []string, compatSC []string) *unstructured.Unstructured {
 	unstructured.SetNestedField(sp.Object, dsURL, "spec", "parameters", "datastoreUrl")
 	unstructured.SetNestedField(sp.Object, capacity.String(), "status", "capacity", "total")
 	unstructured.SetNestedField(sp.Object, freeSpace.String(), "status", "capacity", "freeSpace")
 	unstructured.SetNestedStringSlice(sp.Object, nodes, "status", "accessibleNodes")
+	unstructured.SetNestedStringSlice(sp.Object, compatSC, "status", "compatibleStorageClasses")
 	return sp
 }
