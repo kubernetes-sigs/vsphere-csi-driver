@@ -40,8 +40,8 @@ rules:
     verbs: ["use"]
     resourceNames: ["vmware-system-privileged"]
   - apiGroups: [""]
-      resources: ["persistentvolumeclaims/status"]
-      verbs: ["update", "patch"]
+    resources: ["persistentvolumeclaims/status"]
+    verbs: ["update", "patch"]
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
