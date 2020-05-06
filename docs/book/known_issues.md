@@ -37,4 +37,12 @@ Issue 5<a id="issue_5"></a>: The CSI delete volume is getting called before deta
 
 - Impact: There could be a possibility of CSI getting Delete Volume before ControllerUnpublish.
 - Upstream issue is tracked at: https://github.com/kubernetes/kubernetes/issues/84226
-- Workaround: None
+- Workaround:
+
+    1. Delete the Pod with force:
+       `kubectl delete pods <pod> --grace-period=0 --force`
+    2. Find VolumeAttachment for the volume that remained undeleted. Get Node from this VolumeAttachment.
+    3. Manually detach the disk from the Node VM.
+    4. Edit this VolumeAttachment and remove the finalizer. It will get deleted.
+    5. Use `govc` to manually delete the FCD.
+    6. Edit Pending PV and remove the finalizer. It will get deleted.
