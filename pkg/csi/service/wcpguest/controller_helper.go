@@ -24,9 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
@@ -35,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 const (
@@ -100,14 +100,7 @@ func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context, r
 }
 
 func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
-	err := common.ValidateControllerExpandVolumeRequest(ctx, req)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Check if it is offline expansion or not
-
-	return nil
+	return common.ValidateControllerExpandVolumeRequest(ctx, req)
 }
 
 // checkForSupervisorPVCCondition returns nil if the PVC condition is set as required in the supervisor cluster before timeout, otherwise returns error
