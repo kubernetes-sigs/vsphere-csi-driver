@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+
 	"k8s.io/client-go/tools/cache"
 
 	v1 "k8s.io/api/core/v1"
@@ -134,4 +135,3 @@ func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
 	log.Infof("getPVCKey: PVC key %s", objKey)
 	return objKey, nil
 }
-

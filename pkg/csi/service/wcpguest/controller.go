@@ -558,7 +558,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 	for _, vmInstance := range vmList.Items {
 		for _, vmVolume := range vmInstance.Status.Volumes {
-			if vmVolume.Name == volumeID && vmVolume.Attached == true {
+			if vmVolume.Name == volumeID && vmVolume.Attached {
 				msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
 				log.Error(msg)
 				return nil, status.Error(codes.FailedPrecondition, msg)
