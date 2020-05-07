@@ -17,12 +17,12 @@ limitations under the License.
 package syncer
 
 import (
-	"fmt"
-	"time"
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -144,8 +144,6 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 	}
 }
 
-
-
 // Run starts the reconciler
 func (rc *resizeReconciler) Run(ctx context.Context, workers int) {
 	log := logger.GetLogger(ctx)
@@ -230,7 +228,7 @@ func (rc *resizeReconciler) syncPVC(key string) error {
 		svcPvcClone.Status.Capacity[v1.ResourceStorage] = tkgPvcSize
 		updatePVC = true
 	}
-	if (!checkFileSystemPendingOnPVC(tkgPVC) && checkFileSystemPendingOnPVC(svcPVC)) {
+	if !checkFileSystemPendingOnPVC(tkgPVC) && checkFileSystemPendingOnPVC(svcPVC) {
 		svcPvcClone = mergeResizeConditionOnPVC(svcPvcClone, []v1.PersistentVolumeClaimCondition{})
 		updatePVC = true
 	}

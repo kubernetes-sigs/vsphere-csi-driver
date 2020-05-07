@@ -424,7 +424,7 @@ func setInstanceOwnerRef(instance *cnsregistervolumev1alpha1.CnsRegisterVolume, 
 	bOwnerDeletion := true
 	kind := reflect.TypeOf(v1.PersistentVolumeClaim{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
-		metav1.OwnerReference{
+		{
 			APIVersion:         "v1",
 			Controller:         &bController,
 			BlockOwnerDeletion: &bOwnerDeletion,
