@@ -44,6 +44,8 @@ require (
 	golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae // indirect
 	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect
 	google.golang.org/appengine v1.6.6
+	golang.org/x/tools v0.0.0-20200826040757-bc8aaaa29e06 // indirect
+	golang.org/x/tools v0.0.0-20200804172745-d73700863c76 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/gcfg.v1 v1.2.3
