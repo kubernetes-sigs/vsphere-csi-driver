@@ -713,6 +713,15 @@ func verifyPVSizeinSupervisor(svcPVCName string, newSize resource.Quantity) {
 	gomega.Expect(svcPVSize.Cmp(newSize) >= 0).To(gomega.BeTrue())
 }
 
+func verifyPVSizeinSupervisorWithWait(svcPVCName string, newSize resource.Quantity) error {
+	waitErr := wait.PollImmediate(resizePollInterval, pollTimeout, func() (bool, error) {
+		svcPV := getPvFromSupervisorCluster(svcPVCName)
+		svcPVSize := svcPV.Spec.Capacity[v1.ResourceStorage]
+		return svcPVSize.Cmp(newSize) >= 0, nil
+	})
+	return waitErr
+}
+
 // waitForPVCToReachFileSystemResizePendingCondition waits for PVC to reach FileSystemResizePendingCondition status condition
 func waitForPVCToReachFileSystemResizePendingCondition(f *framework.Framework, namespace string, pvcName string, timeout time.Duration) (*v1.PersistentVolumeClaim, error) {
 	ctx, cancel := context.WithCancel(context.Background())
