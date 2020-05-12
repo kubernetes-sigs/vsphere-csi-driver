@@ -282,9 +282,14 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 
-	//todo: success and err comes from PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc, m)
-	success := true
+	log.Debugf("Enter placementEngine %s", req)
+	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc)
+	if err != nil {
+		log.Errorf("Failed to place this PVC on sp with error %s", err)
+		return out, err
+	}
 
-	out.PlaceSuccess = success
+	log.Debugf("End placementEngine")
+	out.PlaceSuccess = true
 	return out, err
 }
