@@ -264,6 +264,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s", volume.StoragePolicyId, storageClassName)
 
 	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
+	accessMode := instance.Spec.AccessMode
+	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import
+	if accessMode == "" && instance.Spec.DiskURLPath != "" {
+		accessMode = v1.ReadWriteOnce
+	}
 	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -276,7 +281,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 				Name:       instance.Spec.PvcName,
 			}
 			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
-				instance.Spec.AccessMode, storageClassName, claimRef)
+				accessMode, storageClassName, claimRef)
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pvSpec)
 			if err != nil {
@@ -301,7 +306,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	// Create PVC mapping to above created PV
 	log.Infof("Now creating pvc: %s", instance.Spec.PvcName)
 	pvcSpec := getPersistentVolumeClaimSpec(instance.Spec.PvcName, instance.Namespace, capacityInMb,
-		storageClassName, instance.Spec.AccessMode, pvName)
+		storageClassName, accessMode, pvName)
 	log.Debugf("PVC spec is: %+v", pvcSpec)
 	pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(pvcSpec)
 	if err != nil {
