@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -327,4 +328,83 @@ func getDatastoreURLFromStoragePool(spName string) (string, error) {
 		return "", fmt.Errorf("Failed to find datastoreUrl in StoragePool %s", spName)
 	}
 	return datastoreURL, nil
+}
+
+// getAccessibleNodesFromStoragePool returns the accessibleNodes pertaining to the given StoragePool
+func getAccessibleNodesFromStoragePool(spName string) ([]string, error) {
+	// Get a config to talk to the apiserver
+	cfg, err := config.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
+	}
+
+	// create a new StoragePool client
+	spClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
+	}
+	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
+
+	// Get StoragePool with spName
+	sp, err := spClient.Resource(spResource).Get(spName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
+	}
+
+	// extract the accessibleNodes field
+	accessibleNodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
+	if !found || err != nil {
+		return nil, fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
+	}
+
+	return accessibleNodes, nil
+}
+
+// getAccessibilityRequirements returns the topology requirements from the request parameter
+func getAccessibilityRequirements(req *csi.CreateVolumeRequest) (*csi.TopologyRequirement, error) {
+	topologyRequirement := req.GetAccessibilityRequirements()
+	if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "accessibility requirements not found")
+	}
+	return topologyRequirement, nil
+}
+
+// getHostNameFromAccessibilityRequirements fetches the host node name from the given topology requirement
+func getHostNameFromAccessibilityRequirements(topologyRequirement *csi.TopologyRequirement) (string, error) {
+	var hostName string
+	for _, topology := range topologyRequirement.GetPreferred() {
+		if topology == nil {
+			return "", status.Errorf(codes.NotFound, "invalid accessibility requirement")
+		}
+		value, ok := topology.Segments[v1.LabelHostname]
+		if !ok {
+			return "", status.Errorf(codes.NotFound, "hostname not found in the accessibility requirements")
+		}
+		hostName = value
+	}
+	return hostName, nil
+}
+
+// getOverlappingNodes returns the list of nodes that is present both in the accessibleNodes of the storagePool and the
+// host names present provided in the preferred segment of accessibility requirements
+func getOverlappingNodes(accessibleNodes []string, topologyRequirement *csi.TopologyRequirement) ([]string, error) {
+	var overlappingNodes []string
+	noOverLappingNodes := true
+	accessibleNodeMap := make(map[string]bool)
+	for _, node := range accessibleNodes {
+		accessibleNodeMap[node] = true
+	}
+	for _, topology := range topologyRequirement.GetPreferred() {
+		hostname := topology.Segments[v1.LabelHostname]
+		if accessibleNodeMap[hostname] {
+			// found an overlapping node
+			noOverLappingNodes = false
+			overlappingNodes = append(overlappingNodes, hostname)
+		}
+	}
+	if noOverLappingNodes {
+		return nil, fmt.Errorf("couldn't find any overlapping node as accessible nodes present in storage pool " +
+			"and hostnames provided in accessibility requirements are disjoint")
+	}
+	return overlappingNodes, nil
 }

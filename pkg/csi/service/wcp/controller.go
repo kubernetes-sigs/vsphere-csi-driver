@@ -223,7 +223,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		hostLocalNodeName   string
 		hostLocalMode       bool
 		topologyRequirement *csi.TopologyRequirement
+		accessibleNodes     []string // This will be used to populate volumeAccessTopology
 	)
+	// Fetch the accessibility requirements from the request
+	if topologyRequirement, err = getAccessibilityRequirements(req); err != nil {
+		return nil, err
+	}
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -231,36 +236,28 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			storagePolicyID = req.Parameters[paramName]
 		} else if param == common.AttributeAffineToHost {
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
+			// XXX: We don't set the accessibleNodes here as we expect the partners to specify the node selector in pod
+			// spec while creating it. This mode of placement will be deprecated soon as we progress towards storagePool
 		} else if param == common.AttributeStoragePool {
 			storagePool = req.Parameters[paramName]
+			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(storagePool)
+			if err != nil {
+				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
+			if err != nil {
+				msg := fmt.Sprintf("getOverlappingNodes failed: %v", err)
+				return nil, status.Errorf(codes.InvalidArgument, msg)
+			}
+			accessibleNodes = append(accessibleNodes, overlappingNodes...)
 		} else if param == common.AttributeHostLocal {
 			hostLocalMode = true
-			topologyRequirement = req.GetAccessibilityRequirements()
-			if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
-				return nil, status.Errorf(codes.InvalidArgument, "accessibility requirements not found")
+			if hostLocalNodeName, err = getHostNameFromAccessibilityRequirements(topologyRequirement); err != nil {
+				return nil, err
 			}
-			for _, topology := range topologyRequirement.GetPreferred() {
-				if topology == nil {
-					return nil, status.Errorf(codes.NotFound, "invalid accessibility requirement")
-				}
-				value, ok := topology.Segments[v1.LabelHostname]
-				if !ok {
-					return nil, status.Errorf(codes.NotFound, "hostname not found in the accessibility requirements")
-				}
-				hostLocalNodeName = value
-			}
+			accessibleNodes = append(accessibleNodes, hostLocalNodeName)
 		}
-	}
-
-	// Query API server to get ESX Host Moid from the hostLocalNodeName
-	if hostLocalMode && hostLocalNodeName != "" {
-		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
-		if err != nil {
-			log.Error(err)
-			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
-		}
-		affineToHost = hostMoid
-		log.Debugf("Setting the affineToHost value as %s", affineToHost)
 	}
 
 	var selectedDatastoreURL string
@@ -272,6 +269,17 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+		//Ignore affineToHost if received, as storagePool takes precedence for placement decision
+		affineToHost = ""
+	} else if hostLocalMode && hostLocalNodeName != "" {
+		// Query API server to get ESX Host Moid from the hostLocalNodeName
+		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
+		if err != nil {
+			log.Error(err)
+			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
+		}
+		affineToHost = hostMoid
+		log.Debugf("Setting the affineToHost value as %s", affineToHost)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
@@ -315,21 +323,16 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	// Configure the volumeTopology in the response so that the external provisioner will properly sets up the
 	// nodeAffinity for this volume
 	if topologyRequirement != nil && topologyRequirement.GetPreferred() != nil {
-		for _, topology := range topologyRequirement.GetPreferred() {
-			for key, value := range topology.Segments {
-				// add the hostname only if hostLocal is given in the param
-				if key == v1.LabelHostname && !hostLocalMode {
-					continue
-				}
-				volumeTopology := &csi.Topology{
-					Segments: map[string]string{
-						key: value,
-					},
-				}
-				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+		for _, hostName := range accessibleNodes {
+			volumeTopology := &csi.Topology{
+				Segments: map[string]string{
+					v1.LabelHostname: hostName,
+				},
 			}
+			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 		}
 	}
+
 	return resp, nil
 }
 
