@@ -77,21 +77,17 @@ spec:
               items:
                 type: string
               type: array
-            errors:
-              description: Last errors happened on the pool
-              items:
-                description: StoragePoolError describes an error encountered on the
-                  pool
-                properties:
-                  message:
-                    description: Message details the encountered error
-                    type: string
-                  time:
-                    description: Time is the timestamp when the error was encountered.
-                    format: date-time
-                    type: string
-                type: object
-              type: array
+            error:
+              description: Error that occurred on the storage pool
+              properties:
+                message:
+                  description: Message details of the encountered error
+                  type: string
+                time:
+                  description: Time is the timestamp when the error was encountered
+                  format: date-time
+                  type: string
+              type: object
           type: object
       type: object
   version: v1alpha1
