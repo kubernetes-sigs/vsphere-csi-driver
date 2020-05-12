@@ -42,9 +42,9 @@ type StoragePoolStatus struct {
 	// Total Capacity of the storage pool
 	// +optional
 	Capacity *PoolCapacity `json:"capacity,omitempty"`
-	// Last errors happened on the pool
+	// Error that occurred on the storage pool
 	// +optional
-	Errors []StoragePoolError `json:"errors,omitempty"`
+	Error StoragePoolError `json:"error,omitempty"`
 }
 
 // PoolCapacity is the storage capacity of the storage pool
@@ -59,11 +59,11 @@ type PoolCapacity struct {
 
 // StoragePoolError describes an error encountered on the pool
 type StoragePoolError struct {
-	// Time is the timestamp when the error was encountered.
+	// Time is the timestamp when the error was encountered
 	// +optional
 	Time *metav1.Time `json:"time,omitempty"`
 
-	// Message details the encountered error
+	// Message details of the encountered error
 	// +optional
 	Message *string `json:"message,omitempty"`
 }

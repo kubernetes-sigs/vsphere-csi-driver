@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/types"
@@ -92,7 +93,7 @@ func InitDatastoreCapacityListener(ctx context.Context, scWatch *StorageClassWat
 	filter := new(property.WaitFilter)
 	for _, ds := range datastores {
 		obj := ds.Reference()
-		filter = filter.Add(obj, obj.Type, []string{"name", "summary.capacity", "summary.freeSpace"})
+		filter = filter.Add(obj, obj.Type, []string{"name", "summary.capacity", "summary.freeSpace", "summary.accessible"})
 	}
 	// Start listening to property collector for changes to datastore's capacity and freeSpace property
 	p := property.DefaultCollector(vc.Client.Client)
@@ -165,7 +166,8 @@ func ReconcileStoragePools(ctx context.Context, scWatch *StorageClassWatch, vc *
 			log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 			continue
 		}
-		capacity, freeSpace := getDatastoreCapacityAndFreeSpace(ctx, ds)
+
+		capacity, freeSpace, err := getDatastoreProperties(ctx, ds)
 
 		compatSC := make([]string, 0)
 		dsPolicies, ok := dsPolicyCompatMap[ds.Datastore.Reference().Value]
@@ -178,12 +180,19 @@ func ReconcileStoragePools(ctx context.Context, scWatch *StorageClassWatch, vc *
 			log.Infof("Failed to get compatible policies for %s", ds.Datastore.Reference().Value)
 		}
 
+		storagepoolError := ""
+		if err != nil {
+			storagepoolError = err.Error()
+		}
+
 		// Get StoragePool with spName and Update if already present, otherwise Create resource
 		sp, err := spclient.Resource(spResource).Get(spName, metav1.GetOptions{})
 		if err != nil {
 			statusErr, ok := err.(*k8serrors.StatusError)
 			if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
-				sp := createUnstructuredStoragePool(spName, dsURL, capacity, freeSpace, nodes, compatSC)
+
+				sp := createUnstructuredStoragePool(spName, dsURL, capacity, freeSpace, nodes, storagepoolError, compatSC)
+
 				newSp, err := spclient.Resource(spResource).Create(sp, metav1.CreateOptions{})
 				if err != nil {
 					log.Errorf("Error creating StoragePool %s. Err: %+v", spName, err)
@@ -194,7 +203,7 @@ func ReconcileStoragePools(ctx context.Context, scWatch *StorageClassWatch, vc *
 		} else {
 			// StoragePool already exists, so Update it
 			// We don't expect ConflictErrors since updates are synchronized with a lock
-			sp := updateUnstructuredStoragePool(sp, dsURL, capacity, freeSpace, nodes, compatSC)
+			sp := updateUnstructuredStoragePool(sp, dsURL, capacity, freeSpace, nodes, storagepoolError, compatSC)
 			newSp, err := spclient.Resource(spResource).Update(sp, metav1.UpdateOptions{})
 			if err != nil {
 				log.Errorf("Error updating StoragePool %s. Err: %+v", spName, err)
@@ -228,8 +237,8 @@ func ReconcileStoragePools(ctx context.Context, scWatch *StorageClassWatch, vc *
 }
 
 func createUnstructuredStoragePool(spName string, dsURL string, capacity *resource.Quantity,
-	freeSpace *resource.Quantity, nodes []string, compatSC []string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
+	freeSpace *resource.Quantity, nodes []string, storagepoolError string, compatSC []string) *unstructured.Unstructured {
+	sp := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cns.vmware.com/v1alpha1",
 			"kind":       "StoragePool",
@@ -252,15 +261,29 @@ func createUnstructuredStoragePool(spName string, dsURL string, capacity *resour
 			},
 		},
 	}
+
+	if (storagepoolError != "") {
+		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
+		unstructured.SetNestedField(sp.Object, storagepoolError, "status", "error", "message")
+	}
+
+	return sp
 }
 
 func updateUnstructuredStoragePool(sp *unstructured.Unstructured, dsURL string,
 	capacity *resource.Quantity, freeSpace *resource.Quantity,
-	nodes []string, compatSC []string) *unstructured.Unstructured {
+	nodes []string, storagepoolError string, compatSC []string) *unstructured.Unstructured {
 	unstructured.SetNestedField(sp.Object, dsURL, "spec", "parameters", "datastoreUrl")
 	unstructured.SetNestedField(sp.Object, capacity.String(), "status", "capacity", "total")
 	unstructured.SetNestedField(sp.Object, freeSpace.String(), "status", "capacity", "freeSpace")
 	unstructured.SetNestedStringSlice(sp.Object, nodes, "status", "accessibleNodes")
 	unstructured.SetNestedStringSlice(sp.Object, compatSC, "status", "compatibleStorageClasses")
+	if storagepoolError != "" { 
+		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
+		unstructured.SetNestedField(sp.Object, storagepoolError, "status", "error", "message")
+	} else {
+		unstructured.RemoveNestedField(sp.Object, "status", "error")
+	}
+
 	return sp
 }
