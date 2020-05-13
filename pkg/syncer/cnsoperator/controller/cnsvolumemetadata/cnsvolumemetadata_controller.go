@@ -245,7 +245,9 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 			}
 		}
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
