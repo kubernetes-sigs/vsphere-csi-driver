@@ -46,6 +46,8 @@ spec:
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
               value: "6443"
+            - name: VSPHERE_CLOUD_OPERATOR_SERVICE_PORT
+              value: "29000"
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
