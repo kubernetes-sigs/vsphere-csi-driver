@@ -183,7 +183,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	// not deleted by the user, remove the instance from the queue.
 	if instance.Status.Attached && instance.DeletionTimestamp == nil {
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -324,7 +326,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			"with name %q and namespace %q.", request.Name, request.Namespace)
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -359,7 +363,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 				updateCnsNodeVMAttachment(ctx, r.client, instance)
 				recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 				// Cleanup instance entry from backOffDuration map
+				backOffDurationMapMutex.Lock()
 				delete(backOffDuration, instance.Name)
+				backOffDurationMapMutex.Unlock()
 				return reconcile.Result{}, nil
 			}
 			// Update CnsNodeVMAttachment instance with detach error message
@@ -385,7 +391,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 	}
 	// Cleanup instance entry from backOffDuration map
+	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, instance.Name)
+	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
 }
 

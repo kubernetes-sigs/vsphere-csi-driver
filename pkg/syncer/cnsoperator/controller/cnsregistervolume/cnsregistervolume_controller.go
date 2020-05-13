@@ -159,7 +159,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 
 	// If the CnsRegistereVolume instance is already registered, remove the instance from the queue
 	if instance.Status.Registered {
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -366,7 +368,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, instance.Name)
+	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
 }
