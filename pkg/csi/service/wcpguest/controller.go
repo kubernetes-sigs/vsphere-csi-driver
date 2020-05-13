@@ -573,20 +573,27 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log.Error(msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
-	// Update requested storage in PVC spec
-	pvcClone := pvc.DeepCopy()
-	pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
-	// Make a call to SV ControllerExpandVolume
-	log.Debugf("Calling volume expansion for supervisor PVC %q in namespace %q", volumeID, c.supervisorNamespace)
-	updatedPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(pvcClone)
-	if err != nil {
-		msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+
+	newQty := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
+	curQty := pvc.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
+	if (&curQty).Cmp(*newQty) == -1 {
+		// Update requested storage in PVC spec
+		pvcClone := pvc.DeepCopy()
+		pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *newQty
+		// Make a call to SV ControllerExpandVolume
+		log.Debugf("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, newQty.String())
+		pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(pvcClone)
+		if err != nil {
+			msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	} else {
+		log.Debugf("Skipping resize call for supervisor PVC %s in namespace %s", volumeID, c.supervisorNamespace)
 	}
 
 	// Wait for Supervisor PVC to change status to FilesystemResizePending
-	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, updatedPVC,
+	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, pvc,
 		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
