@@ -21,12 +21,13 @@ package k8scloudoperator
 import (
 	"context"
 	"fmt"
+	"math"
+
 	spec "github.com/container-storage-interface/spec/lib/go/csi"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	"math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
