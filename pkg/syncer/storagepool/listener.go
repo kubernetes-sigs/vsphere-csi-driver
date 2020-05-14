@@ -262,7 +262,7 @@ func createUnstructuredStoragePool(spName string, dsURL string, capacity *resour
 		},
 	}
 
-	if (storagepoolError != "") {
+	if storagepoolError != "" {
 		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
 		unstructured.SetNestedField(sp.Object, storagepoolError, "status", "error", "message")
 	}
@@ -278,7 +278,7 @@ func updateUnstructuredStoragePool(sp *unstructured.Unstructured, dsURL string,
 	unstructured.SetNestedField(sp.Object, freeSpace.String(), "status", "capacity", "freeSpace")
 	unstructured.SetNestedStringSlice(sp.Object, nodes, "status", "accessibleNodes")
 	unstructured.SetNestedStringSlice(sp.Object, compatSC, "status", "compatibleStorageClasses")
-	if storagepoolError != "" { 
+	if storagepoolError != "" {
 		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
 		unstructured.SetNestedField(sp.Object, storagepoolError, "status", "error", "message")
 	} else {

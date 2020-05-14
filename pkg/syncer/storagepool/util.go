@@ -48,11 +48,11 @@ func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (*
 	freeSpace := resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI)
 	accessible := ds.Summary.Accessible
 	log.Infof("Setting capacity, freeSpace and accessebility of datastore %v to %v, %v and %v respectively", d.Info.Name, capacity, freeSpace, accessible)
-	
+
 	if !accessible {
-		err = fmt.Errorf("Datastore not accessible") 
+		err = fmt.Errorf("Datastore not accessible")
 	}
-	
+
 	return capacity, freeSpace, err
 }
 
