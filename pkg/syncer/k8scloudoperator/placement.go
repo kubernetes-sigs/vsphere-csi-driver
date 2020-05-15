@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	v1 "k8s.io/api/core/v1"
@@ -37,6 +38,8 @@ import (
 	"sort"
 	"strconv"
 )
+
+var mutex sync.Mutex
 
 const (
 	// bufferDiskSize to ensure successful allocation
@@ -170,6 +173,11 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	_, preferred := curPVC.Annotations[spPolicyAntiPreferred]
 	_, required := curPVC.Annotations[spPolicyAntiRequired]
 
+	// Sequence placement operations beyond this point to avoid race conditions
+	// To protect the storage pool snapshot unpopulated for placement of PVCs with the same label
+	// TODO optimization of lock scope by both persistence service and node name
+	mutex.Lock()
+	defer mutex.Unlock()
 	if preferred || required {
 		usedSPNames, err := GetUsedStoragePools(ctx, client, curPVC)
 		log.Infof("GetUsedStoragePools get StoragePool list with %+v", usedSPNames)
@@ -307,8 +315,8 @@ func IsStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstruc
 // GetUsedStoragePools find all storage pools has been used by other PVCs on the same node
 func GetUsedStoragePools(ctx context.Context, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim) ([]string, error) {
 	log := logger.GetLogger(ctx)
-	requiredNodeName, required := curPVC.Annotations[spPolicyAntiRequired]
-	preferredNodeName, preferred := curPVC.Annotations[spPolicyAntiPreferred]
+	requiredAntiAffinityValue, required := curPVC.Annotations[spPolicyAntiRequired]
+	preferredAntiAffinityValue, preferred := curPVC.Annotations[spPolicyAntiPreferred]
 
 	// TODO enable PVC label and use it as filter
 	pvcList, err := client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).List(metav1.ListOptions{})
@@ -326,14 +334,14 @@ func GetUsedStoragePools(ctx context.Context, client kubernetes.Interface, curPV
 		if IsSpNameInList(spName, usedSPNames) {
 			continue
 		}
-		nodeName, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
-		if required && setRequired && nodeName == requiredNodeName {
+		antiAffinityValue, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
+		if required && setRequired && antiAffinityValue == requiredAntiAffinityValue {
 			log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiRequired)
 			usedSPNames = append(usedSPNames, spName)
 			continue
 		}
-		nodeName, setPreferred := pvcItem.Annotations[spPolicyAntiPreferred]
-		if preferred && setPreferred && nodeName == preferredNodeName {
+		antiAffinityValue, setPreferred := pvcItem.Annotations[spPolicyAntiPreferred]
+		if preferred && setPreferred && antiAffinityValue == preferredAntiAffinityValue {
 			log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiPreferred)
 			usedSPNames = append(usedSPNames, spName)
 		}
