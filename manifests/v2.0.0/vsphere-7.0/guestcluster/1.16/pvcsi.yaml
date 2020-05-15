@@ -369,3 +369,14 @@ metadata:
   name: pvcsi-config
   namespace: {{ .PVCSINamespace }}
 ---
+apiVersion: v1
+data:
+  csi-feature-states.conf: |
+    [FeatureStates]
+    volume-extend = "false"
+    volume-health = "false"
+kind: ConfigMap
+metadata:
+  name: csi-feature-states
+  namespace: {{ .PVCSINamespace }}
+---
