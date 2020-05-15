@@ -151,7 +151,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 // getPodPollIntervalInSecs return the Poll interval in secs to query the
 // Pod Info from API server.
 // If environment variable POD_POLL_INTERVAL_SECONDS is set and valid,
-// return the interval value read from enviroment variable
+// return the interval value read from environment variable
 // otherwise, use the default value 30 minutes
 func getPodPollIntervalInSecs(ctx context.Context) int {
 	log := logger.GetLogger(ctx)

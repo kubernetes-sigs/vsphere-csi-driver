@@ -484,7 +484,7 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 // getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum
 // number of worker threads which can be run to reconcile CnsVolumeMetadata instances.
 // If environment variable WORKER_THREADS_VOLUME_METADATA is set and valid,
-// return the value read from enviroment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata

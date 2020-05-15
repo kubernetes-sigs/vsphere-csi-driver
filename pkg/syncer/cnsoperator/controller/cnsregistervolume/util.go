@@ -216,7 +216,7 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 // getMaxWorkerThreadsToReconcileCnsRegisterVolume returns the maximum
 // number of worker threads which can be run to reconcile CnsRegisterVolume instances.
 // If environment variable WORKER_THREADS_REGISTER_VOLUME is set and valid,
-// return the value read from enviroment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForRegisterVolume

@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Forcefully deleting the pod")
 		statefulsetTester.DeleteStatefulPodAtIndex(0, statefulset)
 
-		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and start the pod succesfully on other node")
+		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and start the pod successfully on other node")
 		time.Sleep(k8sPodTerminationTimeOut)
 		statefulsetTester.WaitForRunning(1, 1, statefulset)
 
