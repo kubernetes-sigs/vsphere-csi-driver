@@ -464,7 +464,7 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 // getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
 // number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
 // If environment variable WORKER_THREADS_NODEVM_ATTACH is set and valid,
-// return the value read from enviroment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach

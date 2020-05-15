@@ -49,9 +49,9 @@ type CnsVolumeMetadataSpec struct {
 	// A Pod in the guest cluster can refers to one or more PVCs in the guest cluster.
 	// A PVC in the guest cluster refers to a PV in the guest cluster.
 	// A PV in the guest cluster refers to a PVC in the supervisor cluster.
-	// A Pod/PVC in the guest cluster refering to a PVC/PV respectively in the guest
+	// A Pod/PVC in the guest cluster referring to a PVC/PV respectively in the guest
 	// cluster must set the ClusterID field.
-	// A PV in the guest cluster refering to a PVC in the supervisor cluster must leave
+	// A PV in the guest cluster referring to a PVC in the supervisor cluster must leave
 	// the ClusterID field unset.
 	// This field is mandatory.
 	EntityReferences []CnsOperatorEntityReference `json:"entityreferences"`

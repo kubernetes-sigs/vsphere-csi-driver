@@ -557,7 +557,7 @@ func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, err
 }
 
 // topologyParameterForStorageClass creates a topology map using the topology values ENV variables
-// Returns the allowedTopologies paramters required for the Storage Class
+// Returns the allowedTopologies parameters required for the Storage Class
 // Input : <region-1>:<zone-1>, <region-1>:<zone-2>
 // Output : [region-1], [zone-1, zone-2] {region-1: zone-1, region-1:zone-2}
 func topologyParameterForStorageClass(topology string) ([]string, []string, []v1.TopologySelectorLabelRequirement) {

@@ -468,7 +468,7 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 	return vim25types.ManagedObjectReference{}, errors.New(msg)
 }
 
-// IsFileServiceEnabled checks if file sevice is enabled on the specified datastoreUrls.
+// IsFileServiceEnabled checks if file service is enabled on the specified datastoreUrls.
 func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *Manager) (map[string]bool, error) {
 	// Compute this map during controller init. Re use the map every other time.
 	log := logger.GetLogger(ctx)

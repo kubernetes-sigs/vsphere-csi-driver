@@ -291,7 +291,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Check filesystem resize has happend
+	// Check filesystem resize has happened
 	framework.ExpectNoError(err, "while recreating pod for resizing")
 
 	ginkgo.By("Waiting for file system resize to finish")
@@ -449,7 +449,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Check filesystem resize has happend
+	// Check filesystem resize has happened
 	framework.ExpectNoError(err, "while recreating pod for resizing")
 
 	ginkgo.By("Waiting for file system resize to finish")
