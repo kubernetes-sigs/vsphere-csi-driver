@@ -408,9 +408,10 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 		err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-		} else {
-			log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
+			return false, err
 		}
+		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
+
 	} else {
 		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
 	}
