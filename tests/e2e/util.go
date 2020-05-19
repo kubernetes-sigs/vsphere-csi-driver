@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -864,6 +865,7 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		}
 		key = words[0]
 		value = trimQuotes(words[1])
+		var strconvErr error
 		switch key {
 		case "insecure-flag":
 			if strings.Contains(value, "true") {
@@ -881,8 +883,11 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.Datacenters = value
 		case "port":
 			config.Global.VCenterPort = value
+		case "cnsregistervolumes-cleanup-intervalinmin":
+			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
-			return config, fmt.Errorf("invalid key %s in the input string", key)
+			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
 	}
 	return config, nil
