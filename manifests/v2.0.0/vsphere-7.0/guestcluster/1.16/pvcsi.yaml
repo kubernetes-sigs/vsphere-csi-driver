@@ -221,7 +221,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: quay.io/k8scsi/csi-resizer:v0.5.0  # TODO: Change this to vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v0.5.0
+          image: vmware.io/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:<image_tag>
           args:
             - "--v=4"
             - "--csiTimeout=300s"
