@@ -208,6 +208,14 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
+		fault, ok := volumeOperationRes.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
+		if ok {
+			log.Info("Observed CnsAlreadyRegisteredFault fault")
+			log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", spec.Name, taskInfo.ActivationId, fault.VolumeId.Id)
+			return &cnstypes.CnsVolumeId{
+				Id: fault.VolumeId.Id,
+			}, nil
+		}
 		// Remove the taskInfo object associated with the volume name when the current task fails.
 		//  This is needed to ensure the sub-sequent create volume call from the external provisioner invokes Create Volume
 		delete(volumeTaskMap, spec.Name)

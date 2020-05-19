@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
+	cnsvspherevolumemigrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvspherevolumemigration/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -39,6 +40,8 @@ var (
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
+	// CnsvSphereVolumeMigrationPlural is plural of CnsvSphereVolumeMigration
+	CnsvSphereVolumeMigrationPlural = "cnsvspherevolumemigrations"
 )
 
 var (
@@ -72,6 +75,13 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{},
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{},
 	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsvspherevolumemigrationv1alpha1.CnsvSphereVolumeMigration{},
+		&cnsvspherevolumemigrationv1alpha1.CnsvSphereVolumeMigrationList{},
+	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&metav1.Status{},

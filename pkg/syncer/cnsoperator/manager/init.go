@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"reflect"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -32,6 +34,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
+	cnsvspherevolumemigrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvspherevolumemigration/v1alpha1"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -43,7 +47,7 @@ var (
 )
 
 // InitCnsOperator initializes the Cns Operator
-func InitCnsOperator(configInfo *types.ConfigInfo) error {
+func InitCnsOperator(clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -70,21 +74,29 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	}
 
 	// TODO: Verify leader election for CNS Operator in multi-master mode
-
-	// Create CnsNodeVmAttachment CRD
-	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVMAttachmentPlural, crdKind)
-	if err != nil {
-		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
-		return err
-	}
-
-	// Create CnsVolumeMetadata CRD
-	crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
-	if err != nil {
-		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
-		return err
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		// Create CnsNodeVmAttachment CRD
+		crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
+		err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVMAttachmentPlural, crdKind)
+		if err != nil {
+			log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
+			return err
+		}
+		// Create CnsVolumeMetadata CRD
+		crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
+		err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
+		if err != nil {
+			log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
+			return err
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		// Create CnsvSphereVolumeMigration CRD
+		crdKind := reflect.TypeOf(cnsvspherevolumemigrationv1alpha1.CnsvSphereVolumeMigration{}).Name()
+		err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsvSphereVolumeMigrationPlural, crdKind)
+		if err != nil {
+			log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
+			return err
+		}
 	}
 
 	// Create a new operator to provide shared dependencies and start components
@@ -107,7 +119,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr, configInfo, volumeManager); err != nil {
+	if err := controller.AddToManager(clusterFlavor, mgr, configInfo, volumeManager); err != nil {
 		log.Errorf("failed to setup the controller for Cns operator. Err: %+v", err)
 		return err
 	}

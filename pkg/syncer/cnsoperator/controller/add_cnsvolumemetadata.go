@@ -21,6 +21,7 @@ import (
 )
 
 func init() {
-	// AddToManagerFuncs is a list of functions to create controllers and add them to a manager.
-	AddToManagerFuncs = append(AddToManagerFuncs, cnsvolumemetadata.Add)
+	// AddToManagerFuncsForWorkloadFlavor is a list of functions to add all Controllers to the Manager
+	// for workload flavor cluster
+	AddToManagerFuncsForWorkloadFlavor = append(AddToManagerFuncsForWorkloadFlavor, cnsvolumemetadata.Add)
 }

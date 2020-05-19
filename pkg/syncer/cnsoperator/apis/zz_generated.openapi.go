@@ -27,12 +27,15 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":       schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus": schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":           schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
-		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":     schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachment":                   schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachment(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentSpec":               schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1.CnsNodeVmAttachmentStatus":             schema_pkg_apis_cns_v1alpha1_CnsNodeVmAttachmentStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadata":                       schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadata(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataSpec":                   schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1.CnsVolumeMetadataStatus":                 schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvspherevolumemigration/v1alpha1.CnsvSphereVolumeMigration":       schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigration(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvspherevolumemigration/v1alpha1.CnsvSphereVolumeMigrationSpec":   schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigrationSpec(ref),
+		"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvspherevolumemigration/v1alpha1.CnsvSphereVolumeMigrationStatus": schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigrationStatus(ref),
 	}
 }
 
@@ -163,6 +166,113 @@ func schema_pkg_apis_cns_v1alpha1_CnsVolumeMetadataStatus(ref common.ReferenceCa
 			SchemaProps: spec.SchemaProps{
 				Description: "CnsVolumeMetadataStatus defines the observed state of CnsVolumeMetadata",
 				Type:        []string{"object"},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigration(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsvSphereVolumeMigration is the Schema for the cnsvspherevolumemigrations API",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("github.com/divyenpatel/vsphere-csi-migration/pkg/apis/cns/v1alpha1.CnsvSphereVolumeMigrationSpec"),
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Ref: ref("github.com/divyenpatel/vsphere-csi-migration/pkg/apis/cns/v1alpha1.CnsvSphereVolumeMigrationStatus"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/divyenpatel/vsphere-csi-migration/pkg/apis/cns/v1alpha1.CnsvSphereVolumeMigrationSpec", "github.com/divyenpatel/vsphere-csi-migration/pkg/apis/cns/v1alpha1.CnsvSphereVolumeMigrationStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+	}
+}
+
+func schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigrationSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsvSphereVolumeMigrationSpec defines the desired state of CnsvSphereVolumeMigration",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"volumepath": {
+						SchemaProps: spec.SchemaProps{
+							Description: "VolumePath is the vmdk path of the vSphere Volume",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"volumename": {
+						SchemaProps: spec.SchemaProps{
+							Description: "VolumeName is the name of the volume, generally this will be set as PV name",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"volumepath", "volumename"},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_cns_v1alpha1_CnsvSphereVolumeMigrationStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CnsvSphereVolumeMigrationStatus defines the observed state of CnsvSphereVolumeMigration",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"volumeid": {
+						SchemaProps: spec.SchemaProps{
+							Description: "VolumeID is the FCD ID obtained after register volume with CNS.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"registered": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Registered is set to true if volume is successfully registered with CNS and VolumeID is obtained.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"error": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Error represent the error observed while registering volume with CNS.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"volumeid", "registered"},
 			},
 		},
 	}

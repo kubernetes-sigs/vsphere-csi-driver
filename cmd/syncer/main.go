@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -29,7 +30,6 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/podlistener"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -51,6 +51,10 @@ func main() {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	// set clusterFlavor to vanilla if not supplied
+	if clusterFlavor == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	}
 	configInfo, err := types.InitConfigInfo(ctx)
 	if err != nil {
 		log.Errorf("failed to initialize the configInfo. Err: %+v", err)
@@ -95,15 +99,13 @@ func main() {
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
-		// Initialize CNS Operator for Supervisor clusters
-		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			go func() {
-				if err := manager.InitCnsOperator(configInfo); err != nil {
-					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
-					os.Exit(1)
-				}
-			}()
-		}
+		// Initialize CNS Operator
+		go func() {
+			if err := manager.InitCnsOperator(clusterFlavor, configInfo); err != nil {
+				log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+				os.Exit(1)
+			}
+		}()
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)

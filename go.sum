@@ -267,8 +267,8 @@ github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 h1:LnC5Kc
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/vmware-tanzu/vm-operator-api v0.1.0 h1:xM/NB1vQTqzBcvyMKbXzdJDfuJWgRhvKGy5S82n2nVQ=
 github.com/vmware-tanzu/vm-operator-api v0.1.0/go.mod h1:tLEBug46m/9BulOGnCB6HXwa2NyRsH9DI1KmKI573Vg=
-github.com/vmware/govmomi v0.22.2-0.20200329172045-a01612b98505 h1:+DJiAYxE/8P+4QYmE6jdpofrc5eSsxWJUU72jSLd3/c=
-github.com/vmware/govmomi v0.22.2-0.20200329172045-a01612b98505/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
+github.com/vmware/govmomi v0.22.2-0.20200519044841-0b6f04d967ba h1:fL0UDt0kBW+dxfyzcCiWRWXSWXuwgw9HQQ66YEJ7yvI=
+github.com/vmware/govmomi v0.22.2-0.20200519044841-0b6f04d967ba/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
 github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9oS4Wk2s2u4tS29nEaDLdzvuHdB19CvSGJjPgkZJNk=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
@@ -385,6 +385,10 @@ golang.org/x/tools v0.0.0-20200407143752-a3568bac92ae h1:nMRC2i7oRGagyN5g3chxBF7
 golang.org/x/tools v0.0.0-20200407143752-a3568bac92ae/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
 golang.org/x/tools v0.0.0-20200407191807-cd5a53e07f8a h1:3CGHZdxu1QXyxpZvKA3QHjIyj6ia66IIHQ3O0lKHgyQ=
 golang.org/x/tools v0.0.0-20200407191807-cd5a53e07f8a/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
+golang.org/x/tools v0.0.0-20200519015757-0d0afa43d58a h1:gILuVKC+ZPD6g/tj6zBOdnOH1ZHI0zZ86+KLMogc6/s=
+golang.org/x/tools v0.0.0-20200519015757-0d0afa43d58a/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
+golang.org/x/tools v0.0.0-20200519175826-7521f6f42533 h1:LT1dnpXXcCtF9EA7mbHqp0ateFa2oMs8o23r2YfT2pY=
+golang.org/x/tools v0.0.0-20200519175826-7521f6f42533/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
 golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=
@@ -435,6 +439,8 @@ honnef.co/go/tools v0.0.1-2019.2.3 h1:3JgtbtFHMiCmsznwGVTUWbgGov+pVqnlf1dEJTNAXe
 honnef.co/go/tools v0.0.1-2019.2.3/go.mod h1:a3bituU0lyd329TUQxRnasdCoJDkEUEAqEt0JzvZhAg=
 honnef.co/go/tools v0.0.1-2020.1.3 h1:sXmLre5bzIR6ypkjXCDI3jHPssRhc8KD/Ome589sc3U=
 honnef.co/go/tools v0.0.1-2020.1.3/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
+honnef.co/go/tools v0.0.1-2020.1.4 h1:UoveltGrhghAA7ePc+e+QYDHXrBps2PqFZiHkGR/xK8=
+honnef.co/go/tools v0.0.1-2020.1.4/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
 k8s.io/api v0.0.0-20191004102349-159aefb8556b h1:mja4wDOEhOlKPQ47X/wU/8SUKoakPfOImcZr0Jp4Ilg=
 k8s.io/api v0.0.0-20191004102349-159aefb8556b/go.mod h1:iuAfoD4hCxJ8Onx9kaTIt30j7jUFS00AXQi6QMi99vA=
 k8s.io/apiextensions-apiserver v0.0.0-20191212015246-8fe0c124fb40 h1:oYShjyFmoEZy/xPVKlZt5PGvITFECyM/Yo3vaQah7Jk=
