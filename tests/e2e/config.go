@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"gopkg.in/gcfg.v1"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 )
 
 // ENV variable to specify path of the E2E test config file
@@ -46,7 +47,24 @@ type e2eTestConfig struct {
 		Datacenters string `gcfg:"datacenters"`
 		// Target datastore urls for provisioning file volumes.
 		TargetvSANFileShareDatastoreURLs string `gcfg:"targetvSANFileShareDatastoreURLs"`
+		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
+		// successful CnsRegisterVolumes will be cleaned up.
+		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
 	}
+	// Multiple sets of Net Permissions applied to all file shares
+	// The string can uniquely represent each Net Permissions config
+	NetPermissions map[string]*NetPermissionConfig
+}
+
+// NetPermissionConfig consists of information used to restrict the
+// network permissions set on file share volumes
+type NetPermissionConfig struct {
+	// Client IP address, IP range or IP subnet. Example: "10.20.30.0/24"; defaults to "*" if not specified
+	Ips string `gcfg:"ips"`
+	// Is it READ_ONLY, READ_WRITE or NO_ACCESS. Defaults to "READ_WRITE" if not specified
+	Permissions vsanfstypes.VsanFileShareAccessType `gcfg:"permissions"`
+	// Disallow root access for this IP range. Defaults to "false" if not specified
+	RootSquash bool `gcfg:"rootsquash"`
 }
 
 // getConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.
