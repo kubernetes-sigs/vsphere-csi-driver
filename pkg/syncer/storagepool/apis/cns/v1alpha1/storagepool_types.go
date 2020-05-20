@@ -39,6 +39,9 @@ type StoragePoolStatus struct {
 	// StorageClasses that can be used with this storage pool
 	// +optional
 	CompatibleStorageClasses []string `json:"compatibleStorageClasses,omitempty"`
+	// Type of storage that is backing this StoragePool
+	// +optional
+	Type string `json:"type,omitempty"`
 	// Total Capacity of the storage pool
 	// +optional
 	Capacity *PoolCapacity `json:"capacity,omitempty"`
