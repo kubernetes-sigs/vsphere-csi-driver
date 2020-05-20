@@ -34,26 +34,29 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
+const spTypePrefix = "cns.vmware.com/"
+
 // getDatastoreProperties returns the total capacity and accessebility of the given datastore
-func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (*resource.Quantity, *resource.Quantity, error) {
+func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (*resource.Quantity, *resource.Quantity, string, error) {
 	log := logger.GetLogger(ctx)
 	var ds mo.Datastore
 	pc := property.DefaultCollector(d.Client())
 	err := pc.RetrieveOne(ctx, d.Reference(), []string{"summary"}, &ds)
 	if err != nil {
 		log.Errorf("Error retrieving datastore summary for %v. Err: %v", d, err)
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	capacity := resource.NewQuantity(ds.Summary.Capacity, resource.DecimalSI)
 	freeSpace := resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI)
 	accessible := ds.Summary.Accessible
+	dsType := ds.Summary.Type
 	log.Infof("Setting capacity, freeSpace and accessebility of datastore %v to %v, %v and %v respectively", d.Info.Name, capacity, freeSpace, accessible)
 
 	if !accessible {
 		err = fmt.Errorf("Datastore not accessible")
 	}
 
-	return capacity, freeSpace, err
+	return capacity, freeSpace, spTypePrefix + dsType, err
 }
 
 // findAccessibleNodes returns the k8s node names of ESX hosts (limited to clusterID) on which

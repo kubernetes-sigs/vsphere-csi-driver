@@ -88,6 +88,9 @@ spec:
                   format: date-time
                   type: string
               type: object
+            type:
+              description: Type of storage that is backing this StoragePool
+              type: string
           type: object
       type: object
   version: v1alpha1
