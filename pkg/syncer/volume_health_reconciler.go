@@ -254,9 +254,11 @@ func (rc *volumeHealthReconciler) findTKGPVforSupervisorPVC(ctx context.Context,
 		}
 	}
 
-	log.Debugf("findTKGPVforSupervisorPVC exit: Supervisor Cluster PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
+	log.Debugf("findTKGPVforSupervisorPVC: Tanzu Kubernetes Grid PV not found for Supervisor Cluster PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
 
-	return nil, nil
+	// Tanzu Kubernetes Grid PV not found. Return error so it will be
+	// added back to the queue for retries
+	return nil, fmt.Errorf("tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
 }
 
 // update PVC in TKG based on PVC in supervisor cluster
@@ -276,10 +278,11 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 	log.Infof("updateTKGPVC: Found Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
 
 	// Check if annotation is the same on PVC in Tanzu Kubernetes Grid and Supervisor Cluster and copy from Supervisor Cluster if different
+	var tkgAnnValue, svcAnnValue string
 	tkgAnnValue, tkgFound := tkgPVCObj.ObjectMeta.Annotations[annVolumeHealth]
 	svcAnnValue, svcFound := svcPVC.ObjectMeta.Annotations[annVolumeHealth]
 	if !tkgFound && svcFound || tkgFound && svcFound && tkgAnnValue != svcAnnValue {
-		log.Infof("updateTKGPVC: Detected volume health annotation change. Need to update Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
+		log.Infof("updateTKGPVC: Detected volume health annotation change. Need to update Tanzu Kubernetes Grid PVC %s/%s. Existing TKG PVC annotation: %s. New annotation: %s", tkgPVCObj.Namespace, tkgPVCObj.Name, tkgAnnValue, svcAnnValue)
 		tkgPVCClone := tkgPVCObj.DeepCopy()
 		metav1.SetMetaDataAnnotation(&tkgPVCClone.ObjectMeta, annVolumeHealth, svcAnnValue)
 		_, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPVCClone.Namespace).Update(tkgPVCClone)
