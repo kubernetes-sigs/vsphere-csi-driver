@@ -119,13 +119,13 @@ func (rc *volumeHealthReconciler) svcUpdatePVC(oldObj, newObj interface{}) {
 	if !ok || oldPVC == nil {
 		return
 	}
-	log.Infof("updatePVC: old PVC %+v", oldPVC)
+	log.Debugf("updatePVC: old PVC %+v", oldPVC)
 
 	newPVC, ok := newObj.(*v1.PersistentVolumeClaim)
 	if !ok || newPVC == nil {
 		return
 	}
-	log.Infof("updatePVC: new PVC %+v", newPVC)
+	log.Debugf("updatePVC: new PVC %+v", newPVC)
 
 	newPVCAnnValue, newPVCFound := newPVC.ObjectMeta.Annotations[annVolumeHealth]
 	oldPVCAnnValue, oldPVCFound := oldPVC.ObjectMeta.Annotations[annVolumeHealth]
@@ -167,7 +167,7 @@ func (rc *volumeHealthReconciler) Run(
 // syncPVCs is the main worker.
 func (rc *volumeHealthReconciler) syncPVCs() {
 	_, log := logger.GetNewContextWithLogger()
-	log.Infof("syncPVCs: Enter syncPVCs")
+	log.Debugf("syncPVCs: Enter syncPVCs")
 
 	key, quit := rc.svcClaimQueue.Get()
 	if quit {
@@ -189,7 +189,7 @@ func (rc *volumeHealthReconciler) syncPVCs() {
 // the volume health annotation based on Supervisor Cluster PVC
 func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Infof("syncPVC: Started PVC processing %s", key)
+	log.Debugf("syncPVC: Started PVC processing %s", key)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -217,11 +217,11 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 		return err
 	}
 	if tkgPV == nil {
-		log.Infof("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
+		log.Debugf("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
 		return fmt.Errorf("tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
 	}
 
-	log.Infof("Found Tanzu Kubernetes Grid PV %s", tkgPV.Name)
+	log.Debugf("Found Tanzu Kubernetes Grid PV %s", tkgPV.Name)
 
 	// Update Tanzu Kubernetes Grid PVC volume health annotation
 	err = rc.updateTKGPVC(ctx, svcPVC, tkgPV)
@@ -240,7 +240,7 @@ func (rc *volumeHealthReconciler) findTKGPVforSupervisorPVC(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	// For each PV in Tanzu Kubernetes Grid, find corresponding PVC name in the Supervisor Cluster (svcPVCName := tkgPV.Spec.CSI.VolumeHandle)
 	// Compare retrieved SC PVC Name with PVC name in Supervisor Cluster triggered by the Add/Update event and find a match.
-	log.Infof("findTKGPVforSupervisorPVC enter: Supervisor Cluster PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
+	log.Debugf("findTKGPVforSupervisorPVC enter: Supervisor Cluster PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
 	tkgPVs, err := rc.tkgPVLister.List(labels.Everything())
 	if err != nil {
 		log.Errorf("No persistent volumes found in Tanzu Kubernetes Grid")
@@ -270,12 +270,12 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 	// If annotation is different, update the volume health annotation on the PVC in Tanzu Kubernetes Grid based on the one in Supervisor Cluster.
 	// If same, do nothing
 	// If update fails, the caller will add PVC in Supervisor Cluster back to RateLimited queue to retry.
-	log.Infof("updateTKGPVC enter: Supervisor Cluster PVC %s/%s, Tanzu Kubernetes Grid PV %s", svcPVC.Namespace, svcPVC.Name, tkgPV.Name)
+	log.Debugf("updateTKGPVC enter: Supervisor Cluster PVC %s/%s, Tanzu Kubernetes Grid PV %s", svcPVC.Namespace, svcPVC.Name, tkgPV.Name)
 	tkgPVCObj, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPV.Spec.ClaimRef.Namespace).Get(tkgPV.Spec.ClaimRef.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error get pvc %s/%s from api server: %v", tkgPV.Spec.ClaimRef.Namespace, tkgPV.Spec.ClaimRef.Name, err)
 	}
-	log.Infof("updateTKGPVC: Found Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
+	log.Debugf("updateTKGPVC: Found Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
 
 	// Check if annotation is the same on PVC in Tanzu Kubernetes Grid and Supervisor Cluster and copy from Supervisor Cluster if different
 	var tkgAnnValue, svcAnnValue string
@@ -294,6 +294,6 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 		return nil
 	}
 
-	log.Infof("updateTKGPVC exit: Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
+	log.Debugf("updateTKGPVC exit: Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
 	return nil
 }
