@@ -608,6 +608,9 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 // createResourceQuota creates resource quota for the specified namespace.
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
 	waitTime := 10
+	//deleteResourceQuota if already present
+	deleteResourceQuota(client, namespace)
+
 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
 	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(resourceQuota)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
