@@ -363,6 +363,8 @@ func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cf
 	if _, err := os.Stat(featureStatesCfgPath); os.IsNotExist(err) {
 		log.Warnf("failed to stat csi-feature-states.conf. Setting the feature state values to false")
 		cfg.FeatureStates.CSIMigration = false
+		cfg.FeatureStates.VolumeExtend = false
+		cfg.FeatureStates.VolumeHealth = false
 		return nil
 	}
 	featureStatesConfig, err := os.Open(featureStatesCfgPath)
