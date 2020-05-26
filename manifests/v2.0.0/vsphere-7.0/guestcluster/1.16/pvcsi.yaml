@@ -243,6 +243,7 @@ spec:
          - name: csi-fss-config-volume
            configMap:
              name: csi-feature-states
+             optional: true
          - name: socket-dir
            hostPath:
              path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
