@@ -269,6 +269,10 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		},
 		Parameters:         params,
 		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{},
+		},
 	}
 
 	getCandidateDatastores = getFakeDatastores
