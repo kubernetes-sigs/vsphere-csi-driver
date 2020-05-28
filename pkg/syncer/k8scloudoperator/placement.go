@@ -43,7 +43,7 @@ var mutex sync.Mutex
 
 const (
 	// bufferDiskSize to ensure successful allocation
-	bufferDiskSizeMB = 4
+	bufferDiskSize = 4 * 1024 * 1024
 	// PVC annotation key to specify the StoragePool on which PV should be placed.
 	storagePoolAnnotationKey = "failure-domain.beta.vmware.com/storagepool"
 	// AntiAffinityPreferred placement policy for storagepool
@@ -55,15 +55,10 @@ const (
 )
 
 // StoragePoolInfo is abstraction of a storage pool list
+// XXX Change all usage of this into a map
 type StoragePoolInfo struct {
-	Name       string
-	CapacityMB int64
-}
-
-// PersistentVolumeClaimModel is pvc list
-type PersistentVolumeClaimModel struct {
-	//usedsps contains all used storage pools
-	usedsps []string
+	Name           string
+	FreeCapInBytes int64
 }
 
 // byCombination uses several different property to rank storage pools
@@ -81,64 +76,23 @@ func (p byCOMBINATION) Swap(i, j int) {
 
 // compare func for ranked storage pool list
 func (p byCOMBINATION) Less(i, j int) bool {
-	if p[i].CapacityMB > p[j].CapacityMB {
+	if p[i].FreeCapInBytes > p[j].FreeCapInBytes {
 		return true
 	}
-	if (p[i].CapacityMB == p[j].CapacityMB) && (p[i].Name < p[j].Name) {
+	if (p[i].FreeCapInBytes == p[j].FreeCapInBytes) && (p[i].Name < p[j].Name) {
 		return true
 	}
 	return false
 }
 
-// IsFilterSP is a filter function applied to a single sp.
-type IsFilterSP func(StoragePoolInfo, PersistentVolumeClaimModel) bool
-
-// IsStoragePoolUsed checks whether the given storage pool is present in the PersistentVolumeClaimModel.
-func IsStoragePoolUsed(sp StoragePoolInfo, pvc PersistentVolumeClaimModel) bool {
-	spNames := pvc.usedsps
-
-	for _, c := range spNames {
-		if sp.Name == c {
-			return false
-		}
-	}
-	return true
-}
-
-// IsSpNameInList checks if a name already lies in the given list
-func IsSpNameInList(name string, nameList []string) bool {
-	for _, c := range nameList {
-		if name == c {
+// isSPInList checks if a name already lies in the given list
+func isSPInList(name string, spList []StoragePoolInfo) bool {
+	for _, sp := range spList {
+		if name == sp.Name {
 			return true
 		}
 	}
 	return false
-}
-
-// ApplyFiltersSP applies a set of given filters on the given storage pool list, and returns potential candidates for placement.
-// Each record will be checked against each filter.
-// The filters are applied in the order they are passed in.
-func ApplyFiltersSP(spList []StoragePoolInfo, pvcModel PersistentVolumeClaimModel, filters ...IsFilterSP) []StoragePoolInfo {
-	// Make sure there are actually filters to be applied.
-	if len(filters) == 0 {
-		return spList
-	}
-	filteredRecords := make([]StoragePoolInfo, 0, len(spList))
-	// Range over the records and apply all the filters to each record.
-	// If the record passes all the filters, add it to the final slice.
-	for _, r := range spList {
-		keep := true
-		for _, f := range filters {
-			if !f(r, pvcModel) {
-				keep = false
-				break
-			}
-		}
-		if keep {
-			filteredRecords = append(filteredRecords, r)
-		}
-	}
-	return filteredRecords
 }
 
 // PlacePVConStoragePool selects target storage pool to place the given PVC based on its profile and the topology information.
@@ -147,72 +101,62 @@ func ApplyFiltersSP(spList []StoragePoolInfo, pvcModel PersistentVolumeClaimMode
 func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim) error {
 	log := logger.GetLogger(ctx)
 
+	//XXX Return if this is not a vsan direct placement
+	//XXX Need an identifier on the sc
+
 	// Get all StoragePool list
-	sps, err := GetStoragePoolList(ctx)
+	sps, err := getStoragePoolList(ctx)
 	if err != nil {
 		log.Errorf("Fail to get StoragePool list with %+v", err)
 		return err
 	}
+
 	log.Infof("Get all storage pools %s", sps)
 	if len(sps.Items) <= 0 { //there is no available storage pools
 		return fmt.Errorf("fail to find any storage pool")
 	}
 
-	hostNames := GetHostCandidates(ctx, tops)
+	hostNames := getHostCandidates(ctx, tops)
 	capacity := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 	volSizeBytes := capacity.Value()
 
-	spList, err := PreFilterStoragePoolList(ctx, sps, *curPVC.Spec.StorageClassName, hostNames, volSizeBytes)
+	spList, err := preFilterSPList(ctx, sps, *curPVC.Spec.StorageClassName, hostNames, volSizeBytes)
 	if err != nil || len(spList) <= 0 {
 		return err
 	}
-	log.Infof("PreFilterStoragePoolList get StoragePool list with %+v", spList)
+
+	log.Infof("preFilterSPList get StoragePool list with %+v", spList)
 
 	sort.Sort(byCOMBINATION(spList))
 	log.Infof("Sort splist %+v", spList)
-	_, preferred := curPVC.Annotations[spPolicyAntiPreferred]
-	_, required := curPVC.Annotations[spPolicyAntiRequired]
 
 	// Sequence placement operations beyond this point to avoid race conditions
 	// To protect the storage pool snapshot unpopulated for placement of PVCs with the same label
 	// TODO optimization of lock scope by both persistence service and node name
 	mutex.Lock()
 	defer mutex.Unlock()
-	if preferred || required {
-		usedSPNames, err := GetUsedStoragePools(ctx, client, curPVC)
-		log.Infof("GetUsedStoragePools get StoragePool list with %+v", usedSPNames)
 
-		if err != nil {
-			return err
-		}
-		if preferred {
-			spList = RankStoragePoolList(ctx, spList, usedSPNames)
-		}
-		if required {
-			//go further to filter out used SPs
-			//struct contains all inputs for filters
-			pvcModel := PersistentVolumeClaimModel{
-				usedsps: usedSPNames,
-			}
-			log.Infof("Get input filters: %s", pvcModel)
-			spList = ApplyFiltersSP(spList, pvcModel, IsStoragePoolUsed)
-			log.Infof("Find the filtered spList: %+v", spList)
-		}
+	spList, err = handleUsedStoragePools(ctx, client, curPVC, spList)
+	if err != nil {
+		return err
 	}
+
+	log.Infof("handleUsedStoragePools get StoragePool list with %+v", spList)
 
 	if len(spList) <= 0 {
 		return fmt.Errorf("Fail to find a storage pool passing all criteria")
 	}
 
-	err = SetPVCAnnotation(ctx, spList[0].Name, client, curPVC.Namespace, curPVC.Name)
+	err = setPVCAnnotation(ctx, spList[0].Name, client, curPVC.Namespace, curPVC.Name)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
-// GetStoragePoolList get all storage pool list
-func GetStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, error) {
+// getStoragePoolList get all storage pool list
+func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, error) {
 	log := logger.GetLogger(ctx)
 
 	cfg, err := clientconfig.GetConfig()
@@ -238,9 +182,9 @@ func GetStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 	return sps, err
 }
 
-// PreFilterStoragePoolList filter out candidate storage pool list through topology and capacity
-// TODO add health of storage pools together as a filter when related metrics available
-func PreFilterStoragePoolList(ctx context.Context, sps *unstructured.UnstructuredList, storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
+// preFilterSPList filter out candidate storage pool list through topology and capacity
+// XXX TODO add health of storage pools together as a filter when related metrics available
+func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
 	spList := []StoragePoolInfo{}
 
@@ -269,31 +213,34 @@ func PreFilterStoragePoolList(ctx context.Context, sps *unstructured.Unstructure
 			continue
 		}
 
-		if !IsStoragePoolAccessibleByNodes(ctx, sp, hostNames) {
+		if !isStoragePoolAccessibleByNodes(ctx, sp, hostNames) {
 			continue
 		}
 
+		// the storage pool capacity is expressed in raw bytes
 		cap, found, err := unstructured.NestedString(sp.Object, "status", "capacity", "freeSpace")
 		if !found || err != nil {
 			continue
 		}
+
 		spSize, err := strconv.ParseInt(cap, 10, 64)
 		if err != nil {
 			log.Errorf("Fail to place for error %s when cap size of StoragePool %s", err, spName)
 			return nil, err
 		}
-		if spSize > volSizeBytes+bufferDiskSizeMB { //filter by capacity
+
+		if spSize > volSizeBytes+bufferDiskSize { //filter by capacity
 			spList = append(spList, StoragePoolInfo{
-				Name:       spName,
-				CapacityMB: spSize,
+				Name:           spName,
+				FreeCapInBytes: spSize,
 			})
 		}
 	}
 	return spList, nil
 }
 
-// IsStoragePoolAccessibleByNodes filter out accessible storage pools from a given list of candidate nodes
-func IsStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstructured, hostNames []string) bool {
+// isStoragePoolAccessibleByNodes filter out accessible storage pools from a given list of candidate nodes
+func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstructured, hostNames []string) bool {
 	log := logger.GetLogger(ctx)
 	nodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
@@ -312,66 +259,125 @@ func IsStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstruc
 	return false
 }
 
-// GetUsedStoragePools find all storage pools has been used by other PVCs on the same node
-func GetUsedStoragePools(ctx context.Context, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim) ([]string, error) {
+// remove the sp from the given list
+func removeSPFromList(spList []StoragePoolInfo, spName string) []StoragePoolInfo {
+	for i, sp := range spList {
+		if sp.Name == spName {
+			copy(spList[i:], spList[i+1:])
+			return spList[:len(spList)-1]
+		}
+	}
+	return spList
+}
+
+// update used capacity of the storage pool based on the volume size of the pending PVC on it. also if this
+// ends up removing the sp from the list if its free capacity falls to 0
+func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVBytes int64, curPVBytes int64) (bool, bool, []StoragePoolInfo) {
+	usageUpdated := false
+	spRemoved := false
+	for _, sp := range spList {
+		if sp.Name == spName {
+			if sp.FreeCapInBytes > pendingPVBytes {
+				sp.FreeCapInBytes -= pendingPVBytes
+				if sp.FreeCapInBytes > curPVBytes + bufferDiskSize {
+					usageUpdated = true
+				} else {
+					spList = removeSPFromList(spList, spName)
+					spRemoved = true
+				}
+			} else {
+				spList = removeSPFromList(spList, spName)
+				spRemoved = true
+			}
+			break
+		}
+	}
+	return usageUpdated, spRemoved, spList
+}
+
+// handleUsedStoragePools finds all storage pools that have been used by other PVCs on the same node and either removes them if
+// if they dont satisfy the anti-affinity rules and/or updates their usage based on any pending PVs against the sp.
+func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim, spList []StoragePoolInfo) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
+
+	usageUpdated := false
 	requiredAntiAffinityValue, required := curPVC.Annotations[spPolicyAntiRequired]
 	preferredAntiAffinityValue, preferred := curPVC.Annotations[spPolicyAntiPreferred]
+	currPVCCap := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 
-	// TODO enable PVC label and use it as filter
 	pvcList, err := client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).List(metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed to retrieve all PVCs in the same namespace from API server")
-		return nil, err
+		return spList, err
 	}
 
-	usedSPNames := []string{}
+	usedSPList := []StoragePoolInfo{}
 	for _, pvcItem := range pvcList.Items {
 		spName, ok := pvcItem.Annotations[storagePoolAnnotationKey]
 		if !ok {
 			continue
 		}
-		if IsSpNameInList(spName, usedSPNames) {
+
+		// Is this even a SP we care about anyway
+		if !isSPInList(spName, spList) {
 			continue
 		}
-		antiAffinityValue, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
-		if required && setRequired && antiAffinityValue == requiredAntiAffinityValue {
-			log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiRequired)
-			usedSPNames = append(usedSPNames, spName)
-			continue
+
+		// is required anti-affinity is set of the PVC then remove any SPs that are already used
+		if required {
+			antiAffinityValue, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
+			if setRequired && antiAffinityValue == requiredAntiAffinityValue {
+				log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiRequired)
+				removeSPFromList(spList, spName)
+				continue
+			}
 		}
-		antiAffinityValue, setPreferred := pvcItem.Annotations[spPolicyAntiPreferred]
-		if preferred && setPreferred && antiAffinityValue == preferredAntiAffinityValue {
-			log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiPreferred)
-			usedSPNames = append(usedSPNames, spName)
+
+		// Looks like this SP is here to stay
+		// update SP usage based on any unbound PVCs placed on this SP. These are still in pipeline and hence
+		// the usage of SP will not be updated yet. There is always a race where the usage is already updated but
+		// the PVC is not yet in bound state but we will rather be conservative and try the placement again later
+		if pvcItem.Status.Phase != v1.ClaimBound {
+			capacity := pvcItem.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
+			spRemoved := false
+			usageUpdated, spRemoved, spList = updateSPCapacityUsage(spList, spName, capacity.Value(),
+				currPVCCap.Value())
+			if spRemoved {
+				continue
+			}
+		}
+
+		// if preferred antiaffinity is set of the PVC then make a list of SPs that are already used.
+		if preferred && !isSPInList(spName, usedSPList) {
+			antiAffinityValue, setPreferred := pvcItem.Annotations[spPolicyAntiPreferred]
+			if setPreferred && antiAffinityValue == preferredAntiAffinityValue {
+				log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiPreferred)
+				usedSPList = append(usedSPList, StoragePoolInfo{
+					Name: spName,
+				})
+			}
+		}
+
+	}
+
+	// if we have any unused SPs then we can just remove all used SPs from the
+	// list. This gives us a small set of unused SPs that we can re-sort below
+	if len(spList) > len(usedSPList) {
+		for _, sp := range usedSPList {
+			removeSPFromList(spList, sp.Name)
 		}
 	}
-	return usedSPNames, nil
+
+	if usageUpdated {
+		sort.Sort(byCOMBINATION(spList))
+		log.Infof("Sort splist %+v", spList)
+	}
+
+	return spList, nil
 }
 
-// RankStoragePoolList rank all candidate storage pools by a combination of different metrics
-// If anti-affinity is preferred, RankStoragePoolList keeps moving used storage pools to the lower end of candidate list till the first unused storage pool
-func RankStoragePoolList(ctx context.Context, spList []StoragePoolInfo, usedSpNames []string) []StoragePoolInfo {
-	log := logger.GetLogger(ctx)
-
-	if len(spList) <= 1 {
-		log.Infof("No need to rank the list")
-		return spList
-	}
-
-	for i := 0; i < len(spList); i++ {
-		if !IsSpNameInList(spList[0].Name, usedSpNames) {
-			break
-		}
-		log.Infof("Put used sp %s lower in splist", spList[0].Name)
-		spList = append(spList[1:], spList[:1]...)
-		log.Infof("Rotate the splist %s", spList)
-	}
-	return spList
-}
-
-// SetPVCAnnotation add annotation of selected storage pool to targeted PVC
-func SetPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface, ns string, pvcName string) error {
+// setPVCAnnotation add annotation of selected storage pool to targeted PVC
+func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface, ns string, pvcName string) error {
 	log := logger.GetLogger(ctx)
 
 	if spName == "" {
@@ -402,8 +408,8 @@ func SetPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 	return nil
 }
 
-// GetHostCandidates get all candidate hosts from topology requirements
-func GetHostCandidates(ctx context.Context, topologyRequirement *csi.TopologyRequirement) []string {
+// getHostCandidates get all candidate hosts from topology requirements
+func getHostCandidates(ctx context.Context, topologyRequirement *csi.TopologyRequirement) []string {
 	log := logger.GetLogger(ctx)
 
 	hostNames := []string{}
