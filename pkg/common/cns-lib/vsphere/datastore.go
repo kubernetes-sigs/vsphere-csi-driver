@@ -45,15 +45,15 @@ func (di DatastoreInfo) String() string {
 	return fmt.Sprintf("Datastore: %+v, datastore URL: %s", di.Datastore, di.Info.Url)
 }
 
-// GetDatastoreURL returns the URL of datastore
-func (ds *Datastore) GetDatastoreURL(ctx context.Context) (string, error) {
+// GetDatastoreURLAndType returns the URL and Type of datastore
+func (ds *Datastore) GetDatastoreURLAndType(ctx context.Context) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	var dsMo mo.Datastore
 	pc := property.DefaultCollector(ds.Client())
 	err := pc.RetrieveOne(ctx, ds.Datastore.Reference(), []string{"summary"}, &dsMo)
 	if err != nil {
-		log.Errorf("failed to retrieve datastore summary property: %v", err)
-		return "", err
+		log.Errorf("Failed to retrieve datastore summary property: %v", err)
+		return "", "", err
 	}
-	return dsMo.Summary.Url, nil
+	return dsMo.Summary.Url, dsMo.Summary.Type, nil
 }

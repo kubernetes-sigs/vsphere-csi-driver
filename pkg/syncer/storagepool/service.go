@@ -1,11 +1,11 @@
 /*
-Copyright 2020 VMware, Inc.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -67,21 +67,23 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
-	// Start the listeners
-	scWatch, err := startStorageClassWatch(ctx, vc, configInfo.Cfg.Global.ClusterID, cfg)
+	// Start the services
+	spController, err := newSPController(vc, configInfo.Cfg.Global.ClusterID)
+	if err != nil {
+		log.Errorf("Failed starting StoragePool controller. Err: %+v", err)
+		return err
+	}
+
+	scWatchCntlr, err := startStorageClassWatch(ctx, spController, cfg)
 	if err != nil {
 		log.Errorf("Failed starting the Storageclass watch. Err: %+v", err)
 		return err
 	}
 
-	err = InitHostMountListener(ctx, scWatch, vc, configInfo.Cfg.Global.ClusterID)
+	err = initListener(ctx, scWatchCntlr, spController)
 	if err != nil {
-		log.Errorf("Failed starting the HostMount listener. Err: %+v", err)
-	}
-
-	err = InitDatastoreCapacityListener(ctx, scWatch, vc, configInfo.Cfg.Global.ClusterID)
-	if err != nil {
-		log.Errorf("Failed starting the DatastoreCapacity listener. Err: %+v", err)
+		log.Errorf("Failed starting the PropertyCollector listener. Err: %+v", err)
+		return err
 	}
 
 	log.Infof("Done initializing Storage Pool Service")

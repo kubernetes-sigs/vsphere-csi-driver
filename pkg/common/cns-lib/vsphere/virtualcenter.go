@@ -381,3 +381,32 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 
 	return vsanDatastores, nil
 }
+
+// GetDatastoresByCluster return datastores inside the cluster using cluster moref.
+func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMorefValue string) ([]*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	clusterMoref := types.ManagedObjectReference{
+		Type:  "ClusterComputeResource",
+		Value: clusterMorefValue,
+	}
+	clusterComputeResourceMo := mo.ClusterComputeResource{}
+	err := vc.Client.RetrieveOne(ctx, clusterMoref, []string{"host"}, &clusterComputeResourceMo)
+	if err != nil {
+		log.Errorf("Failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
+		return nil, err
+	}
+
+	var dsList []*DatastoreInfo
+	for _, hostMoref := range clusterComputeResourceMo.Host {
+		host := &HostSystem{
+			HostSystem: object.NewHostSystem(vc.Client.Client, hostMoref),
+		}
+		dsInfos, err := host.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			log.Errorf("Failed to fetch datastores from host %s. Err: %v", hostMoref, err)
+			return nil, err
+		}
+		dsList = append(dsList, dsInfos...)
+	}
+	return dsList, nil
+}

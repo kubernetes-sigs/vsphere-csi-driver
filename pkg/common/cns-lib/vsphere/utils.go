@@ -7,28 +7,26 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
+	"strconv"
+	"strings"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
 
-	"reflect"
-	"strconv"
-	"strings"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
-const vsanDirectTagName = "vSANDirect"
-const datastoreType = "Datastore"
+const vsanDType = "vsanD"
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin
 func IsInvalidCredentialsError(err error) bool {
@@ -231,7 +229,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 	}
 	tagManager := tags.NewManager(restClient)
 	if tagManager == nil {
-		return nil, fmt.Errorf("Failed to create a tagManager")
+		return nil, fmt.Errorf("failed to create a tagManager")
 	}
 	return tagManager, nil
 }
@@ -239,7 +237,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 // GetCandidateDatastoresInCluster gets the shared datastores and vSAN-direct managed datastores of given VC cluster
 func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) ([]*DatastoreInfo, error) {
 	// get all the vsan direct datastore urls in this VC; and later filter in this cluster
-	allVsanDirectUrls, err := getVsanDirectVMFSDatastores(ctx, vc)
+	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get vSAN Direct VMFS datastores. Err: %+v", err)
 	}
@@ -293,39 +291,29 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	return candidateDatastores, nil
 }
 
-// getVsanDirectVMFSDatastores returns the datastore URLs of all the vSAN-Direct managed datatores in the
+// getVsanDirectDatastores returns the datastore URLs of all the vSAN-Direct managed datatores in the
 // given VirtualCenter
-func getVsanDirectVMFSDatastores(ctx context.Context, vc *VirtualCenter) (map[string]bool, error) {
+func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID string) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	var datastores = make(map[string]bool)
-	// get the special tag that is applied to all vSAN Direct managed VMFS datastores
-	tagMgr, err := GetTagManager(ctx, vc)
+
+	// get all datastores in this cluster
+	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
 	if err != nil {
-		log.Warnf("Not able to get TagManager. vSAN Direct VMFS datastores are skipped.")
-		return datastores, nil
+		log.Warnf("Not able to fetch datastores in cluster %s. Err: %v", clusterID, err)
+		return nil, err
 	}
 
-	// get all associated objects with this tag
-	refs, err := tagMgr.ListAttachedObjects(ctx, vsanDirectTagName)
-	if err != nil {
-		log.Infof("No datastores tagged with %s", vsanDirectTagName)
-		return datastores, nil
-	}
-
-	// return the datastores among the associated objects
-	for _, ref := range refs {
-		if ref.Reference().Type != datastoreType {
-			continue
-		}
-		datastore := Datastore{
-			object.NewDatastore(vc.Client.Client, ref.Reference()),
-			nil}
-		dsURL, err := datastore.GetDatastoreURL(ctx)
+	// filter them by datastore type of vsanD
+	for _, dsInfo := range datastoreInfos {
+		dsURL, dsType, err := dsInfo.GetDatastoreURLAndType(ctx)
 		if err != nil {
-			log.Warnf("Not able to get datastore URL for: %v. Skipping...", datastore)
-			continue
+			log.Errorf("Not able to find datastore type and url for %s. Err: %v", dsInfo.Reference().Value, err)
+			return nil, err
 		}
-		datastores[dsURL] = true
+		if dsType == vsanDType {
+			datastores[dsURL] = true
+		}
 	}
 	return datastores, nil
 }
