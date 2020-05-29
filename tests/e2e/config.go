@@ -21,8 +21,8 @@ import (
 	"io"
 	"os"
 
-	"gopkg.in/gcfg.v1"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+	"gopkg.in/gcfg.v1"
 )
 
 // ENV variable to specify path of the E2E test config file

@@ -1,11 +1,11 @@
 /*
-Copyright 2020 VMware, Inc.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -50,6 +50,7 @@ type StorageClassWatch struct {
 	policyIds     []string
 	policyToScMap map[string]*storagev1.StorageClass
 	clusterID     string
+	spController  *spController
 
 	dsPolicyCompatMapCache map[string][]string
 }
@@ -64,7 +65,7 @@ type StorageClassWatch struct {
 //    about the underlying Storage Policy in VC
 //
 // This function starts a go-routine which processes watch fires
-func startStorageClassWatch(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string, cfg *rest.Config) (*StorageClassWatch, error) {
+func startStorageClassWatch(ctx context.Context, spController *spController, cfg *rest.Config) (*StorageClassWatch, error) {
 	log := logger.GetLogger(ctx)
 	w := &StorageClassWatch{}
 	clientset, err := kubernetes.NewForConfig(cfg)
@@ -73,15 +74,9 @@ func startStorageClassWatch(ctx context.Context, vc *cnsvsphere.VirtualCenter, c
 		return nil, err
 	}
 	w.clientset = clientset
-	w.vc = vc
-	w.clusterID = clusterID
-
-	// Refresh our cache once now, so any other code that wants to access
-	// the cache doesn't need to syncronize with the watch firing
-	err = w.refreshStorageClassCache(ctx)
-	if err != nil {
-		return nil, err
-	}
+	w.vc = spController.vc
+	w.clusterID = spController.clusterID
+	w.spController = spController
 
 	err = renewStorageClassWatch(w)
 	if err != nil {
@@ -111,6 +106,9 @@ func renewStorageClassWatch(w *StorageClassWatch) error {
 // Handler for storage class watch firing. Mostly handles shutdown and
 // watch renewal, and on all storage class changes triggers a full
 // remediation via refreshStorageClassCache().
+// The watch gets triggered immediately if there is any storage class present,
+// and hence the cache gets updated on startup and is ready to serve
+// getDatastoreToPolicyCompatibility() from the cache.
 func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 
@@ -173,7 +171,7 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 
 	w.policyToScMap = policyToSCMap
 	w.policyIds = policyIds
-	ReconcileStoragePools(ctx, w, w.vc, w.clusterID, true)
+	ReconcileAllStoragePools(ctx, w, w.spController)
 	w.addStorageClassPolicyAnnotations(ctx)
 
 	return nil
@@ -227,6 +225,10 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
 // their annotation if necessary
 func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
+	if len(w.policyIds) == 0 {
+		log.Debugf("No storage policies to fetch")
+		return nil
+	}
 	profiles, err := w.vc.PbmRetrieveContent(ctx, w.policyIds)
 	if err != nil {
 		log.Errorf("Failed to retrieve policy content: %s", err)
