@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -51,6 +50,8 @@ const (
 	spPolicyAntiRequired = "placement.beta.vmware.com/storagepool_antiAffinityRequired"
 	//resource name to get storage class
 	resourceName = "storagepools"
+	// storagePool type name for vsan-direct
+	vsanDirect = "vsanD"
 )
 
 // StoragePoolInfo is abstraction of a storage pool list
@@ -197,12 +198,13 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 	nonVsanDirect := 0
 	nonSCComp := 0
 	topology := 0
+	unhealthy := 0
 	notEnoughCapacity := 0
 
-	//flag := false
 	for _, sp := range sps.Items {
 		spName := sp.GetName()
-		if StrContainers := strings.Contains(spName, "vsandirect"); !StrContainers {
+		spType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeLabelKey)
+		if !found || err != nil || spType != vsanDirect {
 			nonVsanDirect++
 			continue
 		}
@@ -222,7 +224,12 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 			}
 		}
 		if !foundMappedSC {
-			nonVsanDirect++
+			nonSCComp++
+			continue
+		}
+
+		if !isStoragePoolHealthy(ctx, sp) {
+			unhealthy++
 			continue
 		}
 
@@ -248,9 +255,27 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 		}
 	}
 
-	log.Infof("TotalPools:%d, Usable:%d. Pools removed because: not local:%d, SC mis-match:%d, topology mis-match:%d out of capacity:%d",
-		totalStoragePools, len(spList), nonVsanDirect, nonSCComp, topology, notEnoughCapacity)
+	log.Infof("TotalPools:%d, Usable:%d. Pools removed because not local:%d, SC mis-match:%d, "+
+		"Unhealthy: %d, topology mis-match:%d out of capacity:%d",
+		totalStoragePools, len(spList), nonVsanDirect, nonSCComp, unhealthy, topology, notEnoughCapacity)
 	return spList, nil
+}
+
+// isStoragePoolHealthy checks if the datastores in given StoragePool is healthy
+func isStoragePoolHealthy(ctx context.Context, sp unstructured.Unstructured) bool {
+	log := logger.GetLogger(ctx)
+	spName := sp.GetName()
+	message, found, err := unstructured.NestedString(sp.Object, "status", "error", "message")
+	if err != nil {
+		log.Debug("failed to fetch the storage pool health: ", err)
+		return false
+	}
+	if !found {
+		log.Debug(spName, " is healthy")
+		return true
+	}
+	log.Debug(spName, " is unhealthy. Reason: ", message)
+	return false
 }
 
 // isStoragePoolAccessibleByNodes filter out accessible storage pools from a given list of candidate nodes
