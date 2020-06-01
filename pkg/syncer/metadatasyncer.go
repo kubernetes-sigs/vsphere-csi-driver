@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -361,6 +362,9 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			}
 			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
 			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter)
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				storagepool.ResetVC(ctx, vcenter)
+			}
 		}
 		if cfg != nil {
 			metadataSyncer.configInfo = &types.ConfigInfo{Cfg: cfg}
