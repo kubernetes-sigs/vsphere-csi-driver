@@ -279,7 +279,7 @@ func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVByt
 		if sp.Name == spName {
 			if sp.FreeCapInBytes > pendingPVBytes {
 				sp.FreeCapInBytes -= pendingPVBytes
-				if sp.FreeCapInBytes > curPVBytes + bufferDiskSize {
+				if sp.FreeCapInBytes > curPVBytes+bufferDiskSize {
 					usageUpdated = true
 				} else {
 					spList = removeSPFromList(spList, spName)

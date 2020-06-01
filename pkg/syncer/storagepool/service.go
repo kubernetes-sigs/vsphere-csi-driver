@@ -19,12 +19,25 @@ package storagepool
 import (
 	"context"
 	"reflect"
+	"sync"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+)
+
+type storagePoolService struct {
+	spController *spController
+	scWatchCntlr *StorageClassWatch
+	clusterID    string
+}
+
+var (
+	defaultStoragePoolService     *storagePoolService = new(storagePoolService)
+	defaultStoragePoolServiceLock sync.Mutex
 )
 
 // InitStoragePoolService initializes the StoragePool service that updates
@@ -86,6 +99,41 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
+	// Create the default storagePoolService
+	defaultStoragePoolServiceLock.Lock()
+	defer defaultStoragePoolServiceLock.Unlock()
+	defaultStoragePoolService.spController = spController
+	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
+	defaultStoragePoolService.clusterID = configInfo.Cfg.Global.ClusterID
+
 	log.Infof("Done initializing Storage Pool Service")
 	return nil
+}
+
+// ResetVC will be called whenever the connection to vCenter is recycled. This will renew the PropertyCollector
+// listener of StoragePool as well as update the controllers with the new refreshed VC connection.
+func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
+	log := logger.GetLogger(ctx)
+	if vc == nil {
+		log.Errorf("VirtualCenter not given to Reset")
+		return
+	}
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Failed to connect to SPBM service. Err: %+v", err)
+		return
+	}
+	log.Infof("Resetting VC connection in StoragePool service")
+	defaultStoragePoolServiceLock.Lock()
+	defer defaultStoragePoolServiceLock.Unlock()
+
+	defaultStoragePoolService.spController.vc = vc
+	defaultStoragePoolService.scWatchCntlr.vc = vc
+	// Start a new PC listener. The previous listener is auto terminated due to stale VC connection.
+	err = initListener(ctx, defaultStoragePoolService.scWatchCntlr, defaultStoragePoolService.spController)
+	if err != nil {
+		log.Errorf("Failed restarting the PropertyCollector listener. Err: %v", err)
+		return
+	}
+	log.Debugf("Successfully reset VC connection in StoragePool service")
 }
