@@ -92,7 +92,7 @@ When the PVC is not used by any pod, modify the PVC configuration to trigger vol
 kubectl apply -f example-pvc.yaml
 ```
 
-The Cloud Native Volume size in vCenter will be changed to the new size. Size of PV will also be changed with that.
+The Cloud Native Volume size in vCenter Server will be changed to the new size. Size of PV will also be changed with that.
 
 Note: The size of PVC won’t be changed until the PVC is used by a new Pod.
 

@@ -3,7 +3,7 @@
 
 This section contains steps to install vSphere CSI Driver. Please visit the [Prerequisite](prerequisites.md) section before proceeding.
 
-Note that this installation guide only applies to Vanilla Kubernetes clusters. Project Pacific and Tanzu Kubernetes Grid clusters come with vSphere CSI Driver pre installed.
+Note that this installation guide only applies to Vanilla Kubernetes clusters. vSphere with Kubernetes and Tanzu Kubernetes Grid clusters come with vSphere CSI Driver pre installed. For more information, see [vSphere with Kubernetes Configuration and Management](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-152BE7D2-E227-4DAA-B527-557B564D9718.html).
 
 The following steps need to be performed on the k8s node where the vSphere CSI drivers controller will be deployed. We recommend installing vSphere CSI driver on your k8s master node.
 
@@ -68,13 +68,13 @@ Where the entries have the following meaning:
 
 - `cluster-id` - represents the unique cluster identifier. Each kubernetes cluster should have it's own unique cluster-id set in the configuration file.
 
-- `VirtualCenter` - section defines vCenter IP address / FQDN.
+- `VirtualCenter` - section defines vCenter Server IP address / FQDN.
 
 - `insecure-flag` - should be set to true to use self-signed certificate for login.
 
-- `user` - vCenter username.
+- `user` - vCenter Server username.
 
-- `password` - password for vCenter user specified with user.
+- `password` - password for vCenter Server user specified with user.
 
 - `port` - vCenter Server Port. The default is 443 if not specified.
 

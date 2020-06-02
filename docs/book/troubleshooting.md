@@ -34,7 +34,7 @@ The default log level for all the CSI flavors is PRODUCTION. To be able to exami
 ### CNS-CSI driver
 
 - To examine the CNS CSI driver related issues, update the log level for the vsphere-csi-controller and vsphere-syncer containers.
-  - CNS-CSI driver on Project Pacific Cluster is deployed on vmware-system-csi namespace as Kubernetes deployments.
+  - CNS-CSI driver on vSphere with Kubernetes Cluster is deployed on vmware-system-csi namespace as Kubernetes deployments.
   - Edit the deployment of vSphere CSI controller and find the LOGGER_LEVEL option in the container's arguments.
 
     ``` sh
