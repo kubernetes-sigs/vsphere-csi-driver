@@ -9,8 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -38,19 +36,19 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 }
 
 // getBoundPVs return PVs in Bound state
-func getBoundPVs(ctx context.Context, k8sclient clientset.Interface) ([]*v1.PersistentVolume, error) {
+func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	var boundPVs []*v1.PersistentVolume
 	// Get all PVs from kubernetes
-	allPVs, err := k8sclient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
+	allPVs, err := metadataSyncer.pvLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
-	for index, pv := range allPVs.Items {
+	for _, pv := range allPVs {
 		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 			log.Debugf("getBoundPVs: pv %s with volumeHandle %s is in state %v", pv.Name, pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound {
-				boundPVs = append(boundPVs, &allPVs.Items[index])
+				boundPVs = append(boundPVs, pv)
 			}
 		}
 	}

@@ -81,8 +81,8 @@ type (
 	pvcMap = map[string]*v1.PersistentVolumeClaim
 	// Maps K8s PVC name to respective Pod object
 	podMap = map[string][]*v1.Pod
-	// Maps K8s PV's Spec.CSI.VolumeHandle to corressponding PVC object
-	volumeHandleMap = map[string]*v1.PersistentVolumeClaim
+	// Maps K8s PV's Spec.CSI.VolumeHandle to corresponding PVC object
+	volumeHandlePVCMap = map[string]*v1.PersistentVolumeClaim
 )
 
 type metadataSyncInformer struct {
