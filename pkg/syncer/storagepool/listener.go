@@ -159,12 +159,12 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	defer reconcileAllMutex.Unlock()
 
 	// Get datastores from VC
-	datastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, spCtl.vc, spCtl.clusterID)
+	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, spCtl.vc, spCtl.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return err
 	}
-
+	datastores := append(sharedDatastores, vsanDirectDatastores...)
 	validStoragePoolNames := make(map[string]bool)
 	// create StoragePools that are missing and add them to intendedStateMap
 	for _, dsInfo := range datastores {

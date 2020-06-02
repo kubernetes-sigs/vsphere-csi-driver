@@ -235,27 +235,29 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 }
 
 // GetCandidateDatastoresInCluster gets the shared datastores and vSAN-direct managed datastores of given VC cluster
-func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) ([]*DatastoreInfo, error) {
+// The 1st output parameter will be shared datastores
+// The 2nd output parameter will be vSAN-direct managed datastores
+func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) ([]*DatastoreInfo, []*DatastoreInfo, error) {
 	// get all the vsan direct datastore urls in this VC; and later filter in this cluster
 	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get vSAN Direct VMFS datastores. Err: %+v", err)
+		return nil, nil, fmt.Errorf("Failed to get vSAN Direct VMFS datastores. Err: %+v", err)
 	}
 
 	// find datastores shared across all hosts in given cluster
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get hosts from VC. Err: %+v", err)
+		return nil, nil, fmt.Errorf("Failed to get hosts from VC. Err: %+v", err)
 	}
 	if len(hosts) == 0 {
-		return make([]*DatastoreInfo, 0), fmt.Errorf("Empty List of hosts returned from VC")
+		return nil, nil, fmt.Errorf("Empty List of hosts returned from VC")
 	}
 	sharedDatastores := make([]*DatastoreInfo, 0)
 	vsanDirectDatastores := make([]*DatastoreInfo, 0)
 	for _, host := range hosts {
 		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(sharedDatastores) == 0 {
 			for _, accessibleDs := range accessibleDatastores {
@@ -284,11 +286,10 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 			sharedDatastores = sharedAccessibleDatastores
 		}
 	}
-	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
-	if len(candidateDatastores) == 0 {
-		return nil, fmt.Errorf("No candidates datastores found in the Kubernetes cluster")
+	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
+		return nil, nil, fmt.Errorf("No candidates datastores found in the Kubernetes cluster")
 	}
-	return candidateDatastores, nil
+	return sharedDatastores, vsanDirectDatastores, nil
 }
 
 // getVsanDirectDatastores returns the datastore URLs of all the vSAN-Direct managed datatores in the

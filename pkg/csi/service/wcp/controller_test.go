@@ -170,12 +170,19 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) ([]*cnsvsphere.DatastoreInfo, error) {
+func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastoreURL string
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		sharedDatastoreURL = v
 	} else {
 		sharedDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
+	}
+
+	var vsanDirectDatastoreURL string
+	if v := os.Getenv("VSAN_DIRECT_DATASTORE_URL"); v != "" {
+		vsanDirectDatastoreURL = v
+	} else {
+		vsanDirectDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
 	}
 
 	var datacenterName string
@@ -190,7 +197,7 @@ func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, cluste
 	finder.SetDatacenter(dc)
 	datastores, err := finder.DatastoreList(ctx, "*")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var dsList []types.ManagedObjectReference
 	for _, ds := range datastores {
@@ -201,27 +208,40 @@ func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, cluste
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var sharedDatastoreManagedObject *mo.Datastore
+	var vsanDirectDatastoreManagedObject *mo.Datastore
 	for _, dsMo := range dsMoList {
 		if dsMo.Info.GetDatastoreInfo().Url == sharedDatastoreURL {
 			sharedDatastoreManagedObject = &dsMo
-			break
+		}
+		if dsMo.Info.GetDatastoreInfo().Url == vsanDirectDatastoreURL {
+			vsanDirectDatastoreManagedObject = &dsMo
 		}
 	}
 	if sharedDatastoreManagedObject == nil {
-		return nil, fmt.Errorf("failed to get shared datastores")
+		return nil, nil, fmt.Errorf("Failed to get shared datastores")
+	}
+	if vsanDirectDatastoreManagedObject == nil {
+		return nil, nil, fmt.Errorf("Failed to get shared vsan direct datastores")
 	}
 	return []*cnsvsphere.DatastoreInfo{
-		{
-			Datastore: &cnsvsphere.Datastore{
-				Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
-				Datacenter: nil},
-			Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
-		},
-	}, nil
+			{
+				Datastore: &cnsvsphere.Datastore{
+					Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
+					Datacenter: nil},
+				Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+			},
+		}, []*cnsvsphere.DatastoreInfo{
+			{
+				Datastore: &cnsvsphere.Datastore{
+					Datastore:  object.NewDatastore(nil, vsanDirectDatastoreManagedObject.Reference()),
+					Datacenter: nil},
+				Info: vsanDirectDatastoreManagedObject.Info.GetDatastoreInfo(),
+			},
+		}, nil
 }
 
 /*
