@@ -298,13 +298,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	candidateDatastores, err := getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
+	sharedDatastores, vsanDirectDatastores, err := getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
 	if err != nil {
 		msg := fmt.Sprintf("Failed finding candidate datastores to place volume. Error: %v", err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
+	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)

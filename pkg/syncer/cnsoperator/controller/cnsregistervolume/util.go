@@ -44,12 +44,12 @@ import (
 func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCenter,
 	clusterID string, datastoreURL string) bool {
 	log := logger.GetLogger(ctx)
-	candidatedatastores, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
+	sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
 	if err != nil {
 		log.Errorf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 		return false
 	}
-	for _, ds := range candidatedatastores {
+	for _, ds := range sharedDatastores {
 		if ds.Info.Url == datastoreURL {
 			log.Infof("Found datastoreUrl: %s is accessible to cluster: %s", datastoreURL, clusterID)
 			return true

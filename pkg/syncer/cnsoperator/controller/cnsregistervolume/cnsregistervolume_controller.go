@@ -226,8 +226,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	// Verify if the volume is accessible to Pacific cluster
 	isAccessible := isDatastoreAccessibleToCluster(ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl)
 	if !isAccessible {
-		log.Errorf("Volume: %s present on datastore: %s is not accessible to cluster: %s", volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
-		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to this cluster")
+		log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s", volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
+		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
 		// Untag the CNS volume which was created previously
 		err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
 		if err != nil {
