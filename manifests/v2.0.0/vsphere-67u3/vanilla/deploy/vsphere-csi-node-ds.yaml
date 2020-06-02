@@ -24,7 +24,7 @@ spec:
         lifecycle:
           preStop:
             exec:
-              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com-reg.sock"]
+              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
         args:
         - "--v=5"
         - "--csi-address=$(ADDRESS)"
@@ -33,7 +33,7 @@ spec:
         - name: ADDRESS
           value: /csi/csi.sock
         - name: DRIVER_REG_SOCK_PATH
-          value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
+          value: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
         securityContext:
           privileged: true
         volumeMounts:
@@ -96,10 +96,7 @@ spec:
       - name: liveness-probe
         image: quay.io/k8scsi/livenessprobe:v1.1.0
         args:
-        - "--csi-address=$(ADDRESS)"
-        env:
-        - name: ADDRESS
-          value: /csi/csi.sock
+        - --csi-address=/csi/csi.sock
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -111,10 +108,10 @@ spec:
       - name: registration-dir
         hostPath:
           path: /var/lib/kubelet/plugins_registry
-          type: DirectoryOrCreate
+          type: Directory
       - name: plugin-dir
         hostPath:
-          path: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com
+          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/
           type: DirectoryOrCreate
       - name: pods-mount-dir
         hostPath:
