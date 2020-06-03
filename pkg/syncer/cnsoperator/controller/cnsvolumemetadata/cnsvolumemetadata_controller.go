@@ -202,6 +202,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
+
 	// Validate input instance fields
 	if err = validateReconileRequest(instance); err != nil {
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to validate reconcile request with error: %v", err)
