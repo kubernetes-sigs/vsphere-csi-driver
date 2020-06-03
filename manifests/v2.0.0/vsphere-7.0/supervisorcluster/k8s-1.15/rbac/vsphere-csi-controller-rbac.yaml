@@ -14,7 +14,7 @@ rules:
     verbs: ["get", "list", "watch", "update", "create", "delete"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses", "csinodes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list", "watch", "create", "update", "patch"]

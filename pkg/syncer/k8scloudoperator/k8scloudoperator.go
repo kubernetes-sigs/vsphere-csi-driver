@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -45,6 +46,10 @@ const (
 	vmUUIDLabel                        = "vmware-system-vm-uuid"
 	defaultPodPollIntervalInSec        = 2
 	defaultK8sCloudOperatorServicePort = 10000
+	spTypePrefix                       = "cns.vmware.com/"
+	spTypeAnnotationKey                = spTypePrefix + "StoragePoolTypeHint"
+	vsanDirectType                     = spTypePrefix + "vsanD"
+	spTypeLabelKey                     = spTypePrefix + "StoragePoolType"
 )
 
 type k8sCloudOperator struct {
@@ -280,6 +285,17 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	if err != nil {
 		log.Errorf("Fail to retrieve targeted PVC %s from API server with error %s", pvc, err)
 		return out, err
+	}
+
+	scName := pvc.Spec.StorageClassName
+	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(*scName, metav1.GetOptions{})
+	if err != nil {
+		return out, err
+	}
+	spTypes, present := sc.Annotations[spTypeAnnotationKey]
+	if present && !strings.Contains(spTypes, vsanDirectType) {
+		log.Error("storage class is not of type vsan direct, aborting placement")
+		return out, nil
 	}
 
 	log.Debugf("Enter placementEngine %s", req)

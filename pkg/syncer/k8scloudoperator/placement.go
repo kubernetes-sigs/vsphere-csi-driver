@@ -120,11 +120,11 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 
 	log.Infof("Starting placement for PVC %s, Topology %+v", curPVC.Name, hostNames)
 	spList, err := preFilterSPList(ctx, sps, *curPVC.Spec.StorageClassName, hostNames, volSizeBytes)
-	if err != nil  { 
+	if err != nil {
 		log.Infof("preFilterSPList failed with %+v", err)
 		return err
 	}
-	
+
 	if len(spList) <= 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
 		return fmt.Errorf("Fail to find a storage pool passing all criteria")
@@ -177,7 +177,9 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 	spResource := schema.GroupVersion{Group: apis.GroupName, Version: apis.Version}.WithResource(resourceName)
 
 	// TODO enable label on each storage pool and use label as filter storage pool list
-	sps, err := spClient.Resource(spResource).List(metav1.ListOptions{})
+	sps, err := spClient.Resource(spResource).List(metav1.ListOptions{
+		LabelSelector: spTypeLabelKey,
+	})
 	if err != nil {
 		log.Errorf("Failed to get StoragePool with %+v", err)
 		return nil, err
@@ -190,13 +192,12 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
 	spList := []StoragePoolInfo{}
-	
+
 	totalStoragePools := len(sps.Items)
 	nonVsanDirect := 0
 	nonSCComp := 0
 	topology := 0
 	notEnoughCapacity := 0
-	
 
 	//flag := false
 	for _, sp := range sps.Items {
@@ -248,7 +249,7 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 	}
 
 	log.Infof("TotalPools:%d, Usable:%d. Pools removed because: not local:%d, SC mis-match:%d, topology mis-match:%d out of capacity:%d",
-		  totalStoragePools, len(spList), nonVsanDirect, nonSCComp, topology, notEnoughCapacity)
+		totalStoragePools, len(spList), nonVsanDirect, nonSCComp, topology, notEnoughCapacity)
 	return spList, nil
 }
 
@@ -321,7 +322,7 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 		log.Errorf("Failed to retrieve all PVCs in the same namespace from API server")
 		return spList, err
 	}
-	
+
 	xAffinity := 0
 	xCapPending := 0
 
@@ -355,7 +356,7 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 			capacity := pvcItem.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 			spRemoved := false
 			usageUpdated, spRemoved, spList = updateSPCapacityUsage(spList, spName, capacity.Value(),
-										currPVCCap.Value())
+				currPVCCap.Value())
 			if spRemoved {
 				xCapPending++
 				continue
