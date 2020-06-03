@@ -23,14 +23,22 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"time"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/informers"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -39,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
+	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -46,12 +55,16 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
-// NewClient creates a newk8s client based on a service account
-func NewClient(ctx context.Context) (clientset.Interface, error) {
+const (
+	timeout  = 60 * time.Second
+	pollTime = 5 * time.Second
+)
+
+// GetKubeConfig helps retrieve Kubernetes Config
+func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	var err error
-
 	kubecfgPath := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
 	if flag.Lookup("kubeconfig") != nil {
 		kubecfgPath = flag.Lookup("kubeconfig").Value.(flag.Getter).Get().(string)
@@ -70,6 +83,17 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 			log.Errorf("InClusterConfig failed %v", err)
 			return nil, err
 		}
+	}
+	return config, nil
+}
+
+// NewClient creates a newk8s client based on a service account
+func NewClient(ctx context.Context) (clientset.Interface, error) {
+	log := logger.GetLogger(ctx)
+	config, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to get KubeConfig. err: %v", err)
+		return nil, err
 	}
 	return clientset.NewForConfig(config)
 }
@@ -126,12 +150,21 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 	switch groupName {
 	case vmoperatorv1alpha1.GroupName:
 		err = vmoperatorv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Error("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
 	case cnsoperatorv1alpha1.GroupName:
 		err = cnsoperatorv1alpha1.AddToScheme(scheme)
-	}
-	if err != nil {
-		log.Error("failed to add to scheme with err: %+v", err)
-		return nil, err
+		if err != nil {
+			log.Error("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
+		err = migrationv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Error("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
 	}
 	client, err := client.New(config, client.Options{
 		Scheme: scheme,
@@ -221,4 +254,111 @@ func getSupervisorClientThroughput(ctx context.Context) (float32, int) {
 	}
 	log.Infof("Setting Supervisor client QPS to %f and Burst to %d.", qps, burst)
 	return qps, burst
+}
+
+// CreateCustomResourceDefinition creates the CRD and add it into Kubernetes.
+// If there is error, function will do the clean up
+func CreateCustomResourceDefinition(ctx context.Context, crdName string, crdSingular string, crdPlural string,
+	crdKind string, crdGroup string, crdVersion string, crdScope apiextensionsv1beta1.ResourceScope) error {
+	log := logger.GetLogger(ctx)
+	// Get a config to talk to the apiserver
+	cfg, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return err
+	}
+	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
+		return err
+	}
+	crd := &apiextensionsv1beta1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: crdName,
+		},
+		Spec: apiextensionsv1beta1.CustomResourceDefinitionSpec{
+			Group: crdGroup,
+			Versions: []apiextensionsv1beta1.CustomResourceDefinitionVersion{
+				{
+					Name:    crdVersion,
+					Served:  true,
+					Storage: true,
+				}},
+			Scope: crdScope,
+			Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
+				Plural:   crdPlural,
+				Singular: crdSingular,
+				Kind:     crdKind,
+			},
+		},
+	}
+	_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
+	if err == nil {
+		log.Infof("%q CRD created successfully", crdName)
+	} else if apierrors.IsAlreadyExists(err) {
+		log.Infof("%q CRD already exists", crdName)
+		return nil
+	} else {
+		log.Errorf("failed to create %q CRD with err: %+v", crdName, err)
+		return err
+	}
+
+	// CRD takes some time to be established
+	// Creating an instance of non-established runs into errors. So, wait for CRD to be created
+	err = wait.Poll(pollTime, timeout, func() (bool, error) {
+		crd, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(crdName, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("failed to get %q CRD with err: %+v", crdName, err)
+			return false, err
+		}
+		for _, cond := range crd.Status.Conditions {
+			switch cond.Type {
+			case apiextensionsv1beta1.Established:
+				if cond.Status == apiextensionsv1beta1.ConditionTrue {
+					return true, err
+				}
+			case apiextensionsv1beta1.NamesAccepted:
+				if cond.Status == apiextensionsv1beta1.ConditionFalse {
+					log.Debugf("Name conflict while waiting for %q CRD creation", cond.Reason)
+				}
+			}
+		}
+		return false, err
+	})
+
+	// If there is an error, delete the object to keep it clean.
+	if err != nil {
+		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Error: %+v", crdName, err)
+		deleteErr := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(crdName, nil)
+		if deleteErr != nil {
+			log.Errorf("failed to delete %q CRD with error: %+v", crdName, deleteErr)
+		}
+	}
+	return err
+}
+
+// GetDynamicInformer returns informer for specified CRD group, version and name
+// return error if failure observed
+func GetDynamicInformer(ctx context.Context, crdGroup string, crdVersion string, crdName string, namespace string) (informers.GenericInformer, error) {
+	log := logger.GetLogger(ctx)
+	// Get a config to talk to the apiserver
+	cfg, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return nil, err
+	}
+	// Grab a dynamic interface to create informers from
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("could not generate dynamic client for config. err :%v", err)
+		return nil, err
+	}
+	var informerFactory dynamicinformer.DynamicSharedInformerFactory
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	if namespace != "" {
+		informerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, namespace, nil)
+	} else {
+		informerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, metav1.NamespaceAll, nil)
+	}
+	return informerFactory.ForResource(gvr), nil
 }
