@@ -18,30 +18,11 @@ package vanilla
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
-
-// validateVanillaCreateVolumeRequest is the helper function to validate
-// CreateVolumeRequest for Vanilla CSI driver.
-// Function returns error if validation fails otherwise returns nil.
-func validateVanillaCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
-	// Get create params
-	params := req.GetParameters()
-	for paramName := range params {
-		paramName = strings.ToLower(paramName)
-		if paramName != common.AttributeDatastoreURL && paramName != common.AttributeStoragePolicyName && paramName != common.AttributeFsType {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid Vanilla CSI parameter.", paramName)
-			return status.Error(codes.InvalidArgument, msg)
-		}
-	}
-	return common.ValidateCreateVolumeRequest(ctx, req)
-}
 
 // validateVanillaDeleteVolumeRequest is the helper function to validate
 // DeleteVolumeRequest for Vanilla CSI driver.

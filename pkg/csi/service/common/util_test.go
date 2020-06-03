@@ -302,3 +302,45 @@ func TestParseStorageClassParamsWithValidParams(t *testing.T) {
 		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
 	}
 }
+
+func TestParseStorageClassParamsWithMigrationEnabled(t *testing.T) {
+	CSIMigrationFeatureEnabled = true
+	params := map[string]string{
+		CSIMigrationParams:                   "true",
+		DatastoreMigrationParam:              "vSANDatastore",
+		AttributeStoragePolicyName:           "policy1",
+		HostFailuresToTolerateMigrationParam: "1",
+		ForceProvisioningMigrationParam:      "true",
+		CacheReservationMigrationParam:       " 25",
+		DiskstripesMigrationParam:            "2",
+		ObjectspacereservationMigrationParam: "50",
+		IopslimitMigrationParam:              "16",
+	}
+	expectedScParams := &StorageClassParams{
+		CSIMigration:      "true",
+		StoragePolicyName: "policy1",
+		Datastore:         "vSANDatastore",
+	}
+	actualScParams, err := ParseStorageClassParams(ctx, params)
+	if err != nil {
+		t.Errorf("failed to parse params: %+v", params)
+	}
+	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
+		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
+	}
+}
+
+func TestParseStorageClassParamsWithMigrationDisabled(t *testing.T) {
+	CSIMigrationFeatureEnabled = false
+	params := map[string]string{
+		CSIMigrationParams:                   "true",
+		DatastoreMigrationParam:              "vSANDatastore",
+		AttributeStoragePolicyName:           "policy1",
+		HostFailuresToTolerateMigrationParam: "1",
+	}
+	actualScParams, err := ParseStorageClassParams(ctx, params)
+	if err == nil {
+		t.Errorf("error expected but not received. actualScParams: %v", actualScParams)
+	}
+	t.Logf("expected err received. err: %v", err)
+}

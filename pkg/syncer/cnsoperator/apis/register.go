@@ -35,8 +35,12 @@ const GroupName = "cns.vmware.com"
 var (
 	// SchemeGroupVersion is group version used to register these objects
 	SchemeGroupVersion = schema.GroupVersion{Group: GroupName, Version: "v1alpha1"}
+	// CnsNodeVMAttachmentSingular is Singular of CnsNodeVmAttachment
+	CnsNodeVMAttachmentSingular = "cnsnodevmattachment"
 	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
+	// CnsVolumeMetadataSingular is Singular of CnsVolumeMetadata
+	CnsVolumeMetadataSingular = "cnsvolumemetadata"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
 )

@@ -112,12 +112,34 @@ const (
 	// VsanDatastoreType is the string to identify datastore type as vsan.
 	VsanDatastoreType string = "vsan"
 
-	// AllowRoot decides Whether the root access should be allowed on a file volume
-	AllowRoot string = "allowroot"
+	// CSIMigrationParams helps identify if volume creation is requested by
+	// in-tree storageclass or CSI storageclass
+	CSIMigrationParams = "csimigration"
 
-	// Permission to be set in the file volume
-	Permission string = "permission"
+	// AttributeInitialVolumeFilepath represents the path of volume where volume is created
+	AttributeInitialVolumeFilepath = "initialvolumefilepath"
 
-	// IPs is Client IP address, IP range or IP subnet
-	IPs string = "ips"
+	// DatastoreMigrationParam is used to supply datastore name for Volume provisioning
+	DatastoreMigrationParam = "datastore-migrationparam"
+
+	// DiskFormatMigrationParam supplies disk foramt (thin, thick, zeoredthick) for Volume provisioning
+	DiskFormatMigrationParam = "diskformat-migrationparam"
+
+	// HostFailuresToTolerateMigrationParam is raw vSAN Policy Parameter
+	HostFailuresToTolerateMigrationParam = "hostfailurestotolerate-migrationparam"
+
+	// ForceProvisioningMigrationParam is raw vSAN Policy Parameter
+	ForceProvisioningMigrationParam = "forceprovisioning-migrationparam"
+
+	// CacheReservationMigrationParam is raw vSAN Policy Parameter
+	CacheReservationMigrationParam = "cachereservation-migrationparam"
+
+	// DiskstripesMigrationParam is raw vSAN Policy Parameter
+	DiskstripesMigrationParam = "diskstripes-migrationparam"
+
+	// ObjectspacereservationMigrationParam is raw vSAN Policy Parameter
+	ObjectspacereservationMigrationParam = "objectspacereservation-migrationparam"
+
+	// IopslimitMigrationParam is raw vSAN Policy Parameter
+	IopslimitMigrationParam = "iopslimit-migrationparam"
 )

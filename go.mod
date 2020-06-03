@@ -37,7 +37,7 @@ require (
 	github.com/rexray/gocsi v1.2.1
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.0
-	github.com/vmware/govmomi v0.22.2-0.20200329172045-a01612b98505
+	github.com/vmware/govmomi v0.22.2-0.20200530130842-aa97c4d3353d
 	github.com/zekroTJA/timedmap v0.0.0-20191029102728-85f9d45635d7
 	go.uber.org/atomic v1.5.1 // indirect
 	go.uber.org/multierr v1.4.0 // indirect
@@ -45,13 +45,13 @@ require (
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
 	golang.org/x/sys v0.0.0-20200331124033-c3d80250170d // indirect
-	golang.org/x/tools v0.0.0-20200407191807-cd5a53e07f8a // indirect
+	golang.org/x/tools v0.0.0-20200603131921-a45abac6c9c7 // indirect
 	google.golang.org/appengine v1.6.5 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	honnef.co/go/tools v0.0.1-2020.1.3 // indirect
+	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 	k8s.io/api v0.17.4
 	k8s.io/apiextensions-apiserver v0.17.2
 	k8s.io/apimachinery v0.17.4
