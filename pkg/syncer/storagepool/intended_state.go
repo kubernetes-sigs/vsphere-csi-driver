@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vmware/govmomi/vim25/types"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -165,6 +166,14 @@ func (c *spController) applyIntendedState(ctx context.Context, state *intendedSt
 		}
 		log.Debugf("Successfully updated StoragePool %v", newSp)
 	}
+
+	// update the underlying dsType in the all the compatible storage classes for reverse mapping
+	for _, scName := range state.compatSC {
+		if err := updateSPTypeInSC(ctx, scName, state.dsType); err != nil {
+			log.Errorf("Failed to update compatibleSPTypes in storage class %s. Err: %+v", scName, err)
+			continue
+		}
+	}
 	c.intendedStateMap[state.dsMoid] = state
 	return nil
 }
@@ -251,6 +260,9 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 			"kind":       "StoragePool",
 			"metadata": map[string]interface{}{
 				"name": state.spName,
+				"labels": map[string]string{
+					spTypeLabelKey: strings.ReplaceAll(state.dsType, spTypePrefix, ""),
+				},
 			},
 			"spec": map[string]interface{}{
 				"driver": csitypes.Name,
@@ -261,7 +273,6 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 			"status": map[string]interface{}{
 				"accessibleNodes":          state.nodes,
 				"compatibleStorageClasses": state.compatSC,
-				"type":                     state.dsType,
 				"capacity": map[string]interface{}{
 					"total":     state.capacity.Value(),
 					"freeSpace": state.freeSpace.Value(),
@@ -279,7 +290,7 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 
 func (state *intendedState) updateUnstructuredStoragePool(sp *unstructured.Unstructured) *unstructured.Unstructured {
 	unstructured.SetNestedField(sp.Object, state.url, "spec", "parameters", "datastoreUrl")
-	unstructured.SetNestedField(sp.Object, state.dsType, "status", "type")
+	unstructured.SetNestedField(sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""), "metadata", "labels", spTypeLabelKey)
 	unstructured.SetNestedField(sp.Object, state.capacity.Value(), "status", "capacity", "total")
 	unstructured.SetNestedField(sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
 	unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")

@@ -18,6 +18,7 @@ package storagepool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -39,7 +41,11 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
-const spTypePrefix = "cns.vmware.com/"
+const (
+	spTypePrefix        = "cns.vmware.com/"
+	spTypeLabelKey      = spTypePrefix + "StoragePoolType"
+	spTypeAnnotationKey = spTypePrefix + "StoragePoolTypeHint"
+)
 
 // getDatastoreProperties returns the total capacity, freeSpace, URL, type and accessibility of the given datastore
 func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (
@@ -156,4 +162,61 @@ func getSPClient(ctx context.Context) (dynamic.Interface, *schema.GroupVersionRe
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 	return spclient, &spResource, nil
+}
+
+// updateSPTypeInSC adds the datastore type as an annotation in the given StorageClass
+func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
+	log := logger.GetLogger(ctx)
+	clientSet, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
+		return err
+	}
+	sc, err := clientSet.StorageV1().StorageClasses().Get(scName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Failed to get storage class object from cluster, err=%+v", err)
+		return err
+	}
+	annotations := sc.Annotations
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	compatSPTypes, ok := annotations[spTypeAnnotationKey]
+	if !ok {
+		// Create a new annotation by name
+		annotations[spTypeAnnotationKey] = dsType
+	} else {
+		// Check if dsType is already present in the annotation value
+		spTypes := strings.Split(compatSPTypes, ",")
+		for _, spType := range spTypes {
+			if spType == dsType {
+				// dsType is already present
+				return nil
+			}
+		}
+		// Create a comma-separated list of dsTypes as an annotation value
+		compatSPTypes += "," + dsType
+		annotations[spTypeAnnotationKey] = compatSPTypes
+	}
+
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				spTypeAnnotationKey: annotations[spTypeAnnotationKey],
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("Failed to marshal patch(%s): %s", patch, err)
+		return err
+	}
+	// Patch the storage class with the updated annotation
+	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(scName, k8stypes.MergePatchType, patchBytes)
+	if err != nil {
+		log.Errorf("Failed to patch the storage class object with dsType. Err = %+v", err)
+		return err
+	}
+	log.Debug("Successfully updated annotations of storage class: ", scName, updatedSC.Annotations)
+	return nil
 }
