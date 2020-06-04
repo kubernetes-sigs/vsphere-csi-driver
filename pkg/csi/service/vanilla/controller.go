@@ -745,13 +745,18 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	volumeExpanded, err := common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
+	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
+	// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
+	// Volume expansion may succeed on CNS but external-resizer may fail to update API server.
+	// Requests are requeued in this case. Setting nodeExpandsionRequired to false marks PVC
+	// resize as finished which prevents kubelet from expanding the filesystem.
+	// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
 	nodeExpansionRequired := true
 	// Node expansion is not required for raw block volumes
 	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
@@ -759,7 +764,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	resp := &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
-		NodeExpansionRequired: volumeExpanded && nodeExpansionRequired,
+		NodeExpansionRequired: nodeExpansionRequired,
 	}
 	return resp, nil
 }
