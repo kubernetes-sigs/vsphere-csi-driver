@@ -394,28 +394,28 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 }
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given volumeId
-func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) (bool, error) {
+func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CNS driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
 
 	expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if expansionRequired {
 		log.Infof("Requested size %d Mb is greater than current size for volumeID: %q. Need volume expansion.", capacityInMb, volumeID)
 		err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-			return false, err
+			return err
 		}
 		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
 
 	} else {
 		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
 	}
-	return expansionRequired, err
+	return err
 }
 
 // QueryVolumeByID is the helper function to query volume by volumeID
