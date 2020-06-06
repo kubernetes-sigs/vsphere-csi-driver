@@ -111,7 +111,6 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	log.Infof("Get all storage pools %s", sps)
 	if len(sps.Items) <= 0 { //there is no available storage pools
 		return fmt.Errorf("fail to find any storage pool")
 	}
@@ -120,15 +119,19 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	capacity := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 	volSizeBytes := capacity.Value()
 
+	log.Infof("Starting placement for PVC %s, Topology %+v", curPVC.Name, hostNames)
 	spList, err := preFilterSPList(ctx, sps, *curPVC.Spec.StorageClassName, hostNames, volSizeBytes)
-	if err != nil || len(spList) <= 0 {
+	if err != nil  { 
+		log.Infof("preFilterSPList failed with %+v", err)
 		return err
 	}
-
-	log.Infof("preFilterSPList get StoragePool list with %+v", spList)
+	
+	if len(spList) <= 0 {
+		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
+		return fmt.Errorf("Fail to find a storage pool passing all criteria")
+	}
 
 	sort.Sort(byCOMBINATION(spList))
-	log.Infof("Sort splist %+v", spList)
 
 	// Sequence placement operations beyond this point to avoid race conditions
 	// To protect the storage pool snapshot unpopulated for placement of PVCs with the same label
@@ -138,17 +141,18 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 
 	spList, err = handleUsedStoragePools(ctx, client, curPVC, spList)
 	if err != nil {
+		log.Infof("handleUsedStoragePools failed with %+v", err)
 		return err
 	}
 
-	log.Infof("handleUsedStoragePools get StoragePool list with %+v", spList)
-
 	if len(spList) <= 0 {
+		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
 		return fmt.Errorf("Fail to find a storage pool passing all criteria")
 	}
 
 	err = setPVCAnnotation(ctx, spList[0].Name, client, curPVC.Namespace, curPVC.Name)
 	if err != nil {
+		log.Infof("setPVCAnnotation failed with %+v", err)
 		return err
 	}
 
@@ -187,21 +191,29 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
 	spList := []StoragePoolInfo{}
+	
+	totalStoragePools := len(sps.Items)
+	nonVsanDirect := 0
+	nonSCComp := 0
+	topology := 0
+	notEnoughCapacity := 0
+	
 
 	//flag := false
 	for _, sp := range sps.Items {
 		spName := sp.GetName()
 		if StrContainers := strings.Contains(spName, "vsandirect"); !StrContainers {
+			nonVsanDirect++
 			continue
 		}
 
 		//sc compatible filter
-		log.Infof("Prepare to check compatibility from PVC %+v", storageClassName)
 		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
 		if !found || err != nil {
+			nonVsanDirect++
 			continue
 		}
-		log.Infof("Nested read StoragePool compatibleStorageClasses %+v", scs)
+
 		foundMappedSC := false
 		for _, sc := range scs {
 			if storageClassName == sc {
@@ -210,16 +222,19 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 			}
 		}
 		if !foundMappedSC {
+			nonVsanDirect++
 			continue
 		}
 
 		if !isStoragePoolAccessibleByNodes(ctx, sp, hostNames) {
+			topology++
 			continue
 		}
 
 		// the storage pool capacity is expressed in raw bytes
 		cap, found, err := unstructured.NestedString(sp.Object, "status", "capacity", "freeSpace")
 		if !found || err != nil {
+			notEnoughCapacity++
 			continue
 		}
 
@@ -234,21 +249,23 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 				Name:           spName,
 				FreeCapInBytes: spSize,
 			})
+		} else {
+			notEnoughCapacity++
 		}
 	}
+
+	log.Infof("TotalPools:%d, Usable:%d. Pools removed because: not local:%d, SC mis-match:%d, topology mis-match:%d out of capacity:%d",
+		  totalStoragePools, len(spList), nonVsanDirect, nonSCComp, topology, notEnoughCapacity)
 	return spList, nil
 }
 
 // isStoragePoolAccessibleByNodes filter out accessible storage pools from a given list of candidate nodes
 func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstructured, hostNames []string) bool {
-	log := logger.GetLogger(ctx)
 	nodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
 		return false
 	}
 
-	log.Infof("FilterByAccessibleNodes by hostNames %+v", hostNames)
-	log.Infof("FilterByAccessibleNodes StoragePool accessibleNodes %+v", nodes)
 	for _, host := range hostNames { //filter by node candidate list
 		for _, node := range nodes {
 			if node == host {
@@ -275,11 +292,11 @@ func removeSPFromList(spList []StoragePoolInfo, spName string) []StoragePoolInfo
 func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVBytes int64, curPVBytes int64) (bool, bool, []StoragePoolInfo) {
 	usageUpdated := false
 	spRemoved := false
-	for _, sp := range spList {
-		if sp.Name == spName {
-			if sp.FreeCapInBytes > pendingPVBytes {
-				sp.FreeCapInBytes -= pendingPVBytes
-				if sp.FreeCapInBytes > curPVBytes+bufferDiskSize {
+	for i := range spList {
+		if spList[i].Name == spName {
+			if spList[i].FreeCapInBytes > pendingPVBytes {
+				spList[i].FreeCapInBytes -= pendingPVBytes
+				if spList[i].FreeCapInBytes > curPVBytes+bufferDiskSize {
 					usageUpdated = true
 				} else {
 					spList = removeSPFromList(spList, spName)
@@ -292,6 +309,7 @@ func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVByt
 			break
 		}
 	}
+
 	return usageUpdated, spRemoved, spList
 }
 
@@ -310,6 +328,9 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 		log.Errorf("Failed to retrieve all PVCs in the same namespace from API server")
 		return spList, err
 	}
+	
+	xAffinity := 0
+	xCapPending := 0
 
 	usedSPList := []StoragePoolInfo{}
 	for _, pvcItem := range pvcList.Items {
@@ -327,8 +348,8 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 		if required {
 			antiAffinityValue, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
 			if setRequired && antiAffinityValue == requiredAntiAffinityValue {
-				log.Infof("Find used sp %s as defined by %s", spName, spPolicyAntiRequired)
-				removeSPFromList(spList, spName)
+				spList = removeSPFromList(spList, spName)
+				xAffinity++
 				continue
 			}
 		}
@@ -337,12 +358,13 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 		// update SP usage based on any unbound PVCs placed on this SP. These are still in pipeline and hence
 		// the usage of SP will not be updated yet. There is always a race where the usage is already updated but
 		// the PVC is not yet in bound state but we will rather be conservative and try the placement again later
-		if pvcItem.Status.Phase != v1.ClaimBound {
+		if pvcItem.Status.Phase == v1.ClaimPending {
 			capacity := pvcItem.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 			spRemoved := false
 			usageUpdated, spRemoved, spList = updateSPCapacityUsage(spList, spName, capacity.Value(),
-				currPVCCap.Value())
+										currPVCCap.Value())
 			if spRemoved {
+				xCapPending++
 				continue
 			}
 		}
@@ -360,17 +382,18 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 
 	}
 
+	log.Infof("Removed because of: affinity rules:%d,  out of capacity:%d. Usable Pools:%d, Pools already used at least once:%d", xAffinity, xCapPending, len(spList), len(usedSPList))
+
 	// if we have any unused SPs then we can just remove all used SPs from the
 	// list. This gives us a small set of unused SPs that we can re-sort below
 	if len(spList) > len(usedSPList) {
 		for _, sp := range usedSPList {
-			removeSPFromList(spList, sp.Name)
+			spList = removeSPFromList(spList, sp.Name)
 		}
 	}
 
 	if usageUpdated {
 		sort.Sort(byCOMBINATION(spList))
-		log.Infof("Sort splist %+v", spList)
 	}
 
 	return spList, nil
@@ -404,7 +427,7 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 		return err
 	}
 
-	log.Infof("Find the sp %s to place PVC named as %s", curPVC.Annotations[storagePoolAnnotationKey], curPVC.Name)
+	log.Infof("Picked sp %s for PVC %s", curPVC.Annotations[storagePoolAnnotationKey], curPVC.Name)
 	return nil
 }
 
@@ -417,6 +440,7 @@ func getHostCandidates(ctx context.Context, topologyRequirement *csi.TopologyReq
 		log.Infof("Found no Accessibility requirements")
 		return hostNames
 	}
+
 	for _, topology := range topologyRequirement.GetPreferred() {
 		if topology == nil {
 			log.Infof("Get invalid accessibility requirement %v", topology)
