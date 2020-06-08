@@ -42,29 +42,32 @@ import (
 const spTypePrefix = "cns.vmware.com/"
 
 // getDatastoreProperties returns the total capacity, freeSpace, URL, type and accessibility of the given datastore
-func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (*resource.Quantity, *resource.Quantity, string, string, bool) {
+func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (
+	*resource.Quantity, *resource.Quantity, string, string, bool, bool) {
 	log := logger.GetLogger(ctx)
 	var ds mo.Datastore
 	pc := property.DefaultCollector(d.Client())
 	err := pc.RetrieveOne(ctx, d.Reference(), []string{"summary"}, &ds)
 	if err != nil {
 		log.Errorf("Error retrieving datastore summary for %v. Err: %v", d, err)
-		return nil, nil, "", "", false
+		return nil, nil, "", "", false, false
 	}
 	capacity := resource.NewQuantity(ds.Summary.Capacity, resource.DecimalSI)
 	freeSpace := resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI)
 	accessible := ds.Summary.Accessible
+	inMM := ds.Summary.MaintenanceMode != string(vimtypes.DatastoreSummaryMaintenanceModeStateNormal)
 	dsType := ds.Summary.Type
 
-	log.Infof("Setting type, capacity, freeSpace and accessibility of datastore %v to %v, %v, %v and %v respectively",
-		d.Info.Name, dsType, capacity, freeSpace, accessible)
-	return capacity, freeSpace, ds.Summary.Url, spTypePrefix + dsType, accessible
+	log.Infof("Datastore %s properties: type %v, capacity %v, freeSpace %v, accessibility %t, "+
+		"inMaintenanceMode %t", d.Info.Name, dsType, capacity, freeSpace, accessible, inMM)
+	return capacity, freeSpace, ds.Summary.Url, spTypePrefix + dsType, accessible, inMM
 }
 
 // findAccessibleNodes returns the k8s node names of ESX hosts (limited to clusterID) on which
-// the given datastore is mounted and accessible.
+// the given datastore is mounted and accessible. The values in the map tells whether the ESX
+// host is in Maintenance Mode.
 func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
-	clusterID string, vcclient *vim25.Client) ([]string, error) {
+	clusterID string, vcclient *vim25.Client) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	clusterMoref := vimtypes.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
@@ -94,7 +97,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		hostMoid := node.ObjectMeta.Annotations["vmware-system-esxi-node-moid"]
 		hostMoIDTok8sName[hostMoid] = node.ObjectMeta.Name
 	}
-	nodeNames := make([]string, 0)
+	nodes := make(map[string]bool)
 	for _, host := range hosts {
 		thisName, ok := hostMoIDTok8sName[host.Reference().Value]
 		if !ok || thisName == "" {
@@ -103,10 +106,26 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 			err = fmt.Errorf("waiting for node %s to get vmware-system-esxi-node-moid annotation", host.Reference().Value)
 			continue
 		}
-		nodeNames = append(nodeNames, thisName)
+		inMM, err := getHostInMaintenanceMode(ctx, host)
+		if err != nil {
+			log.Errorf("Error finding the host %s Maintenance Mode state: %v", host.Reference().Value, err)
+			inMM = true
+		}
+		nodes[thisName] = inMM
 	}
-	log.Infof("Accessible nodes for datastore %s: %v", datastore.Reference().Value, nodeNames)
-	return nodeNames, err
+	log.Infof("Accessible nodes in MM for datastore %s: %v", datastore.Reference().Value, nodes)
+	return nodes, err
+}
+
+// getHostInMaintenanceMode returns whether the given host is in MaintenanceMode
+func getHostInMaintenanceMode(ctx context.Context, host *object.HostSystem) (bool, error) {
+	// get host's runtime property
+	var hs mo.HostSystem
+	err := host.Properties(ctx, host.Reference(), []string{"runtime"}, &hs)
+	if err != nil {
+		return true, err
+	}
+	return hs.Runtime.InMaintenanceMode, nil
 }
 
 // makeStoragePoolName returns the given datastore name dsName with any non-alphanumeric chars replaced with '-'

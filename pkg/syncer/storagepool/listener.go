@@ -67,7 +67,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	filter.Add(clusterMoref, clusterMoref.Type, []string{"host"}, &ts)
 	prodHost := types.PropertySpec{
 		Type:    "HostSystem",
-		PathSet: []string{"datastore"},
+		PathSet: []string{"datastore", "runtime.inMaintenanceMode"},
 	}
 	propDs := types.PropertySpec{
 		Type:    "Datastore",
@@ -97,8 +97,8 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 					log.Errorf("Error updating StoragePool for datastore %v. Err: %v", ds, err)
 				}
 			} else {
-				// Handle changes in "hosts in cluster" and "Datastores mounted on hosts" by scheduling a reconcile
-				// of all StoragePool instances afresh. Schedule only once for a batch of updates
+				// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
+				// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
 				if !reconcileAllScheduled {
 					scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
 					reconcileAllScheduled = true
@@ -168,7 +168,7 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	validStoragePoolNames := make(map[string]bool)
 	// create StoragePools that are missing and add them to intendedStateMap
 	for _, dsInfo := range datastores {
-		intendedState, err := newIntendedState(ctx, dsInfo, scWatchCntlr, spCtl.vc, spCtl.clusterID)
+		intendedState, err := newIntendedState(ctx, dsInfo, scWatchCntlr)
 		if err != nil {
 			log.Errorf("Error reconciling StoragePool for datastore %s. Err: %v", dsInfo.Reference().Value, err)
 			continue

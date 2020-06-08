@@ -19,7 +19,6 @@ package storagepool
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/vmware/govmomi/vim25/types"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -48,6 +48,10 @@ type intendedState struct {
 	url string
 	// from Datastore.summary.Accessible
 	accessible bool
+	// from Datastore.summary.maintenanceMode
+	datastoreInMM bool
+	// true only when all hosts this Datastore is mounted on is in MM
+	allHostsInMM bool
 	// accessible list of k8s nodes on which this datastore is mounted in VC cluster
 	nodes []string
 	// compatible list of StorageClass names computed from SPBM
@@ -72,22 +76,30 @@ func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*spControl
 }
 
 // newIntendedState creates a new IntendedState for a StoragePool
-func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo, scWatchCntlr *StorageClassWatch,
-	vc *cnsvsphere.VirtualCenter, clusterID string) (*intendedState, error) {
+func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
+	scWatchCntlr *StorageClassWatch) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
+	vc := scWatchCntlr.vc
+	clusterID := scWatchCntlr.clusterID
 	spName := makeStoragePoolName(ds.Info.Name)
 
-	capacity, freeSpace, dsURL, dsType, accessible := getDatastoreProperties(ctx, ds)
+	capacity, freeSpace, dsURL, dsType, accessible, inMM := getDatastoreProperties(ctx, ds)
 	if capacity == nil || freeSpace == nil {
 		err := fmt.Errorf("error fetching datastore properties for %v", ds.Reference().Value)
 		log.Error(err)
 		return nil, err
 	}
 
-	nodes, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vc.Client.Client)
+	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vc.Client.Client)
 	if err != nil {
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err
+	}
+	nodes := make([]string, 0)
+	allNodesInMM := len(nodesMap) > 0 // initialize to true if there are accessible nodes, false otherwise
+	for node, inMM := range nodesMap {
+		nodes = append(nodes, node)
+		allNodesInMM = allNodesInMM && inMM
 	}
 
 	dsPolicyCompatMap, err := scWatchCntlr.getDatastoreToPolicyCompatibility(ctx, []*cnsvsphere.DatastoreInfo{ds}, true)
@@ -106,15 +118,17 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo, scWatch
 		log.Infof("Failed to get compatible policies for %s", ds.Reference().Value)
 	}
 	return &intendedState{
-		dsMoid:     ds.Reference().Value,
-		dsType:     dsType,
-		spName:     spName,
-		capacity:   capacity,
-		freeSpace:  freeSpace,
-		url:        dsURL,
-		accessible: accessible,
-		nodes:      nodes,
-		compatSC:   compatSC,
+		dsMoid:        ds.Reference().Value,
+		dsType:        dsType,
+		spName:        spName,
+		capacity:      capacity,
+		freeSpace:     freeSpace,
+		url:           dsURL,
+		accessible:    accessible,
+		datastoreInMM: inMM,
+		allHostsInMM:  allNodesInMM,
+		nodes:         nodes,
+		compatSC:      compatSC,
 	}, nil
 }
 
@@ -178,6 +192,7 @@ func (c *spController) updateIntendedState(ctx context.Context, dsMoid string, d
 		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
 		intendedState.accessible = dsSummary.Accessible
 	}
+	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
 	// update StoragePool as per intendedState
 	if err := c.applyIntendedState(ctx, intendedState); err != nil {
 		return err
@@ -212,6 +227,23 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 	return nil
 }
 
+// getStoragePoolError returns the ErrCode and Message to fill within StoragePool.Status.Error
+func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
+	if state.nodes == nil || len(state.nodes) == 0 {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateNoAccessibleHosts]
+	}
+	if state.datastoreInMM {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreInMM]
+	}
+	if state.allHostsInMM {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateAllHostsInMM]
+	}
+	if !state.accessible {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreNotAccessible]
+	}
+	return nil
+}
+
 func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstructured {
 	sp := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -231,15 +263,16 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 				"compatibleStorageClasses": state.compatSC,
 				"type":                     state.dsType,
 				"capacity": map[string]interface{}{
-					"total":     state.capacity.String(),
-					"freeSpace": state.freeSpace.String(),
+					"total":     state.capacity.Value(),
+					"freeSpace": state.freeSpace.Value(),
 				},
 			},
 		},
 	}
-	if !state.accessible {
-		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
-		unstructured.SetNestedField(sp.Object, "Datastore not accessible", "status", "error", "message")
+	spErr := state.getStoragePoolError()
+	if spErr != nil {
+		unstructured.SetNestedField(sp.Object, spErr.State, "status", "error", "state")
+		unstructured.SetNestedField(sp.Object, spErr.Message, "status", "error", "message")
 	}
 	return sp
 }
@@ -247,13 +280,14 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 func (state *intendedState) updateUnstructuredStoragePool(sp *unstructured.Unstructured) *unstructured.Unstructured {
 	unstructured.SetNestedField(sp.Object, state.url, "spec", "parameters", "datastoreUrl")
 	unstructured.SetNestedField(sp.Object, state.dsType, "status", "type")
-	unstructured.SetNestedField(sp.Object, state.capacity.String(), "status", "capacity", "total")
-	unstructured.SetNestedField(sp.Object, state.freeSpace.String(), "status", "capacity", "freeSpace")
+	unstructured.SetNestedField(sp.Object, state.capacity.Value(), "status", "capacity", "total")
+	unstructured.SetNestedField(sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
 	unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")
 	unstructured.SetNestedStringSlice(sp.Object, state.compatSC, "status", "compatibleStorageClasses")
-	if !state.accessible {
-		unstructured.SetNestedField(sp.Object, time.Now().String(), "status", "error", "time")
-		unstructured.SetNestedField(sp.Object, "Datastore not accessible", "status", "error", "message")
+	spErr := state.getStoragePoolError()
+	if spErr != nil {
+		unstructured.SetNestedField(sp.Object, spErr.State, "status", "error", "state")
+		unstructured.SetNestedField(sp.Object, spErr.Message, "status", "error", "message")
 	} else {
 		unstructured.RemoveNestedField(sp.Object, "status", "error")
 	}

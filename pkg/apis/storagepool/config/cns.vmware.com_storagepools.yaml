@@ -78,14 +78,16 @@ spec:
                 type: string
               type: array
             error:
-              description: Error that occurred on the storage pool
+              description: Error that has occurred on the storage pool. Present only
+                when there is an error.
               properties:
                 message:
                   description: Message details of the encountered error
                   type: string
-                time:
-                  description: Time is the timestamp when the error was encountered
-                  format: date-time
+                state:
+                  description: State indicates a single word description of the error
+                    state that has occurred on the StoragePool, "InMaintenance", "NotAccessible",
+                    etc.
                   type: string
               type: object
             type:
