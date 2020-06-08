@@ -45,7 +45,7 @@ type StoragePoolStatus struct {
 	// Total Capacity of the storage pool
 	// +optional
 	Capacity *PoolCapacity `json:"capacity,omitempty"`
-	// Error that occurred on the storage pool
+	// Error that has occurred on the storage pool. Present only when there is an error.
 	// +optional
 	Error StoragePoolError `json:"error,omitempty"`
 }
@@ -62,14 +62,35 @@ type PoolCapacity struct {
 
 // StoragePoolError describes an error encountered on the pool
 type StoragePoolError struct {
-	// Time is the timestamp when the error was encountered
+	// State indicates a single word description of the error state that has occurred on the StoragePool,
+	// "InMaintenance", "NotAccessible", etc.
 	// +optional
-	Time *metav1.Time `json:"time,omitempty"`
+	State string `json:"state,omitempty"`
 
 	// Message details of the encountered error
 	// +optional
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message,omitempty"`
 }
+
+// ErrStates used in StoragePool.Status.Error.State
+const (
+	ErrStateNoError                = ""
+	ErrStateNoAccessibleHosts      = "NoAccessibleHosts"
+	ErrStateDatastoreInMM          = "DatastoreInMM"
+	ErrStateAllHostsInMM           = "AllHostsInMM"
+	ErrStateDatastoreNotAccessible = "NotAccessible"
+)
+
+var (
+	// SpErrors maps ErrStates to error messages used in StoragePool.Status.Error.Message
+	SpErrors = map[string]*StoragePoolError{
+		ErrStateNoError:                {ErrStateNoError, ""},
+		ErrStateNoAccessibleHosts:      {ErrStateNoAccessibleHosts, "No Accessible hosts to reach this Datastore"},
+		ErrStateDatastoreInMM:          {ErrStateDatastoreInMM, "Datastore in maintenance mode"},
+		ErrStateAllHostsInMM:           {ErrStateAllHostsInMM, "All hosts in maintenance mode"},
+		ErrStateDatastoreNotAccessible: {ErrStateDatastoreNotAccessible, "Datastore not accessible"},
+	}
+)
 
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

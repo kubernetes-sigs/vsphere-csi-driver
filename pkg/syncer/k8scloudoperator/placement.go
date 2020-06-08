@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -32,11 +33,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	"sort"
-	"strconv"
 )
 
 var mutex sync.Mutex
@@ -232,16 +231,10 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 		}
 
 		// the storage pool capacity is expressed in raw bytes
-		cap, found, err := unstructured.NestedString(sp.Object, "status", "capacity", "freeSpace")
+		spSize, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "freeSpace")
 		if !found || err != nil {
 			notEnoughCapacity++
 			continue
-		}
-
-		spSize, err := strconv.ParseInt(cap, 10, 64)
-		if err != nil {
-			log.Errorf("Fail to place for error %s when cap size of StoragePool %s", err, spName)
-			return nil, err
 		}
 
 		if spSize > volSizeBytes+bufferDiskSize { //filter by capacity

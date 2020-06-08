@@ -105,7 +105,7 @@ export SYNCER_BIN_SRCS
 endif
 
 syncer_manifest: controller-gen
-	$(CONTROLLER_GEN) crd:trivialVersions=true paths=./pkg/syncer/storagepool/... output:crd:dir=pkg/apis/storagepool/config
+	$(CONTROLLER_GEN) crd:trivialVersions=true paths=./pkg/apis/storagepool/... output:crd:dir=pkg/apis/storagepool/config
 # find or download controller-gen
 # download controller-gen if necessary
 controller-gen:
