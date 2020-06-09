@@ -18,6 +18,7 @@ package storagepool
 
 import (
 	"context"
+	"os"
 	"sync"
 
 	"github.com/vmware/govmomi/property"
@@ -69,40 +70,54 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 		PathSet: []string{"summary"},
 	}
 	filter.Spec.PropSet = append(filter.Spec.PropSet, prodHost, propDs)
-	p := property.DefaultCollector(spController.vc.Client.Client)
-	go property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
-		log.Infof("Got %d update(s)", len(updates))
-		reconcileAllScheduled := false
-		for _, update := range updates {
-			propChange := update.ChangeSet
-			log.Debugf("Got update for object %v properties %v", update.Obj, propChange)
-			if update.Obj.Type == "Datastore" && len(propChange) == 1 && propChange[0].Name == "summary" && propChange[0].Op == types.PropertyChangeOpAssign {
-				// Handle changes in a Datastore's summary property (that includes name, type, freeSpace, accessible) by
-				// updating only the corresponding single StoragePool instance.
-				ds := update.Obj
-				summary, ok := propChange[0].Val.(types.DatastoreSummary)
-				if !ok {
-					log.Errorf("Not able to cast to DatastoreSummary: %v", propChange[0].Val)
-					continue
+	go func() {
+		for {
+			log.Infof("Starting property collector...")
+			p := property.DefaultCollector(spController.vc.Client.Client)
+			err := property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
+				log.Infof("Got %d update(s)", len(updates))
+				reconcileAllScheduled := false
+				for _, update := range updates {
+					propChange := update.ChangeSet
+					log.Debugf("Got update for object %v properties %v", update.Obj, propChange)
+					if update.Obj.Type == "Datastore" && len(propChange) == 1 && propChange[0].Name == "summary" && propChange[0].Op == types.PropertyChangeOpAssign {
+						// Handle changes in a Datastore's summary property (that includes name, type, freeSpace, accessible) by
+						// updating only the corresponding single StoragePool instance.
+						ds := update.Obj
+						summary, ok := propChange[0].Val.(types.DatastoreSummary)
+						if !ok {
+							log.Errorf("Not able to cast to DatastoreSummary: %v", propChange[0].Val)
+							continue
+						}
+						// Datastore summary property can be updated immediately into the StoragePool
+						log.Debugf("Starting update for single StoragePool %s", ds.Value)
+						err := spController.updateIntendedState(ctx, ds.Value, summary, scWatchCntlr)
+						if err != nil {
+							log.Errorf("Error updating StoragePool for datastore %v. Err: %v", ds, err)
+						}
+					} else {
+						// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
+						// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
+						if !reconcileAllScheduled {
+							ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
+							reconcileAllScheduled = true
+						}
+					}
 				}
-				// Datastore summary property can be updated immediately into the StoragePool
-				log.Debugf("Starting update for single StoragePool %s", ds.Value)
-				err := spController.updateIntendedState(ctx, ds.Value, summary, scWatchCntlr)
+				return false
+			})
+			if err != nil {
+				log.Infof("Property collector session needs to be reestablished")
+				err = spController.vc.Connect(ctx)
 				if err != nil {
-					log.Errorf("Error updating StoragePool for datastore %v. Err: %v", ds, err)
-				}
-			} else {
-				// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
-				// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
-				if !reconcileAllScheduled {
-					ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
-					reconcileAllScheduled = true
+					// Terminate the container and let the pod restart it
+					log.Errorf("Not able to establish connection with VC. Exiting...")
+					os.Exit(-1)
 				}
 			}
 		}
-		return false
-	})
-	log.Infof("Started property collector...")
+	}()
+
 	return nil
 }
 
