@@ -28,6 +28,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,7 +38,9 @@ import (
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
@@ -219,4 +222,19 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 	}
 	log.Debug("Successfully updated annotations of storage class: ", scName, updatedSC.Annotations)
 	return nil
+}
+
+// Returns the StoragePolicyId referred by the given StorageClass. Needs a util function since vSphere CSI supports
+// case insensitive parameters in the StorageClass.
+func getStoragePolicyIDFromSC(sc *v1.StorageClass) string {
+	if sc.Provisioner != types.Name {
+		return ""
+	}
+	// vSphere CSI supports case insensitive parameters
+	for key, value := range sc.Parameters {
+		if strings.ToLower(key) == common.AttributeStoragePolicyID {
+			return value
+		}
+	}
+	return ""
 }

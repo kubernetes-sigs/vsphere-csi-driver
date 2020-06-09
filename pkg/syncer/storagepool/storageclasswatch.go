@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"strings"
+	"reflect"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	storagev1 "k8s.io/api/storage/v1"
@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -132,13 +133,41 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 				}
 				continue
 			}
-			switch e.Object.(type) {
-			case *storagev1.StorageClass:
+			if sc, ok := e.Object.(*storagev1.StorageClass); ok && w.needsRefreshStorageClassCache(ctx, sc, e.Type) {
 				w.refreshStorageClassCache(ctx)
 			}
 		}
 	}
 	log.Info("watchStorageClass ends")
+}
+
+// Returns true if the given StorageClass is not present in the cache yet, false otherwise.
+func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, sc *storagev1.StorageClass,
+	eventType watch.EventType) bool {
+	log := logger.GetLogger(ctx)
+
+	thisStoragePolicyID := getStoragePolicyIDFromSC(sc)
+	if thisStoragePolicyID == "" {
+		// Our cache only has StorageClasses created by vSphere
+		return false
+	}
+	// Lookup StorageClass from our cache
+	cachedSc, found := w.policyToScMap[thisStoragePolicyID]
+	switch eventType {
+	case watch.Added, watch.Modified:
+		// Need to refresh our cache if this StorageClass is missing or anything has changed in it.
+		if !found || !reflect.DeepEqual(sc, cachedSc) {
+			log.Infof("StorageClassWatch cache refresh due to %s", sc.Name)
+			return true
+		}
+	case watch.Deleted:
+		// Need to refresh our cache since this StorageClass is going away
+		if found {
+			log.Infof("StorageClassWatch cache refresh due to delete of %s", sc.Name)
+			return true
+		}
+	}
+	return false
 }
 
 // Refresh the storage class cache and do a full remediation
@@ -156,17 +185,12 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 		return err
 	}
 	for idx, sc := range scList.Items {
-		if sc.Provisioner != "csi.vsphere.vmware.com" {
+		policyID := getStoragePolicyIDFromSC(&sc)
+		if policyID == "" {
 			continue
 		}
-		// VMware CSI supports case insensitive parameters
-		for key, value := range sc.Parameters {
-			if strings.ToLower(key) == "storagepolicyid" {
-				policyID := value
-				policyIds = append(policyIds, policyID)
-				policyToSCMap[policyID] = &scList.Items[idx]
-			}
-		}
+		policyIds = append(policyIds, policyID)
+		policyToSCMap[policyID] = &scList.Items[idx]
 	}
 
 	w.policyToScMap = policyToSCMap
