@@ -288,13 +288,16 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	}
 
 	scName := pvc.Spec.StorageClassName
+	if scName == nil || *scName == "" {
+		return out, nil
+	}
 	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(*scName, metav1.GetOptions{})
 	if err != nil {
 		return out, err
 	}
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
-	if present && !strings.Contains(spTypes, vsanDirectType) {
-		log.Error("storage class is not of type vsan direct, aborting placement")
+	if !present || !strings.Contains(spTypes, vsanDirectType) {
+		log.Debug("storage class is not of type vsan direct, aborting placement")
 		return out, nil
 	}
 
