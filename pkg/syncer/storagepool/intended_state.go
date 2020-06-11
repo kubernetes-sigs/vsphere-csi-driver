@@ -59,17 +59,17 @@ type intendedState struct {
 	compatSC []string
 }
 
-// spController holds the intended state updated by property collector listener and has methods to apply intended state
+// SpController holds the intended state updated by property collector listener and has methods to apply intended state
 // into actual k8s state
-type spController struct {
+type SpController struct {
 	vc        *cnsvsphere.VirtualCenter
 	clusterID string
 	// intendedStateMap stores the datastoreMoid -> IntendedState for each datastore
 	intendedStateMap map[string]*intendedState
 }
 
-func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*spController, error) {
-	return &spController{
+func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpController, error) {
+	return &SpController{
 		vc:               vc,
 		clusterID:        clusterID,
 		intendedStateMap: make(map[string]*intendedState),
@@ -134,7 +134,7 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 }
 
 // applyIntendedState applies the given in-memory IntendedState on to the actual state of a StoragePool in the WCP cluster.
-func (c *spController) applyIntendedState(ctx context.Context, state *intendedState) error {
+func (c *SpController) applyIntendedState(ctx context.Context, state *intendedState) error {
 	log := logger.GetLogger(ctx)
 	spClient, spResource, err := getSPClient(ctx)
 	if err != nil {
@@ -180,7 +180,7 @@ func (c *spController) applyIntendedState(ctx context.Context, state *intendedSt
 
 // updateIntendedState is called to apply only the DatastoreSummary properties of a StoragePool. This does not
 // recompute the `accessibleNodes` or compatible StorageClass for this StoragePool.
-func (c *spController) updateIntendedState(ctx context.Context, dsMoid string, dsSummary types.DatastoreSummary,
+func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, dsSummary types.DatastoreSummary,
 	scWatchCntlr *StorageClassWatch) error {
 	log := logger.GetLogger(ctx)
 	intendedState, ok := c.intendedStateMap[dsMoid]
@@ -198,7 +198,7 @@ func (c *spController) updateIntendedState(ctx context.Context, dsMoid string, d
 	intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
 	if intendedState.accessible != dsSummary.Accessible {
 		// the accessible nodes are not available immediately after a PC notification
-		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
+		ReconcileAllStoragePools(ctx, scWatchCntlr, c)
 		intendedState.accessible = dsSummary.Accessible
 	}
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
@@ -211,6 +211,16 @@ func (c *spController) updateIntendedState(ctx context.Context, dsMoid string, d
 		return deleteStoragePool(ctx, oldSpName)
 	}
 	return nil
+}
+
+func (c *SpController) deleteIntendedState(ctx context.Context, spName string) bool {
+	for dsMoid, state := range c.intendedStateMap {
+		if state.spName == spName {
+			delete(c.intendedStateMap, dsMoid)
+			return true
+		}
+	}
+	return false
 }
 
 func deleteStoragePool(ctx context.Context, spName string) error {

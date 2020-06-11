@@ -18,14 +18,13 @@ package storagepool
 
 import (
 	"context"
-	"strconv"
 	"sync"
-	"time"
 
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -34,14 +33,10 @@ import (
 var (
 	// reconcileAllMutex should be acquired to run ReconcileAllStoragePools so that only one thread runs at a time.
 	reconcileAllMutex sync.Mutex
-	// Run ReconcileAllStoragePools every `freq` seconds.
-	reconcileAllFreq = time.Second * 60
-	// Run ReconcileAllStoragePools `n` times.
-	reconcileAllIterations = 5
 )
 
 // Initialize a PropertyCollector listener that updates the intended state of a StoragePool
-func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *spController) error {
+func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController) error {
 	log := logger.GetLogger(ctx)
 
 	// Initialize a PropertyCollector that watches all objects in the hierarchy of
@@ -100,7 +95,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 				// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
 				// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
 				if !reconcileAllScheduled {
-					scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
+					ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
 					reconcileAllScheduled = true
 				}
 			}
@@ -111,47 +106,9 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	return nil
 }
 
-// XXX: This hack should be removed once we figure out all the properties of a StoragePool that gets updates lazily.
-// Notifications for Hosts add/remove from a Cluster and Datastores un/mounted on Hosts come in too early
-// before the VC is ready. For example, the vSAN Datastore mount is not completed yet for a newly added host.
-// The Datastore does not have the vSANDirect tag yet for a newly added Datastore in a host. So this function
-// schedules a ReconcileAllStoragePools, that computes addition and deletion of StoragePool instances, to
-// run n times every f secs. Each time this function is called, the counter n is reset, so that
-// ReconcileAllStoragePools can run another n times starting now. The values for n and f can be tuned so that
-// ReconcileAllStoragePools can be retried enough number of times to discover additions and deletions of
-// StoragePool instances in all cases.
-func scheduleReconcileAllStoragePools(ctx context.Context, freq time.Duration, nTimes int, scWatchCntrl *StorageClassWatch,
-	spController *spController) {
-	log := logger.GetLogger(ctx)
-	t := time.Now().Format("2006-01-02T15:04:05.000")
-	log.Debugf("[%s] Scheduled ReconcileAllStoragePools starting", t)
-	go func() {
-		tick := time.NewTicker(freq)
-		defer tick.Stop()
-		for iteration := 0; iteration < nTimes; iteration++ {
-			iterID := t + "-" + strconv.Itoa(iteration)
-			select {
-			case <-tick.C:
-				log.Debugf("[%s] Starting reconcile for all StoragePool instances", iterID)
-				err := ReconcileAllStoragePools(ctx, scWatchCntrl, spController)
-				if err != nil {
-					log.Errorf("[%s] Error reconciling StoragePool instances in HostMount listener. Err: %+v", iterID, err)
-				} else {
-					log.Debugf("[%s] Successfully reconciled all StoragePool instances", iterID)
-				}
-			case <-ctx.Done():
-				log.Debugf("[%s] Done reconcile all loop for StoragePools", iterID)
-				return
-			}
-		}
-		log.Infof("[%s] Scheduled ReconcileAllStoragePools completed", t)
-	}()
-	log.Infof("[%s] Scheduled ReconcileAllStoragePools started", t)
-}
-
 // ReconcileAllStoragePools creates/updates/deletes StoragePool instances for datastores found in this k8s cluster.
 // This should be invoked when there is a potential change in the list of datastores in the cluster.
-func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWatch, spCtl *spController) error {
+func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWatch, spCtl *SpController) error {
 	log := logger.GetLogger(ctx)
 
 	// Only one thread at a time can execute ReconcileAllStoragePools
@@ -168,6 +125,8 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	validStoragePoolNames := make(map[string]bool)
 	// create StoragePools that are missing and add them to intendedStateMap
 	for _, dsInfo := range datastores {
+		spName := makeStoragePoolName(dsInfo.Info.Name)
+		validStoragePoolNames[spName] = true
 		intendedState, err := newIntendedState(ctx, dsInfo, scWatchCntlr)
 		if err != nil {
 			log.Errorf("Error reconciling StoragePool for datastore %s. Err: %v", dsInfo.Reference().Value, err)
@@ -178,14 +137,13 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 			log.Errorf("Error applying intended state of StoragePool %s. Err: %v", intendedState.spName, err)
 			continue
 		}
-		validStoragePoolNames[intendedState.spName] = true
 	}
 
 	// Delete unknown StoragePool instances owned by this driver
-	return deleteStoragePools(ctx, validStoragePoolNames)
+	return deleteStoragePools(ctx, validStoragePoolNames, spCtl)
 }
 
-func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bool) error {
+func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bool, spCtl *SpController) error {
 	log := logger.GetLogger(ctx)
 	spClient, spResource, err := getSPClient(ctx)
 	if err != nil {
@@ -209,6 +167,8 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
 				}
 			}
+			// Also delete entry from intendedStateMap
+			spCtl.deleteIntendedState(ctx, spName)
 		}
 	}
 	return nil

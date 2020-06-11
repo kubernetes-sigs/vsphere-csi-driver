@@ -29,14 +29,15 @@ import (
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
-type storagePoolService struct {
-	spController *spController
+// Service holds the controllers needed to manage StoragePools
+type Service struct {
+	spController *SpController
 	scWatchCntlr *StorageClassWatch
 	clusterID    string
 }
 
 var (
-	defaultStoragePoolService     *storagePoolService = new(storagePoolService)
+	defaultStoragePoolService     *Service = new(Service)
 	defaultStoragePoolServiceLock sync.Mutex
 )
 
@@ -99,7 +100,7 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
-	// Create the default storagePoolService
+	// Create the default Service
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
 	defaultStoragePoolService.spController = spController
@@ -108,6 +109,21 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 
 	log.Infof("Done initializing Storage Pool Service")
 	return nil
+}
+
+// GetStoragePoolService returns the single instance of Service
+func GetStoragePoolService() *Service {
+	return defaultStoragePoolService
+}
+
+// GetScWatch returns the active StorageClassWatch initialized in this service
+func (sps *Service) GetScWatch() *StorageClassWatch {
+	return sps.scWatchCntlr
+}
+
+// GetSPController returns the single SpController intialized in this service
+func (sps *Service) GetSPController() *SpController {
+	return sps.spController
 }
 
 // ResetVC will be called whenever the connection to vCenter is recycled. This will renew the PropertyCollector

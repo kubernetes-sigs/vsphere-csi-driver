@@ -19,7 +19,6 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -48,6 +47,7 @@ const (
 	spTypePrefix        = "cns.vmware.com/"
 	spTypeLabelKey      = spTypePrefix + "StoragePoolType"
 	spTypeAnnotationKey = spTypePrefix + "StoragePoolTypeHint"
+	nodeMoidAnnotation  = "vmware-system-esxi-node-moid"
 )
 
 // getDatastoreProperties returns the total capacity, freeSpace, URL, type and accessibility of the given datastore
@@ -103,7 +103,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 
 	hostMoIDTok8sName := make(map[string]string)
 	for _, node := range nodeList.Items {
-		hostMoid := node.ObjectMeta.Annotations["vmware-system-esxi-node-moid"]
+		hostMoid := node.ObjectMeta.Annotations[nodeMoidAnnotation]
 		hostMoIDTok8sName[hostMoid] = node.ObjectMeta.Name
 	}
 	nodes := make(map[string]bool)
@@ -112,7 +112,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		if !ok || thisName == "" {
 			// This host on which the datastore is mounted does not have the annotation yet.
 			// So ignore this node and wait for next reconcile to pick this up.
-			err = fmt.Errorf("waiting for node %s to get vmware-system-esxi-node-moid annotation", host.Reference().Value)
+			log.Debugf("Ignoring node %s without vmware-system-esxi-node-moid annotation", host.Reference().Value)
 			continue
 		}
 		inMM, err := getHostInMaintenanceMode(ctx, host)

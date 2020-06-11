@@ -51,7 +51,7 @@ type StorageClassWatch struct {
 	policyIds     []string
 	policyToScMap map[string]*storagev1.StorageClass
 	clusterID     string
-	spController  *spController
+	spController  *SpController
 
 	dsPolicyCompatMapCache map[string][]string
 }
@@ -66,7 +66,7 @@ type StorageClassWatch struct {
 //    about the underlying Storage Policy in VC
 //
 // This function starts a go-routine which processes watch fires
-func startStorageClassWatch(ctx context.Context, spController *spController, cfg *rest.Config) (*StorageClassWatch, error) {
+func startStorageClassWatch(ctx context.Context, spController *SpController, cfg *rest.Config) (*StorageClassWatch, error) {
 	log := logger.GetLogger(ctx)
 	w := &StorageClassWatch{}
 	clientset, err := kubernetes.NewForConfig(cfg)
