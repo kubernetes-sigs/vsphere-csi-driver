@@ -67,12 +67,12 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
 				log.Warnf("csiGetVolumeHealthStatus: Failed to get pvc for namespace %s and name %s. err=%+v",
-				pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
+					pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 				continue
 			}
 			volumeHandleToPvcMap[pv.Spec.CSI.VolumeHandle] = pvc
 			log.Debugf("csiGetVolumeHealthStatus: pvc %s/%s is backed by pv %s volumeHandle %s",
-			pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle)
+				pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle)
 		}
 	}
 
@@ -91,33 +91,33 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 				if val, found := pvc.Annotations[annVolumeHealth]; !found || val != volHealthStatus {
 					// VolumeHealth annotation on pvc is changed, set it to new value
 					log.Debugf("csiGetVolumeHealthStatus: update volume health annotation for pvc %s/%s from old value %s to new value %s",
-					pvc.Namespace, pvc.Name, val, volHealthStatus)
+						pvc.Namespace, pvc.Name, val, volHealthStatus)
 					metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 					_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(pvc)
 					if err != nil {
 						if apierrors.IsConflict(err) {
 							log.Debugf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
-							pvc.Namespace, pvc.Name, err)
+								pvc.Namespace, pvc.Name, err)
 							// pvc get from pvcLister may be stale, try to get updated pvc which bound to pv from API server
 							newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(pvc.Name, metav1.GetOptions{})
 							if err == nil {
 								log.Debugf("csiGetVolumeHealthStatus: update volume health annotation for pvc %s/%s which "+
-								"get from API server from old value %s to new value %s",
-								newPvc.Namespace, newPvc.Name, val, volHealthStatus)
+									"get from API server from old value %s to new value %s",
+									newPvc.Namespace, newPvc.Name, val, volHealthStatus)
 								metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 								_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(newPvc)
 								if err != nil {
 									log.Errorf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
-									newPvc.Namespace, newPvc.Name, err)
+										newPvc.Namespace, newPvc.Name, err)
 								}
 							} else {
 								log.Errorf("csiGetVolumeHealthStatus: volume health annotation for pvc %s/%s is not updated because "+
-								"failed to get pvc from API server. err=%+v",
-								pvc.Namespace, pvc.Name, err)
+									"failed to get pvc from API server. err=%+v",
+									pvc.Namespace, pvc.Name, err)
 							}
 						} else {
 							log.Errorf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
-							pvc.Namespace, pvc.Name, err)
+								pvc.Namespace, pvc.Name, err)
 						}
 					}
 				}

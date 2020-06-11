@@ -233,7 +233,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		// CNS based CSI requires a valid cluster name
 		config.Global.ClusterID = testClusterName
 
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
+		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
 			t.Fatal(err)
 		}

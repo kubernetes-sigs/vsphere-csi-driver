@@ -61,7 +61,7 @@ func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo) (*cn
 	onceForVirtualCenter.Do(func() {
 		log := logger.GetLogger(ctx)
 		var vcconfig *cnsvsphere.VirtualCenterConfig
-		vcconfig, vcerror := cnsvsphere.GetVirtualCenterConfig(configTypes.Cfg)
+		vcconfig, vcerror := cnsvsphere.GetVirtualCenterConfig(ctx, configTypes.Cfg)
 		if vcerror != nil {
 			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", vcerror)
 			return

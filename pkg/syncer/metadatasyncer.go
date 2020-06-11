@@ -341,7 +341,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			return
 		}
 	} else {
-		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 			return
@@ -364,12 +364,20 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 					log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 					return
 				}
+				// connect to vCenter using new config to ensure new configuration has
+				// valid credentials
+				err := vcenter.Connect(ctx)
+				if err != nil {
+					log.Errorf("Failed to connect to VirtualCenter with new config. err=%v", err)
+					return
+				}
 			} else {
 				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg})
 				if err != nil {
 					log.Errorf("failed to get VirtualCenter. err=%v", err)
 					return
 				}
+				vcenter.Config = newVCConfig
 			}
 			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
 			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter)

@@ -137,6 +137,10 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 		}
 	}
 	m.virtualCenter.Config = vcenter.Config
+	if m.virtualCenter.Client != nil {
+		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
+		log.Infof("VC client timeout is set to %v", m.virtualCenter.Client.Timeout)
+	}
 	log.Infof("Done resetting volume.defaultManager")
 }
 

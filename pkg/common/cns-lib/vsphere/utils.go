@@ -27,6 +27,7 @@ import (
 )
 
 const vsanDType = "vsanD"
+const defaultVCClientTimeoutInMinutes = 5
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin
 func IsInvalidCredentialsError(err error) bool {
@@ -101,7 +102,8 @@ func CreateCnsKuberenetesEntityReference(entityType string, entityName string, n
 
 // GetVirtualCenterConfig returns VirtualCenterConfig Object created using vSphere Configuration
 // specified in the argurment.
-func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
+func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCenterConfig, error) {
+	log := logger.GetLogger(ctx)
 	var err error
 	vCenterIPs, err := GetVcenterIPs(cfg) //  make([]string, 0)
 	if err != nil {
@@ -118,6 +120,18 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 		targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs, ",")
 	}
 
+	var vcClientTimeout int
+	if cfg.Global.VCClientTimeout == 0 {
+		log.Info("Defaulting timeout for vCenter Client to 5 minutes")
+		cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
+	}
+	if cfg.Global.VCClientTimeout < 0 {
+		log.Warnf("Invalid value %v for timeout is specified as vc-client-timeout. Defaulting to %v minutes.",
+			cfg.Global.VCClientTimeout, defaultVCClientTimeoutInMinutes)
+		cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
+	}
+	vcClientTimeout = cfg.Global.VCClientTimeout
+
 	vcConfig := &VirtualCenterConfig{
 		Host:                             host,
 		Port:                             port,
@@ -125,6 +139,7 @@ func GetVirtualCenterConfig(cfg *config.Config) (*VirtualCenterConfig, error) {
 		Password:                         cfg.VirtualCenter[host].Password,
 		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
+		VCClientTimeout:                  vcClientTimeout,
 	}
 
 	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {

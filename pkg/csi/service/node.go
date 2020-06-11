@@ -667,7 +667,7 @@ func (s *service) NodeGetInfo(
 
 	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
 		log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig from cns config. err=%v", err)
 			return nil, status.Errorf(codes.Internal, err.Error())
