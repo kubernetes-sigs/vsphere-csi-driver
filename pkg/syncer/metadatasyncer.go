@@ -303,6 +303,17 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}
 	}()
+
+	// Trigger NodeAnnotationListener in StoragePool
+	go func() {
+		ctx, log = logger.GetNewContextWithLogger()
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			scWatch := storagepool.GetStoragePoolService().GetScWatch()
+			spCntlr := storagepool.GetStoragePoolService().GetSPController()
+			storagepool.InitNodeAnnotationListener(ctx, metadataSyncer.k8sInformerManager, scWatch, spCntlr)
+		}
+	}()
+
 	<-stopCh
 	return nil
 }
