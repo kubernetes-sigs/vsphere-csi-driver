@@ -163,7 +163,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	config.Global.ClusterID = testClusterName
 
 	// Init VC configuration
-	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(config)
+	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, config)
 	if err != nil {
 		t.Errorf("failed to get virtualCenter. err=%v", err)
 		t.Fatal(err)

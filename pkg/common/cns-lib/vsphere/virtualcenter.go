@@ -25,6 +25,7 @@ import (
 	neturl "net/url"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/property"
@@ -95,6 +96,8 @@ type VirtualCenterConfig struct {
 	DatacenterPaths []string
 	// TargetDatastoreUrlsForFile represents URLs of file service enabled vSAN datastores in the virtual center.
 	TargetvSANFileShareDatastoreURLs []string
+	// VCClientTimeout is the time limit in minutes for requests made by vCenter client
+	VCClientTimeout int
 }
 
 // clientMutex is used for exclusive connection creation.
@@ -120,6 +123,8 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 			return nil, err
 		}
 	}
+	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
+	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		log.Errorf("failed to create new client with err: %v", err)

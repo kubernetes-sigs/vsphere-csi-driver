@@ -43,6 +43,9 @@ type Config struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// VCClientTimeout specifies a time limit in minutes for requests made by client
+		// If not set, default will be 5 minutes
+		VCClientTimeout int `gcfg:"vc-client-timeout"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
