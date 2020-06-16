@@ -1,0 +1,217 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: '2'
+    kubectl.kubernetes.io/last-applied-configuration: >
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"name":"vsphere-csi-controller","namespace":"kube-system"},"spec":{"replicas":1,"securityContext":{"privileged":true},"selector":{"matchLabels":{"app":"vsphere-csi-controller"}},"strategy":{"rollingUpdate":{"maxSurge":0,"maxUnavailable":1},"type":"RollingUpdate"},"template":{"metadata":{"labels":{"app":"vsphere-csi-controller","role":"vsphere-csi"}},"spec":{"containers":[{"args":["--v=4","--timeout=300s","--csi-address=$(ADDRESS)","--leader-election"],"env":[{"name":"ADDRESS","value":"/csi/csi.sock"}],"image":"quay.io/k8scsi/csi-attacher:v2.0.0","name":"csi-attacher","volumeMounts":[{"mountPath":"/csi","name":"socket-dir"}]},{"args":["--v=4","--csiTimeout=300s","--csi-address=$(ADDRESS)","--leader-election"],"env":[{"name":"ADDRESS","value":"/csi/csi.sock"}],"image":"quay.io/k8scsi/csi-resizer:v0.3.0","name":"csi-resizer","volumeMounts":[{"mountPath":"/csi","name":"socket-dir"}]},{"env":[{"name":"CSI_ENDPOINT","value":"unix:///var/lib/csi/sockets/pluginproxy/csi.sock"},{"name":"X_CSI_MODE","value":"controller"},{"name":"VSPHERE_CSI_CONFIG","value":"/etc/cloud/csi-vsphere.conf"},{"name":"LOGGER_LEVEL","value":"DEVELOPMENT"}],"image":"gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0","imagePullPolicy":"Always","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","rm
+      -rf
+      /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]}}},"livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/healthz","port":"healthz"},"initialDelaySeconds":10,"periodSeconds":5,"timeoutSeconds":3},"name":"vsphere-csi-controller","ports":[{"containerPort":9808,"name":"healthz","protocol":"TCP"}],"volumeMounts":[{"mountPath":"/etc/cloud","name":"vsphere-config-volume","readOnly":true},{"mountPath":"/var/lib/csi/sockets/pluginproxy/","name":"socket-dir"}]},{"args":["--csi-address=$(ADDRESS)"],"env":[{"name":"ADDRESS","value":"/var/lib/csi/sockets/pluginproxy/csi.sock"}],"image":"quay.io/k8scsi/livenessprobe:v1.1.0","name":"liveness-probe","volumeMounts":[{"mountPath":"/var/lib/csi/sockets/pluginproxy/","name":"socket-dir"}]},{"args":["--leader-election"],"env":[{"name":"FULL_SYNC_INTERVAL_MINUTES","value":"30"},{"name":"VSPHERE_CSI_CONFIG","value":"/etc/cloud/csi-vsphere.conf"},{"name":"LOGGER_LEVEL","value":"DEVELOPMENT"}],"image":"gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.0","imagePullPolicy":"Always","name":"vsphere-syncer","volumeMounts":[{"mountPath":"/etc/cloud","name":"vsphere-config-volume","readOnly":true}]},{"args":["--v=4","--timeout=300s","--csi-address=$(ADDRESS)","--feature-gates=Topology=true","--strict-topology","--enable-leader-election","--leader-election-type=leases"],"env":[{"name":"ADDRESS","value":"/csi/csi.sock"}],"image":"quay.io/k8scsi/csi-provisioner:v1.4.0","name":"csi-provisioner","volumeMounts":[{"mountPath":"/csi","name":"socket-dir"}]}],"dnsPolicy":"Default","nodeSelector":{"node-role.kubernetes.io/master":""},"serviceAccountName":"vsphere-csi-controller","tolerations":[{"effect":"NoSchedule","operator":"Exists"},{"effect":"NoExecute","operator":"Exists"}],"volumes":[{"name":"vsphere-config-volume","secret":{"secretName":"vsphere-config-secret"}},{"hostPath":{"path":"/var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com","type":"DirectoryOrCreate"},"name":"socket-dir"}]}}}}
+  selfLink: /apis/apps/v1/namespaces/kube-system/deployments/vsphere-csi-controller
+  resourceVersion: '496165'
+  name: vsphere-csi-controller
+  uid: 69320e20-ff28-4ed6-914b-bf910e3364dd
+  creationTimestamp: '2020-05-31T17:41:47Z'
+  generation: 6
+  namespace: kube-system
+  labels:
+    app: vsphere-csi-controller
+    role: vsphere-csi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vsphere-csi-controller
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: vsphere-csi-controller
+        role: vsphere-csi
+    spec:
+      dnsPolicy: "Default"
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ''
+      restartPolicy: Always
+      serviceAccountName: vsphere-csi-controller
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      securityContext: {}
+      containers:
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: csi-attacher
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          terminationMessagePolicy: File
+          image: 'quay.io/k8scsi/csi-attacher:v2.0.0'
+          args:
+            - '--v=4'
+            - '--timeout=300s'
+            - '--csi-address=$(ADDRESS)'
+            - '--leader-election'
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: csi-resizer
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          terminationMessagePolicy: File
+          image: 'quay.io/k8scsi/csi-resizer:v0.3.0'
+          args:
+            - '--v=4'
+            - '--csiTimeout=300s'
+            - '--csi-address=$(ADDRESS)'
+            - '--leader-election'
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - '-c'
+                  - >-
+                    rm -rf
+                    /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
+          name: vsphere-csi-controller
+          securityContext:
+            privileged: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          env:
+            - name: CSI_ENDPOINT
+              value: 'unix:///var/lib/csi/sockets/pluginproxy/csi.sock'
+            - name: X_CSI_MODE
+              value: controller
+            - name: VSPHERE_CSI_CONFIG
+              value: /etc/cloud/csi-vsphere.conf
+            - name: LOGGER_LEVEL
+              value: DEVELOPMENT
+          securityContext:
+            privileged: true
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vsphere-config-volume
+              readOnly: true
+              mountPath: /etc/cloud
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+          terminationMessagePolicy: File
+          image: 'gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0'
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: liveness-probe
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+          terminationMessagePolicy: File
+          image: 'quay.io/k8scsi/livenessprobe:v1.1.0'
+          args:
+            - '--csi-address=$(ADDRESS)'
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: vsphere-syncer
+          env:
+            - name: FULL_SYNC_INTERVAL_MINUTES
+              value: '30'
+            - name: VSPHERE_CSI_CONFIG
+              value: /etc/cloud/csi-vsphere.conf
+            - name: LOGGER_LEVEL
+              value: PRODUCTION
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vsphere-config-volume
+              readOnly: true
+              mountPath: /etc/cloud
+          terminationMessagePolicy: File
+          image: 'gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.0'
+          args:
+            - '--leader-election'
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: csi-provisioner
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          terminationMessagePolicy: File
+          image: 'quay.io/k8scsi/csi-provisioner:v1.4.0'
+          args:
+            - '--v=4'
+            - '--timeout=300s'
+            - '--csi-address=$(ADDRESS)'
+            - '--feature-gates=Topology=true'
+            - '--strict-topology'
+            - '--enable-leader-election'
+            - '--leader-election-type=leases'
+      serviceAccount: vsphere-csi-controller
+      volumes:
+        - name: vsphere-config-volume
+          secret:
+            secretName: vsphere-config-secret
+            defaultMode: 420
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
+            type: DirectoryOrCreate
+      dnsPolicy: Default
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+status:
+  observedGeneration: 6
+  replicas: 1
+  updatedReplicas: 1
+  unavailableReplicas: 1
+  conditions:
+    - type: Available
+      status: 'True'
+      lastUpdateTime: '2020-05-31T17:41:47Z'
+      lastTransitionTime: '2020-05-31T17:41:47Z'
+      reason: MinimumReplicasAvailable
+      message: Deployment has minimum availability.
+    - type: Progressing
+      status: 'True'
+      lastUpdateTime: '2020-05-31T18:20:04Z'
+      lastTransitionTime: '2020-05-31T17:41:47Z'
+      reason: ReplicaSetUpdated
+      message: ReplicaSet "vsphere-csi-controller-5b4b7bb79d" is progressing.
