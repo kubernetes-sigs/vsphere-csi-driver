@@ -247,17 +247,19 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 			overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
-			if err != nil {
+			if err != nil || len(overlappingNodes) == 0 {
 				msg := fmt.Sprintf("getOverlappingNodes failed: %v", err)
-				return nil, status.Errorf(codes.InvalidArgument, msg)
+				return nil, status.Errorf(codes.Internal, msg)
 			}
 			accessibleNodes = append(accessibleNodes, overlappingNodes...)
+			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
 		} else if param == common.AttributeHostLocal {
 			hostLocalMode = true
 			if hostLocalNodeName, err = getHostNameFromAccessibilityRequirements(topologyRequirement); err != nil {
 				return nil, err
 			}
 			accessibleNodes = append(accessibleNodes, hostLocalNodeName)
+			log.Infof("Hostlocal Accessible nodes for volume topology: %+v", accessibleNodes)
 		}
 	}
 
@@ -333,6 +335,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 		}
+		log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
 	}
 
 	return resp, nil
