@@ -269,12 +269,12 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	}
 	sharedDatastores := make([]*DatastoreInfo, 0)
 	vsanDirectDatastores := make([]*DatastoreInfo, 0)
-	for _, host := range hosts {
+	for index, host := range hosts {
 		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		if len(sharedDatastores) == 0 {
+		if index == 0 {
 			for _, accessibleDs := range accessibleDatastores {
 				if allVsanDirectUrls[accessibleDs.Info.Url] {
 					vsanDirectDatastores = append(vsanDirectDatastores, accessibleDs)
