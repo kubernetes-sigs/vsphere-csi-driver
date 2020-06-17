@@ -665,6 +665,21 @@ func getNamespaceToRunTests(f *framework.Framework) string {
 	return f.Namespace.Name
 }
 
+// getPVCFromSupervisorCluster takes name of the persistentVolumeClaim as input
+// returns the corresponding persistentVolumeClaim object
+func getPVCFromSupervisorCluster(pvcName string) *v1.PersistentVolumeClaim {
+	var svcClient clientset.Interface
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	pvclaim, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return pvclaim
+}
+
 func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	var svcClient clientset.Interface
 	var err error

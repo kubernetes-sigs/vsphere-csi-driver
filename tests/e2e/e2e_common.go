@@ -58,7 +58,14 @@ const (
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
+	healthStatusWaitTime                       = 2 * time.Minute
+	healthStatusAccessible                     = "accessible"
+	healthStatusInAccessible                   = "inaccessible"
+	healthGreen                                = "green"
+	healthYellow                               = "yellow"
+	healthRed                                  = "red"
 	vsanhealthServiceName                      = "vsan-health"
+	spsServiceName                             = "sps"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
@@ -84,8 +91,8 @@ const (
 	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 	nfs4FSType                                 = "nfs4"
 	fcdName                                    = "BasicStaticFCD"
-	stopVsanHealthOperation                    = "stop"
-	startVsanHealthOperation                   = "start"
+	stopOperation                              = "stop"
+	startOperation                             = "start"
 	sshdPort                                   = "22"
 	vsanHealthServiceWaitTime                  = 15
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
