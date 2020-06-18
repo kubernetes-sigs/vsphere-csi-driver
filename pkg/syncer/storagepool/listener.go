@@ -75,7 +75,9 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 			log.Infof("Starting property collector...")
 			p := property.DefaultCollector(spController.vc.Client.Client)
 			err := property.WaitForUpdates(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
-				log.Infof("Got %d update(s)", len(updates))
+				ctx := logger.NewContextWithLogger(ctx)
+				log = logger.GetLogger(ctx)
+				log.Infof("Got %d property collector update(s)", len(updates))
 				reconcileAllScheduled := false
 				for _, update := range updates {
 					propChange := update.ChangeSet
@@ -107,6 +109,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 						}
 					}
 				}
+				log.Debugf("Done processing %d property collector update(s)", len(updates))
 				return false
 			})
 			if err != nil {
