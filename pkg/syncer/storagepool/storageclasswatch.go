@@ -133,8 +133,10 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 				}
 				continue
 			}
-			if sc, ok := e.Object.(*storagev1.StorageClass); ok && w.needsRefreshStorageClassCache(ctx, sc, e.Type) {
-				err := w.refreshStorageClassCache(ctx)
+			// run this task on a separate log context that has a separate TraceId for every invocation
+			taskCtx := logger.NewContextWithLogger(ctx)
+			if sc, ok := e.Object.(*storagev1.StorageClass); ok && w.needsRefreshStorageClassCache(taskCtx, sc, e.Type) {
+				err := w.refreshStorageClassCache(taskCtx)
 				if err != nil {
 					log.Errorf("refreshStorageClassCache failed. err: %v", err)
 				}
