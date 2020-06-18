@@ -99,7 +99,10 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 						// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
 						// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
 						if !reconcileAllScheduled {
-							ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
+							err := ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
+							if err != nil {
+								log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
+							}
 							reconcileAllScheduled = true
 						}
 					}

@@ -301,7 +301,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		err = framework.DeletePodWithWait(f, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if vanillaCluster {
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)

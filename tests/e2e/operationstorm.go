@@ -28,6 +28,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/utils"
@@ -145,7 +146,12 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		ginkgo.By("Creating pod to attach PVs to the node")
 		pod, err := framework.CreatePod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
+		defer func() {
+			err = client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 
 		var vmUUID string
 		ginkgo.By("Verify the volumes are attached to the node vm")

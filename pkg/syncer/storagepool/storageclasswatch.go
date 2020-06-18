@@ -134,7 +134,10 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 				continue
 			}
 			if sc, ok := e.Object.(*storagev1.StorageClass); ok && w.needsRefreshStorageClassCache(ctx, sc, e.Type) {
-				w.refreshStorageClassCache(ctx)
+				err := w.refreshStorageClassCache(ctx)
+				if err != nil {
+					log.Errorf("refreshStorageClassCache failed. err: %v", err)
+				}
 			}
 		}
 	}
@@ -195,8 +198,14 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 
 	w.policyToScMap = policyToSCMap
 	w.policyIds = policyIds
-	ReconcileAllStoragePools(ctx, w, w.spController)
-	w.addStorageClassPolicyAnnotations(ctx)
+	err = ReconcileAllStoragePools(ctx, w, w.spController)
+	if err != nil {
+		log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
+	}
+	err = w.addStorageClassPolicyAnnotations(ctx)
+	if err != nil {
+		log.Errorf("addStorageClassPolicyAnnotations failed. err: %v", err)
+	}
 
 	return nil
 }
@@ -255,11 +264,14 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context
 	}
 	profiles, err := w.vc.PbmRetrieveContent(ctx, w.policyIds)
 	if err != nil {
-		log.Errorf("Failed to retrieve policy content: %s", err)
+		log.Errorf("Failed to retrieve policy content. err: %v", err)
 		return err
 	}
 	for _, profile := range profiles {
-		w.addStorageClassPolicyAnnotation(ctx, profile)
+		err = w.addStorageClassPolicyAnnotation(ctx, profile)
+		if err != nil {
+			log.Errorf("addStorageClassPolicyAnnotation failed. err: %v", err)
+		}
 	}
 	return nil
 }

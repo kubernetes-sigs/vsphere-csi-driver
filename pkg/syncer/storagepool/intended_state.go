@@ -146,7 +146,7 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		statusErr, ok := err.(*k8serrors.StatusError)
 		if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
 			log.Infof("Creating StoragePool instance for %s", state.spName)
-			sp := state.createUnstructuredStoragePool()
+			sp := state.createUnstructuredStoragePool(ctx)
 			newSp, err := spClient.Resource(*spResource).Create(sp, metav1.CreateOptions{})
 			if err != nil {
 				log.Errorf("Error creating StoragePool %s. Err: %+v", state.spName, err)
@@ -158,7 +158,7 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		// StoragePool already exists, so Update it
 		// We don't expect ConflictErrors since updates are synchronized with a lock
 		log.Infof("Updating StoragePool instance for %s", state.spName)
-		sp := state.updateUnstructuredStoragePool(sp)
+		sp := state.updateUnstructuredStoragePool(ctx, sp)
 		newSp, err := spClient.Resource(*spResource).Update(sp, metav1.UpdateOptions{})
 		if err != nil {
 			log.Errorf("Error updating StoragePool %s. Err: %+v", state.spName, err)
@@ -198,7 +198,10 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
 	if intendedState.accessible != dsSummary.Accessible {
 		// the accessible nodes are not available immediately after a PC notification
-		ReconcileAllStoragePools(ctx, scWatchCntlr, c)
+		err := ReconcileAllStoragePools(ctx, scWatchCntlr, c)
+		if err != nil {
+			log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
+		}
 		intendedState.accessible = dsSummary.Accessible
 	}
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
@@ -263,7 +266,7 @@ func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
 	return nil
 }
 
-func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstructured {
+func (state *intendedState) createUnstructuredStoragePool(ctx context.Context) *unstructured.Unstructured {
 	sp := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cns.vmware.com/v1alpha1",
@@ -292,25 +295,39 @@ func (state *intendedState) createUnstructuredStoragePool() *unstructured.Unstru
 	}
 	spErr := state.getStoragePoolError()
 	if spErr != nil {
-		unstructured.SetNestedField(sp.Object, spErr.State, "status", "error", "state")
-		unstructured.SetNestedField(sp.Object, spErr.Message, "status", "error", "message")
+		setNestedField(ctx, sp.Object, spErr.State, "status", "error", "state")
+		setNestedField(ctx, sp.Object, spErr.Message, "status", "error", "message")
 	}
 	return sp
 }
 
-func (state *intendedState) updateUnstructuredStoragePool(sp *unstructured.Unstructured) *unstructured.Unstructured {
-	unstructured.SetNestedField(sp.Object, state.url, "spec", "parameters", "datastoreUrl")
-	unstructured.SetNestedField(sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""), "metadata", "labels", spTypeLabelKey)
-	unstructured.SetNestedField(sp.Object, state.capacity.Value(), "status", "capacity", "total")
-	unstructured.SetNestedField(sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
-	unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")
-	unstructured.SetNestedStringSlice(sp.Object, state.compatSC, "status", "compatibleStorageClasses")
+func (state *intendedState) updateUnstructuredStoragePool(ctx context.Context, sp *unstructured.Unstructured) *unstructured.Unstructured {
+	log := logger.GetLogger(ctx)
+	setNestedField(ctx, sp.Object, state.url, "spec", "parameters", "datastoreUrl")
+	setNestedField(ctx, sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""), "metadata", "labels", spTypeLabelKey)
+	setNestedField(ctx, sp.Object, state.capacity.Value(), "status", "capacity", "total")
+	setNestedField(ctx, sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
+	err := unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")
+	if err != nil {
+		log.Errorf("err: %v", err)
+	}
+	err = unstructured.SetNestedStringSlice(sp.Object, state.compatSC, "status", "compatibleStorageClasses")
+	if err != nil {
+		log.Errorf("err: %v", err)
+	}
 	spErr := state.getStoragePoolError()
 	if spErr != nil {
-		unstructured.SetNestedField(sp.Object, spErr.State, "status", "error", "state")
-		unstructured.SetNestedField(sp.Object, spErr.Message, "status", "error", "message")
+		setNestedField(ctx, sp.Object, spErr.State, "status", "error", "state")
+		setNestedField(ctx, sp.Object, spErr.Message, "status", "error", "message")
 	} else {
 		unstructured.RemoveNestedField(sp.Object, "status", "error")
 	}
 	return sp
+}
+
+func setNestedField(ctx context.Context, obj map[string]interface{}, value interface{}, fields ...string) {
+	log := logger.GetLogger(ctx)
+	if err := unstructured.SetNestedField(obj, value, fields...); err != nil {
+		log.Errorf("err: %v", err)
+	}
 }

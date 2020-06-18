@@ -43,13 +43,12 @@ import (
 )
 
 const (
-	vmUUIDLabel                        = "vmware-system-vm-uuid"
-	defaultPodPollIntervalInSec        = 2
-	defaultK8sCloudOperatorServicePort = 10000
-	spTypePrefix                       = "cns.vmware.com/"
-	spTypeAnnotationKey                = spTypePrefix + "StoragePoolTypeHint"
-	vsanDirectType                     = spTypePrefix + "vsanD"
-	spTypeLabelKey                     = spTypePrefix + "StoragePoolType"
+	vmUUIDLabel                 = "vmware-system-vm-uuid"
+	defaultPodPollIntervalInSec = 2
+	spTypePrefix                = "cns.vmware.com/"
+	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
+	vsanDirectType              = spTypePrefix + "vsanD"
+	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
 )
 
 type k8sCloudOperator struct {
