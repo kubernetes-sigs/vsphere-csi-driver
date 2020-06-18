@@ -407,8 +407,12 @@ func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolu
 // setInstanceError sets error and records an event on the CnsRegisterVolume instance
 func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
+	log := logger.GetLogger(ctx)
 	instance.Status.Error = errMsg
-	updateCnsRegisterVolume(ctx, r.client, instance)
+	err := updateCnsRegisterVolume(ctx, r.client, instance)
+	if err != nil {
+		log.Errorf("updateCnsRegisterVolume failed. err: %v", err)
+	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
 }
 

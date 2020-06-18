@@ -130,7 +130,12 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 		log.Errorf("failed to create new client with err: %v", err)
 		return nil, err
 	}
-	vimClient.UseServiceVersion("vsan")
+	err = vimClient.UseServiceVersion("vsan")
+	if err != nil && vc.Config.Host != "127.0.0.1" {
+		// skipping error for simulator connection for unit tests
+		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
+		return nil, err
+	}
 	vimClient.UserAgent = "k8s-csi-useragent"
 
 	client := &govmomi.Client{

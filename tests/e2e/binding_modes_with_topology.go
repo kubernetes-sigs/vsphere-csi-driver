@@ -73,9 +73,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
-		defer client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)
-
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
 		ginkgo.By("Waiting for 30 seconds and verifying whether the PVC is still in pending state")
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)

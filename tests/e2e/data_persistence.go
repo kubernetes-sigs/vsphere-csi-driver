@@ -148,7 +148,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		volumeFiles = append(volumeFiles, newEmptyFileName)
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		err = framework.DeletePodWithWait(f, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if supervisorCluster {
 			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
 			time.Sleep(supervisorClusterOperationsTimeout)
@@ -201,7 +202,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-guest] Data P
 		volumeFiles = append(volumeFiles, newEmptyFileName)
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		err = framework.DeletePodWithWait(f, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if supervisorCluster {
 			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
 			time.Sleep(supervisorClusterOperationsTimeout)

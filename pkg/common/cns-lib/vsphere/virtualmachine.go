@@ -252,7 +252,12 @@ func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName st
 		log.Errorf("failed to get tagManager. Error: %v", err)
 		return "", "", err
 	}
-	defer tagManager.Logout(ctx)
+	defer func() {
+		err = tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
 	var objects []mo.ManagedEntity
 	objects, err = vm.GetAncestors(ctx)
 	if err != nil {
@@ -308,7 +313,12 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 		log.Errorf("failed to get tagManager. Error: %v", err)
 		return false, err
 	}
-	defer tagManager.Logout(ctx)
+	defer func() {
+		err = tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
 	vmZone, vmRegion, err := vm.GetZoneRegion(ctx, zoneCategoryName, regionCategoryName)
 	if err != nil {
 		log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", vm.Reference(), err)

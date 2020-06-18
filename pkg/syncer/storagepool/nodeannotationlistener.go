@@ -69,7 +69,10 @@ func (l *NodeAnnotationListener) nodeUpdated(oldObj interface{}, newObj interfac
 	if oldMoid != newMoid || oldOk != newOk {
 		log.Infof("Change in node annotation for %s from %s to %s. Starting ReconcileAllStoragePools...",
 			newNode.Name, oldMoid, newMoid)
-		ReconcileAllStoragePools(ctx, l.scWatch, l.spController)
+		err := ReconcileAllStoragePools(ctx, l.scWatch, l.spController)
+		if err != nil {
+			log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
+		}
 		log.Debugf("Done reconciling all StoragePools for node annotation change for %s", newNode.Name)
 	}
 }

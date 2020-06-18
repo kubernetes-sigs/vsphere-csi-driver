@@ -194,7 +194,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		instance.Status.Error = err.Error()
-		updateCnsNodeVMAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+		if err != nil {
+			log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		}
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -209,7 +212,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 		instance.Status.Error = err.Error()
-		updateCnsNodeVMAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+		if err != nil {
+			log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		}
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -227,8 +233,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		if err != nil {
 			msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
-			instance.Status.Error = fmt.Sprintf("failed to find the VM with UUID: %q", nodeUUID)
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -237,7 +246,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -340,7 +352,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			// TODO : Need to check for VirtualMachine CRD instance existence.
 			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
 			removeFinalizerFromCRDInstance(ctx, instance, request)
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 			return reconcile.Result{}, nil
 
@@ -360,7 +375,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			if vsphere.IsManagedObjectNotFound(detachErr) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
-				updateCnsNodeVMAttachment(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				if err != nil {
+					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				}
 				recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 				// Cleanup instance entry from backOffDuration map
 				backOffDurationMapMutex.Lock()

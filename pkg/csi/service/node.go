@@ -202,37 +202,33 @@ func nodeStageBlockVolume(
 				"error with format and mount during staging: %q",
 				err.Error())
 		}
-		log.Debugf("NodeStageVolume: Device mounted successfully at %q", params.stagingTarget)
-		return &csi.NodeStageVolumeResponse{}, nil
-	}
-	// If Device is already mounted. Need to ensure that it is already
-	// mounted to the expected staging target, with correct rw/ro perms
-	log.Debugf("NodeStageVolume: Device already mounted. Checking mount flags %v for correctness.",
-		params.mntFlags)
-	mounted := false
-	for _, m := range mnts {
-		if m.Path == params.stagingTarget {
-			mounted = true
-			rwo := "rw"
-			if params.ro {
-				rwo = "ro"
+	} else {
+		// If Device is already mounted. Need to ensure that it is already
+		// mounted to the expected staging target, with correct rw/ro perms
+		log.Debugf("NodeStageVolume: Device already mounted. Checking mount flags %v for correctness.",
+			params.mntFlags)
+		for _, m := range mnts {
+			if m.Path == params.stagingTarget {
+				rwo := "rw"
+				if params.ro {
+					rwo = "ro"
+				}
+				log.Debugf("NodeStageVolume: Checking for mount options %v", m.Opts)
+				if contains(m.Opts, rwo) {
+					//TODO make sure that all the mount options match
+					log.Debugf("NodeStageVolume: Device already mounted at %q with mount option %q",
+						params.stagingTarget, rwo)
+					return &csi.NodeStageVolumeResponse{}, nil
+				}
+				return nil, status.Error(codes.AlreadyExists,
+					"access mode conflicts with existing mount")
 			}
-			log.Debugf("NodeStageVolume: Checking for mount options %v", m.Opts)
-			if contains(m.Opts, rwo) {
-				//TODO make sure that all the mount options match
-				log.Debugf("NodeStageVolume: Device already mounted at %q with mount option %q",
-					params.stagingTarget, rwo)
-				return &csi.NodeStageVolumeResponse{}, nil
-			}
-			return nil, status.Error(codes.AlreadyExists,
-				"access mode conflicts with existing mount")
 		}
-	}
-	if !mounted {
 		return nil, status.Error(codes.Internal,
 			"device already in use and mounted elsewhere")
 	}
-	return nil, nil
+	log.Debugf("NodeStageVolume: Device mounted successfully at %q", params.stagingTarget)
+	return &csi.NodeStageVolumeResponse{}, nil
 }
 
 func (s *service) NodeUnstageVolume(
@@ -678,7 +674,14 @@ func (s *service) NodeGetInfo(
 			log.Errorf("failed to register vcenter with virtualCenterManager.")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		defer vcManager.UnregisterAllVirtualCenters(ctx)
+		defer func() {
+			if vcManager != nil {
+				err = vcManager.UnregisterAllVirtualCenters(ctx)
+				if err != nil {
+					log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
+				}
+			}
+		}()
 		//Connect to vCenter
 		err = vcenter.Connect(ctx)
 		if err != nil {

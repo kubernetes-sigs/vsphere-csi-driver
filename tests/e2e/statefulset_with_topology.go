@@ -73,8 +73,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
-
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 		ginkgo.By("Creating statefulset with single replica")
 		statefulsetTester := framework.NewStatefulSetTester(client)
 		statefulset := createStatefulSetWithOneReplica(client, manifestPath, namespace)
