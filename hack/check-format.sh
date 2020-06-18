@@ -30,7 +30,7 @@ on_exit() {
 trap on_exit EXIT
 
 # Run goformat on all the sources.
-flags="-e -s -w"
+flags="-e -s -w -l"
 [ -z "${PROW_JOB_ID-}" ] || flags="-d ${flags}"
 eval "gofmt ${flags} ./cmd/ ./pkg/ ./tests/" | tee "${out}"
 
@@ -43,15 +43,13 @@ rm -f "${out}" && touch "${out}"
 # Run goimports on all the sources.
 go get golang.org/x/tools/cmd/goimports
 cmd=$(go list -f \{\{\.Target\}\} golang.org/x/tools/cmd/goimports)
-flags="-e -w"
+flags="-e -w -l"
 [ -z "${PROW_JOB_ID-}" ] || flags="-d ${flags}"
 eval "${cmd} ${flags} ./cmd/ ./pkg/ ./tests/" | tee "${out}"
 
 # Check to see if there any suggestions.
 goimports_exit_code=0; test -z "$(head -n 1 "${out}")" || goimports_exit_code=1
 
-# If running on Prow, exit with a non-zero code if either of the tests failed.
-if [ -n "${PROW_JOB_ID-}" ]; then
-  [ "${goformat_exit_code}" -eq "0" ] ||  exit "${goformat_exit_code}"
-  [ "${goimports_exit_code}" -eq "0" ] || exit "${goimports_exit_code}"
-fi
+# Exit with a non-zero code if either of the tests failed.
+[ "${goformat_exit_code}" -eq "0" ] ||  exit "${goformat_exit_code}"
+[ "${goimports_exit_code}" -eq "0" ] || exit "${goimports_exit_code}"
