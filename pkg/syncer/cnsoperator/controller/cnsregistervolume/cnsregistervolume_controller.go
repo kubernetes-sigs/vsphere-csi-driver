@@ -350,7 +350,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
 	}
 	// Watch for PVC to be bound
-	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(10*time.Second))
+	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(1*time.Minute))
 	if isBound {
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
 	} else {
