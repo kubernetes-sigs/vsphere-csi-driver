@@ -26,8 +26,24 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
-			log.Debugf("FullSync: pv %v is in state %v", pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil) {
+			var volumeHandle string
+			var err error
+			if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+				if _, annMigratedToFound := pv.Annotations[common.AnnMigratedTo]; annMigratedToFound {
+					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+					if err != nil {
+						log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %q pv %q with error %+v", pv.Spec.VsphereVolume.VolumePath, pv.Name, err)
+						return nil, err
+					}
+				} else {
+					log.Infof("%v annotation not found for vSphere volume %q", common.AnnMigratedTo, pv.Name)
+					continue
+				}
+			} else {
+				volumeHandle = pv.Spec.CSI.VolumeHandle
+			}
+			log.Debugf("FullSync: pv %v is in state %v", volumeHandle, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
 			}
@@ -36,7 +52,7 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 	return pvsInDesiredState, nil
 }
 
-// getBoundPVs return PVs in Bound state
+// getBoundPVs is a helper function for VolumeHealthStatus feature and returns PVs in Bound state
 func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	var boundPVs []*v1.PersistentVolume
@@ -135,8 +151,8 @@ func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
 	return objKey, nil
 }
 
-// HasMigratedToAnnotation returns true if the migrated-to annotation is found in the newer object
-func HasMigratedToAnnotation(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string) bool {
+// HasMigratedToAnnotationUpdate returns true if the migrated-to annotation is found in the newer object
+func HasMigratedToAnnotationUpdate(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string) bool {
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the new PV
 	if _, annMigratedToFound := newAnnotations[common.AnnMigratedTo]; annMigratedToFound {
@@ -145,6 +161,6 @@ func HasMigratedToAnnotation(ctx context.Context, prevAnnotations map[string]str
 			return true
 		}
 	}
-	log.Debug("%v annotation not found", common.AnnMigratedTo)
+	log.Debugf("%v annotation not found", common.AnnMigratedTo)
 	return false
 }
