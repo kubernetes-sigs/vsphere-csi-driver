@@ -227,9 +227,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		accessibleNodes     []string // This will be used to populate volumeAccessTopology
 	)
 	// Fetch the accessibility requirements from the request
-	if topologyRequirement, err = getAccessibilityRequirements(req); err != nil {
-		return nil, err
-	}
+	topologyRequirement = req.GetAccessibilityRequirements()
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -241,6 +239,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			// spec while creating it. This mode of placement will be deprecated soon as we progress towards storagePool
 		} else if param == common.AttributeStoragePool {
 			storagePool = req.Parameters[paramName]
+			if !isValidAccessibilityRequirement(topologyRequirement) {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
+			}
 			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(storagePool)
 			if err != nil {
 				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
@@ -255,6 +256,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
 		} else if param == common.AttributeHostLocal {
 			hostLocalMode = true
+			if !isValidAccessibilityRequirement(topologyRequirement) {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
+			}
 			if hostLocalNodeName, err = getHostNameFromAccessibilityRequirements(topologyRequirement); err != nil {
 				return nil, err
 			}
@@ -326,7 +330,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	// Configure the volumeTopology in the response so that the external provisioner will properly sets up the
 	// nodeAffinity for this volume
-	if topologyRequirement != nil && topologyRequirement.GetPreferred() != nil {
+	if isValidAccessibilityRequirement(topologyRequirement) {
 		for _, hostName := range accessibleNodes {
 			volumeTopology := &csi.Topology{
 				Segments: map[string]string{

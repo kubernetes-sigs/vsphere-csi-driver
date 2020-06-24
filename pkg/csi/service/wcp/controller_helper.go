@@ -360,13 +360,12 @@ func getAccessibleNodesFromStoragePool(spName string) ([]string, error) {
 	return accessibleNodes, nil
 }
 
-// getAccessibilityRequirements returns the topology requirements from the request parameter
-func getAccessibilityRequirements(req *csi.CreateVolumeRequest) (*csi.TopologyRequirement, error) {
-	topologyRequirement := req.GetAccessibilityRequirements()
+// isValidAccessibilityRequirements validates if the given accessibility requirement has the necessary elements in it
+func isValidAccessibilityRequirement(topologyRequirement *csi.TopologyRequirement) bool {
 	if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "accessibility requirements not found")
+		return false
 	}
-	return topologyRequirement, nil
+	return true
 }
 
 // getHostNameFromAccessibilityRequirements fetches the host node name from the given topology requirement
