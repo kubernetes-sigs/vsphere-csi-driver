@@ -275,10 +275,10 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	out := &PVCPlacementResponse{
 		PlaceSuccess: false,
 	}
-	if req == nil || req.AccessibilityRequirements == nil || req.Name == "" || req.Namespace == "" {
-		return out, fmt.Errorf("no right inputs given to PlacePersistenceVolumeClaim")
+	if req == nil || req.Name == "" || req.Namespace == "" {
+		log.Errorf("no right inputs given to PlacePersistenceVolumeClaim")
+		return out, nil
 	}
-	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
 
 	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(req.Namespace).Get(req.Name, metav1.GetOptions{})
 	if err != nil {
@@ -299,7 +299,11 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		log.Debug("storage class is not of type vsan direct, aborting placement")
 		return out, nil
 	}
-
+	// Validate accessibility requirements
+	if req.AccessibilityRequirements == nil {
+		return out, fmt.Errorf("invalid accessibility requirements input provided")
+	}
+	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
 	log.Debugf("Enter placementEngine %s", req)
 	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc)
 	if err != nil {
