@@ -213,7 +213,6 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	// Find Tanzu Kubernetes Grid PVC accordingly and update it
 	tkgPV, err := rc.findTKGPVforSupervisorPVC(ctx, svcPVC)
 	if err != nil {
-		log.Errorf("Find Tanzu Kubernetes Grid PV for Supervisor Cluster PVC %s/%s failed: %v", namespace, name, err)
 		return err
 	}
 	if tkgPV == nil {
