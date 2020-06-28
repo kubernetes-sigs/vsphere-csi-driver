@@ -320,7 +320,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			break
 		}
 	}
-
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
 	if isVolumePresentInSpec {
@@ -328,20 +327,20 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
 				diskUUID = volume.DiskUuid
 				isVolumeAttached = true
-				log.Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
+				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
 				break
 			}
 		}
 	} else {
-		// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
-		vmvolumes := vmoperatortypes.VirtualMachineVolume{
-			Name: req.VolumeId,
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: req.VolumeId,
-			},
-		}
 		timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		for {
+			// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
+			vmvolumes := vmoperatortypes.VirtualMachineVolume{
+				Name: req.VolumeId,
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: req.VolumeId,
+				},
+			}
 			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 			err = c.vmOperatorClient.Update(ctx, virtualMachine)
 			if err == nil || time.Now().After(timeout) {
@@ -378,7 +377,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
 		for diskUUID == "" {
 			// blocking wait for update event
-			log.Debugf(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
+			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
@@ -386,7 +385,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
-			log.Debugf(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
+			if vm.Name != virtualMachine.Name {
+				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
+				continue
+			}
+			log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId)
 			for _, volume := range vm.Status.Volumes {
 				if volume.Name == req.VolumeId {
 					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
@@ -403,10 +406,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 			}
 			if diskUUID == "" {
-				log.Debugf(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
+				log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
 			}
 		}
-		log.Debugf(fmt.Sprintf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId))
+		log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
 	}
 
 	//return PublishContext with diskUUID of the volume attached to node.
@@ -499,7 +502,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	// Loop until the volume is removed from virtualmachine status
 	isVolumeDetached := false
 	for !isVolumeDetached {
-		log.Debugf(fmt.Sprintf("Waiting for update on VirtualMachine: %q", virtualMachine.Name))
+		log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
 		// Block on update events
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
@@ -508,10 +511,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
+		if vm.Name != virtualMachine.Name {
+			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
+			continue
+		}
 		isVolumeDetached = true
 		for _, volume := range vm.Status.Volumes {
 			if volume.Name == req.VolumeId {
-				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name))
+				log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
 				isVolumeDetached = false
 				if volume.Attached && volume.Error != "" {
 					msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
