@@ -281,43 +281,8 @@ func GetConfigPath(ctx context.Context) string {
 	return cfgPath
 }
 
-// GetFeatureStatesConfigPath returns CSI feature states config path depending on the environment variable specified and the cluster flavor set
-func GetFeatureStatesConfigPath(ctx context.Context) string {
-	var featureStatesCfgPath string
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	featureStatesCfgPath = csictx.Getenv(ctx, cnsconfig.EnvFeatureStates)
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla || clusterFlavor == "" {
-		if featureStatesCfgPath == "" {
-			featureStatesCfgPath = cnsconfig.DefaultVanillaFeatureStateConfigPath
-		}
-	}
-	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		if featureStatesCfgPath == "" {
-			featureStatesCfgPath = cnsconfig.DefaultGCFeatureStateConfigPath
-		}
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if featureStatesCfgPath == "" {
-			featureStatesCfgPath = cnsconfig.DefaultSVFeatureStateConfigPath
-		}
-	}
-	return featureStatesCfgPath
-}
-
-// GetFeatureStates loads feature states information from csi-feature-states configmap
-func GetFeatureStates(ctx context.Context, cfg *cnsconfig.Config) error {
-	log := logger.GetLogger(ctx)
-	featureStatesCfgPath := GetFeatureStatesConfigPath(ctx)
-	err := cnsconfig.GetFeatureStatesConfig(ctx, featureStatesCfgPath, cfg)
-	if err != nil {
-		log.Errorf("could not load the feature states from %s with err: %+v", featureStatesCfgPath, err)
-		return err
-	}
-	return err
-}
-
 // GetConfig loads configuration from secret and returns config object
 func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
-	log := logger.GetLogger(ctx)
 	var cfg *cnsconfig.Config
 	var err error
 	cfgPath := GetConfigPath(ctx)
@@ -331,10 +296,6 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 		if err != nil {
 			return cfg, err
 		}
-	}
-	err = GetFeatureStates(ctx, cfg)
-	if err != nil {
-		log.Errorf("error while reading the feature states. Error: %+v", err)
 	}
 	return cfg, err
 }

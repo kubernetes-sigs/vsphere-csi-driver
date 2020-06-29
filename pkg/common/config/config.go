@@ -45,10 +45,6 @@ const (
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// DefaultGCConfigPath is the default path of GC config file
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
-	// DefaultSVFeatureStateConfigPath is the default path of csi feature states config file in Supervisor Cluster
-	DefaultSVFeatureStateConfigPath = "/etc/vmware/wcp/csi-feature-states/csi-feature-states.conf"
-	// DefaultGCFeatureStateConfigPath is the default path of csi feature states config file in Guest Cluster
-	DefaultGCFeatureStateConfigPath = "/etc/cloud/csi-feature-states/csi-feature-states.conf"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
 	// EnvFeatureStates contains the path to the CSI Feature States Config

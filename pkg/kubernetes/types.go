@@ -52,6 +52,11 @@ type InformerManager struct {
 	// node informer
 	nodeInformer cache.SharedInformer
 
+	// ConfigMap informer
+	configMapInformer cache.SharedInformer
+	// Function to determine if configMapInformer has been synced
+	configMapSynced cache.InformerSynced
+
 	// PV informer
 	pvInformer cache.SharedInformer
 	// Function to determine if pvInformer has been synced

@@ -26,6 +26,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -45,6 +46,9 @@ const (
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
 	// default interval for csi volume health
 	defaultVolumeHealthIntervalInMin = 5
+
+	// default interval for syncer to check if the feature is enabled or not
+	defaultFeatureEnablementCheckInterval = 1 * time.Minute
 
 	// default resync period for volume health reconciler
 	volumeHealthResyncPeriod = 10 * time.Minute
@@ -99,6 +103,7 @@ type metadataSyncInformer struct {
 	pvLister           corelisters.PersistentVolumeLister
 	pvcLister          corelisters.PersistentVolumeClaimLister
 	podLister          corelisters.PodLister
+	coCommonInterface  commonco.COCommonInterface
 }
 
 const (

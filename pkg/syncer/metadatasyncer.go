@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -42,6 +43,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -49,7 +51,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
-var volumeMigrationService migration.VolumeMigrationService
+var (
+	volumeMigrationService migration.VolumeMigrationService
+	onceForVolumeHealthReconciler sync.Once
+	onceForVolumeResizeReconciler sync.Once
+)
 
 // newInformer returns uninitialized metadataSyncInformer
 func newInformer() *metadataSyncInformer {
@@ -159,11 +165,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	// Initialize cnsCreationMap used by Full Sync
 	cnsCreationMap = make(map[string]bool)
 
-	var featureStatesCfgPath string
 	cfgPath := common.GetConfigPath(ctx)
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		featureStatesCfgPath = common.GetFeatureStatesConfigPath(ctx)
-	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -182,12 +184,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Infof("Reloading Configuration")
 					ReloadConfiguration(ctx, metadataSyncer)
 					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
-					if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-						log.Infof("Successfully reloaded feature states configuration from: %q", featureStatesCfgPath)
-					}
-					if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-						log.Infof("Successfully reloaded configuration from: %q", cnsconfig.DefaultpvCSIProviderPath)
-					}
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -205,15 +201,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest || metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
-		log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
-		err = watcher.Add(featureStatesCfgDirPath)
-		if err != nil {
-			log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
-			return err
-		}
-	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
 		err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
@@ -221,6 +209,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 			return err
 		}
+	}
+	// Initialize the k8s orchestrator interface
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		return err
 	}
 
 	// Set up kubernetes resource listeners for metadata syncer
@@ -283,7 +277,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		go func() {
 			for ; true; <-volumeHealthTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
-				if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
+				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeHealth) {
 					log.Warnf("VolumeHealth feature is disabled on the cluster")
 				} else {
 					log.Infof("getVolumeHealthStatus is triggered")
@@ -292,31 +286,43 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}()
 	}
-
-	// Trigger volume health reconciler
-	go func() {
-		ctx, log = logger.GetNewContextWithLogger()
-		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeHealth {
-				log.Warnf("VolumeHealth feature is disabled on the cluster")
-			} else {
-				initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		volumeHealthEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		defer volumeHealthEnablementTicker.Stop()
+		// Trigger volume health reconciler
+		go func() {
+			for ; true; <-volumeHealthEnablementTicker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeHealth) {
+					log.Debugf("VolumeHealth feature is disabled on the cluster")
+				} else {
+					if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
+						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
 			}
-		}
-	}()
+		}()
 
-	// Trigger resize reconciler
-	go func() {
-		ctx, log = logger.GetNewContextWithLogger()
-		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			if !metadataSyncer.configInfo.Cfg.FeatureStates.VolumeExtend {
-				log.Warnf("ExpandVolume feature is disabled on the cluster")
-			} else {
-				initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient)
+		volumeResizeEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		defer volumeResizeEnablementTicker.Stop()
+		// Trigger resize reconciler
+		go func() {
+			for ; true; <-volumeResizeEnablementTicker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+					log.Debugf("ExpandVolume feature is disabled on the cluster")
+				} else {
+					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
+						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
 			}
-		}
-	}()
-
+		}()
+	}
 	// Trigger NodeAnnotationListener in StoragePool
 	go func() {
 		ctx, log = logger.GetNewContextWithLogger()
@@ -1052,44 +1058,47 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	}
 }
 
-func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Interface, svcKubeClient clientset.Interface) {
+func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Interface, svcKubeClient clientset.Interface) error {
 	log := logger.GetLogger(ctx)
-
-	log.Infof("initVolumeHealthReconciler is triggered")
-	tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
-
 	// Get the supervisor namespace in which the guest cluster is deployed
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		log.Errorf("could not get supervisor namespace in which guest cluster was deployed. Err: %v", err)
-		return
+		return err
 	}
 	log.Infof("supervisorNamespace %s", supervisorNamespace)
-	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
+	onceForVolumeHealthReconciler.Do(func() {
+		log.Infof("initVolumeHealthReconciler is triggered")
+		tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
+		svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
 
-	rc := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
-		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
-		supervisorNamespace,
-	)
-	tkgInformerFactory.Start(wait.NeverStop)
-	svcInformerFactory.Start(wait.NeverStop)
-	rc.Run(ctx, volumeHealthWorkers)
+		rc := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
+			workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
+			supervisorNamespace,
+		)
+		tkgInformerFactory.Start(wait.NeverStop)
+		svcInformerFactory.Start(wait.NeverStop)
+		rc.Run(ctx, volumeHealthWorkers)
+	})
+	return nil
 }
 
-func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, supervisorClient clientset.Interface) {
+func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, supervisorClient clientset.Interface) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("initResizeReconciler is triggered")
-	informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		log.Errorf("resize: could not get supervisor namespace in which Tanzu Kubernetes Grid was deployed. Resize reconciler is not running for err: %v", err)
-		return
+		return err
 	}
+	onceForVolumeResizeReconciler.Do(func() {
+		log.Infof("initResizeReconciler is triggered")
+		informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
 
-	rc := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
-		workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
-	)
-	informerFactory.Start(wait.NeverStop)
-	rc.Run(ctx, resizeWorkers)
-
+		rc := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
+			workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
+		)
+		informerFactory.Start(wait.NeverStop)
+		rc.Run(ctx, resizeWorkers)
+	})
+	return nil
 }
