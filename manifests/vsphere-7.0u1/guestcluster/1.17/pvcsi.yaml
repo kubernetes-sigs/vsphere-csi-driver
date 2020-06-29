@@ -1,3 +1,4 @@
+# This yaml is the same as in k8s 1.15，1.16
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -271,7 +272,7 @@ spec:
         lifecycle:
           preStop:
             exec:
-              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com-reg.sock"]
+              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
         args:
           - "--v=5"
           - "--csi-address=$(ADDRESS)"
@@ -280,7 +281,7 @@ spec:
           - name: ADDRESS
             value: /csi/csi.sock
           - name: DRIVER_REG_SOCK_PATH
-            value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
+            value: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
         securityContext:
           privileged: true
         volumeMounts:
@@ -322,11 +323,8 @@ spec:
       - name: liveness-probe
         image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
         args:
-        - "--csi-address=$(ADDRESS)"
+        - --csi-address=/csi/csi.sock
         imagePullPolicy: "IfNotPresent"
-        env:
-        - name: ADDRESS
-          value: /csi/csi.sock
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -334,10 +332,10 @@ spec:
       - name: registration-dir
         hostPath:
           path: /var/lib/kubelet/plugins_registry
-          type: DirectoryOrCreate
+          type: Directory
       - name: plugin-dir
         hostPath:
-          path: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com
+          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/
           type: DirectoryOrCreate
       - name: pods-mount-dir
         hostPath:
@@ -346,6 +344,11 @@ spec:
       - name: device-dir
         hostPath:
           path: /dev
+      tolerations:
+        - effect: NoExecute
+          operator: Exists
+        - effect: NoSchedule
+          operator: Exists
 ---
 apiVersion: v1
 data:

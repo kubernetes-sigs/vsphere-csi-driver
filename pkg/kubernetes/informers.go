@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	"sync"
 	"time"
 
 	"k8s.io/client-go/informers"
@@ -26,17 +27,25 @@ import (
 	"k8s.io/sample-controller/pkg/signals"
 )
 
+var (
+	onceForInformerManager  sync.Once
+	informerManagerInstance *InformerManager
+)
+
 func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
 // NewInformer creates a new K8S client based on a service account
 func NewInformer(client clientset.Interface) *InformerManager {
-	return &InformerManager{
-		client:          client,
-		stopCh:          signals.SetupSignalHandler(),
-		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-	}
+	onceForInformerManager.Do(func() {
+		informerManagerInstance = &InformerManager{
+			client:          client,
+			stopCh:          signals.SetupSignalHandler(),
+			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+		}
+	})
+	return informerManagerInstance
 }
 
 // AddNodeListener hooks up add, update, delete callbacks
@@ -80,6 +89,20 @@ func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(
 	})
 }
 
+// AddConfigMapListener hooks up add, update, delete callbacks
+func (im *InformerManager) AddConfigMapListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+	if im.configMapInformer == nil {
+		im.configMapInformer = im.informerFactory.Core().V1().ConfigMaps().Informer()
+	}
+	im.configMapSynced = im.configMapInformer.HasSynced
+
+	im.configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+}
+
 // AddPodListener hooks up add, update, delete callbacks
 func (im *InformerManager) AddPodListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.podInformer == nil {
@@ -104,6 +127,11 @@ func (im *InformerManager) GetPVCLister() corelisters.PersistentVolumeClaimListe
 	return im.informerFactory.Core().V1().PersistentVolumeClaims().Lister()
 }
 
+// GetConfigMapLister returns ConfigMap Lister for the calling informer manager
+func (im *InformerManager) GetConfigMapLister() corelisters.ConfigMapLister {
+	return im.informerFactory.Core().V1().ConfigMaps().Lister()
+}
+
 // GetPodLister returns Pod Lister for the calling informer manager
 func (im *InformerManager) GetPodLister() corelisters.PodLister {
 	return im.informerFactory.Core().V1().Pods().Lister()
@@ -112,8 +140,8 @@ func (im *InformerManager) GetPodLister() corelisters.PodLister {
 // Listen starts the Informers
 func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	go im.informerFactory.Start(im.stopCh)
-	if im.pvSynced != nil && im.pvcSynced != nil && im.podSynced != nil {
-		if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced) {
+	if im.pvSynced != nil && im.pvcSynced != nil && im.podSynced != nil && im.configMapSynced != nil {
+		if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced, im.configMapSynced) {
 			return
 		}
 

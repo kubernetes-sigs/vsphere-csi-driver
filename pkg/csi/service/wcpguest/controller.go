@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -61,7 +62,7 @@ type controller struct {
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
-	featureStates             *cnsconfig.FeatureStateSwitches
+	coCommonInterface         commonco.COCommonInterface
 }
 
 // New creates a CNS controller
@@ -101,14 +102,18 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	c.featureStates = &config.FeatureStates
 	pvcsiConfigPath := common.GetConfigPath(ctx)
-	featureStatesCfgPath := common.GetFeatureStatesConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		return err
+	}
+
 	go func() {
 		for {
 			log.Debugf("Waiting for event on fsnotify watcher")
@@ -141,13 +146,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
-		return err
-	}
-	featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
-	log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
-	err = watcher.Add(featureStatesCfgDirPath)
-	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
 		return err
 	}
 	return nil
@@ -540,10 +538,10 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.featureStates.VolumeExtend {
+	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster."
 		log.Warn(msg)
-		return nil, status.Errorf(codes.Unimplemented, msg)
+		return nil, status.Error(codes.Unimplemented, msg)
 	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
