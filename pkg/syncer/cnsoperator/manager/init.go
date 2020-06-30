@@ -21,12 +21,13 @@ import (
 	"fmt"
 	"reflect"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
@@ -62,28 +63,25 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 		return err
 	}
-
-	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
-	if err != nil {
-		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
-		return err
-	}
-
 	// TODO: Verify leader election for CNS Operator in multi-master mode
-
 	// Create CnsNodeVmAttachment CRD
-	crdKind := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsNodeVMAttachmentPlural, crdKind)
+	crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
+	crdNameNodeVMAttachment := apis.CnsNodeVMAttachmentPlural + "." + apis.SchemeGroupVersion.Group
+	err = k8s.CreateCustomResourceDefinition(ctx, crdKindNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
+		crdNameNodeVMAttachment, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 	if err != nil {
-		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVMAttachment, err)
 		return err
 	}
 
 	// Create CnsVolumeMetadata CRD
-	crdKind = reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, apis.CnsVolumeMetadataPlural, crdKind)
+	crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
+	crdNameVolumeMetadata := apis.CnsVolumeMetadataPlural + "." + apis.SchemeGroupVersion.Group
+
+	err = k8s.CreateCustomResourceDefinition(ctx, crdNameVolumeMetadata, apis.CnsVolumeMetadataSingular, apis.CnsVolumeMetadataPlural,
+		crdKindVolumeMetadata, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 	if err != nil {
-		log.Errorf("failed to create %q CRD. Err: %+v", crdKind, err)
+		log.Errorf("failed to create %q CRD. Err: %+v", crdKindVolumeMetadata, err)
 		return err
 	}
 

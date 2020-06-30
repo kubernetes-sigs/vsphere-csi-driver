@@ -73,4 +73,6 @@ type CreateVolumeSpec struct {
 type StorageClassParams struct {
 	DatastoreURL      string
 	StoragePolicyName string
+	CSIMigration      string
+	Datastore         string
 }
