@@ -142,70 +142,72 @@ func nodeStageBlockVolume(
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("NodeStageVolume: volID %q, published context %+v, diskID %q",
-		params.volID, pubCtx, diskID)
+	log.Infof("nodeStageBlockVolume: Retrieved diskID as %q", diskID)
 
 	// Verify if the volume is attached
-	log.Debugf("NodeStageVolume: Checking if volume is attached with diskID: %v", diskID)
+	log.Debugf("nodeStageBlockVolume: Checking if volume is attached to diskID: %v", diskID)
 	volPath, err := verifyVolumeAttached(ctx, diskID)
 	if err != nil {
+		log.Errorf("Error checking if volume %q is attached. Parameters: %v", params.volID, params)
 		return nil, err
 	}
-	log.Debugf("NodeStageVolume: Disk %q attached at %q", diskID, volPath)
+	log.Debugf("nodeStageBlockVolume: Disk %q attached at %q", diskID, volPath)
 
 	// Check that block device looks good
 	dev, err := getDevice(volPath)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"error getting block device for volume: %q, err: %q",
-			params.volID, err.Error())
+		msg := fmt.Sprintf("error getting block device for volume: %q. Parameters: %v err: %v",
+			params.volID, params, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+
 	}
-	log.Debugf("NodeStageVolume: getDevice %+v", *dev)
+	log.Debugf("nodeStageBlockVolume: getDevice %+v", *dev)
 
 	// Check if this is a MountVolume or BlockVolume
 	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
 		// Volume is a block volume, so skip the rest of the steps
-		log.Infof("skipping staging for block access type")
+		log.Infof("nodeStageBlockVolume: Skipping staging for block volume ID %q", params.volID)
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
 	// Mount Volume
 	// Fetch dev mounts to check if the device is already staged
-	log.Debugf("NodeStageVolume: Fetching device mounts")
+	log.Debugf("nodeStageBlockVolume: Fetching device mounts")
 	mnts, err := gofsutil.GetDevMounts(ctx, dev.RealDev)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %q",
-			err.Error())
+		msg := fmt.Sprintf("could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 
 	if len(mnts) == 0 {
 		// Device isn't mounted anywhere, stage the volume
 		// If access mode is read-only, we don't allow formatting
 		if params.ro {
-			log.Debugf("NodeStageVolume: Mounting %q at %q in read-only mode with mount flags %v",
+			log.Debugf("nodeStageBlockVolume: Mounting %q at %q in read-only mode with mount flags %v",
 				dev.FullPath, params.stagingTarget, params.mntFlags)
 			params.mntFlags = append(params.mntFlags, "ro")
 			if err := gofsutil.Mount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {
-				return nil, status.Errorf(codes.Internal,
-					"error with mount during staging: %q",
-					err.Error())
+				msg := fmt.Sprintf("error mounting volume. Parameters: %v err: %v", params, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
 			}
-			log.Debugf("NodeStageVolume: Device mounted successfully at %q", params.stagingTarget)
+			log.Infof("nodeStageBlockVolume: Device mounted successfully at %q", params.stagingTarget)
 			return &csi.NodeStageVolumeResponse{}, nil
 		}
 		// Format and mount the device
-		log.Debugf("NodeStageVolume: Format and mount the device %q at %q with mount flags %v",
+		log.Debugf("nodeStageBlockVolume: Format and mount the device %q at %q with mount flags %v",
 			dev.FullPath, params.stagingTarget, params.mntFlags)
 		if err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {
-			return nil, status.Errorf(codes.Internal,
-				"error with format and mount during staging: %q",
-				err.Error())
+			msg := fmt.Sprintf("error in formating and mounting volume. Parameters: %v err: %v", params, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
 	} else {
 		// If Device is already mounted. Need to ensure that it is already
 		// mounted to the expected staging target, with correct rw/ro perms
-		log.Debugf("NodeStageVolume: Device already mounted. Checking mount flags %v for correctness.",
+		log.Debugf("nodeStageBlockVolume: Device already mounted. Checking mount flags %v for correctness.",
 			params.mntFlags)
 		for _, m := range mnts {
 			if m.Path == params.stagingTarget {
@@ -213,21 +215,21 @@ func nodeStageBlockVolume(
 				if params.ro {
 					rwo = "ro"
 				}
-				log.Debugf("NodeStageVolume: Checking for mount options %v", m.Opts)
+				log.Debugf("nodeStageBlockVolume: Checking for mount options %v", m.Opts)
 				if contains(m.Opts, rwo) {
-					//TODO make sure that all the mount options match
-					log.Debugf("NodeStageVolume: Device already mounted at %q with mount option %q",
+					// TODO make sure that all the mount options match
+					log.Infof("nodeStageBlockVolume: Device already mounted at %q with mount option %q",
 						params.stagingTarget, rwo)
 					return &csi.NodeStageVolumeResponse{}, nil
 				}
-				return nil, status.Error(codes.AlreadyExists,
-					"access mode conflicts with existing mount")
+				return nil, status.Errorf(codes.AlreadyExists,
+					"access mode conflicts with existing mount at %q", params.stagingTarget)
 			}
 		}
 		return nil, status.Error(codes.Internal,
 			"device already in use and mounted elsewhere")
 	}
-	log.Debugf("NodeStageVolume: Device mounted successfully at %q", params.stagingTarget)
+	log.Infof("nodeStageBlockVolume: Device mounted successfully at %q", params.stagingTarget)
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
@@ -244,15 +246,13 @@ func (s *service) NodeUnstageVolume(
 	mnts, err := gofsutil.GetMounts(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
-			"could not retrieve existing mount points: %q",
-			err.Error())
+			"could not retrieve existing mount points: %v", err)
 	}
 	log.Debugf("NodeUnstageVolume: node mounts %+v", mnts)
 	// Figure out if the target path is present in mounts or not - Unstage is not required for file volumes
-	// NOTE: Raw block support might get broken due to this, will be fixed later
 	targetFound := common.IsTargetInMounts(ctx, stagingTarget, mnts)
 	if !targetFound {
-		log.Debugf("NodeUnstageVolume: Target path %q is not mounted. Skipping unstage.", stagingTarget)
+		log.Infof("NodeUnstageVolume: Target path %q is not mounted. Skipping unstage.", stagingTarget)
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
@@ -263,7 +263,7 @@ func (s *service) NodeUnstageVolume(
 	}
 	// This will take care of idempotent requests
 	if !dirExists {
-		log.Debugf("NodeUnstageVolume: Target path %q does not exist. Assuming unstage is complete.", stagingTarget)
+		log.Infof("NodeUnstageVolume: Target path %q does not exist. Assuming unstage is complete.", stagingTarget)
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
@@ -275,13 +275,13 @@ func (s *service) NodeUnstageVolume(
 
 	// Volume is still mounted. Unstage the volume
 	if isMounted {
-		log.Debugf("Attempting to unmount target %q for volume %q", stagingTarget, volID)
+		log.Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
 		if err := gofsutil.Unmount(ctx, stagingTarget); err != nil {
 			return nil, status.Errorf(codes.Internal,
-				"Error unmounting stagingTarget: %s", err.Error())
+				"Error unmounting stagingTarget: %v", err)
 		}
-		log.Debugf("Unmount successful for target %q for volume %q", stagingTarget, volID)
 	}
+	log.Infof("NodeUnstageVolume successful for target %q for volume %q", stagingTarget, volID)
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
@@ -354,7 +354,7 @@ func (s *service) NodePublishVolume(
 
 	params.stagingTarget = req.GetStagingTargetPath()
 	if params.stagingTarget == "" {
-		return nil, status.Error(codes.FailedPrecondition, "Staging Target Path not set")
+		return nil, status.Errorf(codes.FailedPrecondition, "staging target path %q not set", params.stagingTarget)
 	}
 
 	// Check if this is a MountVolume or BlockVolume
@@ -362,21 +362,23 @@ func (s *service) NodePublishVolume(
 	if !common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCap}) {
 		params.diskID, err = getDiskID(req.GetPublishContext())
 		if err != nil {
+			log.Errorf("error fetching DiskID. Parameters: %v", params)
 			return nil, err
 		}
 
 		log.Debugf("Checking if volume %q is attached to disk %q", params.volID, params.diskID)
 		volPath, err := verifyVolumeAttached(ctx, params.diskID)
 		if err != nil {
+			log.Errorf("error checking if volume is attached. Parameters: %v", params)
 			return nil, err
 		}
 
 		// Get underlying block device
 		dev, err := getDevice(volPath)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal,
-				"error getting block device for volume: %q, err: %q",
-				params.volID, err.Error())
+			msg := fmt.Sprintf("error getting block device for volume: %q. Parameters: %v err: %v", params.volID, params, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
 		params.volumePath = dev.FullPath
 		params.device = dev.RealDev
@@ -410,10 +412,11 @@ func (s *service) NodeUnpublishVolume(
 	if err != nil {
 		if os.IsNotExist(err) {
 			// target path does not exist, so we must be Unpublished
+			log.Infof("NodeUnpublishVolume: Target path %q does not exist. Assuming NodeUnpublish is complete", target)
 			return &csi.NodeUnpublishVolumeResponse{}, nil
 		}
 		return nil, status.Errorf(codes.Internal,
-			"failed to stat target, err: %q", err.Error())
+			"failed to stat target %q, err: %v", target, err)
 	}
 
 	// Fetch all the mount points
@@ -429,7 +432,7 @@ func (s *service) NodeUnpublishVolume(
 	// Also validates if path is a mounted directory or not
 	isPresent := common.IsTargetInMounts(ctx, target, mnts)
 	if !isPresent {
-		log.Debugf("Target %s not present in mount points. Assuming it is already unpublished.", target)
+		log.Infof("NodeUnpublishVolume: Target %s not present in mount points. Assuming it is already unpublished.", target)
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
@@ -444,11 +447,11 @@ func (s *service) NodeUnpublishVolume(
 	}
 
 	if isPublished {
-		log.Debugf("Attempting to unmount target %q for volume %q", target, volID)
+		log.Infof("NodeUnpublishVolume: Attempting to unmount target %q for volume %q", target, volID)
 		if err := gofsutil.Unmount(ctx, target); err != nil {
-			mssg := fmt.Sprintf("Error unmounting target %q for volume %q. %q", target, volID, err.Error())
-			log.Debug(mssg)
-			return nil, status.Error(codes.Internal, mssg)
+			msg := fmt.Sprintf("Error unmounting target %q for volume %q. %q", target, volID, err.Error())
+			log.Debug(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 		log.Debugf("Unmount successful for target %q for volume %q", target, volID)
 		// TODO Use a go routine here. The deletion of target path might not be a good reason to error out
@@ -459,6 +462,7 @@ func (s *service) NodeUnpublishVolume(
 		}
 		log.Debugf("Target path  %q successfully deleted", target)
 	}
+	log.Infof("NodeUnpublishVolume successful for volume %q", volID)
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
@@ -471,8 +475,8 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 	dev, err := getDevFromMount(target)
 	if err != nil {
 		return false, status.Errorf(codes.Internal,
-			"error getting block device for volume: %s, err: %s",
-			volID, err.Error())
+			"error getting block device for volume: %s, err: %v",
+			volID, err)
 	}
 
 	if dev == nil {
@@ -481,9 +485,9 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 		log.Debugf("isBlockVolumePublished: No device found. Assuming Unpublish is "+
 			"already complete for volume %q and target path %q", volID, target)
 		if err := rmpath(ctx, target); err != nil {
-			mssg := fmt.Sprintf("failed to delete the target path %q. Error: %q", target, err.Error())
-			log.Debug(mssg)
-			return false, status.Errorf(codes.Internal, mssg)
+			msg := fmt.Sprintf("Failed to delete the target path %q. Error: %v", target, err)
+			log.Debug(msg)
+			return false, status.Errorf(codes.Internal, msg)
 		}
 		log.Debugf("isBlockVolumePublished: Target path %q successfully deleted", target)
 		return false, nil
@@ -495,25 +499,22 @@ func (s *service) NodeGetVolumeStats(
 	ctx context.Context,
 	req *csi.NodeGetVolumeStatsRequest) (
 	*csi.NodeGetVolumeStatsResponse, error) {
-
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	log.Infof("NodeGetVolumeStats: called with args %+v", *req)
 
 	var err error
 	targetPath := req.GetVolumePath()
 	if targetPath == "" {
-		err = fmt.Errorf("targetpath %v is empty", targetPath)
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, "received empty targetpath %q", targetPath)
 	}
 
 	dev, err := getDevFromMount(targetPath)
 	if err != nil {
-		err = fmt.Errorf("unable to get targetpath %v device", targetPath)
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "unable to retrieve device from target %q", targetPath)
 	}
 	if dev == nil {
-		err = fmt.Errorf("could not find device mounted on targetpath %v", targetPath)
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "could not find device mounted on targetpath %v", targetPath)
 	}
 	//TODO Check that the matching device is a vSphere volume, and that the volID matches the mount point
 
@@ -765,8 +766,8 @@ func (s *service) NodeExpandVolume(
 	dev, err := getDevFromMount(volumePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal,
-			"error getting block device for volume: %q, err: %s",
-			volumeID, err.Error())
+			"error getting block device for volume: %q, err: %v",
+			volumeID, err)
 	} else if dev == nil {
 		return nil, status.Errorf(codes.Internal,
 			"volume %q is not mounted at the path %s",
@@ -796,11 +797,10 @@ func (s *service) NodeExpandVolume(
 	// requested size. It is possible for volume size to be rounded up
 	// and therefore bigger than the requested size.
 	if gotBlockSizeBytes < volSizeBytes {
-		return nil, status.Errorf(codes.Internal, "requested volume size was %v, but got volume with size %v", volSizeBytes, gotBlockSizeBytes)
+		return nil, status.Errorf(codes.Internal, "requested volume size was %d, but got volume with size %d", volSizeBytes, gotBlockSizeBytes)
 	}
 
 	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(volSizeMB*common.MbInBytes)))
-
 	return &csi.NodeExpandVolumeResponse{
 		CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 	}, nil
@@ -851,9 +851,9 @@ func publishMountVol(
 	// Check if device is already mounted
 	devMnts, err := getDevMounts(ctx, dev)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %q",
-			err.Error())
+		msg := fmt.Sprintf("could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 	log.Debugf("publishMountVol: device %+v, device mounts %q", *dev, devMnts)
 
@@ -892,11 +892,11 @@ func publishMountVol(
 	log.Debugf("PublishMountVolume: Attempting to bind mount %q to %q with mount flags %v",
 		params.stagingTarget, params.target, mntFlags)
 	if err := gofsutil.BindMount(ctx, params.stagingTarget, params.target, mntFlags...); err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"error publish volume to target path: %q",
-			err.Error())
+		msg := fmt.Sprintf("error mounting volume. Parameters: %v err: %v", params, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
-	log.Debugf("PublishMountVolume: Bind mount successful to path %q", params.target)
+	log.Infof("NodePublishVolume for %q successful to path %q", req.GetVolumeId(), params.target)
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
@@ -930,9 +930,9 @@ func publishBlockVol(
 	// get block device mounts
 	devMnts, err := getDevMounts(ctx, dev)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"could not reliably determine existing mount status: %q",
-			err.Error())
+		msg := fmt.Sprintf("could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 	log.Debugf("publishBlockVol: device %+v, device mounts %q", *dev, devMnts)
 
@@ -943,9 +943,9 @@ func publishBlockVol(
 		log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
 			dev.FullPath, params.target, mntFlags)
 		if err := gofsutil.BindMount(ctx, dev.FullPath, params.target, mntFlags...); err != nil {
-			return nil, status.Errorf(codes.Internal,
-				"error publish volume to target path: %q",
-				err.Error())
+			msg := fmt.Sprintf("error mounting volume. Parameters: %v err: %v", params, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.target)
 	} else if len(devMnts) == 1 {
@@ -954,12 +954,12 @@ func publishBlockVol(
 			return nil, status.Error(codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
-		log.Infof("Volume already published to target. Parameters: [%+v]", params)
+		log.Debugf("Volume already published to target. Parameters: [%+v]", params)
 	} else {
 		return nil, status.Error(codes.AlreadyExists,
 			"block volume already mounted in more than one place")
 	}
-	log.Debugf("PublishBlockVolume successful at path %q", params.target)
+	log.Infof("NodePublishVolume successful to path %q", params.target)
 	// existing or new mount satisfies request
 	return &csi.NodePublishVolumeResponse{}, nil
 }
@@ -1009,7 +1009,7 @@ func publishFileVol(
 			}
 
 			// Existing mount satisfies request
-			log.Debugf("Volume already published to target %q. Parameters: [%+v]", params.target, params)
+			log.Infof("Volume already published to target %q.", params.target)
 			return &csi.NodePublishVolumeResponse{}, nil
 		}
 	}
@@ -1031,7 +1031,7 @@ func publishFileVol(
 			"error publish volume to target path: %q",
 			err.Error())
 	}
-	log.Debugf("PublishFileVolume: Mount successful to path %q", params.target)
+	log.Infof("NodePublishVolume successful to path %q", params.target)
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 

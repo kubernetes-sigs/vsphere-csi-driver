@@ -361,7 +361,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 					volumeID, vm)
 				return nil
 			} else {
-				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %q", volumeID, vm, err)
+				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
 				log.Error(msg)
 				return errors.New(msg)
 			}
