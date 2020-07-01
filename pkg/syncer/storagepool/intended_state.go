@@ -96,11 +96,15 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err
 	}
+
+	// only add nodes that are not inMM to the list of nodes
 	nodes := make([]string, 0)
-	allNodesInMM := len(nodesMap) > 0 // initialize to true if there are accessible nodes, false otherwise
+	allNodesInMM := true
 	for node, inMM := range nodesMap {
-		nodes = append(nodes, node)
-		allNodesInMM = allNodesInMM && inMM
+		if !inMM {
+			nodes = append(nodes, node)
+			allNodesInMM = false
+		}
 	}
 
 	dsPolicyCompatMap, err := scWatchCntlr.getDatastoreToPolicyCompatibility(ctx, []*cnsvsphere.DatastoreInfo{ds}, true)
@@ -128,6 +132,36 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		accessible:    accessible,
 		datastoreInMM: inMM,
 		allHostsInMM:  allNodesInMM,
+		nodes:         nodes,
+		compatSC:      compatSC,
+	}, nil
+}
+
+// newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool
+func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
+	scWatchCntlr *StorageClassWatch, vsan *intendedState, node string) (*intendedState, error) {
+	log := logger.GetLogger(ctx)
+	nodes := make([]string, 0)
+	nodes = append(nodes, node)
+
+	log.Infof("creating vsan sna sp", node)
+	compatSC := make([]string, 0)
+	for _, scName := range vsan.compatSC {
+		if scWatchCntlr.isHostLocal(scName) {
+			compatSC = append(compatSC, scName)
+		}
+	}
+
+	return &intendedState{
+		dsMoid:        fmt.Sprintf("%s-%s", vsan.dsMoid, node),
+		dsType:        fmt.Sprintf("%s-sna", vsan.dsType),
+		spName:        fmt.Sprintf("%s-%s", vsan.spName, node),
+		capacity:      vsan.capacity,  //XXX Get these values in a later change
+		freeSpace:     vsan.freeSpace, //XXX Get these values in a later change
+		url:           vsan.url,
+		accessible:    true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
+		datastoreInMM: false, // If this node is inMM - the storagepool will not exist at all
+		allHostsInMM:  false, // If this node is inMM - the storagepool will not exist at all
 		nodes:         nodes,
 		compatSC:      compatSC,
 	}, nil
