@@ -45,13 +45,14 @@ const (
 // StorageClassWatch keeps state to watch storage classes and keep
 // an in-memory cache of datastore / storage pool accessibility
 type StorageClassWatch struct {
-	scWatch       watch.Interface
-	clientset     *kubernetes.Clientset
-	vc            *cnsvsphere.VirtualCenter
-	policyIds     []string
-	policyToScMap map[string]*storagev1.StorageClass
-	clusterID     string
-	spController  *SpController
+	scWatch        watch.Interface
+	clientset      *kubernetes.Clientset
+	vc             *cnsvsphere.VirtualCenter
+	policyIds      []string
+	policyToScMap  map[string]*storagev1.StorageClass
+	isHostLocalMap map[string]bool
+	clusterID      string
+	spController   *SpController
 
 	dsPolicyCompatMapCache map[string][]string
 }
@@ -78,6 +79,7 @@ func startStorageClassWatch(ctx context.Context, spController *SpController, cfg
 	w.vc = spController.vc
 	w.clusterID = spController.clusterID
 	w.spController = spController
+	w.isHostLocalMap = make(map[string]bool)
 
 	err = renewStorageClassWatch(w)
 	if err != nil {
@@ -146,6 +148,23 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 	log.Info("watchStorageClass ends")
 }
 
+// isHostLocalProfile checks whether this profile has a subprofile which has the vSAN Host Local policy rule
+func isHostLocalProfile(profile cnsvsphere.SpbmPolicyContent) bool {
+	for _, sub := range profile.Profiles {
+		for _, role := range sub.Rules {
+			if role.Ns == "VSAN" && role.CapID == "locality" && role.Value == "HostLocal" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isHostLocal uses the cached info to know if a profileID refers to a policy with vSAN Host Local policy rule
+func (w *StorageClassWatch) isHostLocal(scName string) bool {
+	return w.isHostLocalMap[scName]
+}
+
 // Returns true if the given StorageClass is not present in the cache yet, false otherwise.
 func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, sc *storagev1.StorageClass,
 	eventType watch.EventType) bool {
@@ -200,13 +219,16 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 
 	w.policyToScMap = policyToSCMap
 	w.policyIds = policyIds
-	err = ReconcileAllStoragePools(ctx, w, w.spController)
-	if err != nil {
-		log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
-	}
+	w.isHostLocalMap = make(map[string]bool)
+
 	err = w.addStorageClassPolicyAnnotations(ctx)
 	if err != nil {
 		log.Errorf("addStorageClassPolicyAnnotations failed. err: %v", err)
+	}
+
+	err = ReconcileAllStoragePools(ctx, w, w.spController)
+	if err != nil {
+		log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
 	}
 
 	return nil
@@ -218,6 +240,8 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
 	log := logger.GetLogger(ctx)
 
 	sc := w.policyToScMap[profile.ID]
+	w.isHostLocalMap[sc.Name] = isHostLocalProfile(profile)
+	log.Infof("sc", sc.Name, "is hostLocal:", w.isHostLocalMap[sc.Name])
 	profileBytes, err := json.Marshal(profile)
 	if err != nil {
 		log.Errorf("Failed to marshal policy: %s", err)
