@@ -527,7 +527,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
-	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
+	err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
