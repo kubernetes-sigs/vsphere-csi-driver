@@ -388,7 +388,6 @@ func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cf
 	return nil
 }
 
-
 // GetDefaultNetPermission returns the default file share net permission.
 func GetDefaultNetPermission() *NetPermissionConfig {
 	return &NetPermissionConfig{

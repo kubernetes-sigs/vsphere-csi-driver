@@ -332,23 +332,9 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 			return cfg, err
 		}
 	}
-	// Reading feature states information for Supervisor and Guest Cluster flavors
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		err := GetFeatureStates(ctx, cfg)
-		if err != nil {
-			log.Errorf("error while reading the feature states. Error: %+v", err)
-			return cfg, err
-		}
-	}
-	// Reading feature states information
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla || clusterFlavor == "" {
-		err := GetFeatureStates(ctx, cfg)
-		if err != nil {
-			log.Errorf("error while reading the feature states. Error: %+v", err)
-			return cfg, err
-		}
+	err = GetFeatureStates(ctx, cfg)
+	if err != nil {
+		log.Errorf("error while reading the feature states. Error: %+v", err)
 	}
 	return cfg, err
 }
