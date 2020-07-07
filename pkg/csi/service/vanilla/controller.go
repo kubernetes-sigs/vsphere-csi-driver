@@ -272,6 +272,15 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if len(scParams.Datastore) != 0 {
 			log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
 			vcList := c.manager.VcenterManager.GetAllVirtualCenters()
+			if len(vcList) == 0 {
+				return nil, status.Errorf(codes.Internal, "Failed to get vCenter List")
+			}
+			err := vcList[0].Connect(ctx)
+			if err != nil {
+				msg := fmt.Sprintf("failed to connect to vCenter: %q. err: %+v", vcList[0].Config.Host, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
 			dcList, err := vcList[0].GetDatacenters(ctx)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get datacenter list. err: %+v", err)
