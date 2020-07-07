@@ -27,13 +27,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	pkgtypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
+
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
@@ -916,4 +922,98 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort)
 	return result, nil
+}
+
+// Function to create CnsRegisterVolume spec, with given FCD ID and PVC name
+func getCNSRegisterVolummeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
+	var (
+		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
+	)
+	log := logger.GetLogger(ctx)
+	log.Infof("get CNSRegisterVolume spec")
+	cnsRegisterVolume = &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "cnsregvol-",
+			Namespace:    namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:  persistentVolumeClaimName,
+			VolumeID: fcdID,
+			AccessMode: v1.PersistentVolumeAccessMode(
+				accessMode,
+			),
+		},
+	}
+	return cnsRegisterVolume
+}
+
+//Create CNS register volume
+func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	log := logger.GetLogger(ctx)
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	log.Infof("Create CNSRegisterVolume")
+	err = cnsOperatorClient.Create(ctx, cnsRegisterVolume)
+
+	return err
+}
+
+//Query CNS Register volume . Returns true if the CNSRegisterVolume is available otherwise false
+func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolumeName string, namespace string) bool {
+	isPresent := false
+	log := logger.GetLogger(ctx)
+	log.Infof("cleanUpCnsRegisterVolumeInstances: start")
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Get list of CnsRegisterVolume instances from all namespaces
+	cnsRegisterVolumesList := &cnsregistervolumev1alpha1.CnsRegisterVolumeList{}
+	err = cnsOperatorClient.List(ctx, cnsRegisterVolumesList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegistervolumeName, Namespace: namespace}, cns)
+	if err == nil {
+		log.Infof("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
+		isPresent = true
+	}
+
+	return isPresent
+
+}
+
+//Verify Bi-directional referance of Pv and PVC in case of static volume provisioning
+func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientset.Interface, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, fcdID string) {
+	log := logger.GetLogger(ctx)
+
+	pvcName := pvc.GetName()
+	pvcNamespace := pvc.GetNamespace()
+	pvcvolume := pvc.Spec.VolumeName
+	pvccapacity := pvc.Status.Capacity.StorageEphemeral().Size()
+
+	pvName := pv.GetName()
+	pvClaimRefName := pv.Spec.ClaimRef.Name
+	pvClaimRefNamespace := pv.Spec.ClaimRef.Namespace
+	pvcapacity := pv.Spec.Capacity.StorageEphemeral().Size()
+	pvvolumeHandle := pv.Spec.PersistentVolumeSource.CSI.VolumeHandle
+
+	if pvClaimRefName != pvcName && pvClaimRefNamespace != pvcNamespace {
+		log.Infof("PVC Name :%s PVC namespace : %s", pvcName, pvcNamespace)
+		log.Infof("PV Name :%s PVnamespace : %s", pvcName, pvcNamespace)
+		log.Errorf("Mismatch in PV and PVC name and namespace")
+	}
+
+	if pvcvolume != pvName {
+		log.Errorf("PVC volume :%s PV name : %s expected to be same", pvcvolume, pvName)
+	}
+
+	if pvvolumeHandle != fcdID {
+		log.Errorf("Mismatch in PV volumeHandle:%s and the actual fcdID: %s", pvvolumeHandle, fcdID)
+	}
+
+	if pvccapacity != pvcapacity {
+		log.Errorf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
+	}
 }

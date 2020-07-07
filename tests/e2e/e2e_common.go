@@ -75,7 +75,7 @@ const (
 	kubeSystemNamespace                        = "kube-system"
 	csiSystemNamespace                         = "vmware-system-csi"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
-	rqLimit                                    = "100Gi"
+	rqLimit                                    = "500Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	quotaName                                  = "cns-test-quota"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"

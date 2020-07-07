@@ -1,0 +1,10 @@
+apiVersion: cns.vmware.com/v1alpha1
+kind: CnsRegisterVolume
+metadata:
+  name: import-mongodb
+spec:
+  pvcName: mongo-pvc
+  volumeID: 0353eb95-1974-46ea-aeb2-d8de5928ef99 #block volume ID
+  # diskURLPath should be used in case of VMDK
+  #diskURLPath: https://10.186.62.242/folder/testdisk.vmdk?dcPath=test-vpx-1587679283-7316-wcp.wcp-sanity&dsName=nfs0-1 
+  accessMode: ReadWriteOnce

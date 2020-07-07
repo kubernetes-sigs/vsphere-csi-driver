@@ -17,7 +17,6 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/types"
-	vim25types "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -351,6 +350,42 @@ func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityIn
 	return fcdID, nil
 }
 
+// createFCD with valid storage policy
+func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string, profileID string, diskCapacityInMB int64, dsRef types.ManagedObjectReference) (string, error) {
+	KeepAfterDeleteVM := false
+	spec := types.VslmCreateSpec{
+		Name:              fcdname,
+		CapacityInMB:      diskCapacityInMB,
+		KeepAfterDeleteVm: &KeepAfterDeleteVM,
+		BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
+			VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+				Datastore: dsRef,
+			},
+			ProvisioningType: string(types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
+		},
+		Profile: []types.BaseVirtualMachineProfileSpec{
+			&types.VirtualMachineDefinedProfileSpec{
+				ProfileId: profileID,
+			},
+		},
+	}
+	req := types.CreateDisk_Task{
+		This: *vs.Client.Client.ServiceContent.VStorageObjectManager,
+		Spec: spec,
+	}
+	res, err := methods.CreateDisk_Task(ctx, vs.Client.Client, &req)
+	if err != nil {
+		return "", err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	fcdID := taskInfo.Result.(types.VStorageObject).Config.Id.Id
+	return fcdID, nil
+}
+
 // deleteFCD deletes an FCD disk
 func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference) error {
 	req := types.DeleteVStorageObject_Task{
@@ -374,7 +409,7 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.Mana
 func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types.ManagedObjectReference, dsRefDest types.ManagedObjectReference) error {
 	spec := types.VslmRelocateSpec{
 		VslmMigrateSpec: types.VslmMigrateSpec{
-			DynamicData: vim25types.DynamicData{},
+			DynamicData: types.DynamicData{},
 			BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
 				VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
 					Datastore: dsRefDest,
