@@ -25,6 +25,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -37,6 +38,8 @@ func main() {
 		fmt.Printf("%s\n", service.Version)
 		return
 	}
+	log := logger.GetLoggerWithNoContext()
+	log.Infof("Version : %s", service.Version)
 
 	gocsi.Run(
 		context.Background(),

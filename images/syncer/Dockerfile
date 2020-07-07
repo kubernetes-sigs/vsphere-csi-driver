@@ -24,6 +24,9 @@ ARG BASE_IMAGE=photon:3.0
 ################################################################################
 FROM ${GOLANG_IMAGE} as builder
 
+# This build arg is the version to embed in the CSI binary
+ARG VERSION=unknown
+
 ARG GOPROXY
 
 WORKDIR /build
@@ -38,7 +41,7 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
-RUN go build -o vsphere-syncer ./cmd/syncer
+RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
