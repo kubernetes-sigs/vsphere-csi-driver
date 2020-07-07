@@ -28,6 +28,9 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
+// Version of the syncer. This should be set via ldflags.
+var Version string
+
 const (
 	// default interval for csi full sync, used unless overridden by user in csi-controller YAML
 	defaultFullSyncIntervalInMin = 30
