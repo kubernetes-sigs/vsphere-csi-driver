@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/ginkgo"
@@ -93,6 +94,39 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+}
+
+// getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout
+func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context, vmUUID string, timeout time.Duration) (object.Reference, error) {
+	connect(ctx, vs)
+	dcList, err := vs.getAllDatacenters(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var vmMoRefForvmUUID object.Reference
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		var vmMoRefFound bool
+		for _, dc := range dcList {
+			datacenter := object.NewDatacenter(vs.Client.Client, dc.Reference())
+			s := object.NewSearchIndex(vs.Client.Client)
+			vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
+			instanceUUID := !(vanillaCluster || guestCluster)
+			vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
+
+			if err != nil || vmMoRef == nil {
+				continue
+			}
+			if vmMoRef != nil {
+				vmMoRefFound = true
+				vmMoRefForvmUUID = vmMoRef
+			}
+		}
+		if vmMoRefFound {
+			framework.Logf("vmuuid: %s still exists", vmMoRefForvmUUID)
+			continue
+		} else {
+			return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+		}
+	}
+	return vmMoRefForvmUUID, nil
 }
 
 // isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.

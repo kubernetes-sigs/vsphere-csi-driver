@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -162,12 +161,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-							ginkgo.By("Wait for 3 minutes for the volume to detach from the pod VM")
-							time.Sleep(supervisorClusterOperationsTimeout)
+
 							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 							ctx, cancel := context.WithCancel(context.Background())
 							defer cancel()
-							_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+							_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 							gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, sspod.Spec.NodeName))
 						}
 					}
@@ -333,12 +331,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-							ginkgo.By("Wait for 3 minutes for the volume to detach from the pod VM")
-							time.Sleep(supervisorClusterOperationsTimeout)
+
 							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 							ctx, cancel := context.WithCancel(context.Background())
 							defer cancel()
-							_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+							_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 							gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, sspod.Spec.NodeName))
 						}
 					}

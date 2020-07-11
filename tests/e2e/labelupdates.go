@@ -309,12 +309,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		} else {
-			ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
-			time.Sleep(supervisorClusterOperationsTimeout)
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
 		}
 
