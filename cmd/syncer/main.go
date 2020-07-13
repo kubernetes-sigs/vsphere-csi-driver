@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -36,11 +37,18 @@ import (
 
 var (
 	enableLeaderElection = flag.Bool("leader-election", false, "Enable leader election.")
+	printVersion         = flag.Bool("version", false, "Print syncer version and exit")
 )
 
 // main for vsphere syncer
 func main() {
 	flag.Parse()
+	if *printVersion {
+		fmt.Printf("%s\n", syncer.Version)
+		return
+	}
+	log := logger.GetLoggerWithNoContext()
+	log.Infof("Version : %s", syncer.Version)
 	// run will be executed if this instance is elected as the leader
 	// or if leader election is not enabled
 	var run func(ctx context.Context)

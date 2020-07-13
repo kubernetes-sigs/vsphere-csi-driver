@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vmware/govmomi/cns"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -62,6 +64,7 @@ type controller struct {
 // TODO: Remove this when https://github.com/kubernetes/kubernetes/issues/84226 is fixed
 var deletedVolumes *timedmap.TimedMap
 
+var volumeMigrationService migration.VolumeMigrationService
 var (
 	// VSAN67u3ControllerServiceCapability represents the capability of controller service
 	// for VSAN67u3 release
@@ -186,6 +189,15 @@ func (c *controller) Init(config *config.Config) error {
 	}
 	// deletedVolumes timedmap with clean up interval of 1 minute to remove expired entries
 	deletedVolumes = timedmap.New(1 * time.Minute)
+	if config.FeatureStates.CSIMigration {
+		common.CSIMigrationFeatureEnabled = true
+		log.Infof("CSI Migration Feature is Enabled. Loading Volume Migration Service")
+		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config)
+		if err != nil {
+			log.Errorf("failed to get migration service. Err: %v", err)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -255,6 +267,53 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		log.Error(msg)
 		return nil, status.Errorf(codes.InvalidArgument, msg)
 	}
+
+	if c.manager.CnsConfig.FeatureStates.CSIMigration && scParams.CSIMigration == "true" {
+		if len(scParams.Datastore) != 0 {
+			log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
+			vcList := c.manager.VcenterManager.GetAllVirtualCenters()
+			if len(vcList) == 0 {
+				return nil, status.Errorf(codes.Internal, "Failed to get vCenter List")
+			}
+			err := vcList[0].Connect(ctx)
+			if err != nil {
+				msg := fmt.Sprintf("failed to connect to vCenter: %q. err: %+v", vcList[0].Config.Host, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			dcList, err := vcList[0].GetDatacenters(ctx)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get datacenter list. err: %+v", err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			foundDatastoreURL := false
+			for _, dc := range dcList {
+				dsURLTodsInfoMap, err := dc.GetAllDatastores(ctx)
+				if err != nil {
+					msg := fmt.Sprintf("failed to get dsURLTodsInfoMap. err: %+v", err)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+				for dsURL, dsInfo := range dsURLTodsInfoMap {
+					if dsInfo.Info.Name == scParams.Datastore {
+						scParams.DatastoreURL = dsURL
+						log.Infof("Found datastoreURL: %q for datastore name: %q", scParams.DatastoreURL, scParams.Datastore)
+						foundDatastoreURL = true
+						break
+					}
+				}
+				if foundDatastoreURL {
+					break
+				}
+			}
+			if !foundDatastoreURL {
+				msg := fmt.Sprintf("failed to find datastoreURL for datastore name: %q", scParams.Datastore)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
+	}
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB: volSizeMB,
 		Name:       req.Name,
@@ -316,6 +375,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+	if c.manager.CnsConfig.FeatureStates.CSIMigration && scParams.CSIMigration == "true" {
+		// Return InitialVolumeFilepath in the response for TranslateCSIPVToInTree
+		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeID)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get volume path for volume id: %q. Error: %+v", volumeID, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		attributes[common.AttributeInitialVolumeFilepath] = volumePath
+	}
 
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
@@ -413,11 +482,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateVolume: called with args %+v", *req)
-	err := validateVanillaCreateVolumeRequest(ctx, req)
-	if err != nil {
-		log.Errorf("failed to validate Create Volume Request with err: %v", err)
-		return nil, err
-	}
 
 	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		vsan67u3Release, err := isVsan67u3Release(ctx, c)
@@ -446,13 +510,48 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	if err != nil {
 		return nil, err
 	}
+	var volumePath string
+
+	// in-tree volume support
+	var volumeID string
+	if strings.Contains(req.VolumeId, ".vmdk") {
+		volumePath = req.VolumeId
+	}
+	if c.manager.CnsConfig.FeatureStates.CSIMigration {
+		// Migration feature switch is enabled
+		if volumePath != "" {
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
+	} else {
+		// Migration feature switch is disabled
+		if volumePath != "" {
+			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	deletedVolumes.Set(req.VolumeId, true, 5*time.Minute)
+	if c.manager.CnsConfig.FeatureStates.CSIMigration && volumePath != "" {
+		err = volumeMigrationService.DeleteVolumeInfo(ctx, req.VolumeId)
+		if err != nil {
+			msg := fmt.Sprintf("failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		deletedVolumes.Set(volumePath, true, 5*time.Minute)
+	} else {
+		deletedVolumes.Set(req.VolumeId, true, 5*time.Minute)
+	}
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -514,6 +613,30 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 	} else {
 		// Block Volume
+		// in-tree volume support
+		var volumeID string
+		var volumePath string
+		if strings.Contains(req.VolumeId, ".vmdk") {
+			volumePath = req.VolumeId
+		}
+		if c.manager.CnsConfig.FeatureStates.CSIMigration {
+			// Migration feature switch is enabled
+			if volumePath != "" {
+				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+				if err != nil {
+					msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+			}
+		} else {
+			// Migration feature switch is disabled
+			if volumePath != "" {
+				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
 		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 		if err != nil {
 			msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
@@ -548,21 +671,52 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+	// in-tree volume support
+	var volumeID string
+	var volumePath string
+	if strings.Contains(req.VolumeId, ".vmdk") {
+		volumePath = req.VolumeId
 	}
-	queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
-	if err != nil {
-		msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+	if c.manager.CnsConfig.FeatureStates.CSIMigration {
+		// Migration feature switch is enabled
+		if volumePath != "" {
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
+	} else {
+		// Migration feature switch is disabled
+		if volumePath != "" {
+			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 	}
-	if len(queryResult.Volumes) == 0 {
-		msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+	// check if volume is block or file, skip detach for file volume
+	var isFileVolume bool
+	if volumePath == "" {
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+		}
+		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		if len(queryResult.Volumes) == 0 {
+			msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
+			isFileVolume = true
+		}
 	}
-	if queryResult.Volumes[0].VolumeType != common.FileVolumeType {
+	if !isFileVolume {
 		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		if err != nil {
 			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
@@ -578,7 +732,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	} else {
 		log.Info("Skipping ControllerUnpublish for file volume ", req.VolumeId)
 	}
-
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 

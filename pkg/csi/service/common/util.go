@@ -23,6 +23,7 @@ import (
 
 	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
@@ -31,6 +32,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
 
@@ -198,17 +200,54 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string) (*St
 		DatastoreURL:      "",
 		StoragePolicyName: "",
 	}
+	if !CSIMigrationFeatureEnabled {
+		for param, value := range params {
+			param = strings.ToLower(param)
+			if param == AttributeDatastoreURL {
+				scParams.DatastoreURL = value
+			} else if param == AttributeStoragePolicyName {
+				scParams.StoragePolicyName = value
+			} else if param == AttributeFsType {
+				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+			} else {
+				return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
+			}
+		}
+	} else {
+		otherParams := make(map[string]string)
+		for param, value := range params {
+			param = strings.ToLower(param)
+			if param == AttributeDatastoreURL {
+				scParams.DatastoreURL = value
+			} else if param == AttributeStoragePolicyName {
+				scParams.StoragePolicyName = value
+			} else if param == AttributeFsType {
+				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+			} else if param == CSIMigrationParams {
+				scParams.CSIMigration = value
+				log.Infof("vSphere CSI Driver supports StoragePolicyName, Datastore and fsType parameters supplied from legacy in-tree provisioner. All other parameters supplied in csimigrationparams will be dropped.")
+			} else {
+				otherParams[param] = value
+			}
+		}
 
-	for param, value := range params {
-		param = strings.ToLower(param)
-		if param == AttributeDatastoreURL {
-			scParams.DatastoreURL = value
-		} else if param == AttributeStoragePolicyName {
-			scParams.StoragePolicyName = value
-		} else if param == AttributeFsType {
-			log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+		// check otherParams belongs to in-tree migrated Parameters
+		if scParams.CSIMigration == "true" {
+			for param, value := range otherParams {
+				param = strings.ToLower(param)
+				if param == DatastoreMigrationParam {
+					scParams.Datastore = value
+				} else if param != DiskFormatMigrationParam && param != HostFailuresToTolerateMigrationParam &&
+					param != ForceProvisioningMigrationParam && param != CacheReservationMigrationParam &&
+					param != DiskstripesMigrationParam && param != ObjectspacereservationMigrationParam &&
+					param != IopslimitMigrationParam {
+					return nil, fmt.Errorf("Invalid parameter key:%v, value:%v", param, value)
+				}
+			}
 		} else {
-			return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
+			if len(otherParams) != 0 {
+				return nil, fmt.Errorf("Invalid parameters :%v", otherParams)
+			}
 		}
 	}
 	return scParams, nil
@@ -237,8 +276,36 @@ func GetConfigPath(ctx context.Context) string {
 	return cfgPath
 }
 
+// GetFeatureStatesConfigPath returns CSI feature states config path depending on the environment variable specified and the cluster flavor set
+func GetFeatureStatesConfigPath(ctx context.Context) string {
+	var featureStatesCfgPath string
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	featureStatesCfgPath = csictx.Getenv(ctx, cnsconfig.EnvFeatureStates)
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla || clusterFlavor == "" {
+		if featureStatesCfgPath == "" {
+			featureStatesCfgPath = cnsconfig.DefaultVanillaFeatureStateConfigPath
+		}
+	} else {
+		return ""
+	}
+	return featureStatesCfgPath
+}
+
+// GetFeatureStates loads feature states information from csi-feature-states configmap
+func GetFeatureStates(ctx context.Context, cfg *cnsconfig.Config) error {
+	log := logger.GetLogger(ctx)
+	featureStatesCfgPath := GetFeatureStatesConfigPath(ctx)
+	err := cnsconfig.GetFeatureStatesConfig(ctx, featureStatesCfgPath, cfg)
+	if err != nil {
+		log.Errorf("could not load the feature states from %s with err: %+v", featureStatesCfgPath, err)
+		return err
+	}
+	return err
+}
+
 // GetConfig loads configuration from secret and returns config object
 func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
+	log := logger.GetLogger(ctx)
 	var cfg *cnsconfig.Config
 	var err error
 	cfgPath := GetConfigPath(ctx)
@@ -246,6 +313,15 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
 	} else {
 		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+	}
+	// Reading feature states information
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla || clusterFlavor == "" {
+		err := GetFeatureStates(ctx, cfg)
+		if err != nil {
+			log.Errorf("error while reading the feature states. Error: %+v", err)
+			return cfg, err
+		}
 	}
 	return cfg, err
 }

@@ -47,6 +47,10 @@ const (
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
+	// EnvFeatureStates contains the path to the CSI Feature States Config
+	EnvFeatureStates = "FEATURE_STATES"
+	// DefaultVanillaFeatureStateConfigPath is the default path of csi feature states config file in Vanilla Cluster
+	DefaultVanillaFeatureStateConfigPath = "/etc/cloud/csi-feature-states/csi-feature-states.conf"
 	// EnvGCConfig contains the path to the CSI GC Config
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
@@ -335,6 +339,31 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// GetFeatureStatesConfig returns feature states config from specified file path
+func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cfg *Config) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("GetFeatureStatesConfig called with featureStatesCfgPath: %s", featureStatesCfgPath)
+	//Fetch feature state information in the csi-feature-states.conf if it exists
+	if _, err := os.Stat(featureStatesCfgPath); os.IsNotExist(err) {
+		log.Warnf("failed to stat csi-feature-states.conf. Setting the feature state values to false")
+		cfg.FeatureStates.CSIMigration = false
+		return nil
+	}
+	featureStatesConfig, err := os.Open(featureStatesCfgPath)
+	if err != nil {
+		log.Errorf("failed to open %s. Err: %v", featureStatesCfgPath, err)
+		return err
+	}
+	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, featureStatesConfig)); err != nil {
+		log.Errorf("error while reading config file: %+v", err)
+		return err
+	}
+	if !cfg.FeatureStates.CSIMigration {
+		log.Infof("CSI Migration feature is disabled.")
+	}
+	return nil
 }
 
 // GetDefaultNetPermission returns the default file share net permission.
