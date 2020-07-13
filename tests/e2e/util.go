@@ -1017,3 +1017,169 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 		log.Errorf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
 	}
 }
+
+// CreatePodByUserID with given claims based on node selector. This method is addition to CreatePod method.
+// Here userID can be specified for pod user
+func CreatePodByUserID(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, userID int64) (*v1.Pod, error) {
+	pod := GetPodSpecByUserID(namespace, nodeSelector, pvclaims, isPrivileged, command, userID)
+	pod, err := client.CoreV1().Pods(namespace).Create(pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Pod creation failed")
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = framework.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
+}
+
+// GetPodSpecByUserID returns a pod definition based on the namespace. The pod references the PVC's
+// name.
+// This method is addition to MakePod method.
+// Here userID can be specified for pod user
+func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, userID int64) *v1.Pod {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	podSpec := &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-tester-",
+			Namespace:    ns,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:    "write-pod",
+					Image:   framework.BusyBoxImage,
+					Command: []string{"/bin/sh"},
+					Args:    []string{"-c", command},
+					SecurityContext: &v1.SecurityContext{
+						Privileged: &isPrivileged,
+						RunAsUser:  &userID,
+					},
+				},
+			},
+			RestartPolicy: v1.RestartPolicyOnFailure,
+		},
+	}
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+	for index, pvclaim := range pvclaims {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
+	podSpec.Spec.Volumes = volumes
+	if nodeSelector != nil {
+		podSpec.Spec.NodeSelector = nodeSelector
+	}
+	return podSpec
+}
+
+/*
+writeDataOnFileFromPod writes specified data from given Pod at the given
+*/
+func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
+	_, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
+readFileFromPod read data from given Pod and the given file
+*/
+func readFileFromPod(namespace string, podName string, filePath string) string {
+	output, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return output
+}
+
+// getPersistentVolumeClaimSpecFromVolume gets vsphere persistent volume spec with given selector labels
+// and binds it to given pv
+func getPersistentVolumeClaimSpecFromVolume(namespace string, pvName string, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	var (
+		pvc *v1.PersistentVolumeClaim
+	)
+	sc := ""
+	pvc = &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &sc,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
+// getPersistentVolumeSpecFromVolume gets static PV volume spec with given Volume ID, Reclaim Policy and labels
+func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	var (
+		pvConfig framework.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = framework.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIBlockDriverName,
+				VolumeHandle: volumeID,
+				FSType:       "nfs4",
+				ReadOnly:     true,
+			},
+		},
+		Prebind: nil,
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+			Annotations:  annotations,
+			Labels:       labels,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: "",
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	return pv
+}

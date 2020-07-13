@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
@@ -433,4 +434,37 @@ func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types
 		return err
 	}
 	return nil
+}
+
+// verifyVolPropertiesFromCnsQueryResults verify file volume properties like capacity, volume type, datastore type and datacenter
+func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string) {
+
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s accesspoint: %s", queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints))
+
+	//Verifying disk size specified in PVC is honored
+	ginkgo.By("Verifying disk size specified in PVC is honored")
+	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb == diskSizeInMb).
+		To(gomega.BeTrue(), "wrong disk size provisioned")
+
+	//Verifying volume type specified in PVC is honored
+	ginkgo.By("Verifying volume type specified in PVC is honored")
+	gomega.Expect(queryResult.Volumes[0].VolumeType == testVolumeType).To(gomega.BeTrue(), "volume type is not FILE")
+
+	// Verify if VolumeID is created on the VSAN datastores
+	ginkgo.By("Verify if VolumeID is created on the VSAN datastores")
+	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).
+		To(gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
+
+	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
+	ginkgo.By("Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf")
+	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).
+		To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+
 }
