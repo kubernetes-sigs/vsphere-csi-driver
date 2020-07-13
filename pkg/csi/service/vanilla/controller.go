@@ -739,7 +739,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, err
 	}
 
 	volumeID := req.GetVolumeId()
