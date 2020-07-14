@@ -191,7 +191,7 @@ func (c *controller) Init(config *config.Config) error {
 	deletedVolumes = timedmap.New(1 * time.Minute)
 	if config.FeatureStates.CSIMigration {
 		common.CSIMigrationFeatureEnabled = true
-		log.Infof("CSI Migration Feature is Enabled. Loading Volume Migration Service")
+		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
 		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config)
 		if err != nil {
 			log.Errorf("failed to get migration service. Err: %v", err)

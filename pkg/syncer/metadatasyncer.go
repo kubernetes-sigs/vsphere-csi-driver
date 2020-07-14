@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"time"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
@@ -47,6 +49,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
+
+var volumeMigrationService migration.VolumeMigrationService
 
 // newInformer returns uninitialized metadataSyncInformer
 func newInformer() *metadataSyncInformer {
@@ -141,6 +145,16 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter)
 	}
 
+	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+		common.CSIMigrationFeatureEnabled = true
+		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
+		var err error
+		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+		if err != nil {
+			log.Errorf("failed to get migration service. Err: %v", err)
+			return err
+		}
+	}
 	// Initialize cnsDeletionMap used by Full Sync
 	cnsDeletionMap = make(map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync
@@ -438,17 +452,33 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		}
 		log.Debugf("PVCUpdated: Found Persistent Volume %s from API server", newPvc.Spec.VolumeName)
 	}
-
-	// Verify if pv is vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
-		log.Debugf("PVCUpdated: Not a Vsphere CSI Volume")
-		return
-	}
-
-	// Verify is old and new labels are not equal
-	if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
-		log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")
-		return
+	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PV
+	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		if oldPvc.Status.Phase == v1.ClaimBound &&
+			reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) &&
+			reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
+			log.Debug("PVCUpdated: PVC labels and annotations have not changed for %s in namespace %s", newPvc.Name, newPvc.Namespace)
+			return
+		}
+		// Verify if there is an annotation update
+		if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
+			// Verify if the annotation update is related to migration. If not, return
+			if !HasMigratedToAnnotation(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
+				log.Debug("PVCUpdated: Migrated-to annotation not found for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
+				return
+			}
+		}
+	} else {
+		// Verify if pv is vsphere csi volume
+		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+			log.Debugf("PVCUpdated: Not a vSphere CSI Volume")
+			return
+		}
+		// For volumes provisioned by CSI driver, verify if old and new labels are not equal
+		if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
+			log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")
+			return
+		}
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -459,7 +489,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 }
 
-// pvDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
+// pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
 func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -483,8 +513,8 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 
 	// Verify if pv is a vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
-		log.Debugf("PVCDeleted: Not a Vsphere CSI Volume")
+	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume == nil) {
+		log.Debugf("PVCDeleted: Not a vSphere CSI Volume or migrated vSphere Volume")
 		return
 	}
 
@@ -636,34 +666,47 @@ func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadat
 // csiPVCUpdated updates volume metadata for PVC objects on the VC in Vanilla k8s and supervisor cluster
 func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	volumeFound := false
-	// Following wait poll is required to avoid race condition between pvcUpdated and pvUpdated
-	// This helps avoid race condition between pvUpdated and pvcUpdated handlers when static PV and PVC is created almost
-	// at the same time using single YAML file.
-	err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: []cnstypes.CnsVolumeId{{Id: pv.Spec.CSI.VolumeHandle}},
-		}
-		queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+	var volumeHandle string
+	var err error
+	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 		if err != nil {
-			log.Warnf("PVCUpdated: Failed to query volume metadata for volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
-			return false, err
+			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %s", pv.Spec.VsphereVolume.VolumePath)
+			return
 		}
-		if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == pv.Spec.CSI.VolumeHandle {
-			log.Infof("PVCUpdated: volume %q found", pv.Spec.CSI.VolumeHandle)
-			volumeFound = true
+	} else {
+		volumeFound := false
+		volumeHandle = pv.Spec.CSI.VolumeHandle
+		// Following wait poll is required to avoid race condition between pvcUpdated and pvUpdated
+		// This helps avoid race condition between pvUpdated and pvcUpdated handlers when static PV and PVC is created almost
+		// at the same time using single YAML file.
+		err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
+			}
+			queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				log.Warnf("PVCUpdated: Failed to query volume metadata for volume %q with error %+v", volumeHandle, err)
+				return false, err
+			}
+			if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
+				log.Infof("PVCUpdated: volume %q found", volumeHandle)
+				volumeFound = true
+			}
+			return volumeFound, nil
+		})
+		if err != nil {
+			log.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. err: %+v", err)
+			return
 		}
-		return volumeFound, nil
-	})
-	if err != nil {
-		log.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. err: %+v", err)
-		return
+
+		if !volumeFound {
+			// volumeFound will be false when wait poll times out
+			log.Errorf("PVCUpdated: volume: %q is not marked as the container volume. Skipping PVC entity metadata update.", volumeHandle)
+			return
+		}
 	}
-	if !volumeFound {
-		// volumeFound will be false when wait poll times out
-		log.Errorf("PVCUpdated: volume: %q is not marked as the container volume. Skipping PVC entity metadata update.", pv.Spec.CSI.VolumeHandle)
-		return
-	}
+
 	// Create updateSpec
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
@@ -674,7 +717,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
-			Id: pv.Spec.CSI.VolumeHandle,
+			Id: volumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
@@ -703,10 +746,21 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
+	var volumeHandle string
+	var err error
+	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if err != nil {
+			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %s", pv.Spec.VsphereVolume.VolumePath)
+			return
+		}
+	} else {
+		volumeHandle = pv.Spec.CSI.VolumeHandle
+	}
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
-			Id: pv.Spec.CSI.VolumeHandle,
+			Id: volumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
