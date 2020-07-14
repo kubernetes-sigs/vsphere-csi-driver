@@ -323,6 +323,35 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 	return deployment
 }
 
+// bringDownCsiContorller helps to bring the csi controller pod down
+// Its taks svc/gc client as input
+func bringDownCsiContorller(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 0, vsphereCSIcontroller, vsphereSystemNamespace)
+	ginkgo.By("Controller is down")
+}
+
+// bringDownTKGController helps to bring the TKG control manager pod down
+// Its taks svc client as input
+func bringDownTKGController(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 0, vsphereControllerManager, vsphereTKGSystemNamespace)
+	ginkgo.By("TKGControllManager replica is set to 0")
+}
+
+// bringUpCsiContorller helps to bring the csi controller pod down
+// Its taks svc/gc client as input
+func bringUpCsiContorller(gcClient clientset.Interface) {
+	updateDeploymentReplica(gcClient, 1, vsphereCSIcontroller, vsphereSystemNamespace)
+	ginkgo.By("Controller is up")
+
+}
+
+// bringUpTKGController helps to bring the TKG control manager pod up
+// Its taks svc client as input
+func bringUpTKGController(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
+	ginkgo.By("TKGControllManager is up")
+}
+
 func getSvcClientAndNamespace() (clientset.Interface, string) {
 	var err error
 	if svcClient == nil {
@@ -464,6 +493,29 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	sshCmd := fmt.Sprintf("service-control --%s %s", command, service)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		framework.LogSSHResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
+// replacePasswordRotationTime invokes the given command to replace the password rotation time to 0,
+// so that password roation happens immediately
+// on the given vCenter host over SSH, vmon-cli is used to restart the wcp service after changing the time
+func replacePasswordRotationTime(file, host string) error {
+	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		framework.LogSSHResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
 	if err != nil || result.Code != 0 {
 		framework.LogSSHResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
