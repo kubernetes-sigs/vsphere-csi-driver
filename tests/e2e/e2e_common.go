@@ -91,6 +91,7 @@ const (
 	adminPassword                              = "Admin!23"
 	e2eTestPassword                            = "E2E-test-password!23"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
+	svOperationTimeout                         = 240 * time.Second
 )
 
 const (
