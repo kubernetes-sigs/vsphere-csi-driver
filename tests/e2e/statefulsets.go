@@ -19,12 +19,11 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	apps "k8s.io/api/apps/v1"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -79,8 +78,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 		framework.DeleteAllStatefulSets(client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-		client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
-
+		err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	ginkgo.It("Statefulset testing with default podManagementPolicy", func() {
@@ -148,7 +149,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(sspod.Name, metav1.GetOptions{})
 			if err != nil {
-				gomega.Expect(apierrs.IsNotFound(err), gomega.BeTrue())
+				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
@@ -160,12 +161,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-							ginkgo.By("Wait for 3 minutes for the volume to detach from the pod VM")
-							time.Sleep(supervisorClusterOperationsTimeout)
+
 							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 							ctx, cancel := context.WithCancel(context.Background())
 							defer cancel()
-							_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+							_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 							gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, sspod.Spec.NodeName))
 						}
 					}
@@ -319,7 +319,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(sspod.Name, metav1.GetOptions{})
 			if err != nil {
-				gomega.Expect(apierrs.IsNotFound(err), gomega.BeTrue())
+				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
@@ -331,12 +331,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] statefulset", func
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-							ginkgo.By("Wait for 3 minutes for the volume to detach from the pod VM")
-							time.Sleep(supervisorClusterOperationsTimeout)
+
 							ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 							ctx, cancel := context.WithCancel(context.Background())
 							defer cancel()
-							_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+							_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 							gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, sspod.Spec.NodeName))
 						}
 					}

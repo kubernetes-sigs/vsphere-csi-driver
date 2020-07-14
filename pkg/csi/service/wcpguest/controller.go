@@ -23,8 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
@@ -34,15 +32,16 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -52,6 +51,7 @@ var (
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
 )
 
@@ -61,6 +61,7 @@ type controller struct {
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
+	featureStates             *cnsconfig.FeatureStateSwitches
 }
 
 // New creates a CNS controller
@@ -69,7 +70,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *config.Config) error {
+func (c *controller) Init(config *cnsconfig.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -99,7 +100,10 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("failed to create vmWatcher. Error: %+v", err)
 		return err
 	}
+
+	c.featureStates = &config.FeatureStates
 	pvcsiConfigPath := common.GetConfigPath(ctx)
+	featureStatesCfgPath := common.GetFeatureStatesConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -139,6 +143,13 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
+	featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
+	log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
+	err = watcher.Add(featureStatesCfgDirPath)
+	if err != nil {
+		log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
+		return err
+	}
 	return nil
 }
 
@@ -172,7 +183,6 @@ func (c *controller) ReloadConfiguration() {
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
 	}
-	log.Info("Successfully reloaded configuration")
 }
 
 // CreateVolume is creating CNS Volume using volume request specified
@@ -310,7 +320,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			break
 		}
 	}
-
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
 	if isVolumePresentInSpec {
@@ -318,20 +327,20 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
 				diskUUID = volume.DiskUuid
 				isVolumeAttached = true
-				log.Infof("Volume %v is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
+				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q", volume.Name, volume.DiskUuid)
 				break
 			}
 		}
 	} else {
-		// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
-		vmvolumes := vmoperatortypes.VirtualMachineVolume{
-			Name: req.VolumeId,
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: req.VolumeId,
-			},
-		}
 		timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		for {
+			// volume is not present in the virtualMachine.Spec.Volumes, so adding volume in the spec and patching virtualMachine instance
+			vmvolumes := vmoperatortypes.VirtualMachineVolume{
+				Name: req.VolumeId,
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: req.VolumeId,
+				},
+			}
 			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 			err = c.vmOperatorClient.Update(ctx, virtualMachine)
 			if err == nil || time.Now().After(timeout) {
@@ -368,7 +377,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
 		for diskUUID == "" {
 			// blocking wait for update event
-			log.Debugf(fmt.Sprintf("waiting for update on virtualmachine: %q", virtualMachine.Name))
+			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
@@ -376,7 +385,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
-			log.Debugf(fmt.Sprintf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId))
+			if vm.Name != virtualMachine.Name {
+				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
+				continue
+			}
+			log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ", virtualMachine.Name, req.VolumeId)
 			for _, volume := range vm.Status.Volumes {
 				if volume.Name == req.VolumeId {
 					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
@@ -393,10 +406,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 			}
 			if diskUUID == "" {
-				log.Debugf(fmt.Sprintf("disk UUID is not set for volume: %q ", req.VolumeId))
+				log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
 			}
 		}
-		log.Debugf(fmt.Sprintf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId))
+		log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
 	}
 
 	//return PublishContext with diskUUID of the volume attached to node.
@@ -489,7 +502,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	// Loop until the volume is removed from virtualmachine status
 	isVolumeDetached := false
 	for !isVolumeDetached {
-		log.Debugf(fmt.Sprintf("Waiting for update on VirtualMachine: %q", virtualMachine.Name))
+		log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
 		// Block on update events
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
@@ -498,10 +511,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
+		if vm.Name != virtualMachine.Name {
+			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
+			continue
+		}
 		isVolumeDetached = true
 		for _, volume := range vm.Status.Volumes {
 			if volume.Name == req.VolumeId {
-				log.Debugf(fmt.Sprintf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name))
+				log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
 				isVolumeDetached = false
 				if volume.Attached && volume.Error != "" {
 					msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
@@ -515,6 +532,93 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	}
 	log.Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
+}
+
+// ControllerExpandVolume expands a volume.
+// volume id and size is retrieved from ControllerExpandVolumeRequest
+func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	if !c.featureStates.VolumeExtend {
+		msg := "ExpandVolume feature is disabled on the cluster."
+		log.Warn(msg)
+		return nil, status.Errorf(codes.Unimplemented, msg)
+	}
+	log.Infof("ControllerExpandVolume: called with args %+v", *req)
+
+	err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+	vmList := &vmoperatortypes.VirtualMachineList{}
+	err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	for _, vmInstance := range vmList.Items {
+		for _, vmVolume := range vmInstance.Status.Volumes {
+			if vmVolume.Name == volumeID && vmVolume.Attached {
+				msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
+				log.Error(msg)
+				return nil, status.Error(codes.FailedPrecondition, msg)
+			}
+		}
+	}
+
+	// Retrieve Supervisor PVC
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(volumeID, metav1.GetOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	newQty := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
+	curQty := pvc.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
+	if (&curQty).Cmp(*newQty) == -1 {
+		// Update requested storage in PVC spec
+		pvcClone := pvc.DeepCopy()
+		pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *newQty
+		// Make a call to SV ControllerExpandVolume
+		log.Debugf("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, newQty.String())
+		pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(pvcClone)
+		if err != nil {
+			msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	} else {
+		log.Debugf("Skipping resize call for supervisor PVC %s in namespace %s", volumeID, c.supervisorNamespace)
+	}
+
+	// Wait for Supervisor PVC to change status to FilesystemResizePending
+	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, pvc,
+		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
+	if err != nil {
+		msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	nodeExpansionRequired := true
+	// Set NodeExpansionRequired to false for raw block volumes
+	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+		log.Infof("Node Expansion not supported for raw block volume ID %q in namespace %s of supervisor", volumeID, c.supervisorNamespace)
+		nodeExpansionRequired = false
+	}
+	resp := &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         volSizeBytes,
+		NodeExpansionRequired: nodeExpansionRequired,
+	}
+	return resp, nil
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
@@ -593,14 +697,5 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
-}
-
-// ControllerExpandVolume expands a volume.
-func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
-	*csi.ControllerExpandVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }

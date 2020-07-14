@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package e2e
 
 import (
@@ -7,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,14 +43,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	pkgtypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/manifest"
+
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
-	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
+)
+
+var (
+	svcClient    clientset.Interface
+	svcNamespace string
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -284,6 +312,7 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 
 // updateDeploymentReplica helps to update the replica for a deployment
 func updateDeploymentReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.Deployment {
+	gomega.Expect(count != 0 && count != 1).NotTo(gomega.BeTrue(), fmt.Sprintf("Invalid value passed for count: %v", count))
 	deployment, err := client.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*deployment.Spec.Replicas = count
@@ -292,6 +321,47 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 	ginkgo.By("Waiting for update operation on deployment to take effect")
 	time.Sleep(1 * time.Minute)
 	return deployment
+}
+
+// bringDownCsiContorller helps to bring the csi controller pod down
+// Its taks svc/gc client as input
+func bringDownCsiContorller(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 0, vsphereCSIcontroller, vsphereSystemNamespace)
+	ginkgo.By("Controller is down")
+}
+
+// bringDownTKGController helps to bring the TKG control manager pod down
+// Its taks svc client as input
+func bringDownTKGController(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 0, vsphereControllerManager, vsphereTKGSystemNamespace)
+	ginkgo.By("TKGControllManager replica is set to 0")
+}
+
+// bringUpCsiContorller helps to bring the csi controller pod down
+// Its taks svc/gc client as input
+func bringUpCsiContorller(gcClient clientset.Interface) {
+	updateDeploymentReplica(gcClient, 1, vsphereCSIcontroller, vsphereSystemNamespace)
+	ginkgo.By("Controller is up")
+
+}
+
+// bringUpTKGController helps to bring the TKG control manager pod up
+// Its taks svc client as input
+func bringUpTKGController(Client clientset.Interface) {
+	updateDeploymentReplica(Client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
+	ginkgo.By("TKGControllManager is up")
+}
+
+func getSvcClientAndNamespace() (clientset.Interface, string) {
+	var err error
+	if svcClient == nil {
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	}
+	return svcClient, svcNamespace
 }
 
 // getLabelsMapFromKeyValue returns map[string]string for given array of vim25types.KeyValue
@@ -430,6 +500,29 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
+// replacePasswordRotationTime invokes the given command to replace the password rotation time to 0,
+// so that password roation happens immediately
+// on the given vCenter host over SSH, vmon-cli is used to restart the wcp service after changing the time
+func replacePasswordRotationTime(file, host string) error {
+	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		framework.LogSSHResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		framework.LogSSHResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
 // writeToFile will take two parameters:
 // 1. the absolute path of the file(including filename) to be created
 // 2. data content to be written into the file
@@ -557,7 +650,7 @@ func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, err
 }
 
 // topologyParameterForStorageClass creates a topology map using the topology values ENV variables
-// Returns the allowedTopologies paramters required for the Storage Class
+// Returns the allowedTopologies parameters required for the Storage Class
 // Input : <region-1>:<zone-1>, <region-1>:<zone-2>
 // Output : [region-1], [zone-1, zone-2] {region-1: zone-1, region-1:zone-2}
 func topologyParameterForStorageClass(topology string) ([]string, []string, []v1.TopologySelectorLabelRequirement) {
@@ -607,6 +700,9 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 // createResourceQuota creates resource quota for the specified namespace.
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
 	waitTime := 10
+	//deleteResourceQuota if already present
+	deleteResourceQuota(client, namespace)
+
 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
 	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(resourceQuota)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -661,6 +757,17 @@ func getNamespaceToRunTests(f *framework.Framework) string {
 	return f.Namespace.Name
 }
 
+// getPVCFromSupervisorCluster takes name of the persistentVolumeClaim as input
+// returns the corresponding persistentVolumeClaim object
+func getPVCFromSupervisorCluster(pvcName string) *v1.PersistentVolumeClaim {
+	svcClient, svcNamespace := getSvcClientAndNamespace()
+	pvc, err := svcClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(pvc).NotTo(gomega.BeNil())
+	return pvc
+}
+
+// getVolumeIDFromSupervisorCluster returns SV PV volume handle for given SVC PVC name
 func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	var svcClient clientset.Interface
 	var err error
@@ -673,6 +780,19 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	volumeHandle := svcPV.Spec.CSI.VolumeHandle
 	ginkgo.By(fmt.Sprintf("Found volume in Supervisor cluster with VolumeID: %s", volumeHandle))
 	return volumeHandle
+}
+
+// getPvFromSupervisorCluster returns SV PV for given SVC PVC name
+func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
+	var svcClient clientset.Interface
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	return svcPV
 }
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
@@ -764,6 +884,7 @@ func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) b
 	}
 	return false
 }
+
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	var svcClient clientset.Interface
 	var err error
@@ -864,6 +985,7 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		}
 		key = words[0]
 		value = trimQuotes(words[1])
+		var strconvErr error
 		switch key {
 		case "insecure-flag":
 			if strings.Contains(value, "true") {
@@ -881,8 +1003,11 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.Datacenters = value
 		case "port":
 			config.Global.VCenterPort = value
+		case "cnsregistervolumes-cleanup-intervalinmin":
+			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
-			return config, fmt.Errorf("invalid key %s in the input string", key)
+			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
 	}
 	return config, nil
@@ -893,4 +1018,264 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort)
 	return result, nil
+}
+
+// Function to create CnsRegisterVolume spec, with given FCD ID and PVC name
+func getCNSRegisterVolummeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
+	var (
+		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
+	)
+	log := logger.GetLogger(ctx)
+	log.Infof("get CNSRegisterVolume spec")
+	cnsRegisterVolume = &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "cnsregvol-",
+			Namespace:    namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:  persistentVolumeClaimName,
+			VolumeID: fcdID,
+			AccessMode: v1.PersistentVolumeAccessMode(
+				accessMode,
+			),
+		},
+	}
+	return cnsRegisterVolume
+}
+
+//Create CNS register volume
+func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	log := logger.GetLogger(ctx)
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	log.Infof("Create CNSRegisterVolume")
+	err = cnsOperatorClient.Create(ctx, cnsRegisterVolume)
+
+	return err
+}
+
+//Query CNS Register volume . Returns true if the CNSRegisterVolume is available otherwise false
+func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolumeName string, namespace string) bool {
+	isPresent := false
+	log := logger.GetLogger(ctx)
+	log.Infof("cleanUpCnsRegisterVolumeInstances: start")
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Get list of CnsRegisterVolume instances from all namespaces
+	cnsRegisterVolumesList := &cnsregistervolumev1alpha1.CnsRegisterVolumeList{}
+	err = cnsOperatorClient.List(ctx, cnsRegisterVolumesList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegistervolumeName, Namespace: namespace}, cns)
+	if err == nil {
+		log.Infof("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
+		isPresent = true
+	}
+
+	return isPresent
+
+}
+
+//Verify Bi-directional referance of Pv and PVC in case of static volume provisioning
+func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientset.Interface, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, fcdID string) {
+	log := logger.GetLogger(ctx)
+
+	pvcName := pvc.GetName()
+	pvcNamespace := pvc.GetNamespace()
+	pvcvolume := pvc.Spec.VolumeName
+	pvccapacity := pvc.Status.Capacity.StorageEphemeral().Size()
+
+	pvName := pv.GetName()
+	pvClaimRefName := pv.Spec.ClaimRef.Name
+	pvClaimRefNamespace := pv.Spec.ClaimRef.Namespace
+	pvcapacity := pv.Spec.Capacity.StorageEphemeral().Size()
+	pvvolumeHandle := pv.Spec.PersistentVolumeSource.CSI.VolumeHandle
+
+	if pvClaimRefName != pvcName && pvClaimRefNamespace != pvcNamespace {
+		log.Infof("PVC Name :%s PVC namespace : %s", pvcName, pvcNamespace)
+		log.Infof("PV Name :%s PVnamespace : %s", pvcName, pvcNamespace)
+		log.Errorf("Mismatch in PV and PVC name and namespace")
+	}
+
+	if pvcvolume != pvName {
+		log.Errorf("PVC volume :%s PV name : %s expected to be same", pvcvolume, pvName)
+	}
+
+	if pvvolumeHandle != fcdID {
+		log.Errorf("Mismatch in PV volumeHandle:%s and the actual fcdID: %s", pvvolumeHandle, fcdID)
+	}
+
+	if pvccapacity != pvcapacity {
+		log.Errorf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
+	}
+}
+
+// CreatePodByUserID with given claims based on node selector. This method is addition to CreatePod method.
+// Here userID can be specified for pod user
+func CreatePodByUserID(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, userID int64) (*v1.Pod, error) {
+	pod := GetPodSpecByUserID(namespace, nodeSelector, pvclaims, isPrivileged, command, userID)
+	pod, err := client.CoreV1().Pods(namespace).Create(pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Pod creation failed")
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = framework.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
+}
+
+// GetPodSpecByUserID returns a pod definition based on the namespace. The pod references the PVC's
+// name.
+// This method is addition to MakePod method.
+// Here userID can be specified for pod user
+func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, userID int64) *v1.Pod {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	podSpec := &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-tester-",
+			Namespace:    ns,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:    "write-pod",
+					Image:   framework.BusyBoxImage,
+					Command: []string{"/bin/sh"},
+					Args:    []string{"-c", command},
+					SecurityContext: &v1.SecurityContext{
+						Privileged: &isPrivileged,
+						RunAsUser:  &userID,
+					},
+				},
+			},
+			RestartPolicy: v1.RestartPolicyOnFailure,
+		},
+	}
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+	for index, pvclaim := range pvclaims {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
+	podSpec.Spec.Volumes = volumes
+	if nodeSelector != nil {
+		podSpec.Spec.NodeSelector = nodeSelector
+	}
+	return podSpec
+}
+
+/*
+writeDataOnFileFromPod writes specified data from given Pod at the given
+*/
+func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
+	_, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
+readFileFromPod read data from given Pod and the given file
+*/
+func readFileFromPod(namespace string, podName string, filePath string) string {
+	output, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return output
+}
+
+// getPersistentVolumeClaimSpecFromVolume gets vsphere persistent volume spec with given selector labels
+// and binds it to given pv
+func getPersistentVolumeClaimSpecFromVolume(namespace string, pvName string, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	var (
+		pvc *v1.PersistentVolumeClaim
+	)
+	sc := ""
+	pvc = &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &sc,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
+// getPersistentVolumeSpecFromVolume gets static PV volume spec with given Volume ID, Reclaim Policy and labels
+func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	var (
+		pvConfig framework.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = framework.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIBlockDriverName,
+				VolumeHandle: volumeID,
+				FSType:       "nfs4",
+				ReadOnly:     true,
+			},
+		},
+		Prebind: nil,
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+			Annotations:  annotations,
+			Labels:       labels,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: "",
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	return pv
 }

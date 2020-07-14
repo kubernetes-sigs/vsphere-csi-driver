@@ -25,6 +25,7 @@ import (
 	neturl "net/url"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/property"
@@ -95,6 +96,8 @@ type VirtualCenterConfig struct {
 	DatacenterPaths []string
 	// TargetDatastoreUrlsForFile represents URLs of file service enabled vSAN datastores in the virtual center.
 	TargetvSANFileShareDatastoreURLs []string
+	// VCClientTimeout is the time limit in minutes for requests made by vCenter client
+	VCClientTimeout int
 }
 
 // clientMutex is used for exclusive connection creation.
@@ -120,12 +123,19 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 			return nil, err
 		}
 	}
+	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
+	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		log.Errorf("failed to create new client with err: %v", err)
 		return nil, err
 	}
-	vimClient.UseServiceVersion("vsan")
+	err = vimClient.UseServiceVersion("vsan")
+	if err != nil && vc.Config.Host != "127.0.0.1" {
+		// skipping error for simulator connection for unit tests
+		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
+		return nil, err
+	}
 	vimClient.UserAgent = "k8s-csi-useragent"
 
 	client := &govmomi.Client{
@@ -380,4 +390,33 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 	}
 
 	return vsanDatastores, nil
+}
+
+// GetDatastoresByCluster return datastores inside the cluster using cluster moref.
+func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMorefValue string) ([]*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	clusterMoref := types.ManagedObjectReference{
+		Type:  "ClusterComputeResource",
+		Value: clusterMorefValue,
+	}
+	clusterComputeResourceMo := mo.ClusterComputeResource{}
+	err := vc.Client.RetrieveOne(ctx, clusterMoref, []string{"host"}, &clusterComputeResourceMo)
+	if err != nil {
+		log.Errorf("Failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
+		return nil, err
+	}
+
+	var dsList []*DatastoreInfo
+	for _, hostMoref := range clusterComputeResourceMo.Host {
+		host := &HostSystem{
+			HostSystem: object.NewHostSystem(vc.Client.Client, hostMoref),
+		}
+		dsInfos, err := host.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			log.Errorf("Failed to fetch datastores from host %s. Err: %v", hostMoref, err)
+			return nil, err
+		}
+		dsList = append(dsList, dsInfos...)
+	}
+	return dsList, nil
 }

@@ -20,9 +20,15 @@ const (
 	// EnvClusterFlavor is the k8s cluster type on which CSI Driver is being deployed
 	EnvClusterFlavor = "CLUSTER_FLAVOR"
 
-	// EnvSupervisorClientQPS is the QPS for the client to the supervisor cluster API server
+	// EnvSupervisorClientQPS  is the QPS for all clients to the supervisor cluster API server
 	EnvSupervisorClientQPS = "SUPERVISOR_CLIENT_QPS"
 
-	// EnvSupervisorClientBurst is the Burst for the client to the supervisor cluster API server
+	// EnvSupervisorClientBurst  is the Burst for all clients to the supervisor cluster API server
 	EnvSupervisorClientBurst = "SUPERVISOR_CLIENT_BURST"
+
+	// EnvInClusterClientQPS is the QPS for all clients to the API server
+	EnvInClusterClientQPS = "INCLUSTER_CLIENT_QPS"
+
+	// EnvInClusterClientBurst is the Burst for all clients to the API server
+	EnvInClusterClientBurst = "INCLUSTER_CLIENT_BURST"
 )

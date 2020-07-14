@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
@@ -17,7 +19,6 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/types"
-	vim25types "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -93,6 +94,39 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+}
+
+// getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout
+func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context, vmUUID string, timeout time.Duration) (object.Reference, error) {
+	connect(ctx, vs)
+	dcList, err := vs.getAllDatacenters(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var vmMoRefForvmUUID object.Reference
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		var vmMoRefFound bool
+		for _, dc := range dcList {
+			datacenter := object.NewDatacenter(vs.Client.Client, dc.Reference())
+			s := object.NewSearchIndex(vs.Client.Client)
+			vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
+			instanceUUID := !(vanillaCluster || guestCluster)
+			vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
+
+			if err != nil || vmMoRef == nil {
+				continue
+			}
+			if vmMoRef != nil {
+				vmMoRefFound = true
+				vmMoRefForvmUUID = vmMoRef
+			}
+		}
+		if vmMoRefFound {
+			framework.Logf("vmuuid: %s still exists", vmMoRefForvmUUID)
+			continue
+		} else {
+			return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+		}
+	}
+	return vmMoRefForvmUUID, nil
 }
 
 // isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
@@ -351,6 +385,42 @@ func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityIn
 	return fcdID, nil
 }
 
+// createFCD with valid storage policy
+func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string, profileID string, diskCapacityInMB int64, dsRef types.ManagedObjectReference) (string, error) {
+	KeepAfterDeleteVM := false
+	spec := types.VslmCreateSpec{
+		Name:              fcdname,
+		CapacityInMB:      diskCapacityInMB,
+		KeepAfterDeleteVm: &KeepAfterDeleteVM,
+		BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
+			VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+				Datastore: dsRef,
+			},
+			ProvisioningType: string(types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
+		},
+		Profile: []types.BaseVirtualMachineProfileSpec{
+			&types.VirtualMachineDefinedProfileSpec{
+				ProfileId: profileID,
+			},
+		},
+	}
+	req := types.CreateDisk_Task{
+		This: *vs.Client.Client.ServiceContent.VStorageObjectManager,
+		Spec: spec,
+	}
+	res, err := methods.CreateDisk_Task(ctx, vs.Client.Client, &req)
+	if err != nil {
+		return "", err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	fcdID := taskInfo.Result.(types.VStorageObject).Config.Id.Id
+	return fcdID, nil
+}
+
 // deleteFCD deletes an FCD disk
 func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference) error {
 	req := types.DeleteVStorageObject_Task{
@@ -374,7 +444,7 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.Mana
 func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types.ManagedObjectReference, dsRefDest types.ManagedObjectReference) error {
 	spec := types.VslmRelocateSpec{
 		VslmMigrateSpec: types.VslmMigrateSpec{
-			DynamicData: vim25types.DynamicData{},
+			DynamicData: types.DynamicData{},
 			BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
 				VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
 					Datastore: dsRefDest,
@@ -398,4 +468,37 @@ func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types
 		return err
 	}
 	return nil
+}
+
+// verifyVolPropertiesFromCnsQueryResults verify file volume properties like capacity, volume type, datastore type and datacenter
+func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string) {
+
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s accesspoint: %s", queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints))
+
+	//Verifying disk size specified in PVC is honored
+	ginkgo.By("Verifying disk size specified in PVC is honored")
+	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb == diskSizeInMb).
+		To(gomega.BeTrue(), "wrong disk size provisioned")
+
+	//Verifying volume type specified in PVC is honored
+	ginkgo.By("Verifying volume type specified in PVC is honored")
+	gomega.Expect(queryResult.Volumes[0].VolumeType == testVolumeType).To(gomega.BeTrue(), "volume type is not FILE")
+
+	// Verify if VolumeID is created on the VSAN datastores
+	ginkgo.By("Verify if VolumeID is created on the VSAN datastores")
+	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).
+		To(gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
+
+	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
+	ginkgo.By("Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf")
+	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).
+		To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+
 }

@@ -435,19 +435,19 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
 			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
-				log.Warnf("FullSync: Failed to get pvc for namespace %v and name %v. err=%v", pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
+				log.Warnf("FullSync: Failed to get pvc for namespace %s and name %s. err=%v", pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 				return nil, nil, err
 			}
 			pvToPVCMap[pv.Name] = pvc
-			log.Debugf("FullSync: pvc %v is backed by pv %v", pvc.Name, pv.Name)
+			log.Debugf("FullSync: pvc %s/%s is backed by pv %s", pvc.Namespace, pvc.Name, pv.Name)
 			for _, pod := range pods {
 				if pod.Spec.Volumes != nil {
 					for _, volume := range pod.Spec.Volumes {
 						pvClaim := volume.VolumeSource.PersistentVolumeClaim
-						if pvClaim != nil && pvClaim.ClaimName == pvc.Name {
+						if pvClaim != nil && pvClaim.ClaimName == pvc.Name && pod.Namespace == pvc.Namespace {
 							key := pod.Namespace + "/" + pvClaim.ClaimName
 							pvcToPodMap[key] = append(pvcToPodMap[key], pod)
-							log.Debugf("FullSync: pvc %v is mounted by pod %v", key, pod.Name)
+							log.Debugf("FullSync: pvc %s is mounted by pod %s/%s", key, pod.Namespace, pod.Name)
 							break
 						}
 					}

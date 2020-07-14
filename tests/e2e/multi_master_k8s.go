@@ -99,7 +99,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		if sc != nil {
-			client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Waiting for old vsphere-csi-controller pod to be removed")
@@ -197,7 +198,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// power on vm
-		vm.PowerOn(ctx)
+		_, err = vm.PowerOn(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*

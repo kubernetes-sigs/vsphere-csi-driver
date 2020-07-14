@@ -37,6 +37,12 @@ ifeq (/src/$(MOD_NAME),$(subst $(GOPATH),,$(PWD)))
 $(warning This project uses Go modules and should not be cloned into the GOPATH)
 endif
 endif
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
 
 ################################################################################
 ##                                DEPENDENCIES                                ##
@@ -97,7 +103,27 @@ SYNCER_BIN_SRCS := cmd/$(SYNCER_BIN_NAME)/main.go go.mod go.sum
 SYNCER_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./cmd/$(SYNCER_BIN_NAME) | grep $(MOD_NAME) | sed 's~$(MOD_NAME)~.~'))
 export SYNCER_BIN_SRCS
 endif
-$(SYNCER_BIN): $(SYNCER_BIN_SRCS)
+
+syncer_manifest: controller-gen
+	$(CONTROLLER_GEN) crd:trivialVersions=true paths=./pkg/apis/storagepool/... output:crd:dir=pkg/apis/storagepool/config
+# find or download controller-gen
+# download controller-gen if necessary
+controller-gen:
+ifeq (, $(shell which controller-gen))
+	@{ \
+	set -e ;\
+	CONTROLLER_GEN_TMP_DIR=$$(mktemp -d) ;\
+	cd $$CONTROLLER_GEN_TMP_DIR ;\
+	go mod init tmp ;\
+	go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.2.5 ;\
+	rm -rf $$CONTROLLER_GEN_TMP_DIR ;\
+	}
+CONTROLLER_GEN=$(GOBIN)/controller-gen
+else
+CONTROLLER_GEN=$(shell which controller-gen)
+endif
+
+$(SYNCER_BIN): $(SYNCER_BIN_SRCS) syncer_manifest
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
 	@touch $@
 
@@ -333,6 +359,9 @@ lint:
 
 mdlint:
 	hack/check-mdlint.sh
+
+golangci-lint:
+	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v1.27.0 golangci-lint run -v --timeout=300s
 
 shellcheck:
 	hack/check-shell.sh

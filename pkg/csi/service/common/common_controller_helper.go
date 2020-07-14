@@ -22,11 +22,12 @@ import (
 	"strconv"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // ValidateCreateVolumeRequest is the helper function to validate
@@ -151,13 +152,46 @@ func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.Control
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if req.GetCapacityRange() == nil {
-		msg := "capacity range is a required parameter."
+		msg := "capacity range is a required parameter"
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
 		msg := "capacity ranges values cannot be negative"
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
+	}
+	// Validate Volume Capabilities
+	volCaps := req.GetVolumeCapability()
+	if volCaps == nil {
+		msg := "volume capabilities is a required parameter"
+		log.Error(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	}
+
+	// TODO: Remove this restriction when volume expansion is supported for File Volumes
+	if IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCaps}) {
+		msg := "volume expansion is only supported for block volume type"
+		log.Error(msg)
+		return status.Error(codes.Unimplemented, msg)
+	}
+
+	return nil
+}
+
+// IsOnlineExpansion verifies if the input volume is attached to any of the given VirutalMachines, to prevent
+// online expansion of volumes.
+// Returns an error if the volume is attached.
+func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere.VirtualMachine) error {
+	log := logger.GetLogger(ctx)
+	diskUUID, err := cnsvolume.IsDiskAttachedToVMs(ctx, volumeID, nodes)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if volume %q is attached to any node with error: %+v", volumeID, err)
+		log.Error(msg)
+		return status.Errorf(codes.Internal, msg)
+	} else if diskUUID != "" {
+		msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to node. Only offline volume expansion is supported", volumeID)
+		log.Error(msg)
+		return status.Errorf(codes.FailedPrecondition, msg)
 	}
 
 	return nil

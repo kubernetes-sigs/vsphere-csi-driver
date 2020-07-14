@@ -47,7 +47,6 @@ const (
 	pollTimeoutShort                           = 1 * time.Minute / 2
 	scParamStoragePolicyID                     = "StoragePolicyId"
 	scParamFsType                              = "csi.storage.k8s.io/fstype"
-	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
@@ -58,7 +57,18 @@ const (
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
+	healthStatusWaitTime                       = 2 * time.Minute
+	healthStatusAccessible                     = "accessible"
+	healthStatusInAccessible                   = "inaccessible"
+	healthGreen                                = "green"
+	vsphereCSIcontroller                       = "vsphere-csi-controller"
+	vsphereSystemNamespace                     = "vmware-system-csi"
+	vsphereTKGSystemNamespace                  = "vmware-system-tkg"
+	vsphereControllerManager                   = "vmware-system-tkg-controller-manager"
+	podContainerCreatingState                  = "ContainerCreating"
 	vsanhealthServiceName                      = "vsan-health"
+	spsServiceName                             = "sps"
+	wcpServiceName                             = "wcp"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
@@ -67,34 +77,28 @@ const (
 	ext4FSType                                 = "ext4"
 	ext3FSType                                 = "ext3"
 	invalidFSType                              = "ext10"
+	passorwdFilePath                           = "/etc/vmware/wcp/.storageUser"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	kubeSystemNamespace                        = "kube-system"
 	csiSystemNamespace                         = "vmware-system-csi"
-	syncerStatefulsetName                      = "vsphere-csi-metadata-syncer"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
-	rqLimit                                    = "100Gi"
+	rqLimit                                    = "500Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	quotaName                                  = "cns-test-quota"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
-	envK8SMaster1Name                          = "K8S_MASTER1_NAME"
-	envK8SMaster2Name                          = "K8S_MASTER2_NAME"
-	envK8SMaster3Name                          = "K8S_MASTER3_NAME"
-	envK8SMaster1IP                            = "K8S_MASTER1_IP"
-	envK8SMaster2IP                            = "K8S_MASTER2_IP"
-	envK8SMaster3IP                            = "K8S_MASTER3_IP"
 	nfs4FSType                                 = "nfs4"
 	fcdName                                    = "BasicStaticFCD"
-	stopVsanHealthOperation                    = "stop"
-	startVsanHealthOperation                   = "start"
+	stopOperation                              = "stop"
+	startOperation                             = "start"
 	sshdPort                                   = "22"
 	vsanHealthServiceWaitTime                  = 15
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
-	crdCNSVolumeMetadata                       = "cnsvolumemetadatas"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	adminPassword                              = "Admin!23"
 	e2eTestPassword                            = "E2E-test-password!23"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
+	svOperationTimeout                         = 240 * time.Second
 )
 
 const (

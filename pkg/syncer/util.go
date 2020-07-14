@@ -3,6 +3,8 @@ package syncer
 import (
 	"context"
 
+	"k8s.io/client-go/tools/cache"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
@@ -31,6 +33,26 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		}
 	}
 	return pvsInDesiredState, nil
+}
+
+// getBoundPVs return PVs in Bound state
+func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+	log := logger.GetLogger(ctx)
+	var boundPVs []*v1.PersistentVolume
+	// Get all PVs from kubernetes
+	allPVs, err := metadataSyncer.pvLister.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+	for _, pv := range allPVs {
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+			log.Debugf("getBoundPVs: pv %s with volumeHandle %s is in state %v", pv.Name, pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
+			if pv.Status.Phase == v1.VolumeBound {
+				boundPVs = append(boundPVs, pv)
+			}
+		}
+	}
+	return boundPVs, nil
 }
 
 // IsValidVolume determines if the given volume mounted by a POD is a valid vsphere volume. Returns the pv and pvc object if true.
@@ -94,4 +116,20 @@ func getQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clus
 		queryFilter.Cursor = &queryResult.Cursor
 	}
 	return allQueryResults, nil
+}
+
+// getPVCKey helps to get the PVC name from PVC object
+func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok && unknown.Obj != nil {
+		obj = unknown.Obj
+	}
+	objKey, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	if err != nil {
+		log.Errorf("Failed to get key from object: %v", err)
+		return "", err
+	}
+	log.Infof("getPVCKey: PVC key %s", objKey)
+	return objKey, nil
 }

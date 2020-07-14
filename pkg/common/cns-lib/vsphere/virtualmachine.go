@@ -20,10 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"sync"
 
-	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25/mo"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -216,33 +214,12 @@ func (vm *VirtualMachine) GetHostSystem(ctx context.Context) (*object.HostSystem
 // GetTagManager returns tagManager using vm client
 func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, error) {
 	log := logger.GetLogger(ctx)
-	restClient := rest.NewClient(vm.Client())
 	virtualCenter, err := GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vm.VirtualCenterHost)
 	if err != nil {
 		log.Errorf("failed to get virtualCenter. Error: %v", err)
 		return nil, err
 	}
-	signer, err := signer(ctx, vm.Client(), virtualCenter.Config.Username, virtualCenter.Config.Password)
-	if err != nil {
-		log.Errorf("failed to create the Signer. Error: %v", err)
-		return nil, err
-	}
-	if signer == nil {
-		log.Debugf("Using plain text username and password")
-		user := url.UserPassword(virtualCenter.Config.Username, virtualCenter.Config.Password)
-		err = restClient.Login(ctx, user)
-	} else {
-		log.Debugf("Using certificate and private key")
-		err = restClient.LoginByToken(restClient.WithSigner(ctx, signer))
-	}
-	if err != nil {
-		log.Errorf("failed to login for the rest client. Error: %v", err)
-	}
-	tagManager := tags.NewManager(restClient)
-	if tagManager == nil {
-		log.Errorf("failed to create a tagManager")
-	}
-	return tagManager, nil
+	return GetTagManager(ctx, virtualCenter)
 }
 
 // GetAncestors returns ancestors of VM
@@ -275,7 +252,12 @@ func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName st
 		log.Errorf("failed to get tagManager. Error: %v", err)
 		return "", "", err
 	}
-	defer tagManager.Logout(ctx)
+	defer func() {
+		err = tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
 	var objects []mo.ManagedEntity
 	objects, err = vm.GetAncestors(ctx)
 	if err != nil {
@@ -331,7 +313,12 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 		log.Errorf("failed to get tagManager. Error: %v", err)
 		return false, err
 	}
-	defer tagManager.Logout(ctx)
+	defer func() {
+		err = tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
 	vmZone, vmRegion, err := vm.GetZoneRegion(ctx, zoneCategoryName, regionCategoryName)
 	if err != nil {
 		log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", vm.Reference(), err)

@@ -18,9 +18,11 @@ package syncer
 
 import (
 	"sync"
+	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -38,6 +40,26 @@ const (
 	// queryVolumeLimit is the page size, which should be set in the cursor when syncer container need to
 	// query many volumes using QueryVolume API
 	queryVolumeLimit = int64(500)
+
+	// key for HealthStatus annotation on PVC
+	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+	// default interval for csi volume health
+	defaultVolumeHealthIntervalInMin = 5
+
+	// default resync period for volume health reconciler
+	volumeHealthResyncPeriod = 10 * time.Minute
+	// default retry start interval time for volume health reconciler
+	volumeHealthRetryIntervalStart = time.Second
+	// default retry max interval time for volume health reconciler
+	volumeHealthRetryIntervalMax = 5 * time.Minute
+	// default number of threads concurrently running for volume health reconciler
+	volumeHealthWorkers = 10
+
+	// description of volume health status for accessible volume
+	volHealthStatusAccessible = "accessible"
+
+	// description of volume health status for inaccessible volume
+	volHealthStatusInAccessible = "inaccessible"
 )
 
 var (
@@ -62,6 +84,8 @@ type (
 	pvcMap = map[string]*v1.PersistentVolumeClaim
 	// Maps K8s PVC name to respective Pod object
 	podMap = map[string][]*v1.Pod
+	// Maps K8s PV's Spec.CSI.VolumeHandle to corresponding PVC object
+	volumeHandlePVCMap = map[string]*v1.PersistentVolumeClaim
 )
 
 type metadataSyncInformer struct {
@@ -69,9 +93,21 @@ type metadataSyncInformer struct {
 	volumeManager      volumes.Manager
 	host               string
 	cnsOperatorClient  client.Client
+	supervisorClient   clientset.Interface
 	configInfo         *types.ConfigInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
 	pvcLister          corelisters.PersistentVolumeClaimLister
 	podLister          corelisters.PodLister
 }
+
+const (
+	// resizeResyncPeriod represents the interval between two resize reconciler syncs
+	resizeResyncPeriod = 10 * time.Minute
+	// resizeRetryIntervalStart represents the start retry interval of the resize reconciler
+	resizeRetryIntervalStart = time.Second
+	// resizeRetryIntervalMax represents the max retry interval of the resize reconciler
+	resizeRetryIntervalMax = 5 * time.Minute
+	// resizeWorkers represents the number of running worker threads
+	resizeWorkers = 10
+)

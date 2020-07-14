@@ -50,4 +50,8 @@ FROM ${BASE_IMAGE}
 
 COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
+RUN mkdir -p config
+
+ADD pkg/apis/cnsoperator/config/cnsregistervolume_crd.yaml /config/
+
 ENTRYPOINT ["/bin/vsphere-syncer"]

@@ -40,6 +40,12 @@ type Config struct {
 		CAFile string `gcfg:"ca-file"`
 		// Datacenter in which Node VMs are located.
 		Datacenters string `gcfg:"datacenters"`
+		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
+		// successful CnsRegisterVolumes will be cleaned up.
+		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// VCClientTimeout specifies a time limit in minutes for requests made by client
+		// If not set, default will be 5 minutes
+		VCClientTimeout int `gcfg:"vc-client-timeout"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
@@ -64,6 +70,8 @@ type Config struct {
 // FeatureStateSwitches contains flags to enable/disable features
 type FeatureStateSwitches struct {
 	CSIMigration bool `gcfg:"csi-migration"`
+	VolumeExtend bool `gcfg:"volume-extend"`
+	VolumeHealth bool `gcfg:"volume-health"`
 }
 
 // NetPermissionConfig consists of information used to restrict the

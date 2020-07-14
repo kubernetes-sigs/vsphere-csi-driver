@@ -29,7 +29,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
-
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -57,8 +57,45 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 	var datastores []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
-		//  If DatastoreURL is not specified in StorageClass, get all shared datastores
-		datastores = getDatastoreMoRefs(sharedDatastores)
+		// Check if datastore URL is specified by the storage pool parameter
+		if spec.VsanDirectDatastoreURL != "" {
+			// Create Datacenter object
+			var dcList []*vsphere.Datacenter
+			for _, dc := range vc.Config.DatacenterPaths {
+				dcList = append(dcList,
+					&vsphere.Datacenter{
+						Datacenter: object.NewDatacenter(
+							vc.Client.Client,
+							vim25types.ManagedObjectReference{
+								Type:  "Datacenter",
+								Value: dc,
+							}),
+						VirtualCenterHost: vc.Config.Host,
+					})
+			}
+			// Search the datastore from the URL in the datacenter list
+			var datastoreObj *vsphere.Datastore
+			for _, datacenter := range dcList {
+				datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.VsanDirectDatastoreURL)
+				if err != nil {
+					log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+						spec.VsanDirectDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+					continue
+				}
+				log.Debugf("Successfully fetched the datastore %v from the URL: %v",
+					datastoreObj.Reference(), spec.VsanDirectDatastoreURL)
+				datastores = append(datastores, datastoreObj.Reference())
+				break
+			}
+			if datastores == nil {
+				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the create volume spec is not found.",
+					spec.VsanDirectDatastoreURL)
+				return "", errors.New(errMsg)
+			}
+		} else {
+			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
+			datastores = getDatastoreMoRefs(sharedDatastores)
+		}
 	} else {
 		// Check datastore specified in the StorageClass should be shared datastore across all nodes.
 
@@ -343,16 +380,16 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 }
 
 // DeleteVolumeUtil is the helper function to delete CNS volume for given volumeId
-func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, deleteDisk bool) error {
+func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	log.Debugf("vSphere Cloud Provider deleting volume: %s", volumeID)
-	err = manager.VolumeManager.DeleteVolume(ctx, volumeID, deleteDisk)
+	log.Debugf("vSphere Cloud Provider deleting volume: %s with deleteDisk flag: %t", volumeID, deleteDisk)
+	err = volManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
-		log.Errorf("failed to delete disk %s with error %+v", volumeID, err)
+		log.Errorf("failed to delete disk %s, deleteDisk flag: %t with error %+v", volumeID, deleteDisk, err)
 		return err
 	}
-	log.Debugf("Successfully deleted disk for volumeid: %s", volumeID)
+	log.Debugf("Successfully deleted disk for volumeid: %s, deleteDisk flag: %t", volumeID, deleteDisk)
 	return nil
 }
 
@@ -360,14 +397,45 @@ func DeleteVolumeUtil(ctx context.Context, manager *Manager, volumeID string, de
 func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
 	var err error
 	log := logger.GetLogger(ctx)
-	log.Debugf("vSphere CNS driver expanding volume %q to new size %d MB.", volumeID, capacityInMb)
-	err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+	log.Debugf("vSphere CNS driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
+
+	expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager)
 	if err != nil {
-		log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 		return err
 	}
-	log.Debugf("Successfully expanded volume for volumeid %q to new size %d MB.", volumeID, capacityInMb)
-	return nil
+	if expansionRequired {
+		log.Infof("Requested size %d Mb is greater than current size for volumeID: %q. Need volume expansion.", capacityInMb, volumeID)
+		err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+		if err != nil {
+			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
+			return err
+		}
+		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
+
+	} else {
+		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
+	}
+	return err
+}
+
+// QueryVolumeByID is the helper function to query volume by volumeID
+func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) (*cnstypes.CnsVolume, error) {
+	log := logger.GetLogger(ctx)
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	queryResult, err := volManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		msg := fmt.Sprintf("QueryVolume failed for volumeID: %s with error %+v", volumeID, err)
+		log.Error(msg)
+		return nil, err
+	}
+	if len(queryResult.Volumes) == 0 {
+		msg := fmt.Sprintf("volumeID %q not found in QueryVolume", volumeID)
+		log.Error(msg)
+		return nil, ErrNotFound
+	}
+	return &queryResult.Volumes[0], nil
 }
 
 // Helper function to get DatastoreMoRefs
@@ -401,7 +469,7 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 	return vim25types.ManagedObjectReference{}, errors.New(msg)
 }
 
-// IsFileServiceEnabled checks if file sevice is enabled on the specified datastoreUrls.
+// IsFileServiceEnabled checks if file service is enabled on the specified datastoreUrls.
 func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *Manager) (map[string]bool, error) {
 	// Compute this map during controller init. Re use the map every other time.
 	log := logger.GetLogger(ctx)
@@ -498,4 +566,28 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 		}
 	}
 	return dsToFileServiceEnabledMap, nil
+}
+
+// isExpansionRequired verifies if the requested size to expand a volume is greater than the current size
+func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64, manager *Manager) (bool, error) {
+	log := logger.GetLogger(ctx)
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+	}
+	queryResult, err := manager.VolumeManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
+		return false, err
+	}
+	var currentSize int64
+	if len(queryResult.Volumes) > 0 {
+		currentSize = queryResult.Volumes[0].BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
+	} else {
+		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
+		log.Error(msg)
+		return false, err
+	}
+
+	return currentSize < requestedSize, nil
 }

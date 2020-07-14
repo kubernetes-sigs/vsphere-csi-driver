@@ -147,7 +147,10 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(testSupervisorPVCName, metav1.GetOptions{})
 		pvc.Status.Phase = "Bound"
-		ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(pvc)
+		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(pvc)
+		if err != nil {
+			t.Fatal(err)
+		}
 		respCreate, err = <-response, <-error
 	} else {
 		respCreate, err = ct.controller.CreateVolume(ctx, reqCreate)
