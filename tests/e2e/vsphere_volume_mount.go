@@ -74,11 +74,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
 		22.Delete storage policy
 	*/
 	ginkgo.It("[csi-file-vanilla] Verify Pod can be created with PVC (dynamically provisioned) with access mode ReadWriteMany", func() {
-		invokeTestForCreateFileVolumeAndMount(f, client, namespace)
+		createFileVolumeAndMount(f, client, namespace)
 	})
 })
 
-func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client clientset.Interface, namespace string) {
+func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface, namespace string) {
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", v1.ReadWriteMany))
 	sharedatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 	scParameters := make(map[string]string)
