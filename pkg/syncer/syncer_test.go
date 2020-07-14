@@ -163,7 +163,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	config.Global.ClusterID = testClusterName
 
 	// Init VC configuration
-	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(config)
+	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, config)
 	if err != nil {
 		t.Errorf("failed to get virtualCenter. err=%v", err)
 		t.Fatal(err)
@@ -177,10 +177,17 @@ func TestSyncerWorkflows(t *testing.T) {
 	}
 
 	err = virtualCenter.ConnectCns(ctx)
-	defer virtualCenter.Disconnect(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		if virtualCenter != nil {
+			err = virtualCenter.Disconnect(ctx)
+			if err != nil {
+				t.Error(err)
+			}
+		}
+	}()
 
 	volumeManager = volume.GetManager(ctx, virtualCenter)
 

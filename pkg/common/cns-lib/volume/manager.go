@@ -137,6 +137,10 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 		}
 	}
 	m.virtualCenter.Config = vcenter.Config
+	if m.virtualCenter.Client != nil {
+		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
+		log.Infof("VC client timeout is set to %v", m.virtualCenter.Client.Timeout)
+	}
 	log.Infof("Done resetting volume.defaultManager")
 }
 
@@ -219,12 +223,30 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		}
 		// Remove the taskInfo object associated with the volume name when the current task fails.
 		//  This is needed to ensure the sub-sequent create volume call from the external provisioner invokes Create Volume
-		delete(volumeTaskMap, spec.Name)
+		taskDetailsInMap, ok := volumeTaskMap[spec.Name]
+		if ok {
+			taskDetailsInMap.Lock()
+			log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed", spec.Name)
+			delete(volumeTaskMap, spec.Name)
+			taskDetailsInMap.Unlock()
+		}
 		msg := fmt.Sprintf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		log.Error(msg)
 		return nil, errors.New(msg)
 	}
-	log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, volumeID: %q, opId: %q", spec.Name, volumeOperationRes.VolumeId.Id, taskInfo.ActivationId)
+	blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	// Remove this task from volumeTaskMap in case successful static volume provisioning
+	// as it doesn't result in orphaned volumes
+	if ok && (blockBackingDetails.BackingDiskId != "" || blockBackingDetails.BackingDiskUrlPath != "") {
+		taskDetailsInMap, ok1 := volumeTaskMap[spec.Name]
+		if ok1 {
+			taskDetailsInMap.Lock()
+			log.Debugf("Deleted task for %s from volumeTaskMap for statically provisioned volume", spec.Name)
+			delete(volumeTaskMap, spec.Name)
+			taskDetailsInMap.Unlock()
+		}
+	}
+	log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", spec.Name, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
 	return &cnstypes.CnsVolumeId{
 		Id: volumeOperationRes.VolumeId.Id,
 	}, nil
@@ -339,7 +361,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 					volumeID, vm)
 				return nil
 			} else {
-				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %q", volumeID, vm, err)
+				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
 				log.Error(msg)
 				return errors.New(msg)
 			}

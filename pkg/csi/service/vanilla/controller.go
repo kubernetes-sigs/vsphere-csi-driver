@@ -97,7 +97,7 @@ func (c *controller) Init(config *config.Config) error {
 	log.Infof("Initializing CNS controller")
 	var err error
 	// Get VirtualCenterManager instance and validate version
-	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
+	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 	if err != nil {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return err
@@ -210,7 +210,7 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return
 	}
-	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(cfg)
+	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 	if err != nil {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return
@@ -239,6 +239,7 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 				log.Errorf("failed to get VirtualCenter. err=%v", err)
 				return
 			}
+			vcenter.Config = newVCConfig
 		}
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
@@ -535,7 +536,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 	}
-	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
+	err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
@@ -747,94 +748,33 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, err
 	}
 
 	volumeID := req.GetVolumeId()
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	// Check if volume is already expanded
-	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: volumeIds,
-	}
-	queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
 	if err != nil {
-		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	var currentSize int64
-	if len(queryResult.Volumes) > 0 {
-		currentSize = queryResult.Volumes[0].BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
-	} else {
-		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
+		msg := fmt.Sprintf("failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
-	log.Debugf("volumeID: %q volume type: %q.", volumeID, queryResult.Volumes[0].VolumeType)
-	// TODO(xyang): ControllerExpandVolumeRequest does not have VolumeCapability in
-	// CSI 1.1.0 so we can't find out the fstype from that and determine
-	// whether it is a file volume. VolumeCapability is added to ControllerExpandVolumeRequest
-	// in CSI 1.2.0 but resizer sidecar is not released yet to support that. Currently
-	// the latest resizer is v0.3.0 which supports CSI 1.1.0. When VolumeCapability
-	// becomes available in ControllerExpandVolumeRequest, we should use that to find out
-	// whether it is a file volume and do the validation in validateVanillaControllerExpandVolumeRequest.
-	if queryResult.Volumes[0].VolumeType != common.BlockVolumeType {
-		msg := fmt.Sprintf("volume type for volumeID %q is %q. Volume expansion is only supported for block volume type.", volumeID, queryResult.Volumes[0].VolumeType)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Unimplemented, msg)
+	// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
+	// Volume expansion may succeed on CNS but external-resizer may fail to update API server.
+	// Requests are requeued in this case. Setting nodeExpandsionRequired to false marks PVC
+	// resize as finished which prevents kubelet from expanding the filesystem.
+	// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
+	nodeExpansionRequired := true
+	// Node expansion is not required for raw block volumes
+	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+		nodeExpansionRequired = false
 	}
-
-	if currentSize >= volSizeMB {
-		log.Infof("Volume size %d is greater than or equal to the requested size %d for volumeID: %q", currentSize, volSizeMB, volumeID)
-	} else {
-		// Check if volume is attached to a node
-		log.Infof("Check if volume %q is attached to a node", volumeID)
-		nodes, err := c.nodeMgr.GetAllNodes(ctx)
-		if err != nil {
-			msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
-		}
-
-		for _, node := range nodes {
-			// Check if volume is attached to any node. If so,
-			// fail the operation as only offline volume expansion is supported.
-			diskUUID, err := cnsvolume.IsDiskAttached(ctx, node, volumeID)
-			if err != nil {
-				msg := fmt.Sprintf("expand volume has failed with err: %q. Unable to check if volume: %q is attached to node: %+v",
-					err, volumeID, node)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
-			} else if diskUUID != "" {
-				msg := fmt.Sprintf("failed to expand volume: %+q to size: %d. Volume is attached to node %q. Only offline volume expansion is supported", volumeID, volSizeMB, node.UUID)
-				log.Error(msg)
-				return nil, status.Errorf(codes.FailedPrecondition, msg)
-			}
-		}
-
-		log.Infof("Current volume size is %d, requested size is %d for volumeID: %q. Need volume expansion.", currentSize, volSizeMB, volumeID)
-
-		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
-		if err != nil {
-			msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", req.VolumeId, volSizeMB, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	}
-
-	// TODO(xyang): In CSI spec 1.2, ControllerExpandVolume will be
-	// passing in VolumeCapability with access_type info indicating
-	// whether it is BlockVolume (raw block mode) or MountVolume (file
-	// system mode). Update this function when CSI spec 1.2 is supported
-	// by external-resizer. For BlockVolume, set NodeExpansionRequired to
-	// false; for MountVolume, set it to true.
-
 	resp := &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
-		NodeExpansionRequired: true,
+		NodeExpansionRequired: nodeExpansionRequired,
 	}
 	return resp, nil
 }

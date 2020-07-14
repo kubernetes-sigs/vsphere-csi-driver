@@ -45,6 +45,10 @@ const (
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// DefaultGCConfigPath is the default path of GC config file
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
+	// DefaultSVFeatureStateConfigPath is the default path of csi feature states config file in Supervisor Cluster
+	DefaultSVFeatureStateConfigPath = "/etc/vmware/wcp/csi-feature-states/csi-feature-states.conf"
+	// DefaultGCFeatureStateConfigPath is the default path of csi feature states config file in Guest Cluster
+	DefaultGCFeatureStateConfigPath = "/etc/cloud/csi-feature-states/csi-feature-states.conf"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
 	// EnvFeatureStates contains the path to the CSI Feature States Config
@@ -55,6 +59,12 @@ const (
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
+	// DefaultFeatureStateValue is the default value for Feature state switches
+	DefaultFeatureStateValue = false
+	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
+	// interval after which successful CnsRegisterVolumes will be cleaned up.
+	// Current default value is set to 12 hours
+	DefaultCnsRegisterVolumesCleanupIntervalInMin = 720
 )
 
 // Errors
@@ -290,6 +300,10 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
+
+	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
+		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
+	}
 	return nil
 }
 
@@ -349,6 +363,8 @@ func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cf
 	if _, err := os.Stat(featureStatesCfgPath); os.IsNotExist(err) {
 		log.Warnf("failed to stat csi-feature-states.conf. Setting the feature state values to false")
 		cfg.FeatureStates.CSIMigration = false
+		cfg.FeatureStates.VolumeExtend = false
+		cfg.FeatureStates.VolumeHealth = false
 		return nil
 	}
 	featureStatesConfig, err := os.Open(featureStatesCfgPath)
@@ -362,6 +378,12 @@ func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cf
 	}
 	if !cfg.FeatureStates.CSIMigration {
 		log.Infof("CSI Migration feature is disabled.")
+	}
+	if !cfg.FeatureStates.VolumeExtend {
+		log.Infof("Volume resize feature is disabled.")
+	}
+	if !cfg.FeatureStates.VolumeHealth {
+		log.Infof("Volume health feature is disabled.")
 	}
 	return nil
 }

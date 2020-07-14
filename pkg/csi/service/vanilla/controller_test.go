@@ -233,7 +233,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		// CNS based CSI requires a valid cluster name
 		config.Global.ClusterID = testClusterName
 
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(config)
+		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -469,6 +469,7 @@ func TestExtendVolume(t *testing.T) {
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: newSize,
 		},
+		VolumeCapability: capabilities[0],
 	}
 	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
 	respExpand, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)

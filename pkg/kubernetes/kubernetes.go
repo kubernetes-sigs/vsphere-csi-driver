@@ -25,10 +25,6 @@ import (
 	"strconv"
 	"time"
 
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/informers"
-
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -39,6 +35,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -47,12 +46,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis"
 )
 
 const (
@@ -95,6 +94,7 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 		log.Errorf("Failed to get KubeConfig. err: %v", err)
 		return nil, err
 	}
+	config.QPS, config.Burst = getClientThroughput(ctx, true)
 	return clientset.NewForConfig(config)
 }
 
@@ -121,14 +121,13 @@ func GetRestClientConfig(ctx context.Context, endpoint string, port string) *res
 		},
 		BearerToken: string(token),
 	}
-
+	config.QPS, config.Burst = getClientThroughput(ctx, false)
 	return config
 }
 
 // NewSupervisorClient creates a new supervisor client for given restClient config
 func NewSupervisorClient(ctx context.Context, config *restclient.Config) (clientset.Interface, error) {
 	log := logger.GetLogger(ctx)
-	config.QPS, config.Burst = getSupervisorClientThroughput(ctx)
 	log.Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
 	client, err := clientset.NewForConfig(config)
 	if err != nil {
@@ -229,25 +228,34 @@ func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName 
 	return k8sNodeUUID, nil
 }
 
-// getSupervisorClientThroughput returns the QPS and Burst for Supervisor Client provided in env
-// variables EnvSupervisorClientQPS and EnvSupervisorClientBurst respectively.
+// getClientThroughput returns the QPS and Burst for the API server client.
 // QPS and Burst default to 50.
 // The maximum accepted value for QPS or Burst is set to 1000.
 // The minimum accepted value for QPS or Burst is set to 5.
-func getSupervisorClientThroughput(ctx context.Context) (float32, int) {
+func getClientThroughput(ctx context.Context, inClusterClient bool) (float32, int) {
 	log := logger.GetLogger(ctx)
-	qps := defaultSupervisorClientQPS
-	burst := defaultSupervisorClientBurst
-	if v := os.Getenv(types.EnvSupervisorClientQPS); v != "" {
-		if value, err := strconv.ParseFloat(v, 32); err != nil || float32(value) < minSupervisorClientQPS || float32(value) > maxSupervisorClientQPS {
-			log.Warnf("Invalid value set for env variable %s: %v. Using default value.", types.EnvSupervisorClientQPS, v)
+	var envClientQPS, envClientBurst string
+	qps := defaultClientQPS
+	burst := defaultClientBurst
+
+	if inClusterClient {
+		envClientQPS = types.EnvInClusterClientQPS
+		envClientBurst = types.EnvInClusterClientBurst
+	} else {
+		envClientQPS = types.EnvSupervisorClientQPS
+		envClientBurst = types.EnvSupervisorClientBurst
+	}
+
+	if v := os.Getenv(envClientQPS); v != "" {
+		if value, err := strconv.ParseFloat(v, 32); err != nil || float32(value) < minClientQPS || float32(value) > maxClientQPS {
+			log.Warnf("Invalid value set for env variable %s: %v. Using default value.", envClientQPS, v)
 		} else {
 			qps = float32(value)
 		}
 	}
-	if v := os.Getenv(types.EnvSupervisorClientBurst); v != "" {
-		if value, err := strconv.Atoi(v); err != nil || value < minSupervisorClientBurst || value > maxSupervisorClientBurst {
-			log.Warnf("Invalid value set for env variable %s: %v. Using default value.", types.EnvSupervisorClientBurst, v)
+	if v := os.Getenv(envClientBurst); v != "" {
+		if value, err := strconv.Atoi(v); err != nil || value < minClientBurst || value > maxClientBurst {
+			log.Warnf("Invalid value set for env variable %s: %v. Using default value.", envClientBurst, v)
 		} else {
 			burst = value
 		}

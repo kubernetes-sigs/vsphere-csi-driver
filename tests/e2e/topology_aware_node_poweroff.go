@@ -74,7 +74,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Creating statefulset with single replica")
 		statefulsetTester := framework.NewStatefulSetTester(client)
@@ -111,11 +114,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
 		_, err = vm.PowerOff(ctx)
 		framework.ExpectNoError(err)
-		defer vm.PowerOn(ctx)
+		defer func() {
+			_, err := vm.PowerOn(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOff)
 		framework.ExpectNoError(err, "Unable to power off the node")
-		defer vm.PowerOn(ctx)
+		defer func() {
+			_, err := vm.PowerOn(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Wait for 7 minutes for k8s to schedule the pod on other node")
 		time.Sleep(k8sPodTerminationTimeOut)
@@ -123,7 +132,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Forcefully deleting the pod")
 		statefulsetTester.DeleteStatefulPodAtIndex(0, statefulset)
 
-		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and start the pod succesfully on other node")
+		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and start the pod successfully on other node")
 		time.Sleep(k8sPodTerminationTimeOut)
 		statefulsetTester.WaitForRunning(1, 1, statefulset)
 
@@ -147,7 +156,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Power on the previous node: %v", nodeNameToPowerOff))
-		vm.PowerOn(ctx)
+		_, err = vm.PowerOn(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -183,7 +194,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Creating statefulset with single replica")
 		statefulsetTester := framework.NewStatefulSetTester(client)
@@ -220,7 +234,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
 		_, err = vm.PowerOff(ctx)
 		framework.ExpectNoError(err)
-		defer vm.PowerOn(ctx)
+		defer func() {
+			_, err = vm.PowerOn(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOff)
 		framework.ExpectNoError(err, "Unable to power off the node")
@@ -248,7 +265,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}
 
 		ginkgo.By(fmt.Sprintf("Power on the previous node: %v", nodeNameBeforePowerOff))
-		vm.PowerOn(ctx)
+		_, err = vm.PowerOn(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
 		framework.ExpectNoError(err, "Unable to power on the node")
 

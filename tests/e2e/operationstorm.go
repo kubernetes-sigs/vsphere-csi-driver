@@ -28,6 +28,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/utils"
@@ -145,7 +146,12 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		ginkgo.By("Creating pod to attach PVs to the node")
 		pod, err := framework.CreatePod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
+		defer func() {
+			err = client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 
 		var vmUUID string
 		ginkgo.By("Verify the volumes are attached to the node vm")
@@ -187,12 +193,10 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			} else {
-				ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
-				time.Sleep(supervisorClusterOperationsTimeout)
 				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
 			}
 		}

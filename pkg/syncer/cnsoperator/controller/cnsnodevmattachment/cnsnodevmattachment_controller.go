@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -44,11 +45,12 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsnodevmattachment/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -62,7 +64,10 @@ const (
 // Initialized to 1 second for new instances and for instances whose latest reconcile
 // operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
-var backOffDuration map[string]time.Duration
+var (
+	backOffDuration         map[string]time.Duration
+	backOffDurationMapMutex = sync.Mutex{}
+)
 
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
@@ -86,7 +91,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cns.vmware.com"})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder))
 }
 
@@ -165,18 +170,22 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	}
 
 	// Initialize backOffDuration for the instance, if required.
+	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
 	if _, exists := backOffDuration[instance.Name]; !exists {
 		backOffDuration[instance.Name] = time.Second
 	}
 	timeout = backOffDuration[instance.Name]
+	backOffDurationMapMutex.Unlock()
 	log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q instance %q timeout %q seconds", request.Name, instance.Name, timeout)
 
 	// If the CnsNodeVMAttachment instance is already attached and
 	// not deleted by the user, remove the instance from the queue.
 	if instance.Status.Attached && instance.DeletionTimestamp == nil {
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -185,7 +194,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		instance.Status.Error = err.Error()
-		updateCnsNodeVMAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+		if err != nil {
+			log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		}
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -200,7 +212,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 		instance.Status.Error = err.Error()
-		updateCnsNodeVMAttachment(ctx, r.client, instance)
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+		if err != nil {
+			log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		}
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -218,8 +233,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		if err != nil {
 			msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
-			instance.Status.Error = fmt.Sprintf("failed to find the VM with UUID: %q", nodeUUID)
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -228,7 +246,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -317,7 +338,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			"with name %q and namespace %q.", request.Name, request.Namespace)
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -329,7 +352,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			// TODO : Need to check for VirtualMachine CRD instance existence.
 			// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
 			removeFinalizerFromCRDInstance(ctx, instance, request)
-			updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
 			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 			return reconcile.Result{}, nil
 
@@ -349,10 +375,15 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			if vsphere.IsManagedObjectNotFound(detachErr) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
-				updateCnsNodeVMAttachment(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				if err != nil {
+					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				}
 				recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 				// Cleanup instance entry from backOffDuration map
+				backOffDurationMapMutex.Lock()
 				delete(backOffDuration, instance.Name)
+				backOffDurationMapMutex.Unlock()
 				return reconcile.Result{}, nil
 			}
 			// Update CnsNodeVMAttachment instance with detach error message
@@ -378,7 +409,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 	}
 	// Cleanup instance entry from backOffDuration map
+	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, instance.Name)
+	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
 }
 
@@ -449,7 +482,7 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 // getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
 // number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
 // If environment variable WORKER_THREADS_NODEVM_ATTACH is set and valid,
-// return the value read from enviroment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach
@@ -481,12 +514,16 @@ func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment, instance 
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
 	}

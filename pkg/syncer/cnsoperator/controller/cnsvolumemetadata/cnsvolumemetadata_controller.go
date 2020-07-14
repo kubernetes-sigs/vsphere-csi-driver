@@ -22,6 +22,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -45,11 +46,12 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/apis/cnsvolumemetadata/v1alpha1"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -63,7 +65,10 @@ const (
 // Initialized to 1 second for new instances and for instances whose latest reconcile
 // operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
-var backOffDuration map[string]time.Duration
+var (
+	backOffDuration         map[string]time.Duration
+	backOffDurationMapMutex = sync.Mutex{}
+)
 
 // Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigInfo,
 // volumeManager and k8sclient. The Manager will set fields on the Controller
@@ -87,7 +92,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cns.vmware.com"})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, k8sclient, recorder))
 }
 
@@ -190,12 +195,13 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 	log.Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q", instance.Name, instance.Spec.EntityType)
 
 	// Initialize backOffDuration for the instance, if required.
+	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
 	if _, exists := backOffDuration[instance.Name]; !exists {
 		backOffDuration[instance.Name] = time.Second
 	}
 	timeout = backOffDuration[instance.Name]
-
+	backOffDurationMapMutex.Unlock()
 	// Validate input instance fields
 	if err = validateReconileRequest(instance); err != nil {
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to validate reconcile request with error: %v", err)
@@ -239,7 +245,9 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 			}
 		}
 		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
@@ -458,12 +466,16 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second
+		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
+		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "UpdateSucceeded", msg)
 		log.Info(msg)
 	}
@@ -472,7 +484,7 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 // getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum
 // number of worker threads which can be run to reconcile CnsVolumeMetadata instances.
 // If environment variable WORKER_THREADS_VOLUME_METADATA is set and valid,
-// return the value read from enviroment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default value
 func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata
