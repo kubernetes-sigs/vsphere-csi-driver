@@ -244,7 +244,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	}
 
 	ginkgo.By("Waiting for controller volume resize to finish")
-	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 	ginkgo.By("Checking for conditions on pvc")
@@ -403,7 +403,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	}
 
 	ginkgo.By("Waiting for controller volume resize to finish")
-	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 	ginkgo.By("Checking for conditions on pvc")
@@ -585,7 +585,7 @@ func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client cl
 	}
 
 	ginkgo.By("Verify if controller resize failed")
-	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 
 	// Delete POD
@@ -807,7 +807,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	}
 
 	ginkgo.By("Waiting for controller resize to finish")
-	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 	ginkgo.By("Checking for conditions on pvc")
@@ -932,7 +932,7 @@ func invokeTestForUnsupportedFileVolumeExpansion(f *framework.Framework, client 
 	}
 
 	ginkgo.By("Verify if controller resize failed")
-	err = waitForControllerVolumeResize(pvclaim, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 }
 
@@ -959,21 +959,27 @@ func expandPVCSize(origPVC *v1.PersistentVolumeClaim, size resource.Quantity, c 
 	return updatedPVC, waitErr
 }
 
-// waitForControllerVolumeResize waits for the controller resize to be finished
-func waitForControllerVolumeResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface, duration time.Duration) error {
+// waitForPvResizeForGivenPvc waits for the controller resize to be finished
+func waitForPvResizeForGivenPvc(pvc *v1.PersistentVolumeClaim, c clientset.Interface, duration time.Duration) error {
 	pvName := pvc.Spec.VolumeName
-	return wait.PollImmediate(resizePollInterval, duration, func() (bool, error) {
-		pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+	pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+	pv, err := c.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return waitForPvResize(pv, c, pvcSize, duration)
+}
 
-		pv, err := c.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
+// waitForPvResize waits for the controller resize to be finished
+func waitForPvResize(pv *v1.PersistentVolume, c clientset.Interface, size resource.Quantity, duration time.Duration) error {
+	return wait.PollImmediate(resizePollInterval, duration, func() (bool, error) {
+		pv, err := c.CoreV1().PersistentVolumes().Get(pv.Name, metav1.GetOptions{})
 		if err != nil {
-			return false, fmt.Errorf("error fetching pv %q for resizing %v", pvName, err)
+			return false, fmt.Errorf("error fetching pv %q for resizing %v", pv.Name, err)
 		}
 
 		pvSize := pv.Spec.Capacity[v1.ResourceStorage]
 
 		// If pv size is greater or equal to requested size that means controller resize is finished.
-		if pvSize.Cmp(pvcSize) >= 0 {
+		if pvSize.Cmp(size) >= 0 {
 			return true, nil
 		}
 		return false, nil
@@ -1003,7 +1009,7 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 	return updatedPVC, waitErr
 }
 
-// get filesystem size in Mb
+// getFSSizeMb returns filesystem size in Mb
 func getFSSizeMb(pod *v1.Pod) (int64, error) {
 	output, err := storage_utils.PodExec(pod, "df -T -m | grep /mnt/volume1")
 	if err != nil {

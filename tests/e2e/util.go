@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package e2e
 
 import (
@@ -41,6 +57,11 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+)
+
+var (
+	svcClient    clientset.Interface
+	svcNamespace string
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -291,6 +312,7 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 
 // updateDeploymentReplica helps to update the replica for a deployment
 func updateDeploymentReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.Deployment {
+	gomega.Expect(count != 0 && count != 1).NotTo(gomega.BeTrue(), fmt.Sprintf("Invalid value passed for count: %v", count))
 	deployment, err := client.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*deployment.Spec.Replicas = count
@@ -299,6 +321,18 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 	ginkgo.By("Waiting for update operation on deployment to take effect")
 	time.Sleep(1 * time.Minute)
 	return deployment
+}
+
+func getSvcClientAndNamespace() (clientset.Interface, string) {
+	var err error
+	if svcClient == nil {
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	}
+	return svcClient, svcNamespace
 }
 
 // getLabelsMapFromKeyValue returns map[string]string for given array of vim25types.KeyValue
@@ -674,18 +708,14 @@ func getNamespaceToRunTests(f *framework.Framework) string {
 // getPVCFromSupervisorCluster takes name of the persistentVolumeClaim as input
 // returns the corresponding persistentVolumeClaim object
 func getPVCFromSupervisorCluster(pvcName string) *v1.PersistentVolumeClaim {
-	var svcClient clientset.Interface
-	var err error
-	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	pvclaim, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(pvcName, metav1.GetOptions{})
+	svcClient, svcNamespace := getSvcClientAndNamespace()
+	pvc, err := svcClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(pvcName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return pvclaim
+	gomega.Expect(pvc).NotTo(gomega.BeNil())
+	return pvc
 }
 
+// getVolumeIDFromSupervisorCluster returns SV PV volume handle for given SVC PVC name
 func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	var svcClient clientset.Interface
 	var err error
@@ -698,6 +728,19 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	volumeHandle := svcPV.Spec.CSI.VolumeHandle
 	ginkgo.By(fmt.Sprintf("Found volume in Supervisor cluster with VolumeID: %s", volumeHandle))
 	return volumeHandle
+}
+
+// getPvFromSupervisorCluster returns SV PV for given SVC PVC name
+func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
+	var svcClient clientset.Interface
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	return svcPV
 }
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
@@ -789,6 +832,7 @@ func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) b
 	}
 	return false
 }
+
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	var svcClient clientset.Interface
 	var err error
