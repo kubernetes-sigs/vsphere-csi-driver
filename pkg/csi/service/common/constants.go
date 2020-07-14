@@ -154,4 +154,8 @@ const (
 
 	// IopslimitMigrationParam is raw vSAN Policy Parameter
 	IopslimitMigrationParam = "iopslimit-migrationparam"
+
+	// AnnMigratedTo annotation is added to a PVC and PV that is supposed to be
+	// provisioned/deleted by its corresponding CSI driver
+	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
 )

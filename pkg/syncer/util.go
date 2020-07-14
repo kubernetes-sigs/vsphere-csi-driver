@@ -10,6 +10,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -132,4 +133,18 @@ func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
 	}
 	log.Infof("getPVCKey: PVC key %s", objKey)
 	return objKey, nil
+}
+
+// HasMigratedToAnnotation returns true if the migrated-to annotation is found in the newer object
+func HasMigratedToAnnotation(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string) bool {
+	log := logger.GetLogger(ctx)
+	// Checking if the migrated-to annotation is found in the new PV
+	if _, annMigratedToFound := newAnnotations[common.AnnMigratedTo]; annMigratedToFound {
+		if _, annMigratedToFound = prevAnnotations[common.AnnMigratedTo]; !annMigratedToFound {
+			log.Debugf("Received %v annotation update", common.AnnMigratedTo)
+			return true
+		}
+	}
+	log.Debug("%v annotation not found", common.AnnMigratedTo)
+	return false
 }
