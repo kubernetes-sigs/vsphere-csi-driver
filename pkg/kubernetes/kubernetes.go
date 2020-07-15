@@ -218,7 +218,7 @@ func CreateKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("GetNodeVMUUID called for the node: %q", nodeName)
-	node, err := k8sclient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	node, err := k8sclient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
 		return "", err

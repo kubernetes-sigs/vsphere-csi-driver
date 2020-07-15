@@ -49,7 +49,7 @@ func Newk8sOrchestrator() *K8sOrchestrator {
 		k8sOrchestratorInstance.featureStates = make(map[string]string)
 		ctx, log := logger.GetNewContextWithLogger()
 		k8sClient, _ := k8s.NewClient(ctx)
-		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(common.CSINamespace).Get(common.CSIFeatureStatesConfigMapName, metav1.GetOptions{})
+		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(common.CSINamespace).Get(ctx, common.CSIFeatureStatesConfigMapName, metav1.GetOptions{})
 		if err != nil {
 			errMsg := fmt.Errorf("failed to fetch configmap %s. Setting the feature states to default values: %v. Error: %v", common.CSIFeatureStatesConfigMapName, k8sOrchestratorInstance.featureStates, err)
 			log.Debug(errMsg)

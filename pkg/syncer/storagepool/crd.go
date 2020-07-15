@@ -54,7 +54,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 			},
 		},
 	}
-	_, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
+	_, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
 	if err == nil {
 		log.Infof("%q CRD created successfully", crdName)
 	} else if apierrors.IsAlreadyExists(err) {
@@ -68,7 +68,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 	// CRD takes some time to be established
 	// Creating an instance of non-established runs into errors. So, wait for CRD to be created
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
-		crd, err = clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(crdName, metav1.GetOptions{})
+		crd, err = clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
 			return false, err
@@ -92,7 +92,7 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {
 		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Error: %+v", crdName, err)
-		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(crdName, nil)
+		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx, crdName, *metav1.NewDeleteOptions(0))
 		if deleteErr != nil {
 			log.Errorf("Failed to delete %q CRD with error: %+v", crdName, deleteErr)
 		}

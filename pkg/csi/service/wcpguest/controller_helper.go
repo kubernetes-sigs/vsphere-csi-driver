@@ -112,6 +112,7 @@ func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interf
 
 	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition", timeoutSeconds, pvcName, ns, reqCondition)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
+		ctx,
 		metav1.ListOptions{
 			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
 			TimeoutSeconds: &timeoutSeconds,
@@ -186,6 +187,7 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 
 	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s", timeoutSeconds, pvcName, ns, v1.ClaimBound)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
+		ctx,
 		metav1.ListOptions{
 			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
 			TimeoutSeconds: &timeoutSeconds,

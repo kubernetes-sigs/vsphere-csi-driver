@@ -241,7 +241,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
 			}
-			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(storagePool)
+			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(ctx, storagePool)
 			if err != nil {
 				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 				return nil, status.Errorf(codes.Internal, msg)
@@ -268,7 +268,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var selectedDatastoreURL string
 	if storagePool != "" {
-		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(storagePool)
+		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
 		if err != nil {
 			msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 			log.Error(msg)
@@ -579,4 +579,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		NodeExpansionRequired: nodeExpansionRequired,
 	}
 	return resp, nil
+}
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetVolume: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
 }

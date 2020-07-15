@@ -98,7 +98,7 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 // storagepolicy id.
 func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, storagePolicyID string) (string, error) {
 	log := logger.GetLogger(ctx)
-	scList, err := k8sClient.StorageV1().StorageClasses().List(metav1.ListOptions{})
+	scList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get Storageclasses from API server. Error: %+v", err)
 		log.Error(msg)
@@ -187,6 +187,7 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 
 	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s", timeoutSeconds, pvcName, ns, v1.ClaimBound)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
+		ctx,
 		metav1.ListOptions{
 			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
 			TimeoutSeconds: &timeoutSeconds,

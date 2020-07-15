@@ -302,7 +302,7 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 }
 
 // getDatastoreURLFromStoragePool returns the datastoreUrl that the given StoragePool represents
-func getDatastoreURLFromStoragePool(spName string) (string, error) {
+func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string, error) {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -317,7 +317,7 @@ func getDatastoreURLFromStoragePool(spName string) (string, error) {
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName
-	sp, err := spclient.Resource(spResource).Get(spName, metav1.GetOptions{})
+	sp, err := spclient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("Failed to get StoragePool with name %s: %+v", spName, err)
 	}
@@ -331,7 +331,7 @@ func getDatastoreURLFromStoragePool(spName string) (string, error) {
 }
 
 // getAccessibleNodesFromStoragePool returns the accessibleNodes pertaining to the given StoragePool
-func getAccessibleNodesFromStoragePool(spName string) ([]string, error) {
+func getAccessibleNodesFromStoragePool(ctx context.Context, spName string) ([]string, error) {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -346,7 +346,7 @@ func getAccessibleNodesFromStoragePool(spName string) ([]string, error) {
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName
-	sp, err := spClient.Resource(spResource).Get(spName, metav1.GetOptions{})
+	sp, err := spClient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}

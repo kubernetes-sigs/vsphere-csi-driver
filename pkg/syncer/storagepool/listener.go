@@ -189,7 +189,7 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 		return err
 	}
 	// Delete unknown StoragePool instances owned by this driver
-	splist, err := spClient.Resource(*spResource).List(metav1.ListOptions{})
+	splist, err := spClient.Resource(*spResource).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Error getting list of StoragePool instances. Err: %v", err)
 		return err
@@ -200,7 +200,7 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 			driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
 			if found && err == nil && driver == csitypes.Name {
 				log.Infof("Deleting StoragePool %s", spName)
-				err := spClient.Resource(*spResource).Delete(spName, &metav1.DeleteOptions{})
+				err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
 				if err != nil {
 					// log error and continue
 					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)

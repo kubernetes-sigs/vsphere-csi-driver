@@ -17,14 +17,19 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files when created with same PVC (dynamically provisioned) with access mode ReadWriteMany", func() {
@@ -42,9 +47,10 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
-			framework.Failf("Unable to find ready and schedulable node")
+			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
 
@@ -149,7 +155,8 @@ Pod1 is deleted if isDeletePodAfterFileCreation is true
 Pod2 is mounted on statically provisioned pvc backed by same file share id as Pvc1 if staticProvisionedPVCForSecondPod true
 */
 func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, filePath1 string, filePath2 string, isDeletePodAfterFileCreation bool, secondPodForNonRootUser bool, staticProvisionedPVCForSecondPod bool) {
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = nfs4FSType
 
@@ -161,7 +168,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -169,13 +176,13 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 
 	//clean up for pvc
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -186,14 +193,14 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 
 	//Create Pod1 with pvc created above
 	ginkgo.By("Create Pod1 with pvc created above")
-	pod1, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod1
 	defer func() {
 		if !isDeletePodAfterFileCreation {
 			ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
-			err = framework.DeletePodWithWait(f, client, pod1)
+			err = fpod.DeletePodWithWait(client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
@@ -215,7 +222,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	//Delete Pod if needed
 	if isDeletePodAfterFileCreation {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
-		err = framework.DeletePodWithWait(f, client, pod1)
+		err = fpod.DeletePodWithWait(client, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
@@ -230,10 +237,10 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["volumeId"] = "NewVolume"
 		pv := getPersistentVolumeSpecFromVolume(volHandle, v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
-		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim = getPersistentVolumeClaimSpecFromVolume(namespace, pv.Name, staticPVLabels, v1.ReadOnlyMany)
-		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvclaim)
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvclaim, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -244,14 +251,14 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	if secondPodForNonRootUser {
 		pod2, err = CreatePodByUserID(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "", userid)
 	} else {
-		pod2, err = framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod2, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod2
 	defer func() {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod2.Name, namespace))
-		err = framework.DeletePodWithWait(f, client, pod2)
+		err = fpod.DeletePodWithWait(client, pod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod2.Spec.NodeName)
