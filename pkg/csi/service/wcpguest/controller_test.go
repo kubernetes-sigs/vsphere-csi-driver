@@ -145,9 +145,9 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 
 		go createVolume(ctx, ct, reqCreate, response, error)
 		time.Sleep(1 * time.Second)
-		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(testSupervisorPVCName, metav1.GetOptions{})
+		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, testSupervisorPVCName, metav1.GetOptions{})
 		pvc.Status.Phase = "Bound"
-		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(pvc)
+		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 
 	supervisorPVCName := respCreate.Volume.VolumeId
 	// verify the pvc has been created
-	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
+	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestGuestClusterControllerFlow(t *testing.T) {
 	// Wait for delete volume finish
 	time.Sleep(1 * time.Second)
 	// Verify the pvc has been deleted
-	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
+	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
 	if !errors.IsNotFound(err) {
 		t.Fatal(err)
 	}

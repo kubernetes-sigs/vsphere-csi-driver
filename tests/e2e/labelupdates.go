@@ -37,6 +37,10 @@ import (
 
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
 /*
@@ -77,7 +81,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -105,6 +110,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -120,17 +127,17 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -140,16 +147,16 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		labels[labelKey] = labelValue
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
 
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
@@ -170,6 +177,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -185,17 +194,17 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -203,7 +212,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
@@ -211,12 +220,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Fetching updated pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
 		pvc.Labels = make(map[string]string)
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
@@ -224,12 +233,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Fetching updated pv %s", pv.Name))
-		pv, err = client.CoreV1().PersistentVolumes().Get(pv.Name, metav1.GetOptions{})
+		pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = make(map[string]string)
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
@@ -243,6 +252,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -258,31 +269,29 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		var exists bool
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		if vanillaCluster {
 			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 		} else {
@@ -301,7 +310,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		err = framework.DeletePodWithWait(f, client, pod)
+		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if vanillaCluster {
 			ginkgo.By("Verify volume is detached from the node")
@@ -380,7 +389,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 
@@ -409,7 +418,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(datastore).NotTo(gomega.BeNil())
 
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
+		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for some time for PVC to be deleted correctly
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow PVC deletion", sleepTimeOut))
@@ -419,7 +428,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting pv %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
+		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
@@ -431,7 +440,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Storage Class")
-		err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+		err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -457,7 +466,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 	ginkgo.It("Verify label updates on statically provisioned volume.", func() {
 		var err error
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -501,7 +509,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = fcdID
 		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
-		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -511,20 +519,20 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
@@ -535,7 +543,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
 
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
@@ -543,7 +551,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting PVC %s in namespace %s", pvc.Name, pvc.Namespace))
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil)
+		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcLabel, err := e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, namespace)
@@ -554,7 +562,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
+		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
@@ -584,6 +592,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		11. Delete SC
 	*/
 	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful set.", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -597,30 +607,29 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating statefulset")
-		statefulsetTester := framework.NewStatefulSetTester(client)
-		statefulset := statefulsetTester.CreateStatefulSet(manifestPath, namespace)
+		statefulset := fss.CreateStatefulSet(f.ClientSet, manifestPath, namespace)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			framework.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-				err := client.CoreV1().Services(namespace).Delete(servicename, &metav1.DeleteOptions{})
+				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas)
-		gomega.Expect(statefulsetTester.CheckMount(statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleup := statefulsetTester.GetPodList(statefulset)
+		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(f.ClientSet, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleup := fss.GetPodList(f.ClientSet, statefulset)
 		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
 
@@ -628,17 +637,17 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		pvclabels[pvclabelKey] = pvclabelValue
 
 		for _, sspod := range ssPodsBeforeScaleup.Items {
-			_, err := client.CoreV1().Pods(namespace).Get(sspod.Name, metav1.GetOptions{})
+			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 					ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
-					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					pvc.Labels = pvclabels
-					_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+					_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
@@ -649,17 +658,17 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+2))
-		_, scaleupErr := statefulsetTester.Scale(statefulset, replicas+2)
+		_, scaleupErr := fss.Scale(f.ClientSet, statefulset, replicas+2)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		statefulsetTester.WaitForStatusReplicas(statefulset, replicas+2)
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, replicas+2)
+		fss.WaitForStatusReplicas(f.ClientSet, statefulset, replicas+2)
+		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas+2)
 		pvlabels := make(map[string]string)
 		pvlabels[pvlabelKey] = pvlabelValue
 
-		ssPodsAfterScaleUp := statefulsetTester.GetPodList(statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(f.ClientSet, statefulset)
 
 		for _, spod := range ssPodsAfterScaleUp.Items {
-			_, err := client.CoreV1().Pods(namespace).Get(spod.Name, metav1.GetOptions{})
+			_, err := client.CoreV1().Pods(namespace).Get(ctx, spod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, vspec := range spod.Spec.Volumes {
 				if vspec.PersistentVolumeClaim != nil {
@@ -667,7 +676,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 					ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", pvlabels, pv.Name))
 					pv.Labels = pvlabels
-					_, err = client.CoreV1().PersistentVolumes().Update(pv)
+					_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", pvlabels, pv.Name))
@@ -679,10 +688,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 0))
-		_, scaledownErr := statefulsetTester.Scale(statefulset, 0)
+		_, scaledownErr := fss.Scale(f.ClientSet, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, 0)
-		ssPodsAfterScaleDown := statefulsetTester.GetPodList(statefulset)
+		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, 0)
+		ssPodsAfterScaleDown := fss.GetPodList(f.ClientSet, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
 	})
 

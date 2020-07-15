@@ -32,10 +32,14 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -58,13 +62,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		storagePolicyName          string
 		isVsanhealthServiceStopped bool
 		isSPSserviceStopped        bool
+		ctx                        context.Context
 	)
 
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -81,7 +87,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		isSPSserviceStopped = false
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		ctx, cancel := context.WithCancel(context.Background())
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
@@ -115,7 +122,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if pvc != nil {
-			framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		}
 
 		if pv != nil {
@@ -178,7 +185,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Creating the PV")
 		pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels)
-		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
 		}
@@ -187,11 +194,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Creating the PVC")
 		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		// Set deleteFCDRequired to false.
 		// After PV, PVC is in the bind state, Deleting PVC should delete container volume.
@@ -205,7 +212,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := framework.CreatePod(client, namespace, nil, pvclaims, false, "")
+		pod, err := fpod.CreatePod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -230,7 +237,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Pod")
-		framework.ExpectNoError(framework.DeletePodWithWait(f, client, pod), "Failed to delete pod ", pod.Name)
+		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod ", pod.Name)
 
 		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
@@ -238,7 +245,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -275,17 +282,17 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		defer func() {
-			err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
@@ -301,15 +308,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
 		pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-		pv, err = client.CoreV1().PersistentVolumes().Update(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete the PVC")
-		err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Delete the PV %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(pv.Name, nil)
+		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying if volume still exists in the Supervisor Cluster")
@@ -324,19 +331,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Creating the PV")
 		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels)
-		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC")
 		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -375,19 +382,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Creating PVC in supervisor cluster")
 		// get storageclass from the supervisor cluster
-		storageclass, err := svcClient.StorageV1().StorageClasses().Get(storagePolicyNameForSharedDatastores, metav1.GetOptions{})
+		storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameForSharedDatastores, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim, err := createPVC(svcClient, svNamespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := framework.DeletePersistentVolumeClaim(svcClient, pvclaim.Name, svNamespace)
+			err := fpv.DeletePersistentVolumeClaim(svcClient, pvclaim.Name, svNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, svcClient, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, svcClient, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := getPvFromClaim(svcClient, pvclaim.Namespace, pvclaim.Name)
@@ -401,19 +408,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		svcPVCName := volumeID
 		ginkgo.By("Creating the PV in guest cluster")
 		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels)
-		pv, err = client.CoreV1().PersistentVolumes().Create(pv)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC in guest cluster")
 		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(pvc)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(framework.WaitOnPVandPVC(client, namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -469,16 +476,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, *metav1.NewDeleteOptions(0))
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof("storageclass name :%s", storageclass.GetName())
 
 		defer func() {
 			log.Infof(" Delete storage class ")
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -498,13 +508,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" CNS register volume name : %s", cnsRegisterVolumeName)
 
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
-		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(pvcName, metav1.GetOptions{})
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
@@ -513,8 +523,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		var exists bool
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		annotations := pod.Annotations
 		vmUUID, exists = annotations[vmUUIDLabel]
 		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
@@ -522,17 +530,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		err = framework.DeletePodWithWait(f, client, pod)
+		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		_, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -589,19 +595,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
-		if err != nil {
-			gomega.Expect(err).To(gomega.HaveOccurred())
+		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, *metav1.NewDeleteOptions(0))
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof(" storageclass Name :%s", storageclass.GetName())
 
 		defer func() {
 			log.Infof(" Delete storage class ")
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -623,13 +629,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" CNS register volume name : %s", cnsRegisterVolumeName)
 
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
-		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(pvcName, metav1.GetOptions{})
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 
@@ -639,8 +645,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		var exists bool
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		annotations := pod.Annotations
 		vmUUID, exists = annotations[vmUUIDLabel]
 		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
@@ -648,16 +652,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.ExpectNoError(framework.DeletePodWithWait(f, client, pod), "Failed to delete pod ", pod.Name)
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		_, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -671,7 +674,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Delete Resource quota")
 		deleteResourceQuota(client, namespace)
-
 	})
 
 	/*
@@ -716,19 +718,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
-		if err != nil {
-			gomega.Expect(err).To(gomega.HaveOccurred())
+		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, *metav1.NewDeleteOptions(0))
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof(" storageclass Name :%s", storageclass.GetName())
 
 		defer func() {
 			log.Infof(" Delete storage class ")
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -745,7 +747,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 
 		ginkgo.By("Since there is no resource quota available, Verify  PVC creation fails")
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvcName, metav1.GetOptions{})
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
@@ -756,13 +758,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" CNS register volume name : %s", cnsRegisterVolume)
 
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvcName, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
@@ -771,8 +773,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		var exists bool
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		annotations := pod.Annotations
 		vmUUID, exists = annotations[vmUUIDLabel]
 		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
@@ -780,16 +780,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.ExpectNoError(framework.DeletePodWithWait(f, client, pod), "Failed to delete pod ", pod.Name)
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 		_, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")

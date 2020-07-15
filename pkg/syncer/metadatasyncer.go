@@ -450,7 +450,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 			log.Errorf("PVCUpdated: Creating Kubernetes client failed. Err: %v", err)
 			return
 		}
-		pv, err = k8sClient.CoreV1().PersistentVolumes().Get(newPvc.Spec.VolumeName, metav1.GetOptions{})
+		pv, err = k8sClient.CoreV1().PersistentVolumes().Get(ctx, newPvc.Spec.VolumeName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("PVCUpdated: Error getting Persistent Volume %s from API server with err: %v", newPvc.Spec.VolumeName, err)
 			return

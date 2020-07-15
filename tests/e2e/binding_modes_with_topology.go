@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -24,8 +25,12 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Volume-Binding-Modes", func() {
@@ -45,22 +50,27 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass      *storagev1.StorageClass
 		bindingMode       storagev1.VolumeBindingMode
 		err               error
+		ctx               context.Context
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList = framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
 	})
 
 	ginkgo.AfterEach(func() {
 		ginkgo.By("Performing test cleanup")
 		if pvclaim != nil {
-			framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace), "Failed to delete PVC ", pvclaim.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace), "Failed to delete PVC ", pvclaim.Name)
 		}
 
 		if pv != nil {
@@ -74,9 +84,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaim.Name, nil)
+			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvclaim.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
@@ -84,16 +94,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
 
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to find the volume in pending state with err: %v", err))
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 
 		ginkgo.By("Creating a pod")
-		pod, err = framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to provision volume with err: %v", err))
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -124,11 +134,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By("Performing cleanup")
 		ginkgo.By("Deleting the pod and wait for disk to detach")
-		err = framework.DeletePodWithWait(f, client, pod)
+		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the PVC")
-		err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim = nil
 
@@ -137,7 +147,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		pv = nil
 
 		ginkgo.By("Deleting the Storage Class")
-		err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		storageclass = nil
 	}

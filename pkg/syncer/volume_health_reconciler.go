@@ -270,7 +270,7 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 	// If same, do nothing
 	// If update fails, the caller will add PVC in Supervisor Cluster back to RateLimited queue to retry.
 	log.Debugf("updateTKGPVC enter: Supervisor Cluster PVC %s/%s, Tanzu Kubernetes Grid PV %s", svcPVC.Namespace, svcPVC.Name, tkgPV.Name)
-	tkgPVCObj, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPV.Spec.ClaimRef.Namespace).Get(tkgPV.Spec.ClaimRef.Name, metav1.GetOptions{})
+	tkgPVCObj, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPV.Spec.ClaimRef.Namespace).Get(ctx, tkgPV.Spec.ClaimRef.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error get pvc %s/%s from api server: %v", tkgPV.Spec.ClaimRef.Namespace, tkgPV.Spec.ClaimRef.Name, err)
 	}
@@ -284,7 +284,7 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 		log.Infof("updateTKGPVC: Detected volume health annotation change. Need to update Tanzu Kubernetes Grid PVC %s/%s. Existing TKG PVC annotation: %s. New annotation: %s", tkgPVCObj.Namespace, tkgPVCObj.Name, tkgAnnValue, svcAnnValue)
 		tkgPVCClone := tkgPVCObj.DeepCopy()
 		metav1.SetMetaDataAnnotation(&tkgPVCClone.ObjectMeta, annVolumeHealth, svcAnnValue)
-		_, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPVCClone.Namespace).Update(tkgPVCClone)
+		_, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPVCClone.Namespace).Update(ctx, tkgPVCClone, metav1.UpdateOptions{})
 		if err != nil {
 			log.Errorf("cannot update claim [%s/%s]: [%v]", tkgPVCClone.Namespace, tkgPVCClone.Name, err)
 			return err

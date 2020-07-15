@@ -36,6 +36,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -49,6 +50,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	"k8s.io/kubernetes/test/e2e/manifest"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
@@ -103,16 +107,20 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string, a
 
 // getPvFromClaim returns PersistentVolume for requested claim
 func getPvFromClaim(client clientset.Interface, namespace string, claimName string) *v1.PersistentVolume {
-	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(claimName, metav1.GetOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	pv, err := client.CoreV1().PersistentVolumes().Get(pvclaim.Spec.VolumeName, metav1.GetOptions{})
+	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return pv
 }
 
 // getNodeUUID returns Node VM UUID for requested node
 func getNodeUUID(client clientset.Interface, nodeName string) string {
-	node, err := client.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vmUUID := strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
 	gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
@@ -278,9 +286,11 @@ func createPVCAndStorageClass(client clientset.Interface, pvcnamespace string, p
 // createStorageClass helps creates a storage class with specified name, storageclass parameters
 func createStorageClass(client clientset.Interface, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement,
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
-	storageclass, err := client.StorageV1().StorageClasses().Create(getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create storage class with err: %v", err))
+	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
 }
 
@@ -288,13 +298,15 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string, ds string, storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode) (*v1.PersistentVolumeClaim, error) {
 	pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
 	ginkgo.By(fmt.Sprintf("Creating PVC using the Storage Class %s with disk size %s and labels: %+v accessMode: %+v", storageclass.Name, ds, pvclaimlabels, accessMode))
-	pvclaim, err := framework.CreatePVC(client, pvcnamespace, pvcspec)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create pvc with err: %v", err))
+	pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 	return pvclaim, err
 }
 
 // createStatefulSetWithOneReplica helps create a stateful set with one replica
-func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath string, namespace string) *appsv1.StatefulSet {
+func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath string, namespace string) (*appsv1.StatefulSet, *v1.Service) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	mkpath := func(file string) string {
 		return filepath.Join(manifestPath, file)
 	}
@@ -302,21 +314,22 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	service, err := manifest.SvcFromManifest(mkpath("service.yaml"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	_, err = client.CoreV1().Services(namespace).Create(service)
+	service, err = client.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*statefulSet.Spec.Replicas = 1
-	_, err = client.AppsV1().StatefulSets(namespace).Create(statefulSet)
+	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return statefulSet
+	return statefulSet, service
 }
 
 // updateDeploymentReplica helps to update the replica for a deployment
 func updateDeploymentReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.Deployment {
-	gomega.Expect(count != 0 && count != 1).NotTo(gomega.BeTrue(), fmt.Sprintf("Invalid value passed for count: %v", count))
-	deployment, err := client.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*deployment.Spec.Replicas = count
-	deployment, err = client.AppsV1().Deployments(namespace).Update(deployment)
+	deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("Waiting for update operation on deployment to take effect")
 	time.Sleep(1 * time.Minute)
@@ -441,11 +454,11 @@ func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pv
 // function to create PV volume spec with given FCD ID, Reclaim Policy and labels
 func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string) *v1.PersistentVolume {
 	var (
-		pvConfig framework.PersistentVolumeConfig
+		pvConfig fpv.PersistentVolumeConfig
 		pv       *v1.PersistentVolume
 		claimRef *v1.ObjectReference
 	)
-	pvConfig = framework.PersistentVolumeConfig{
+	pvConfig = fpv.PersistentVolumeConfig{
 		NamePrefix: "vspherepv-",
 		PVSource: v1.PersistentVolumeSource{
 			CSI: &v1.CSIPersistentVolumeSource{
@@ -492,9 +505,9 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 func invokeVCenterServiceControl(command, service, host string) error {
 	sshCmd := fmt.Sprintf("service-control --%s %s", command, service)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
-		framework.LogSSHResult(result)
+		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return nil
@@ -506,18 +519,18 @@ func invokeVCenterServiceControl(command, service, host string) error {
 func replacePasswordRotationTime(file, host string) error {
 	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
-		framework.LogSSHResult(result)
+		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 
 	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err = framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	time.Sleep(sleepTimeOut)
 	if err != nil || result.Code != 0 {
-		framework.LogSSHResult(result)
+		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return nil
@@ -579,9 +592,9 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 
 	sshCmd := fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
-		framework.LogSSHResult(result)
+		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
@@ -699,12 +712,14 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 
 // createResourceQuota creates resource quota for the specified namespace.
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	waitTime := 10
 	//deleteResourceQuota if already present
 	deleteResourceQuota(client, namespace)
 
 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
-	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(resourceQuota)
+	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
 	ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
@@ -713,9 +728,11 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 
 // deleteResourceQuota deletes resource quota for the specified namespace, if it exists.
 func deleteResourceQuota(client clientset.Interface, namespace string) {
-	_, err := client.CoreV1().ResourceQuotas(namespace).Get(quotaName, metav1.GetOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, quotaName, metav1.GetOptions{})
 	if err == nil {
-		err = client.CoreV1().ResourceQuotas(namespace).Delete(quotaName, nil)
+		err = client.CoreV1().ResourceQuotas(namespace).Delete(ctx, quotaName, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
 	}
@@ -735,7 +752,9 @@ func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQ
 // checkEventsforError prints the list of all events that occurred in the namespace and
 // searches for expectedErrorMsg among these events
 func checkEventsforError(client clientset.Interface, namespace string, listOptions metav1.ListOptions, expectedErrorMsg string) bool {
-	eventList, _ := client.CoreV1().Events(namespace).List(listOptions)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventList, _ := client.CoreV1().Events(namespace).List(ctx, listOptions)
 	isFailureFound := false
 	for _, item := range eventList.Items {
 		ginkgo.By(fmt.Sprintf("EventList item: %q \n", item.Message))
@@ -760,8 +779,10 @@ func getNamespaceToRunTests(f *framework.Framework) string {
 // getPVCFromSupervisorCluster takes name of the persistentVolumeClaim as input
 // returns the corresponding persistentVolumeClaim object
 func getPVCFromSupervisorCluster(pvcName string) *v1.PersistentVolumeClaim {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	svcClient, svcNamespace := getSvcClientAndNamespace()
-	pvc, err := svcClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(pvcName, metav1.GetOptions{})
+	pvc, err := svcClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(pvc).NotTo(gomega.BeNil())
 	return pvc
@@ -797,7 +818,7 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
 	for _, filePath := range filePaths {
-		_, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/ls", filePath)
+		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/ls", filePath)
 		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
 	}
 }
@@ -812,14 +833,24 @@ func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths
 // CreateService creates a k8s service as described in the service.yaml present in the manifest path and returns that
 // service to the caller
 func CreateService(ns string, c clientset.Interface) *v1.Service {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	svcManifestFilePath := filepath.Join(manifestPath, "service.yaml")
 	framework.Logf("Parsing service from %v", svcManifestFilePath)
 	svc, err := manifest.SvcFromManifest(svcManifestFilePath)
 	framework.ExpectNoError(err)
 
-	_, err = c.CoreV1().Services(ns).Create(svc)
+	service, err := c.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
-	return svc
+	return service
+}
+
+// deleteService deletes a k8s service
+func deleteService(ns string, c clientset.Interface, service *v1.Service) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := c.CoreV1().Services(ns).Delete(ctx, service.Name, *metav1.NewDeleteOptions(0))
+	framework.ExpectNoError(err)
 }
 
 // GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml file present in the manifest path
@@ -886,6 +917,8 @@ func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) b
 }
 
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var svcClient clientset.Interface
 	var err error
 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
@@ -893,7 +926,7 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(pvcName, metav1.GetOptions{})
+	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
 	return err == nil
 }
 
@@ -908,7 +941,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
 	resourceClient := dynamicClient.Resource(gvr).Namespace("")
-	list, err := resourceClient.List(metav1.ListOptions{})
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var instanceFound bool
@@ -1117,19 +1150,21 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 // CreatePodByUserID with given claims based on node selector. This method is addition to CreatePod method.
 // Here userID can be specified for pod user
 func CreatePodByUserID(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, userID int64) (*v1.Pod, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	pod := GetPodSpecByUserID(namespace, nodeSelector, pvclaims, isPrivileged, command, userID)
-	pod, err := client.CoreV1().Pods(namespace).Create(pod)
+	pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Pod creation failed")
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running
-	err = framework.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
 	// get fresh pod info
-	pod, err = client.CoreV1().Pods(namespace).Get(pod.Name, metav1.GetOptions{})
+	pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if err != nil {
 		return pod, fmt.Errorf("pod Get API error: %v", err)
 	}
@@ -1188,7 +1223,7 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 writeDataOnFileFromPod writes specified data from given Pod at the given
 */
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	_, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
+	_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -1196,7 +1231,7 @@ func writeDataOnFileFromPod(namespace string, podName string, filePath string, d
 readFileFromPod read data from given Pod and the given file
 */
 func readFileFromPod(namespace string, podName string, filePath string) string {
-	output, err := framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
+	output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
 }
@@ -1236,11 +1271,11 @@ func getPersistentVolumeClaimSpecFromVolume(namespace string, pvName string, lab
 // getPersistentVolumeSpecFromVolume gets static PV volume spec with given Volume ID, Reclaim Policy and labels
 func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
 	var (
-		pvConfig framework.PersistentVolumeConfig
+		pvConfig fpv.PersistentVolumeConfig
 		pv       *v1.PersistentVolume
 		claimRef *v1.ObjectReference
 	)
-	pvConfig = framework.PersistentVolumeConfig{
+	pvConfig = fpv.PersistentVolumeConfig{
 		NamePrefix: "vspherepv-",
 		PVSource: v1.PersistentVolumeSource{
 			CSI: &v1.CSIPersistentVolumeSource{
@@ -1278,4 +1313,15 @@ func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimP
 		Status: v1.PersistentVolumeStatus{},
 	}
 	return pv
+}
+
+// DeleteStatefulPodAtIndex deletes pod given index in the desired statefulset
+func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.StatefulSet) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	name := fmt.Sprintf("%v-%v", ss.Name, index)
+	noGrace := int64(0)
+	if err := client.CoreV1().Pods(ss.Namespace).Delete(ctx, name, metav1.DeleteOptions{GracePeriodSeconds: &noGrace}); err != nil {
+		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
+	}
 }

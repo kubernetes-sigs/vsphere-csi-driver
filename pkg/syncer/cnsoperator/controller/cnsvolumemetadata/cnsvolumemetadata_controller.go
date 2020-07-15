@@ -332,7 +332,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		volumeStatus = append(volumeStatus, &status)
 
 		// Get pvc object in the supervisor cluster that this instance refers to.
-		pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(volume, metav1.GetOptions{})
+		pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx, volume, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PVC %q in namespace %q. Err: %v", volume, instance.Namespace, err)
 			if errors.IsNotFound(err) && deleteFlag {
@@ -347,7 +347,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		}
 
 		// Get the corresponding pv object bound to the pvc.
-		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
+		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PV %q. Err: %v", pvc.Spec.VolumeName, err)
 			status.ErrorMessage = err.Error()

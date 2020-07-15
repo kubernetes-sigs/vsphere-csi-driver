@@ -217,13 +217,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 	}
 	accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
-	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(supervisorPVCName, metav1.GetOptions{})
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
 			claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
 			log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
-			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(claim)
+			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(ctx, claim, metav1.CreateOptions{})
 			if err != nil {
 				msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
 				log.Error(msg)
@@ -267,7 +267,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		log.Error(msg)
 		return nil, err
 	}
-	err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(req.VolumeId, nil)
+	err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(ctx, req.VolumeId, *metav1.NewDeleteOptions(0))
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
@@ -572,7 +572,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 
 	// Retrieve Supervisor PVC
-	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(volumeID, metav1.GetOptions{})
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
 		log.Error(msg)
@@ -587,7 +587,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *newQty
 		// Make a call to SV ControllerExpandVolume
 		log.Debugf("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, newQty.String())
-		pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(pvcClone)
+		pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, pvcClone, metav1.UpdateOptions{})
 		if err != nil {
 			msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
 			log.Error(msg)
@@ -695,5 +695,12 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
+}
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetVolume: called with args %+v", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
