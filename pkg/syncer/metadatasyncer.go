@@ -452,21 +452,26 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		}
 		log.Debugf("PVCUpdated: Found Persistent Volume %s from API server", newPvc.Spec.VolumeName)
 	}
-	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PV
-	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
-		if oldPvc.Status.Phase == v1.ClaimBound &&
-			reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) &&
-			reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
-			log.Debug("PVCUpdated: PVC labels and annotations have not changed for %s in namespace %s", newPvc.Name, newPvc.Namespace)
-			return
-		}
-		// Verify if there is an annotation update
-		if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
-			// Verify if the annotation update is related to migration. If not, return
-			if !HasMigratedToAnnotation(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
-				log.Debug("PVCUpdated: Migrated-to annotation not found for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
+	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PVC
+	if pv.Spec.VsphereVolume != nil {
+		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+			if oldPvc.Status.Phase == v1.ClaimBound &&
+				reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) &&
+				reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
+				log.Debug("PVCUpdated: PVC labels and annotations have not changed for %s in namespace %s", newPvc.Name, newPvc.Namespace)
 				return
 			}
+			// Verify if there is an annotation update
+			if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
+				// Verify if the annotation update is related to migration. If not, return
+				if !HasMigratedToAnnotation(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
+					log.Debug("PVCUpdated: Migrated-to annotation not found for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
+					return
+				}
+			}
+		} else { // Migration flag is set to false
+			log.Warnf("PVCUpdated: volume-migration feature switch is disabled. Cannot update vSphere volume claim %s", newPvc.Name)
+			return
 		}
 	} else {
 		// Verify if pv is vsphere csi volume
@@ -518,6 +523,12 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		return
 	}
 
+	// Verify if pv is a vsphere volume and migration flag is set to false
+	if pv.Spec.VsphereVolume != nil && !metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+		log.Warnf("PVCDeleted: volume-migration feature switch is disabled. Cannot delete vSphere volume metadata for %s", pvc.Name)
+		return
+	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Invoke volume deleted method for pvCSI
 		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
@@ -547,21 +558,45 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 	log.Debugf("PVUpdated: PV Updated from %+v to %+v", oldPv, newPv)
 
-	// Verify if pv is a vsphere csi volume
-	if oldPv.Spec.CSI == nil || newPv.Spec.CSI == nil || newPv.Spec.CSI.Driver != csitypes.Name {
-		log.Debugf("PVUpdated: PV is not a Vsphere CSI Volume: %+v", newPv)
-		return
-	}
 	// Return if new PV status is Pending or Failed
 	if newPv.Status.Phase == v1.VolumePending || newPv.Status.Phase == v1.VolumeFailed {
 		log.Debugf("PVUpdated: PV %s metadata is not updated since updated PV is in phase %s", newPv.Name, newPv.Status.Phase)
 		return
 	}
-	// Return if labels are unchanged
-	if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) && reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
-		log.Debugf("PVUpdated: PV labels have not changed")
-		return
+	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PV
+	if newPv.Spec.VsphereVolume != nil {
+		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+			if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) &&
+				reflect.DeepEqual(newPv.GetAnnotations(), oldPv.GetAnnotations()) &&
+				reflect.DeepEqual(newPv.Labels, oldPv.Labels) {
+				log.Debug("PVUpdated: PV labels and annotations have not changed")
+				return
+			}
+			// Verify if there is an annotation update
+			if !reflect.DeepEqual(newPv.GetAnnotations(), oldPv.GetAnnotations()) {
+				// Verify if the annotation update is related to migration. If not, return
+				if !HasMigratedToAnnotation(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations()) {
+					log.Debug("PVUpdated: Migrated-to annotation not found for %s. Ignoring other annotation updates", newPv.Name)
+					return
+				}
+			}
+		} else { // Migration flag is set to to false
+			log.Warnf("PVUpdated: volume-migration feature switch is disabled. Cannot update vSphere volume %s", newPv.Name)
+			return
+		}
+	} else {
+		// Verify if pv is a vsphere csi volume
+		if oldPv.Spec.CSI == nil || newPv.Spec.CSI == nil || newPv.Spec.CSI.Driver != csitypes.Name {
+			log.Debugf("PVUpdated: PV is not a Vsphere CSI Volume: %+v", newPv)
+			return
+		}
+		// Return if labels are unchanged
+		if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) && reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
+			log.Debugf("PVUpdated: PV labels have not changed")
+			return
+		}
 	}
+
 	if oldPv.Status.Phase == v1.VolumeBound && newPv.Status.Phase == v1.VolumeReleased && oldPv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVUpdated: Volume will be deleted by controller")
 		return
@@ -593,8 +628,14 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	log.Debugf("PVDeleted: Deleting PV: %+v", pv)
 
 	// Verify if pv is a vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
-		log.Debugf("PVDeleted: Not a Vsphere CSI Volume: %+v", pv)
+	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume == nil) {
+		log.Debugf("PVDeleted: Not a vSphere CSI Volume or migrated vSphere Volume: %+v", pv)
+		return
+	}
+
+	// Verify if pv is a vsphere volume and migration flag is set to false
+	if pv.Spec.VsphereVolume != nil && !metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+		log.Warnf("PVDeleted: volume-migration feature switch is disabled. Cannot delete vSphere volume metadata for %s", pv.Name)
 		return
 	}
 
@@ -671,7 +712,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
 		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 		if err != nil {
-			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %s", pv.Spec.VsphereVolume.VolumePath)
+			log.Errorf("PVC Updated: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
 			return
 		}
 	} else {
@@ -751,7 +792,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
 		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 		if err != nil {
-			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %s", pv.Spec.VsphereVolume.VolumePath)
+			log.Errorf("PVC Deleted: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
 			return
 		}
 	} else {
@@ -781,8 +822,18 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
-
+	var volumeHandle string
+	var err error
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && newPv.Spec.VsphereVolume != nil {
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, newPv.Spec.VsphereVolume.VolumePath)
+		if err != nil {
+			log.Errorf("PVUpdated: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", newPv.Spec.VsphereVolume.VolumePath, err)
+			return
+		}
+	} else {
+		volumeHandle = newPv.Spec.CSI.VolumeHandle
+	}
 	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && newPv.Spec.StorageClassName == "" {
 		// Static PV is Created
 		var volumeType string
@@ -848,7 +899,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	// call UpdateVolumeMetadata for all other cases
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
-			Id: newPv.Spec.CSI.VolumeHandle,
+			Id: volumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
@@ -921,6 +972,17 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		}
 
 	} else {
+		var err error
+		var volumeHandle string
+		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			if err != nil {
+				log.Errorf("PVDeleted: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				return
+			}
+		} else {
+			volumeHandle = pv.Spec.CSI.VolumeHandle
+		}
 		if pv.Spec.ClaimRef == nil || pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete {
 			log.Debugf("PVDeleted: Setting DeleteDisk to false")
 			deleteDisk = false
@@ -931,8 +993,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			deleteDisk = true
 		}
 		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v with delete disk %v", pv, deleteDisk)
-		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
-			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
+
+		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, deleteDisk); err != nil {
+			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 	}
 }
