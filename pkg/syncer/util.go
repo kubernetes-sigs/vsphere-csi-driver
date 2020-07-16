@@ -75,7 +75,12 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 	}
 
 	// Verify if pv is vsphere csi volume
-	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume == nil) {
+		return false, nil, nil
+	}
+	//Verify if pv is vsphere volume and migration flag is disabled
+	if pv.Spec.VsphereVolume != nil && !metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+		log.Warnf("PVCUpdated: volume-migration feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", pv.Name, pod.Name)
 		return false, nil, nil
 	}
 	return true, pv, pvc

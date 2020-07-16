@@ -24,8 +24,6 @@ import (
 	"strconv"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
@@ -37,6 +35,7 @@ import (
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -1018,10 +1017,24 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 				containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
-
+				var volumeHandle string
+				var err error
+				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+					if err != nil {
+						log.Errorf("Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+						return
+					}
+				} else {
+					volumeHandle = pv.Spec.CSI.VolumeHandle
+				}
+				if err != nil {
+					log.Errorf("failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+					continue
+				}
 				updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 					VolumeId: cnstypes.CnsVolumeId{
-						Id: pv.Spec.CSI.VolumeHandle,
+						Id: volumeHandle,
 					},
 					Metadata: cnstypes.CnsVolumeMetadata{
 						ContainerCluster:      containerCluster,
