@@ -463,7 +463,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 			// Verify if there is an annotation update
 			if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
 				// Verify if the annotation update is related to migration. If not, return
-				if !HasMigratedToAnnotation(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
+				if !HasMigratedToAnnotationUpdate(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
 					log.Debug("PVCUpdated: Migrated-to annotation not found for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
 					return
 				}
@@ -574,7 +574,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 			// Verify if there is an annotation update
 			if !reflect.DeepEqual(newPv.GetAnnotations(), oldPv.GetAnnotations()) {
 				// Verify if the annotation update is related to migration. If not, return
-				if !HasMigratedToAnnotation(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations()) {
+				if !HasMigratedToAnnotationUpdate(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations()) {
 					log.Debug("PVUpdated: Migrated-to annotation not found for %s. Ignoring other annotation updates", newPv.Name)
 					return
 				}
