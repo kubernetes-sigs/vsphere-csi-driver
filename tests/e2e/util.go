@@ -57,6 +57,7 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -714,7 +715,7 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	waitTime := 10
+	waitTime := 15
 	//deleteResourceQuota if already present
 	deleteResourceQuota(client, namespace)
 
@@ -1054,7 +1055,7 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 }
 
 // Function to create CnsRegisterVolume spec, with given FCD ID and PVC name
-func getCNSRegisterVolummeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
+func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
 	var (
 		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
 	)
@@ -1145,6 +1146,30 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 	if pvccapacity != pvcapacity {
 		log.Errorf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
 	}
+}
+
+//Get CNS register volume
+func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *v1alpha1.CnsRegisterVolume) *v1alpha1.CnsRegisterVolume {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &v1alpha1.CnsRegisterVolume{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegisterVolume.Name, Namespace: cnsRegisterVolume.Namespace}, cns)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return cns
+}
+
+// Update CNS register volume
+func updateCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *v1alpha1.CnsRegisterVolume) *v1alpha1.CnsRegisterVolume {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = cnsOperatorClient.Update(ctx, cnsRegisterVolume)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return cnsRegisterVolume
+
 }
 
 // CreatePodByUserID with given claims based on node selector. This method is addition to CreatePod method.
@@ -1324,4 +1349,5 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 	if err := client.CoreV1().Pods(ss.Namespace).Delete(ctx, name, metav1.DeleteOptions{GracePeriodSeconds: &noGrace}); err != nil {
 		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
 	}
+
 }
