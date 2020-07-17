@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		pvcDeleted = false
 
 		// replace second element with pod.Name
-		cmd = []string{"exec", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
 		svcClient, _ = getSvcClientAndNamespace()
 
 	})
