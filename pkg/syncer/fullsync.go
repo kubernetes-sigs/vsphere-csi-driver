@@ -42,12 +42,17 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		log.Warnf("FullSync: Failed to get PVs from kubernetes. Err: %v", err)
 		return
 	}
-	// Converting k8sPVs slice to Map for clean and quicker look up.
+
+	// k8sPVMap is useful for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
+
+	// Iterate through all the k8sPVs and use volume id as the key for k8sPVMap items
+	// For migrated volumes, invoke GetVolumeID from migration service.
 	for _, pv := range k8sPVs {
 		var volumeHandle string
 		var err error
 		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+			// For vSphere volumes, the migration service will register volumes in CNS.
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
@@ -227,6 +232,13 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v", volume.VolumeId.Id, err)
 					continue
 				}
+				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+					err := volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
+					if err != nil {
+						log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume mapping CR for %s with error %+v", volume.VolumeId.Id, err)
+						continue
+					}
+				}
 			}
 			// delete volume from cnsDeletionMap which is successfully deleted from CNS
 			delete(cnsDeletionMap, volume.VolumeId.Id)
@@ -348,7 +360,7 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 		if common.CSIMigrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
 				continue
 			}
 		} else {
