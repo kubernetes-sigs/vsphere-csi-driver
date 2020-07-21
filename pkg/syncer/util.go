@@ -56,6 +56,32 @@ func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*
 	return boundPVs, nil
 }
 
+// getInlineMigratedVolumesInfo is a helper function for retrieving  inline PV information from Pods
+func getInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	inlineVolumes := make(map[string]string)
+	// Get all Pods from kubernetes
+	allPods, err := metadataSyncer.podLister.List(labels.Everything())
+	if err != nil {
+		log.Errorf("getInlineMigratedVolumesInfo: failed to fetch the list of pods with err: %+v", err)
+		return nil, err
+	}
+	for _, pod := range allPods {
+		for _, volume := range pod.Spec.Volumes {
+			// Check if migration is ON and volumes if of type vSphereVolume
+			if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && volume.VsphereVolume != nil {
+				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, volume.VsphereVolume.VolumePath)
+				if err != nil {
+					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
+					continue
+				}
+				inlineVolumes[volume.VsphereVolume.VolumePath] = volumeHandle
+			}
+		}
+	}
+	return inlineVolumes, nil
+}
+
 // IsValidVolume determines if the given volume mounted by a POD is a valid vsphere volume. Returns the pv and pvc object if true.
 func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataSyncer *metadataSyncInformer) (bool, *v1.PersistentVolume, *v1.PersistentVolumeClaim) {
 	log := logger.GetLogger(ctx)
