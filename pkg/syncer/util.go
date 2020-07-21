@@ -27,23 +27,7 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 	}
 	for _, pv := range allPVs {
 		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil) {
-			var volumeHandle string
-			var err error
-			if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
-				if _, annMigratedToFound := pv.Annotations[common.AnnMigratedTo]; annMigratedToFound {
-					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-					if err != nil {
-						log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %q pv %q with error %+v", pv.Spec.VsphereVolume.VolumePath, pv.Name, err)
-						return nil, err
-					}
-				} else {
-					log.Infof("%v annotation not found for vSphere volume %q", common.AnnMigratedTo, pv.Name)
-					continue
-				}
-			} else {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-			log.Debugf("FullSync: pv %v is in state %v", volumeHandle, pv.Status.Phase)
+			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
 			}
