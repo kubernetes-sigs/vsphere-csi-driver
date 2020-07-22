@@ -130,14 +130,22 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 				AddFunc: func(obj interface{}) {
 					log.Debugf("received add event for VolumeMigration CR!")
 					var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-					runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+					err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+					if err != nil {
+						log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
+						return
+					}
 					volumeMigrationInstance.volumePathToVolumeID.Store(volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 					log.Debugf("successfully added volumePath: %q, volumeID: %q mapping in the cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 				},
 				DeleteFunc: func(obj interface{}) {
 					log.Debugf("received delete event for VolumeMigration CR!")
 					var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-					runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+					err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+					if err != nil {
+						log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
+						return
+					}
 					volumeMigrationInstance.volumePathToVolumeID.Delete(volumeMigrationObject.Spec.VolumePath)
 					log.Debugf("successfully deleted volumePath: %q, volumeID: %q mapping from cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 				},

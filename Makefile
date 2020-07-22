@@ -349,7 +349,7 @@ test-e2e:
 ##                                 LINTING                                    ##
 ################################################################################
 .PHONY: check fmt lint mdlint shellcheck vet
-check: fmt lint mdlint shellcheck staticcheck vet
+check: fmt lint mdlint shellcheck staticcheck vet golangci-lint
 
 fmt:
 	hack/check-format.sh
@@ -361,7 +361,7 @@ mdlint:
 	hack/check-mdlint.sh
 
 golangci-lint:
-	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v1.27.0 golangci-lint run -v --timeout=300s
+	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v1.29.0 golangci-lint run -v --timeout=300s
 
 shellcheck:
 	hack/check-shell.sh
