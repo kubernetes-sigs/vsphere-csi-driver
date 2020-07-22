@@ -65,7 +65,6 @@ const (
 	vsphereSystemNamespace                     = "vmware-system-csi"
 	vsphereTKGSystemNamespace                  = "vmware-system-tkg"
 	vsphereControllerManager                   = "vmware-system-tkg-controller-manager"
-	podContainerCreatingState                  = "ContainerCreating"
 	vsanhealthServiceName                      = "vsan-health"
 	spsServiceName                             = "sps"
 	wcpServiceName                             = "wcp"

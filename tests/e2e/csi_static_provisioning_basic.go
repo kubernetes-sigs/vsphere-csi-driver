@@ -469,7 +469,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
@@ -522,7 +522,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		err = framework.DeletePodWithWait(f, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
 		ctx, cancel = context.WithCancel(context.Background())
@@ -588,7 +589,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		if err != nil {
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
@@ -644,7 +648,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		framework.ExpectNoError(framework.DeletePodWithWait(f, client, pod), "Failed to delete pod ", pod.Name)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
 		ctx, cancel = context.WithCancel(context.Background())
@@ -712,7 +716,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		log.Infof(" Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		err = client.StorageV1().StorageClasses().Delete(storagePolicyName, nil)
+		if err != nil {
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		storageclass, err = client.StorageV1().StorageClasses().Get(storagePolicyName, metav1.GetOptions{})
@@ -773,7 +780,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		framework.DeletePodWithWait(f, client, pod)
+		framework.ExpectNoError(framework.DeletePodWithWait(f, client, pod), "Failed to delete pod ", pod.Name)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
 		ctx, cancel = context.WithCancel(context.Background())
