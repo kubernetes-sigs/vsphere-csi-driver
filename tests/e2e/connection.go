@@ -78,6 +78,8 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	url.User = neturl.UserPassword(vs.Config.Global.User, vs.Config.Global.Password)
 	client, err := govmomi.NewClient(ctx, url, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = client.UseServiceVersion(vsanNamespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
 	return client
 }
