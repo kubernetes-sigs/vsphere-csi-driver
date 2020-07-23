@@ -8,15 +8,6 @@ require (
 	github.com/coreos/etcd v3.3.20+incompatible // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
-	github.com/fatih/camelcase v1.0.0 // indirect
-	github.com/gogo/protobuf v1.3.1 // indirect
-	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
-	github.com/hashicorp/golang-lru v0.5.3 // indirect
-	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
-	github.com/pborman/uuid v1.2.0 // indirect
-	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/prometheus/client_golang v1.1.0 // indirect
-	github.com/prometheus/procfs v0.0.4 // indirect
 	github.com/elazarl/goproxy v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/elazarl/goproxy/ext v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
@@ -27,6 +18,7 @@ require (
 	github.com/google/go-cmp v0.5.0 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.14.5 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.3 // indirect
@@ -37,21 +29,20 @@ require (
 	github.com/onsi/ginkgo v1.14.0
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/common v0.4.1
+	github.com/prometheus/client_golang v1.1.0 // indirect
+	github.com/prometheus/common v0.6.0
 	github.com/rexray/gocsi v1.2.1
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
-	github.com/vmware/govmomi v0.22.2-0.20200530130842-aa97c4d3353d
-	go.uber.org/atomic v1.5.1 // indirect
-	go.uber.org/multierr v1.4.0 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
+	github.com/vmware/govmomi v0.22.2-0.20200530130842-aa97c4d3353d
 	github.com/zekroTJA/timedmap v1.1.2
 	go.uber.org/zap v1.15.0
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
 	golang.org/x/net v0.0.0-20200707034311-ab3426394381
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
 	golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae // indirect
-	golang.org/x/tools v0.0.0-20200714190737-9048b464a08d // indirect
+	golang.org/x/tools v0.0.0-20200723000907-a7c6fd066f6d // indirect
 	google.golang.org/appengine v1.6.6 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
