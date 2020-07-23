@@ -158,4 +158,26 @@ const (
 	// AnnMigratedTo annotation is added to a PVC and PV that is supposed to be
 	// provisioned/deleted by its corresponding CSI driver
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
+
+	// IPs is Client IP address, IP range or IP subnet
+	IPs string = "ips"
+
+	// CSINamespace is the namespace of pvCSI in TKC Cluster
+	CSINamespace = "vmware-system-csi"
+
+	// CSIFeatureStatesConfigMapName is the name of configmap to store FSS values
+	CSIFeatureStatesConfigMapName = "csi-feature-states"
+)
+
+// Supported container orchestrators
+const (
+	Kubernetes = iota // Default container orchestor for TKC, Supervisor Cluster and Vanilla K8s
+)
+
+// Feature state flag names
+const (
+	// VolumeHealth is the feature flag name for volume health
+	VolumeHealth = "volume-health"
+	// VolumeExtend is feature flag name for volume expansion
+	VolumeExtend = "volume-extend"
 )

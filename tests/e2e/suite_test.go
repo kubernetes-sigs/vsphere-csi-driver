@@ -15,6 +15,7 @@ limitations under the License.
 package e2e
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework/config"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -43,7 +45,14 @@ func init() {
 }
 
 func TestE2E(t *testing.T) {
-	framework.HandleFlags()
+	handleFlags()
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CNS CSI Driver End-to-End Tests")
+}
+
+func handleFlags() {
+	config.CopyFlags(config.Flags, flag.CommandLine)
+	framework.RegisterCommonFlags(flag.CommandLine)
+	framework.RegisterClusterFlags(flag.CommandLine)
+	flag.Parse()
 }

@@ -128,7 +128,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 	podNamespace := podResult.Namespace
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
 		var exists bool
-		pod, err := k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+		pod, err := k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Error: %+v", podName, podNamespace, err)
 			return false, err
@@ -181,7 +181,7 @@ func getPodPollIntervalInSecs(ctx context.Context) int {
  */
 func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context, volumeID string) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
-	allPVs, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
+	allPVs, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("failed to retrieve all PVs from API server")
 		return nil, err
@@ -207,7 +207,7 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName string, pvcNamespace string,
 	nodeName string) (*v1.Pod, error) {
 	log := logger.GetLogger(ctx)
-	pods, err := k8sCloudOperator.k8sClient.CoreV1().Pods(pvcNamespace).List(metav1.ListOptions{
+	pods, err := k8sCloudOperator.k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{
 		FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"spec.nodeName": string(nodeName)}), fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)})).String(),
 	})
 
@@ -245,7 +245,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 		nodeName = req.HostName
 	)
 	log := logger.GetLogger(ctx)
-	node, err := k8sCloudOperator.k8sClient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	node, err := k8sCloudOperator.k8sClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("failed to get the node object for node %s: %s", nodeName, err)
 		return nil, err
@@ -280,7 +280,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, nil
 	}
 
-	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(req.Namespace).Get(req.Name, metav1.GetOptions{})
+	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("Fail to retrieve targeted PVC %s from API server with error %s", pvc, err)
 		return out, err
@@ -290,7 +290,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	if scName == nil || *scName == "" {
 		return out, nil
 	}
-	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(*scName, metav1.GetOptions{})
+	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(ctx, *scName, metav1.GetOptions{})
 	if err != nil {
 		return out, err
 	}

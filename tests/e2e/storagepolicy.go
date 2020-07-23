@@ -28,6 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 /*
@@ -55,7 +58,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisi
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -129,11 +133,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisi
 
 // verifyStoragePolicyBasedVolumeProvisioning helps invokes storage policy related positive e2e tests
 func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string, storagePolicyName string) {
-
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var svcPVCName string // PVC Name in the Supervisor Cluster
 	var err error
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// decide which test setup is available to run
 	if vanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -148,17 +153,17 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
 	ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
-	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
@@ -176,15 +181,13 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string
 	var exists bool
 	nodeName := pod.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if supervisorCluster {
 		annotations := pod.Annotations
 		vmUUID, exists = annotations[vmUUIDLabel]
@@ -201,7 +204,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err = framework.DeletePodWithWait(f, client, pod)
+	err = fpod.DeletePodWithWait(client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if supervisorCluster {
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
@@ -224,7 +227,8 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 
 // invokeInvalidPolicyTestNeg helps invokes storage policy related negative e2e tests
 func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string, storagePolicyName string, createVolumeWaitTime time.Duration) *v1.PersistentVolumeClaim {
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
@@ -242,16 +246,16 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create a StorageClass. Error: %v", err))
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
-	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, poll, createVolumeWaitTime)
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, poll, createVolumeWaitTime)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 	return pvclaim
 }

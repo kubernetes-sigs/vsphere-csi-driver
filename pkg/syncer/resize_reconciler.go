@@ -160,7 +160,7 @@ func (rc *resizeReconciler) Run(ctx context.Context, workers int) {
 	}
 
 	for i := 0; i < workers; i++ {
-		go wait.Until(rc.syncPVCs, 0, stopCh)
+		go wait.Until(func() { rc.syncPVCs(ctx) }, 0, stopCh)
 	}
 
 	<-stopCh
@@ -168,21 +168,21 @@ func (rc *resizeReconciler) Run(ctx context.Context, workers int) {
 }
 
 // syncPVCs is the main worker.
-func (rc *resizeReconciler) syncPVCs() {
+func (rc *resizeReconciler) syncPVCs(ctx context.Context) {
 	key, quit := rc.claimQueue.Get()
 	if quit {
 		return
 	}
 	defer rc.claimQueue.Done(key)
 
-	if err := rc.syncPVC(key.(string)); err != nil {
+	if err := rc.syncPVC(ctx, key.(string)); err != nil {
 		rc.claimQueue.AddRateLimited(key)
 	} else {
 		rc.claimQueue.Forget(key)
 	}
 }
 
-func (rc *resizeReconciler) syncPVC(key string) error {
+func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 	_, log := logger.GetNewContextWithLogger()
 	log.Infof("Started PVC processing %q in the Tanzu Kubernetes Grid ", key)
 
@@ -209,7 +209,7 @@ func (rc *resizeReconciler) syncPVC(key string) error {
 	}
 
 	// Get corresponding PVC from the Supervisor Cluster given the pv in the Tanzu Kubernetes Grid
-	svcPVC, err := rc.supervisorClient.CoreV1().PersistentVolumeClaims(rc.supervisorNamespace).Get(tkgPV.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+	svcPVC, err := rc.supervisorClient.CoreV1().PersistentVolumeClaims(rc.supervisorNamespace).Get(ctx, tkgPV.Spec.CSI.VolumeHandle, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("Error get supervisor cluster pvc %s from api server in the namespace %s: %v", tkgPV.Spec.CSI.VolumeHandle, rc.supervisorNamespace, err)
 		return err
@@ -234,7 +234,7 @@ func (rc *resizeReconciler) syncPVC(key string) error {
 	}
 
 	if updatePVC {
-		svcUpdatedPVC, err := patchPVCStatus(svcPVC, svcPvcClone, rc.supervisorClient)
+		svcUpdatedPVC, err := patchPVCStatus(ctx, svcPVC, svcPvcClone, rc.supervisorClient)
 		if err != nil {
 			log.Errorf("cannot update Supervisor Cluster PVC  [%s] in namespace [%s]: [%v]", svcUpdatedPVC.Name, rc.supervisorNamespace, err)
 			return err
@@ -245,7 +245,7 @@ func (rc *resizeReconciler) syncPVC(key string) error {
 }
 
 // patchPVCStatus patch the old pvc using new pvc's status
-func patchPVCStatus(
+func patchPVCStatus(ctx context.Context,
 	oldPVC *v1.PersistentVolumeClaim,
 	newPVC *v1.PersistentVolumeClaim,
 	supervisorClient kubernetes.Interface) (*v1.PersistentVolumeClaim, error) {
@@ -255,7 +255,7 @@ func patchPVCStatus(
 	}
 
 	updatedClaim, updateErr := supervisorClient.CoreV1().PersistentVolumeClaims(oldPVC.Namespace).
-		Patch(oldPVC.Name, types.StrategicMergePatchType, patchBytes, "status")
+		Patch(ctx, oldPVC.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if updateErr != nil {
 		return nil, fmt.Errorf("failed to supervisor cluster patch PVC %q in namespace %s: %v", oldPVC.Name, oldPVC.Namespace, updateErr)
 	}

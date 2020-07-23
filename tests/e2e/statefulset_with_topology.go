@@ -17,14 +17,18 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Statefulset", func() {
@@ -44,10 +48,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList = framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		// Preparing allowedTopologies using topologies with shared datastores
 		regionZoneValue := GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
@@ -69,27 +74,31 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9. Delete SC
 	*/
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after deleting the pod", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(scSpec)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Creating statefulset with single replica")
-		statefulsetTester := framework.NewStatefulSetTester(client)
-		statefulset := createStatefulSetWithOneReplica(client, manifestPath, namespace)
-		statefulsetTester.WaitForStatusReadyReplicas(statefulset, 1)
-		gomega.Expect(statefulsetTester.CheckMount(statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		statefulset, service := createStatefulSetWithOneReplica(client, manifestPath, namespace)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
-		ssPodsBeforeDelete := statefulsetTester.GetPodList(statefulset)
+		ssPodsBeforeDelete := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeDelete.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeDelete.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
 
 		ginkgo.By("Deleting the pod")
 		pod = &ssPodsBeforeDelete.Items[0]
-		statefulsetTester.DeleteStatefulPodAtIndex(0, statefulset)
+		DeleteStatefulPodAtIndex(client, 0, statefulset)
 
 		// Wait for 30 seconds, after deleting the pod. By the end of this wait, the pod would be created again on any of the nodes
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
@@ -99,7 +108,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ssPodsAfterDelete := statefulsetTester.GetPodList(statefulset)
+				ssPodsAfterDelete := fss.GetPodList(client, statefulset)
 				pod = &ssPodsAfterDelete.Items[0]
 				ginkgo.By("Verify Pod is scheduled in on a node belonging to same topology as the PV it is attached to")
 				err = verifyPodLocation(pod, nodeList, pvZone, pvRegion)
@@ -108,7 +117,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		framework.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(client, namespace)
 	})
 
 })

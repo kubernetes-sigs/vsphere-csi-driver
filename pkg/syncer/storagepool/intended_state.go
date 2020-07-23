@@ -175,13 +175,13 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		return err
 	}
 	// Get StoragePool with spName and Update if already present, otherwise Create resource
-	sp, err := spClient.Resource(*spResource).Get(state.spName, metav1.GetOptions{})
+	sp, err := spClient.Resource(*spResource).Get(ctx, state.spName, metav1.GetOptions{})
 	if err != nil {
 		statusErr, ok := err.(*k8serrors.StatusError)
 		if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
 			log.Infof("Creating StoragePool instance for %s", state.spName)
 			sp := state.createUnstructuredStoragePool(ctx)
-			newSp, err := spClient.Resource(*spResource).Create(sp, metav1.CreateOptions{})
+			newSp, err := spClient.Resource(*spResource).Create(ctx, sp, metav1.CreateOptions{})
 			if err != nil {
 				log.Errorf("Error creating StoragePool %s. Err: %+v", state.spName, err)
 				return err
@@ -193,7 +193,7 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		// We don't expect ConflictErrors since updates are synchronized with a lock
 		log.Infof("Updating StoragePool instance for %s", state.spName)
 		sp := state.updateUnstructuredStoragePool(ctx, sp)
-		newSp, err := spClient.Resource(*spResource).Update(sp, metav1.UpdateOptions{})
+		newSp, err := spClient.Resource(*spResource).Update(ctx, sp, metav1.UpdateOptions{})
 		if err != nil {
 			log.Errorf("Error updating StoragePool %s. Err: %+v", state.spName, err)
 			return err
@@ -266,7 +266,7 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 	if err != nil {
 		return err
 	}
-	sp, err := spClient.Resource(*spResource).Get(spName, metav1.GetOptions{})
+	sp, err := spClient.Resource(*spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("Error getting StoragePool instance %s. Err: %v", spName, err)
 		return err
@@ -274,7 +274,7 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 	driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
 	if found && err == nil && driver == csitypes.Name {
 		log.Infof("Deleting StoragePool %s", spName)
-		err := spClient.Resource(*spResource).Delete(spName, &metav1.DeleteOptions{})
+		err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
 		if err != nil {
 			log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
 			return err

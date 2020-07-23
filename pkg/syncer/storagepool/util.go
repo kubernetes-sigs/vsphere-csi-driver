@@ -95,7 +95,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
 		return nil, err
 	}
-	nodeList, err := clientSet.CoreV1().Nodes().List(metav1.ListOptions{})
+	nodeList, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed getting all k8s nodes in cluster, err=%+v", err)
 		return nil, err
@@ -175,7 +175,7 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
 		return err
 	}
-	sc, err := clientSet.StorageV1().StorageClasses().Get(scName, metav1.GetOptions{})
+	sc, err := clientSet.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("Failed to get storage class object from cluster, err=%+v", err)
 		return err
@@ -215,7 +215,7 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 		return err
 	}
 	// Patch the storage class with the updated annotation
-	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(scName, k8stypes.MergePatchType, patchBytes)
+	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx, scName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to patch the storage class object with dsType. Err = %+v", err)
 		return err

@@ -81,7 +81,7 @@ func startStorageClassWatch(ctx context.Context, spController *SpController, cfg
 	w.spController = spController
 	w.isHostLocalMap = make(map[string]bool)
 
-	err = renewStorageClassWatch(w)
+	err = renewStorageClassWatch(ctx, w)
 	if err != nil {
 		return nil, err
 	}
@@ -93,16 +93,18 @@ func startStorageClassWatch(ctx context.Context, spController *SpController, cfg
 // As our watch can and will expire, we need a helper to renew it
 // Note that after we re-new it, we will get a bunch of ADDED events, triggering
 // a full remediation
-func renewStorageClassWatch(w *StorageClassWatch) error {
+func renewStorageClassWatch(ctx context.Context, w *StorageClassWatch) error {
 	var err error
 	scClient := w.clientset.StorageV1().StorageClasses()
 	// This means every 24h our watch may expire and require to be re-created.
 	// When that happens, we need to do a full remediation, hence we change
 	// from 30m (default) to 24h.
 	timeout := int64(60 * 60 * 24) // 24h
-	w.scWatch, err = scClient.Watch(metav1.ListOptions{
-		TimeoutSeconds: &timeout,
-	})
+	w.scWatch, err = scClient.Watch(
+		ctx,
+		metav1.ListOptions{
+			TimeoutSeconds: &timeout,
+		})
 	return err
 }
 
@@ -125,7 +127,7 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 			if !ok {
 				log.Info("watchStorageClass watch not ok")
 
-				err := renewStorageClassWatch(w)
+				err := renewStorageClassWatch(ctx, w)
 				if err != nil {
 					// XXX: Not sure how to handle this, as we need this watch.
 					// So crash and let restart perform any remediation required
@@ -203,7 +205,7 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 	policyIds := make([]string, 0)
 	policyToSCMap := make(map[string]*storagev1.StorageClass)
 	scClient := w.clientset.StorageV1().StorageClasses()
-	scList, err := scClient.List(metav1.ListOptions{})
+	scList, err := scClient.List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed to query Storage Classes. Err: %+v", err)
 		return err
@@ -271,7 +273,7 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
 	}
 
 	scClient := w.clientset.StorageV1().StorageClasses()
-	_, err = scClient.Patch(sc.Name, k8stypes.MergePatchType, patchBytes)
+	_, err = scClient.Patch(ctx, sc.Name, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to patch: %s", err)
 		return err

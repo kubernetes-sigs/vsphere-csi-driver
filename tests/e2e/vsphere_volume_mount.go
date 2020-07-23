@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -25,8 +26,12 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
@@ -39,7 +44,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -79,6 +85,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
 })
 
 func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface, namespace string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ginkgo.By(fmt.Sprintf("Invoking Test for accessMode: %s", v1.ReadWriteMany))
 	sharedatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 	scParameters := make(map[string]string)
@@ -89,9 +97,9 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -99,12 +107,12 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -139,13 +147,13 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	//Create Pod1 with pvc created above
 	ginkgo.By("Create Pod1 with pvc created above")
-	pod1, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod1
 	defer func() {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
-		err = framework.DeletePodWithWait(f, client, pod1)
+		err = fpod.DeletePodWithWait(client, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -171,7 +179,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	//cleanup for Pod1
 	ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
-	err = framework.DeletePodWithWait(f, client, pod1)
+	err = fpod.DeletePodWithWait(client, pod1)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	nodeName := pod1.Spec.NodeName
@@ -182,13 +190,13 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	//Create Pod2 using the same pvc
 	ginkgo.By("Create Pod2 with pvc created above")
-	pod2, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod2, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod2
 	defer func() {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod2.Name, namespace))
-		err = framework.DeletePodWithWait(f, client, pod2)
+		err = fpod.DeletePodWithWait(client, pod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -219,7 +227,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	nodeName = pod2.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-	err = framework.DeletePodWithWait(f, client, pod2)
+	err = fpod.DeletePodWithWait(client, pod2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from the node: %s", volHandle, nodeName))

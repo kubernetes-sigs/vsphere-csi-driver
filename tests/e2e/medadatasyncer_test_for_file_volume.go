@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo"
@@ -29,6 +30,8 @@ import (
 
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes", func() {
@@ -47,7 +50,8 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -57,12 +61,14 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if storageclass != nil {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if pvc != nil {
-			err = framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if fileshareID != "" {
@@ -82,6 +88,8 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			7. Delete Storage class
 	*/
 	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		ginkgo.By("Invoking test to verify labels creation for file volume")
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = nfs4FSType
@@ -91,7 +99,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -101,16 +109,16 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		labels[labelKey] = labelValue
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
 
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
