@@ -260,7 +260,7 @@ func getClientThroughput(ctx context.Context, inClusterClient bool) (float32, in
 			burst = value
 		}
 	}
-	log.Infof("Setting Supervisor client QPS to %f and Burst to %d.", qps, burst)
+	log.Infof("Setting client QPS to %f and Burst to %d.", qps, burst)
 	return qps, burst
 }
 

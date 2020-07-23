@@ -107,7 +107,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(common.Kubernetes)
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload)
 	if err != nil {
 		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err
