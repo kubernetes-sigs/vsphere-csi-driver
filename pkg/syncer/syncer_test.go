@@ -338,7 +338,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	// Create PV on K8S with VolumeHandle of recently deleted Volume
 	pvcName := testPVCName + "-" + uuid.New().String()
 	pv := getPersistentVolumeSpec(pvcName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
-	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,7 +365,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, oldPVCLabel, pv.Name)
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(pvc); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -388,7 +388,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	newPodLabel := make(map[string]string)
 	newPodLabel[testPodLabelName] = testPodLabelValue
 	pod := getPodSpec(testNamespace, oldPodLabel, pvc.Name, v1.PodRunning)
-	if pod, err = k8sclient.CoreV1().Pods(namespace).Create(pod); err != nil {
+	if pod, err = k8sclient.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -434,13 +434,13 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Cleanup on K8S
-	if err = k8sclient.CoreV1().Pods(namespace).Delete(pod.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().PersistentVolumes().Delete(pv.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -667,7 +667,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	pvLabel[testPVLabelName] = testPVLabelValue
 	pvName := testVolumeName + "-" + uuid.New().String()
 	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
-	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -677,13 +677,13 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName := testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, pv.Name)
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
 	// allocate pvc claimRef for PV spec
 	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
-	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()
@@ -709,7 +709,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	newPVLabel := make(map[string]string)
 	newPVLabel[testPVLabelName] = newTestPVLabelValue
 	pv.Labels = newPVLabel
-	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()
@@ -728,7 +728,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = newTestPVCLabelValue
 	pvc.Labels = newPVCLabel
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(pvc); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(ctx, pvc, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()
@@ -748,7 +748,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 
 	// Create Pod on K8S with claim = recently created pvc
 	pod := getPodSpec(testNamespace, nil, pvc.Name, v1.PodRunning)
-	if pod, err = k8sclient.CoreV1().Pods(testNamespace).Create(pod); err != nil {
+	if pod, err = k8sclient.CoreV1().Pods(testNamespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()
@@ -763,13 +763,13 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Cleanup in K8S
-	if err = k8sclient.CoreV1().PersistentVolumes().Delete(pv.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Delete(pvc.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().Pods(testNamespace).Delete(pod.Name, nil); err != nil {
+	if err = k8sclient.CoreV1().Pods(testNamespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
 

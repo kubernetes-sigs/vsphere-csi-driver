@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -27,6 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 /*
@@ -68,7 +72,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -88,6 +93,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 })
 
 func invokeTestForFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ginkgo.By(fmt.Sprintf("Invoking Test for fstype: %s", fstype))
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = fstype
@@ -101,11 +108,11 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -113,12 +120,12 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv := persistentvolumes[0]
@@ -135,7 +142,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err = framework.DeletePodWithWait(f, client, pod)
+	err = fpod.DeletePodWithWait(client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Verify volume is detached from the node")
@@ -145,6 +152,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 }
 
 func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, storagePolicyName string, profileID string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = fstype
 
@@ -158,11 +167,11 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	defer func() {
-		err := framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -170,12 +179,12 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := framework.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 
 	pv := persistentvolumes[0]
@@ -187,14 +196,14 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	// refetch pod to get pod.Spec.NodeName
 	podNodeName := pod.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("podNodeName: %v podName: %v", podNodeName, pod.Name))
-	pod, err = client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
+	pod, err = client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	podNodeName = pod.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("Refetch the POD: podNodeName: %v podName: %v", podNodeName, pod.Name))
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err = framework.DeletePodWithWait(f, client, pod)
+	err = fpod.DeletePodWithWait(client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Verify volume is detached from the node")

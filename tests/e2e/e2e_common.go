@@ -35,6 +35,7 @@ const (
 	scParamDatastoreURL                        = "DatastoreURL"
 	diskSize                                   = "2Gi"
 	diskSizeInMb                               = int64(2048)
+	diskSizeInMinMb                            = int64(200)
 	e2evSphereCSIBlockDriverName               = "csi.vsphere.vmware.com"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
@@ -81,7 +82,7 @@ const (
 	kubeSystemNamespace                        = "kube-system"
 	csiSystemNamespace                         = "vmware-system-csi"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
-	rqLimit                                    = "500Gi"
+	rqLimit                                    = "200Gi"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	quotaName                                  = "cns-test-quota"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"

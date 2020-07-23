@@ -271,7 +271,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	if accessMode == "" && instance.Spec.DiskURLPath != "" {
 		accessMode = v1.ReadWriteOnce
 	}
-	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
+	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Infof("PV: %s not found. Creating a new PV", pvName)
@@ -285,7 +285,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
 				accessMode, storageClassName, claimRef)
 			log.Debugf("PV spec is: %+v", pvSpec)
-			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pvSpec)
+			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 			if err != nil {
 				log.Errorf("Failed to create PV with spec: %+v. Error: %+v", pvSpec, err)
 				setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to create PV: %s for volume with err: %+v", pvName, err))
@@ -310,11 +310,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	pvcSpec := getPersistentVolumeClaimSpec(instance.Spec.PvcName, instance.Namespace, capacityInMb,
 		storageClassName, accessMode, pvName)
 	log.Debugf("PVC spec is: %+v", pvcSpec)
-	pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(pvcSpec)
+	pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(ctx, pvcSpec, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			log.Infof("PVC: %s already exists", instance.Spec.PvcName)
-			pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(instance.Spec.PvcName, metav1.GetOptions{})
+			pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx, instance.Spec.PvcName, metav1.GetOptions{})
 			if err != nil {
 				msg := fmt.Sprintf("Failed to get PVC: %s on namespace: %s", instance.Spec.PvcName, instance.Namespace)
 				log.Errorf(msg)
@@ -334,7 +334,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 				} else {
 					// Delete PV created above
-					err = k8sclient.CoreV1().PersistentVolumes().Delete(pvName, &metav1.DeleteOptions{})
+					err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
 					if err != nil {
 						log.Errorf("Failed to delete PV: %s with error: %+v", pvName, err)
 					}

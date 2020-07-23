@@ -24,6 +24,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	v1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -52,7 +53,8 @@ var (
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 type controller struct {
-	manager *common.Manager
+	manager           *common.Manager
+	coCommonInterface commonco.COCommonInterface
 }
 
 // New creates a CNS controller
@@ -100,10 +102,14 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	}
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
-	featureStatesCfgPath := common.GetFeatureStatesConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
+		return err
+	}
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err
 	}
 	go func() {
@@ -132,13 +138,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
-		return err
-	}
-	featureStatesCfgDirPath := filepath.Dir(featureStatesCfgPath)
-	log.Infof("Adding watch on path: %q", featureStatesCfgDirPath)
-	err = watcher.Add(featureStatesCfgDirPath)
-	if err != nil {
-		log.Errorf("Failed to watch on path: %q. err=%v", featureStatesCfgDirPath, err)
 		return err
 	}
 	return nil
@@ -242,7 +241,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
 			}
-			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(storagePool)
+			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(ctx, storagePool)
 			if err != nil {
 				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 				return nil, status.Errorf(codes.Internal, msg)
@@ -269,7 +268,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var selectedDatastoreURL string
 	if storagePool != "" {
-		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(storagePool)
+		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
 		if err != nil {
 			msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 			log.Error(msg)
@@ -542,7 +541,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.manager.CnsConfig.FeatureStates.VolumeExtend {
+	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster"
 		log.Warn(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
@@ -580,4 +579,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		NodeExpansionRequired: nodeExpansionRequired,
 	}
 	return resp, nil
+}
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetVolume: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
 }

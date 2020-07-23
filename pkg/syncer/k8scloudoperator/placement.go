@@ -178,7 +178,7 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 	spResource := schema.GroupVersion{Group: apis.GroupName, Version: apis.Version}.WithResource(resourceName)
 
 	// TODO enable label on each storage pool and use label as filter storage pool list
-	sps, err := spClient.Resource(spResource).List(metav1.ListOptions{
+	sps, err := spClient.Resource(spResource).List(ctx, metav1.ListOptions{
 		LabelSelector: spTypeLabelKey,
 	})
 	if err != nil {
@@ -342,7 +342,7 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 	preferredAntiAffinityValue, preferred := curPVC.Annotations[spPolicyAntiPreferred]
 	currPVCCap := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 
-	pvcList, err := client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).List(metav1.ListOptions{})
+	pvcList, err := client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed to retrieve all PVCs in the same namespace from API server")
 		return spList, err
@@ -440,7 +440,7 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 		return err
 	}
 
-	curPVC, err := client.CoreV1().PersistentVolumeClaims(ns).Patch(pvcName, k8stypes.MergePatchType, patchBytes)
+	curPVC, err := client.CoreV1().PersistentVolumeClaims(ns).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Fail to update PVC %+v", err)
 		return err

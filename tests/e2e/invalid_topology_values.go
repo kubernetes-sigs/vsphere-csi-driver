@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -27,6 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 // Constants to store invalid/non-existing region and zone
@@ -46,18 +49,23 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass      *storagev1.StorageClass
 		err               error
 		regionZoneValue   string
+		ctx               context.Context
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList = framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		// Preparing allowedTopologies using topologies with shared and non shared datastores
 		regionZoneValue = GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		_, _, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
 	})
 
 	/*
@@ -77,16 +85,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// Get the event list and verify if it contains expected error message
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
+		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
 		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
@@ -115,17 +123,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// Get the event list and verify if it contains expected error message
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
+		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
 		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
@@ -154,16 +162,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(storageclass.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = framework.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// Get the event list and verify if it contains expected error message
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
+		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
 		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
 		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))

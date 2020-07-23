@@ -41,9 +41,11 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/util/resizefs"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
+
+	utilexec "k8s.io/utils/exec"
+	"k8s.io/utils/mount"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -776,7 +778,7 @@ func (s *service) NodeExpandVolume(
 	log.Debugf("NodeExpandVolume: staging target path %s, getDevFromMount %+v", volumePath, *dev)
 
 	realMounter := mount.New("")
-	realExec := mount.NewOsExec()
+	realExec := utilexec.New()
 	mounter := &mount.SafeFormatAndMount{
 		Interface: realMounter,
 		Exec:      realExec,
@@ -807,7 +809,9 @@ func (s *service) NodeExpandVolume(
 }
 
 func getBlockSizeBytes(mounter *mount.SafeFormatAndMount, devicePath string) (int64, error) {
-	output, err := mounter.Exec.Run("blockdev", "--getsize64", devicePath)
+	cmdArgs := []string{"--getsize64", devicePath}
+	cmd := mounter.Exec.Command("blockdev", cmdArgs...)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %v", devicePath, string(output), err)
 	}

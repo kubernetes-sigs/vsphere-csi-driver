@@ -38,6 +38,8 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 )
 
 var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
@@ -80,13 +82,15 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		ginkgo.By("Performing test cleanup")
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 
 		if pvc != nil {
-			err = framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
@@ -99,7 +103,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		if sc != nil {
-			err = client.StorageV1().StorageClasses().Delete(sc.Name, nil)
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -122,6 +126,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		8. Delete the storage class.
 	*/
 	ginkgo.It("Power off the node where vsphere-csi-controller pod is running", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
 		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
@@ -142,7 +148,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -151,10 +157,10 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		labels[labelKey] = labelValue
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
@@ -164,8 +170,6 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		// power off the node where vsphere-csi-controller pod is currently running
 		nodeNameOfvSphereCSIControllerPod := nodeList[0]
 		ginkgo.By(fmt.Sprintf("Power off the node: %v", nodeNameOfvSphereCSIControllerPod))
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		vmUUID := getNodeUUID(client, nodeNameOfvSphereCSIControllerPod)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameOfvSphereCSIControllerPod)
@@ -190,7 +194,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
@@ -218,6 +222,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 	*/
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Stop kubelet on the node where vsphere-csi-controller pod is running", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
 		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
@@ -238,7 +244,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = framework.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -247,10 +253,10 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		labels[labelKey] = labelValue
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.Name, metav1.GetOptions{})
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(pvc)
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
@@ -264,7 +270,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		sshCmd := "systemctl stop kubelet.service"
 		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
-		result, err := framework.SSH(sshCmd, host, framework.TestContext.Provider)
+		result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(result.Code == 0).To(gomega.BeTrue())
@@ -280,14 +286,14 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		// start the kubelet
 		sshCmd = "systemctl start kubelet"
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
-		result, err = framework.SSH(sshCmd, host, framework.TestContext.Provider)
+		result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(result.Code == 0).To(gomega.BeTrue())
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
 		pv.Labels = labels
-		_, err = client.CoreV1().PersistentVolumes().Update(pv)
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -295,9 +301,13 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 
 // getControllerRuntimeDetails return the NodeName and PodName for vSphereCSIControllerPod running
 func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) ([]string, []string) {
-	pods, _ := client.CoreV1().Pods(nameSpace).List(metav1.ListOptions{
-		FieldSelector: fields.SelectorFromSet(fields.Set{"status.phase": string(v1.PodRunning)}).String(),
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pods, _ := client.CoreV1().Pods(nameSpace).List(
+		ctx,
+		metav1.ListOptions{
+			FieldSelector: fields.SelectorFromSet(fields.Set{"status.phase": string(v1.PodRunning)}).String(),
+		})
 	var nodeNameList []string
 	var podNameList []string
 	for _, pod := range pods.Items {
@@ -328,8 +338,9 @@ func waitForControllerDeletion(client clientset.Interface, namespace string) err
 
 // getTestbedConfig returns master node name and IP from K8S testbed
 func getTestbedConfig(client clientset.Interface, nodeNameIPMap map[string]string) error {
-
-	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
 	if err != nil {
 		return err
 	}
