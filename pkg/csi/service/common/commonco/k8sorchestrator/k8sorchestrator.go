@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/common/log"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -42,14 +43,28 @@ type K8sOrchestrator struct {
 }
 
 // Newk8sOrchestrator instantiates K8sOrchestrator object and returns this object
-func Newk8sOrchestrator() *K8sOrchestrator {
+func Newk8sOrchestrator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor) (*K8sOrchestrator, error) {
+	var coInstanceErr error
 	onceFork8sOrchestratorInstance.Do(func() {
 		log.Info("Initializing k8sOrchestratorInstance")
 		k8sOrchestratorInstance = &K8sOrchestrator{}
 		k8sOrchestratorInstance.featureStates = make(map[string]string)
-		ctx, log := logger.GetNewContextWithLogger()
-		k8sClient, _ := k8s.NewClient(ctx)
-		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(common.CSINamespace).Get(ctx, common.CSIFeatureStatesConfigMapName, metav1.GetOptions{})
+		log := logger.GetLogger(ctx)
+		k8sClient, coInstanceErr := k8s.NewClient(ctx)
+		if coInstanceErr != nil {
+			log.Errorf("Creating Kubernetes client failed. Err: %v", coInstanceErr)
+			return
+		}
+		var csiNamespace string
+		switch clusterFlavor {
+		case cnstypes.CnsClusterFlavorVanilla:
+			csiNamespace = common.CSINamespaceVanillaK8S
+		case cnstypes.CnsClusterFlavorWorkload:
+			csiNamespace = common.CSINamespaceWorkload
+		case cnstypes.CnsClusterFlavorGuest:
+			csiNamespace = common.CSINamespaceTkgCluster
+		}
+		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(csiNamespace).Get(ctx, common.CSIFeatureStatesConfigMapName, metav1.GetOptions{})
 		if err != nil {
 			errMsg := fmt.Errorf("failed to fetch configmap %s. Setting the feature states to default values: %v. Error: %v", common.CSIFeatureStatesConfigMapName, k8sOrchestratorInstance.featureStates, err)
 			log.Debug(errMsg)
@@ -71,7 +86,7 @@ func Newk8sOrchestrator() *K8sOrchestrator {
 		log.Info("k8sOrchestratorInstance initialized")
 		k8sOrchestratorInstance.informerManager.Listen()
 	})
-	return k8sOrchestratorInstance
+	return k8sOrchestratorInstance, coInstanceErr
 }
 
 // configMapAdded adds feature state switch values from configmap that has been created on K8s cluster

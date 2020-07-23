@@ -46,6 +46,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -279,6 +280,10 @@ func getControllerTest(t *testing.T) *controllerTest {
 				sharedDatastoreURL: sharedDatastoreURL,
 				k8sClient:          k8sClient,
 			},
+		}
+		containerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
 		controllerTestInstance = &controllerTest{
 			controller: c,
