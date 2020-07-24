@@ -35,7 +35,7 @@ require (
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
-	github.com/vmware/govmomi v0.22.2-0.20200530130842-aa97c4d3353d
+	github.com/vmware/govmomi v0.23.1
 	github.com/zekroTJA/timedmap v1.1.2
 	go.uber.org/zap v1.15.0
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
