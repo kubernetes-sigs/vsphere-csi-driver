@@ -82,7 +82,9 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 	}
 
 	// Start the services
-	spController, err := newSPController(vc, configInfo.Cfg.Global.ClusterID)
+	spWatcher := newStoragePoolWatch()
+
+	spController, err := newSPController(vc, configInfo.Cfg.Global.ClusterID, spWatcher)
 	if err != nil {
 		log.Errorf("Failed starting StoragePool controller. Err: %+v", err)
 		return err
@@ -91,6 +93,12 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 	scWatchCntlr, err := startStorageClassWatch(ctx, spController, cfg)
 	if err != nil {
 		log.Errorf("Failed starting the Storageclass watch. Err: %+v", err)
+		return err
+	}
+
+	err = spWatcher.StartStoragePoolWatch(ctx, scWatchCntlr, spController)
+	if err != nil {
+		log.Errorf("Failed starting the StoragePool watch. Err: %+v", err)
 		return err
 	}
 

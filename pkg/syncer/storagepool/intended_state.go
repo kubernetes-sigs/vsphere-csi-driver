@@ -66,13 +66,15 @@ type SpController struct {
 	clusterID string
 	// intendedStateMap stores the datastoreMoid -> IntendedState for each datastore
 	intendedStateMap map[string]*intendedState
+	spWatcher        *SPWatcher
 }
 
-func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpController, error) {
+func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string, spWatcher *SPWatcher) (*SpController, error) {
 	return &SpController{
 		vc:               vc,
 		clusterID:        clusterID,
 		intendedStateMap: make(map[string]*intendedState),
+		spWatcher:        spWatcher,
 	}, nil
 }
 
@@ -181,11 +183,19 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
 			log.Infof("Creating StoragePool instance for %s", state.spName)
 			sp := state.createUnstructuredStoragePool(ctx)
+			// Generation Number of a newly created object is 1. After issuing a write operation the
+			// current thread typically sleeps and wait for server reply. Meanwhile SPWatch can receive
+			// the write event and start to detect if this event was due to an external change. So it is
+			// essential to store expected value in SPNameToGenerationNumberMap before issuing any write
+			// operation to StoragePool to avoid false positive.
+			c.spWatcher.SPNameToGenerationNumberMap[state.spName] = 1
 			newSp, err := spClient.Resource(*spResource).Create(ctx, sp, metav1.CreateOptions{})
 			if err != nil {
+				delete(c.spWatcher.SPNameToGenerationNumberMap, state.spName)
 				log.Errorf("Error creating StoragePool %s. Err: %+v", state.spName, err)
 				return err
 			}
+			c.spWatcher.SPNameToGenerationNumberMap[newSp.GetName()] = newSp.GetGeneration()
 			log.Debugf("Successfully created StoragePool %v", newSp)
 		}
 	} else {
@@ -193,11 +203,16 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		// We don't expect ConflictErrors since updates are synchronized with a lock
 		log.Infof("Updating StoragePool instance for %s", state.spName)
 		sp := state.updateUnstructuredStoragePool(ctx, sp)
+		// On each modification generation number increases by 1.
+		c.spWatcher.SPNameToGenerationNumberMap[state.spName]++
 		newSp, err := spClient.Resource(*spResource).Update(ctx, sp, metav1.UpdateOptions{})
 		if err != nil {
+			c.spWatcher.SPNameToGenerationNumberMap[state.spName]--
 			log.Errorf("Error updating StoragePool %s. Err: %+v", state.spName, err)
 			return err
 		}
+		// We update generation number with the actual current value in case there was a concurrent external write.
+		c.spWatcher.SPNameToGenerationNumberMap[newSp.GetName()] = newSp.GetGeneration()
 		log.Debugf("Successfully updated StoragePool %v", newSp)
 	}
 
@@ -245,7 +260,7 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	}
 	if intendedSpName != oldSpName {
 		// need to also delete the older StoragePool
-		return deleteStoragePool(ctx, oldSpName)
+		return c.deleteStoragePool(ctx, oldSpName)
 	}
 	return nil
 }
@@ -260,7 +275,7 @@ func (c *SpController) deleteIntendedState(ctx context.Context, spName string) b
 	return false
 }
 
-func deleteStoragePool(ctx context.Context, spName string) error {
+func (c *SpController) deleteStoragePool(ctx context.Context, spName string) error {
 	log := logger.GetLogger(ctx)
 	spClient, spResource, err := getSPClient(ctx)
 	if err != nil {
@@ -274,10 +289,48 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 	driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
 	if found && err == nil && driver == csitypes.Name {
 		log.Infof("Deleting StoragePool %s", spName)
+		oldGenerationNumber := c.spWatcher.SPNameToGenerationNumberMap[spName]
+		// -1 as generation number indicates to SPWatch that storage pool was deleted.
+		c.spWatcher.SPNameToGenerationNumberMap[spName] = int64(-1)
 		err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
 		if err != nil {
+			c.spWatcher.SPNameToGenerationNumberMap[spName] = oldGenerationNumber
 			log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
 			return err
+		}
+	}
+	return nil
+}
+
+func (c *SpController) deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bool) error {
+	log := logger.GetLogger(ctx)
+	spClient, spResource, err := getSPClient(ctx)
+	if err != nil {
+		return err
+	}
+	// Delete unknown StoragePool instances owned by this driver
+	splist, err := spClient.Resource(*spResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("Error getting list of StoragePool instances. Err: %v", err)
+		return err
+	}
+	for _, sp := range splist.Items {
+		spName := sp.GetName()
+		if _, valid := validStoragePoolNames[spName]; !valid {
+			driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
+			if found && err == nil && driver == csitypes.Name {
+				log.Infof("Deleting StoragePool %s", spName)
+				oldGenerationNumber := c.spWatcher.SPNameToGenerationNumberMap[spName]
+				c.spWatcher.SPNameToGenerationNumberMap[spName] = int64(-1)
+				err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
+				if err != nil {
+					// log error and continue
+					c.spWatcher.SPNameToGenerationNumberMap[spName] = oldGenerationNumber
+					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
+				}
+			}
+			// Also delete entry from intendedStateMap
+			c.deleteIntendedState(ctx, spName)
 		}
 	}
 	return nil

@@ -23,12 +23,9 @@ import (
 
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/types"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
 var (
@@ -179,36 +176,5 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	}
 
 	// Delete unknown StoragePool instances owned by this driver
-	return deleteStoragePools(ctx, validStoragePoolNames, spCtl)
-}
-
-func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bool, spCtl *SpController) error {
-	log := logger.GetLogger(ctx)
-	spClient, spResource, err := getSPClient(ctx)
-	if err != nil {
-		return err
-	}
-	// Delete unknown StoragePool instances owned by this driver
-	splist, err := spClient.Resource(*spResource).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("Error getting list of StoragePool instances. Err: %v", err)
-		return err
-	}
-	for _, sp := range splist.Items {
-		spName := sp.GetName()
-		if _, valid := validStoragePoolNames[spName]; !valid {
-			driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
-			if found && err == nil && driver == csitypes.Name {
-				log.Infof("Deleting StoragePool %s", spName)
-				err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
-				if err != nil {
-					// log error and continue
-					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
-				}
-			}
-			// Also delete entry from intendedStateMap
-			spCtl.deleteIntendedState(ctx, spName)
-		}
-	}
-	return nil
+	return spCtl.deleteStoragePools(ctx, validStoragePoolNames)
 }
