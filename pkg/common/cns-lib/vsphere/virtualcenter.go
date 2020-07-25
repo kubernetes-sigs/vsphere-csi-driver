@@ -306,6 +306,11 @@ func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 // is configured in VirtualCenterConfig during registration, only the listed
 // Datacenters are returned.
 func (vc *VirtualCenter) GetDatacenters(ctx context.Context) ([]*Datacenter, error) {
+	log := logger.GetLogger(ctx)
+	if err := vc.Connect(ctx); err != nil {
+		log.Errorf("failed to connect to vCenter. err: %v", err)
+		return nil, err
+	}
 	if len(vc.Config.DatacenterPaths) != 0 {
 		return vc.getDatacenters(ctx, vc.Config.DatacenterPaths)
 	}
@@ -330,6 +335,10 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 // GetHostsByCluster return hosts inside the cluster using cluster moref.
 func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValue string) ([]*HostSystem, error) {
 	log := logger.GetLogger(ctx)
+	if err := vc.Connect(ctx); err != nil {
+		log.Errorf("failed to connect to vCenter. err: %v", err)
+		return nil, err
+	}
 	clusterMoref := types.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
 		Value: clusterMorefValue,
@@ -353,6 +362,10 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 // GetVsanDatastores returns all the vsan datastore exists in the vc inventory
 func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore, error) {
 	log := logger.GetLogger(ctx)
+	if err := vc.Connect(ctx); err != nil {
+		log.Errorf("failed to connect to vCenter. err: %v", err)
+		return nil, err
+	}
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
 		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
@@ -395,6 +408,10 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 // GetDatastoresByCluster return datastores inside the cluster using cluster moref.
 func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMorefValue string) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
+	if err := vc.Connect(ctx); err != nil {
+		log.Errorf("failed to connect to vCenter. err: %v", err)
+		return nil, err
+	}
 	clusterMoref := types.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
 		Value: clusterMorefValue,
