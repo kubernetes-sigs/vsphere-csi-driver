@@ -26,7 +26,7 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil) {
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil) {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
@@ -69,7 +69,7 @@ func getInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataS
 	for _, pod := range allPods {
 		for _, volume := range pod.Spec.Volumes {
 			// Check if migration is ON and volumes if of type vSphereVolume
-			if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && volume.VsphereVolume != nil {
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && volume.VsphereVolume != nil {
 				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, volume.VsphereVolume.VolumePath)
 				if err != nil {
 					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
@@ -101,12 +101,13 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 	}
 
 	// Verify if pv is vsphere csi volume
-	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume == nil) {
+	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume == nil) {
+		log.Debugf("Pod %s does not have a valid vSphereVolume. Ignoring the pod update", pod.Name)
 		return false, nil, nil
 	}
 	//Verify if pv is vsphere volume and migration flag is disabled
-	if pv.Spec.VsphereVolume != nil && !metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
-		log.Warnf("PVCUpdated: volume-migration feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", pv.Name, pod.Name)
+	if pv.Spec.VsphereVolume != nil && !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
+		log.Warnf("%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", common.CSIMigration, pv.Name, pod.Name)
 		return false, nil, nil
 	}
 	return true, pv, pvc

@@ -162,8 +162,14 @@ const (
 	// IPs is Client IP address, IP range or IP subnet
 	IPs string = "ips"
 
-	// CSINamespace is the namespace of pvCSI in TKC Cluster
-	CSINamespace = "vmware-system-csi"
+	// CSINamespaceVanillaK8S is the namespace of CSI driver in Vanilla K8S
+	CSINamespaceVanillaK8S = "kube-system"
+
+	// CSINamespaceWorkload is the namespace of CSI in Supervisor Cluster
+	CSINamespaceWorkload = "vmware-system-csi"
+
+	// CSINamespaceTkgCluster is the namespace of CSI in TKG Cluster
+	CSINamespaceTkgCluster = "vmware-system-csi"
 
 	// CSIFeatureStatesConfigMapName is the name of configmap to store FSS values
 	CSIFeatureStatesConfigMapName = "csi-feature-states"
@@ -171,7 +177,7 @@ const (
 
 // Supported container orchestrators
 const (
-	Kubernetes = iota // Default container orchestor for TKC, Supervisor Cluster and Vanilla K8s
+	Kubernetes = iota // Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s
 )
 
 // Feature state flag names
@@ -180,4 +186,6 @@ const (
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion
 	VolumeExtend = "volume-extend"
+	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI
+	CSIMigration = "csi-migration"
 )

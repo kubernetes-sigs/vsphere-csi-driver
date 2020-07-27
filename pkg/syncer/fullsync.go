@@ -51,7 +51,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	for _, pv := range k8sPVs {
 		var volumeHandle string
 		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 			// For vSphere volumes, the migration service will register volumes in CNS.
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
@@ -133,7 +133,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	for _, pv := range currentK8sPV {
 		var volumeHandle string
 		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
@@ -188,7 +188,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	for _, pv := range currentK8sPV {
 		var volumeHandle string
 		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
@@ -236,7 +236,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v", volume.VolumeId.Id, err)
 					continue
 				}
-				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
 					err := volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
 					if err != nil {
 						log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume mapping CR for %s with error %+v", volume.VolumeId.Id, err)
@@ -307,7 +307,7 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		var volumeHandle string
 		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
@@ -473,7 +473,7 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 	// inlineVolumeMap holds the volume path information for migrated volumes which are used by Pods
 	inlineVolumeMap := make(map[string]string)
 	var err error
-	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
 		inlineVolumeMap, err = getInlineMigratedVolumesInfo(ctx, metadataSyncer)
 		if err != nil {
 			log.Errorf("FullSync: Failed to get inline migrated volumes. Err: %v", err)
@@ -488,7 +488,7 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 				volToBeDeleted = append(volToBeDeleted, vol.VolumeId)
 			} else {
 				// Add to cnsDeletionMap
-				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
 					// If migration is ON, verify if the volume is present in inlineVolumeMap
 					if _, existsInInlineVolumeMap := inlineVolumeMap[vol.VolumeId.Id]; !existsInInlineVolumeMap {
 						log.Infof("FullSync: Inline migrated volume with id %s added to cnsDeletionMap", vol.VolumeId.Id)
