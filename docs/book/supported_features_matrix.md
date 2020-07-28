@@ -8,14 +8,14 @@
 | Enhanced Object Health in UI                            | Yes (_vSAN only_)    | Yes (_vSAN only_)| Yes (_vSAN only_)  | Yes (_vSAN only_)|
 | Dynamic Block PV support (`Read-Write-Once` Access Mode)| Yes                  | Yes              | Yes                | Yes              |
 | Dynamic File PV support (`Read-Write-Many` Access Mode) | No                   | Yes (_vSAN only_)| No                 | No               |
-| Encryption support via VMcrypt                          | No                   | Yes (_Block PV_) | No                 | No               |
+| Encryption support via VMcrypt                          | No                   | Yes (_Block Volume_) | No                 | No               |
 | Dynamic Virtual Volume PV support                       | No                   | Yes              | No                 | No               |
-| Offline Volume Grow support (beta)                      | No                   | Yes (_Block PV_) | No                 | No               |
-| Topology/Availability Zone support                      | Yes (_Block PV_)     | Yes (_Block PV_) | No                 | No               |
+| Offline Volume Grow support (beta)                      | No                   | Yes (_Block Volume_) | No                 | No               |
+| Topology/Availability Zone support                      | Yes (_Block Volume_)     | Yes (_Block Volume_) | No                 | No               |
 | Static PV Provisioning                                  | Yes                  | Yes              | No                 | Yes              |
 | K8s Multi-node Control Plane support                    | Yes                  | Yes              | Yes                | Yes              |
 | `WaitForFirstConsumer`                                  | Yes                  | Yes              | No                 | No               |
-
+| VolumeHealth                                  | No                  | No              | Yes (_Block Volume_)                 | Yes (_Block Volume_)               |
 _Notes_:
 
 * Native K8s is any distribution that uses vanilla upstream Kubernetes binaries and pods (e.g. VMware TKG, TKGI, etc)
@@ -27,3 +27,4 @@ _Notes_:
 * Offline volume grow requires a minimum Kubernetes version of 1.16+, and is also a beta feature in this release.
 * Multi-node Control Planes only supports having a single CSI Pod being active at any time (replica = 1 in controller manifest).
 * [`WaitForFirstConsumer`](https://kubernetes.io/docs/concepts/storage/storage-classes/) is a K8s feature that delays volume binding until the Pod has been scheduled, and is used for Pod and PV placement.
+* Volume Health is supported for Block Volumes in vSphere with Kubernetes Cluster and Tanzu Kubernetes Grid Cluster - vSphere 7.0u1.
