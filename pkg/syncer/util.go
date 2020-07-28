@@ -12,6 +12,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -26,7 +27,7 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil) {
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil && migratedToAnnotationExists(ctx, pv.GetAnnotations())) {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
@@ -170,10 +171,24 @@ func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
 // HasMigratedToAnnotationUpdate returns true if the migrated-to annotation is found in the newer object
 func HasMigratedToAnnotationUpdate(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string) bool {
 	log := logger.GetLogger(ctx)
-	// Checking if the migrated-to annotation is found in the new PV
+	// Checking if the migrated-to annotation is found in the newer object
 	if _, annMigratedToFound := newAnnotations[common.AnnMigratedTo]; annMigratedToFound {
 		if _, annMigratedToFound = prevAnnotations[common.AnnMigratedTo]; !annMigratedToFound {
 			log.Debugf("Received %v annotation update", common.AnnMigratedTo)
+			return true
+		}
+	}
+	log.Debugf("%v annotation not found", common.AnnMigratedTo)
+	return false
+}
+
+// migratedToAnnotationExists returns true if the migrated-to annotation is found and equal to csi.vsphere.vmware.com
+func migratedToAnnotationExists(ctx context.Context, annotations map[string]string) bool {
+	log := logger.GetLogger(ctx)
+	// Checking if the migrated-to annotation is found in the PV
+	if annotation, annMigratedToFound := annotations[common.AnnMigratedTo]; annMigratedToFound {
+		if annotation == types.Name {
+			log.Debugf("%v annotation found with value %s", common.AnnMigratedTo, types.Name)
 			return true
 		}
 	}
