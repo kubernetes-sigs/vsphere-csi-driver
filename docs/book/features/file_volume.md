@@ -13,7 +13,7 @@ In order to utilize this feature in your vSphere environment, you need to make s
 
 - Enable and configure the file service in your vSAN cluster configuration. You must configure the necessary file service domains, IP pools, network etc in order to create file share volumes. Refer to [vSphere 7.0 vSAN File service](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-82565B82-C911-42F7-85B1-E9EF973EE90C.html) documentation to get started.
 
-- Establish a dedicated file share network connecting all the kubernetes nodes and make sure this network is routable to the vSAN File Share network.  Refer to [Network Access of vSAN File Share](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.storage.doc/GUID-EFC00FFF-E720-44F1-B229-4C13687E6B85.html) to understand the setup better.
+- Establish a dedicated file share network connecting all the kubernetes nodes and make sure this network is routable to the vSAN File Share network.  Refer to [Network Access of vSAN File Share](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.storage.doc/GUID-EFC00FFF-E720-44F1-B229-4C13687E6B85.html) to understand the setup better. Make sure you configure the kubernetes nodes with the same DNS server as the one used to configure the file services in the vSAN cluster configuration.
 
 - Configure the kubernetes secret named `vsphere-config-secret` to specify network permissions and placement of volumes for your vSAN file shares in your vSphere environment. This step is completely optional. Refer to the [CSI vSphere driver installation](../driver-deployment/installation.md) instructions on `vSphere configuration file for file volumes` to learn more. If not specified, it is upto the CSI driver to use its discretion to place the file share volumes in any of your vSAN datastores with File services enabled. In such a scenario, the file volumes backed by vSAN file shares using the NFSv4 protocol will assume default network permissions i.e Read-Write privilege and root access to all the IP ranges.
 
@@ -29,7 +29,7 @@ The next section on CSI file services integration will explain some of the spec 
 
 To give this example a try, you can first pick the Storage Class spec from [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-file-driver/example-sc.yaml). To create a file volume PVC spec, set `accessModes` to either `ReadWriteMany` or `ReadOnlyMany` depending upon your requirement.
 
-```bash
+```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -79,7 +79,7 @@ The `VolumeHandle` associated with the PV should have a prefix of `file:` for fi
 
 Create a Read-Write Pod to use the PVC from above example.
 
-```bash
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -105,7 +105,7 @@ If you need to read the same file share from multiple pods, specify the PVC asso
 
 If you need to create a Read-Only Pod, you need to explicitly mention `readOnly` as `true` in the `persistentVolumeClaim` section as shown below. Note that just setting the `accessModes` to `ReadOnlyMany` in the PVC spec will not make the PVC read-only to the Pods.
 
-```bash
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -140,7 +140,7 @@ touch: abc.txt: Read-only file system
 If you have an existing persistent storage file volume in your VC, you can use static provisioning to make the storage instance available to your cluster.
 Define a PVC and a PV as shown below
 
-```bash
+```yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:

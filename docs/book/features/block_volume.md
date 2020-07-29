@@ -275,7 +275,7 @@ the same zone.
 ### Statically Provision a Block Volume on Vanilla Kubernetes Cluster<a id="static_volume_provisioning_vanilla"></a>
 
 This section describes the step by step instructions to provision a PersistentVolume statically on a `Vanilla Kubernetes`
-Cluster
+Cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com` in the PV annotation.
 
 - Define a PVC and a PV as shown below
 
