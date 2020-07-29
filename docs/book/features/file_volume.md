@@ -75,9 +75,9 @@ Events:                <none>
 
 The `VolumeHandle` associated with the PV should have a prefix of `file:` for file volumes.
 
-### Read-Write Pod
+### Pod with Read-Write access to PVC
 
-Create a Read-Write Pod to use the PVC from above example.
+Create a Pod to use the PVC from above example.
 
 ```yaml
 apiVersion: v1
@@ -101,9 +101,9 @@ spec:
 
 If you need to read the same file share from multiple pods, specify the PVC associated with the file share in the `ClaimName` in all the Pod specifications.
 
-### Read-Only Pod
+### Pod with Read-Only access to PVC
 
-If you need to create a Read-Only Pod, you need to explicitly mention `readOnly` as `true` in the `persistentVolumeClaim` section as shown below. Note that just setting the `accessModes` to `ReadOnlyMany` in the PVC spec will not make the PVC read-only to the Pods.
+If you need to create a Pod with Read-Only access to the above PVC, you need to explicitly mention `readOnly` as `true` in the `persistentVolumeClaim` section as shown below. Note that just setting the `accessModes` to `ReadOnlyMany` in the PVC spec will not make the PVC read-only to the Pods.
 
 ```yaml
 apiVersion: v1
