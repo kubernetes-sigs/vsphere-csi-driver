@@ -1,6 +1,6 @@
 # vSphere CSI Driver - Offline Volume Expansion
 
-CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid (TKG) service. 
+CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid (TKG) service.
 
 ## Feature Gate
 
@@ -11,6 +11,7 @@ Expand CSI Volumes feature was promoted to beta in kubernetes 1.16, therefore it
 An external-resizer sidecar container implements the logic of watching the Kubernetes API for Persistent Volume claim edits, issuing the ControllerExpandVolume RPC call against a CSI endpoint and updating the PersistentVolume object to reflect the new size. This container has already been deployed for you as a part of the vsphere-csi-controller pod.
 
 ## Requirements
+
 If your environment adheres to the required kubernetes and vSphere CSI driver versions mentioned above, this feature will work as is in a TKG cluster. Proceed to the `Expand PVC Example` section below to use this feature.
 
 However, in order to try out this feature using the vanilla kubernetes driver, modify the RBAC rules and the StorageClass definition as mentioned below in your environment.
@@ -43,7 +44,7 @@ allowVolumeExpansion: true
 
 ## Expand PVC Example
 
-Create a PVC with a StorageClass that allows volume expansion. In case of TKG service, use the existing default storage class. 
+Create a PVC with a StorageClass that allows volume expansion. In case of TKG service, use the existing default storage class.
 
 ```yaml
 apiVersion: v1
@@ -63,9 +64,9 @@ spec:
 kubectl apply -f example-pvc.yaml
 ```
 
-Before increasing the size of a PVC make sure that the PVC is bound and is not attached to a Pod as only offline volume expansion is supported. 
+Before increasing the size of a PVC make sure that the PVC is bound and is not attached to a Pod as only offline volume expansion is supported.
 
-Patch the PVC to increase its size: 
+Patch the PVC to increase its size:
 
 ```bash
 kubectl patch pvc example-block-pvc -p '{"spec": {"resources": {"requests": {"storage": "2Gi"}}}}'
