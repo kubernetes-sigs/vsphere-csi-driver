@@ -158,21 +158,6 @@ const (
 	// AnnMigratedTo annotation is added to a PVC and PV that is supposed to be
 	// provisioned/deleted by its corresponding CSI driver
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
-
-	// IPs is Client IP address, IP range or IP subnet
-	IPs string = "ips"
-
-	// CSINamespaceVanillaK8S is the namespace of CSI driver in Vanilla K8S
-	CSINamespaceVanillaK8S = "kube-system"
-
-	// CSINamespaceWorkload is the namespace of CSI in Supervisor Cluster
-	CSINamespaceWorkload = "vmware-system-csi"
-
-	// CSINamespaceTkgCluster is the namespace of CSI in TKG Cluster
-	CSINamespaceTkgCluster = "vmware-system-csi"
-
-	// CSIFeatureStatesConfigMapName is the name of configmap to store FSS values
-	CSIFeatureStatesConfigMapName = "csi-feature-states"
 )
 
 // Supported container orchestrators
