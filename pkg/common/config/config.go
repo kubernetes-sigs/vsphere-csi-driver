@@ -28,6 +28,8 @@ import (
 
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"gopkg.in/gcfg.v1"
@@ -53,6 +55,12 @@ const (
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
 	// DefaultFeatureStateValue is the default value for Feature state switches
 	DefaultFeatureStateValue = false
+	// DefaultFSSConfigMapName is the default name Feature states config map
+	DefaultFSSConfigMapName = "csi-feature-states"
+	// DefaultFSSConfigMapNamespaceVanillaK8s is the default value for Feature state config map namespace
+	DefaultFSSConfigMapNamespaceVanillaK8s = "kube-system"
+	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers
+	DefaultCSINamespace = "vmware-system-csi"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
@@ -292,7 +300,21 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
-
+	clusterFlavor, err := GetClusterFlavor(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
+		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			// If featurte states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
+			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
+			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+			// Featurte states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
+			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
+		}
+	}
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
 	}
@@ -455,4 +477,17 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return string(namespace), nil
+}
+
+// GetClusterFlavor returns the cluster flavor based on the env variable set in the driver deployment file
+func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
+	// CLUSTER_FLAVOR is defined only in Supervisor and Guest cluster deployments.
+	// If it is empty, it is implied that cluster flavor is Vanilla K8S
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv("CLUSTER_FLAVOR"))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		return cnstypes.CnsClusterFlavorVanilla, nil
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest || clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		return clusterFlavor, nil
+	}
+	return "", fmt.Errorf("Unrecognized value set for CLUSTER_FLAVOR")
 }

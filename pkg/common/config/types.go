@@ -63,6 +63,14 @@ type Config struct {
 		Zone   string `gcfg:"zone"`
 		Region string `gcfg:"region"`
 	}
+	// FeatureStatesConfig is the details about feature states configmap
+	FeatureStatesConfig FeatureStatesConfigInfo
+}
+
+// FeatureStatesConfigInfo is the details about feature states configmap
+type FeatureStatesConfigInfo struct {
+	Name      string `gcfg:"name"`
+	Namespace string `gcfg:"namespace"`
 }
 
 // NetPermissionConfig consists of information used to restrict the
