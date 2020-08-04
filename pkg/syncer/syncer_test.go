@@ -52,6 +52,7 @@ import (
 const (
 	testVolumeName       = "test-pv"
 	testPVCName          = "test-pvc"
+	testSCName           = "test-sc"
 	testPodName          = "test-pod"
 	testClusterName      = "test-cluster"
 	gbInMb               = 1024
@@ -375,14 +376,14 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName = testPVCName + "-" + uuid.New().String()
-	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, oldPVCLabel, pv.Name)
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, oldPVCLabel, pv.Name, "")
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvcUpdate workflow on VC
-	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, oldPVCLabel, pv.Name)
-	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name)
+	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, oldPVCLabel, pv.Name, "")
+	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name, "")
 	waitForListerSync()
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
@@ -559,12 +560,8 @@ func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentV
 }
 
 // getPersistentVolumeClaimSpec gets vsphere persistent volume spec with given selector labels.
-func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
-	var (
-		pvc *v1.PersistentVolumeClaim
-	)
-	sc := ""
-	pvc = &v1.PersistentVolumeClaim{
+func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string, scName string) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "",
 			APIVersion: "",
@@ -585,7 +582,7 @@ func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[s
 				},
 			},
 			VolumeName:       pvName,
-			StorageClassName: &sc,
+			StorageClassName: &scName,
 		},
 		Status: v1.PersistentVolumeClaimStatus{
 			Phase: "Bound",
@@ -687,7 +684,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	pvcLabel := make(map[string]string)
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName := testPVCName + "-" + uuid.New().String()
-	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, pv.Name)
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, pv.Name, "")
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}

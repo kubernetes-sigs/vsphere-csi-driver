@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/client-go/tools/cache"
 
@@ -15,6 +16,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+)
+
+const (
+	// PVC annotation key to specify storage class from which PV should be provisioned
+	scNameAnnotationKey = "volume.beta.kubernetes.io/storage-class"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released state
@@ -222,4 +228,17 @@ func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) boo
 		}
 	}
 	return false
+}
+
+// GetSCNameFromPVC gets name of the storage class from provided PVC
+func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
+	scName := pvc.Spec.StorageClassName
+	if scName == nil || *scName == "" {
+		scNameFromAnnotation := pvc.Annotations[scNameAnnotationKey]
+		if scNameFromAnnotation == "" {
+			return "", fmt.Errorf("storage class name not specified in PVC")
+		}
+		scName = &scNameFromAnnotation
+	}
+	return *scName, nil
 }
