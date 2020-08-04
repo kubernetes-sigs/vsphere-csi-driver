@@ -284,17 +284,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) && scParams.CSIMigration == "true" {
 		if len(scParams.Datastore) != 0 {
 			log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
-			vcList := c.manager.VcenterManager.GetAllVirtualCenters()
-			if len(vcList) == 0 {
-				return nil, status.Errorf(codes.Internal, "Failed to get vCenter List")
-			}
-			err := vcList[0].Connect(ctx)
+			// Get vCenter
+			vCenter, err := cnsvsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 			if err != nil {
-				msg := fmt.Sprintf("failed to connect to vCenter: %q. err: %+v", vcList[0].Config.Host, err)
+				msg := fmt.Sprintf("failed to get vCenter. err: %+v", err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
-			dcList, err := vcList[0].GetDatacenters(ctx)
+			dcList, err := vCenter.GetDatacenters(ctx)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get datacenter list. err: %+v", err)
 				log.Error(msg)
@@ -533,7 +530,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		// Migration feature switch is enabled
 		if volumePath != "" {
-			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, migration.VolumeSpec{VolumePath: volumePath})
 			if err != nil {
 				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				log.Error(msg)
@@ -635,7 +632,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 			// Migration feature switch is enabled
 			if volumePath != "" {
-				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+				storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
+				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
 				if err != nil {
 					msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 					log.Error(msg)
@@ -693,7 +691,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		// Migration feature switch is enabled
 		if volumePath != "" {
-			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, volumePath)
+			// ControllerUnpublishVolume will never be the first call back for vmdk registration with CNS.
+			// Here in the migration.VolumeSpec, we do not supply SPBM Policy name.
+			// Node drain is the pre-requisite for volume migration, so volume will be registered with SPBM policy
+			// during ControllerPublish if metadata-syncer fails to register volume using associated SPBM Policy.
+			// for ControllerUnpublishVolume we anticipate volume is already registered with CNS, and volumeMigrationService
+			// should return volumeID for requested VolumePath
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, migration.VolumeSpec{VolumePath: volumePath})
 			if err != nil {
 				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				log.Error(msg)

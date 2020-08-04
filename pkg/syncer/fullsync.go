@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -53,9 +54,10 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		var err error
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 			// For vSphere volumes, the migration service will register volumes in CNS.
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
 		} else {
@@ -134,9 +136,10 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 		var volumeHandle string
 		var err error
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
 		} else {
@@ -189,9 +192,10 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 		var volumeHandle string
 		var err error
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
 		} else {
@@ -308,9 +312,10 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 		var volumeHandle string
 		var err error
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return nil, nil, err
 			}
 		} else {
@@ -362,9 +367,10 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 		var volumeHandle string
 		var err error
 		if common.CSIMigrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				continue
 			}
 		} else {
