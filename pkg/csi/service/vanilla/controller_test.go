@@ -523,6 +523,24 @@ func TestExtendVolume(t *testing.T) {
 	}
 }
 
+// TestMigratedExtendVolume helps test ControllerExpandVolume with VolumeId having migrated volume
+func TestMigratedExtendVolume(t *testing.T) {
+	ct := getControllerTest(t)
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: "[vsanDatastore] 08281a5f-a21d-1eff-62d6-02009d0f19a1/004dbb1694f14e3598abef852b113e3b.vmdk",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1024,
+		},
+	}
+	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
+	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if err != nil {
+		t.Logf("Expected error received. migrated volume with VMDK path can not be expanded")
+	} else {
+		t.Fatal("Expected error not received when ControllerExpandVolume is called with volume having vmdk path")
+	}
+}
+
 func TestCompleteControllerFlow(t *testing.T) {
 	ct := getControllerTest(t)
 
