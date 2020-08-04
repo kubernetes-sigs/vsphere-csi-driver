@@ -131,14 +131,14 @@ func (c *controller) Init(config *config.Config) error {
 		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
 		if err != nil {
 			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
-			log.Errorf(msg)
+			log.Error(msg)
 			return errors.New(msg)
 		}
 		for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 			isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
 			if !isFSEnabled {
 				msg := fmt.Sprintf("file service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
-				log.Errorf(msg)
+				log.Error(msg)
 				return errors.New(msg)
 			}
 		}
@@ -348,7 +348,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
 			msg := fmt.Sprintf("failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
-			log.Errorf(msg)
+			log.Error(msg)
 			return nil, status.Error(codes.NotFound, msg)
 		}
 		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
@@ -523,7 +523,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	var volumePath string
 
 	// in-tree volume support
-	var volumeID string
 	if strings.Contains(req.VolumeId, ".vmdk") {
 		volumePath = req.VolumeId
 	}
@@ -540,7 +539,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	} else {
 		// Migration feature switch is disabled
 		if volumePath != "" {
-			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumePath)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -624,7 +623,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	} else {
 		// Block Volume
 		// in-tree volume support
-		var volumeID string
 		var volumePath string
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			volumePath = req.VolumeId
@@ -643,7 +641,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		} else {
 			// Migration feature switch is disabled
 			if volumePath != "" {
-				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumePath)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
@@ -683,7 +681,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	}
 
 	// in-tree volume support
-	var volumeID string
 	var volumePath string
 	if strings.Contains(req.VolumeId, ".vmdk") {
 		volumePath = req.VolumeId
@@ -707,7 +704,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	} else {
 		// Migration feature switch is disabled
 		if volumePath != "" {
-			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumeID)
+			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", volumePath)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -760,6 +757,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
+	if strings.Contains(req.VolumeId, ".vmdk") {
+		msg := fmt.Sprintf("Cannot expand migrated vSphere volume. :%q", req.VolumeId)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Unimplemented, msg)
+	}
 	err := validateVanillaControllerExpandVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
