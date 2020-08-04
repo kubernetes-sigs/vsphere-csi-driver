@@ -20,6 +20,7 @@ import (
 	"context"
 	"sync"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
@@ -41,9 +42,9 @@ type mockVolumeMigration struct {
 
 // MockVolumeMigrationService is a mocked VolumeMigrationService needed for CSI migration feature
 type MockVolumeMigrationService interface {
-	// GetVolumeID returns VolumeID for given VolumePath
+	// GetVolumeID returns VolumeID for given migration volumeSpec
 	// Returns an error if not able to retrieve VolumeID.
-	GetVolumeID(ctx context.Context, volumePath string) (string, error)
+	GetVolumeID(ctx context.Context, volumeSpec migration.VolumeSpec) (string, error)
 
 	// GetVolumePath returns VolumePath for given VolumeID
 	// Returns an error if not able to retrieve VolumePath.
