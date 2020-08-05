@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -80,8 +81,8 @@ func GetFakeVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume
 }
 
 // GetVolumeID mocks the method with returns Volume Id for a given Volume Path
-func (dummyInstance *mockVolumeMigration) GetVolumeID(ctx context.Context, volumePath string) (string, error) {
-	return mapVolumePathToID["dummy-vms-CR"]["VolumeID"], nil
+func (dummyInstance *mockVolumeMigration) GetVolumeID(ctx context.Context, volumeSpec migration.VolumeSpec) (string, error) {
+	return mapVolumePathToID["dummy-vms-CR"][volumeSpec.VolumePath], nil
 }
 
 // GetVolumePath mocks the method with returns Volume Path for a given Volume ID

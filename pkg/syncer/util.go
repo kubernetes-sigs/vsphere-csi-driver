@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -71,7 +72,7 @@ func getInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataS
 		for _, volume := range pod.Spec.Volumes {
 			// Check if migration is ON and volumes if of type vSphereVolume
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && volume.VsphereVolume != nil {
-				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, volume.VsphereVolume.VolumePath)
+				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath, StoragePolicyName: volume.VsphereVolume.StoragePolicyName})
 				if err != nil {
 					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
 					continue
