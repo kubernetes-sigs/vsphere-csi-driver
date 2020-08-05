@@ -27,7 +27,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -109,7 +108,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorGuest)
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, config.FeatureStatesConfig)
 	if err != nil {
 		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err

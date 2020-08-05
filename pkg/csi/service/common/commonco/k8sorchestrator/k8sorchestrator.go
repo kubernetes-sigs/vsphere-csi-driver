@@ -18,22 +18,21 @@ package k8sorchestrator
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 
-	"github.com/prometheus/common/log"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 var (
-	k8sOrchestratorInstance        *K8sOrchestrator
-	onceFork8sOrchestratorInstance sync.Once
+	k8sOrchestratorInstance         *K8sOrchestrator
+	onceFork8sOrchestratorInstance  sync.Once
+	featureStatesConfigMapName      string
+	featureStatesConfigMapNamespace string
 )
 
 // K8sOrchestrator defines set of properties specific to K8s
@@ -43,31 +42,23 @@ type K8sOrchestrator struct {
 }
 
 // Newk8sOrchestrator instantiates K8sOrchestrator object and returns this object
-func Newk8sOrchestrator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor) (*K8sOrchestrator, error) {
+func Newk8sOrchestrator(ctx context.Context, featureStatesConfigMapInfo config.FeatureStatesConfigInfo) (*K8sOrchestrator, error) {
 	var coInstanceErr error
 	onceFork8sOrchestratorInstance.Do(func() {
+		log := logger.GetLogger(ctx)
 		log.Info("Initializing k8sOrchestratorInstance")
 		k8sOrchestratorInstance = &K8sOrchestrator{}
 		k8sOrchestratorInstance.featureStates = make(map[string]string)
-		log := logger.GetLogger(ctx)
 		k8sClient, coInstanceErr := k8s.NewClient(ctx)
 		if coInstanceErr != nil {
 			log.Errorf("Creating Kubernetes client failed. Err: %v", coInstanceErr)
 			return
 		}
-		var csiNamespace string
-		switch clusterFlavor {
-		case cnstypes.CnsClusterFlavorVanilla:
-			csiNamespace = common.CSINamespaceVanillaK8S
-		case cnstypes.CnsClusterFlavorWorkload:
-			csiNamespace = common.CSINamespaceWorkload
-		case cnstypes.CnsClusterFlavorGuest:
-			csiNamespace = common.CSINamespaceTkgCluster
-		}
-		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(csiNamespace).Get(ctx, common.CSIFeatureStatesConfigMapName, metav1.GetOptions{})
+		featureStatesConfigMapName = featureStatesConfigMapInfo.Name
+		featureStatesConfigMapNamespace = featureStatesConfigMapInfo.Namespace
+		fssConfigMap, err := k8sClient.CoreV1().ConfigMaps(featureStatesConfigMapNamespace).Get(ctx, featureStatesConfigMapName, metav1.GetOptions{})
 		if err != nil {
-			errMsg := fmt.Errorf("failed to fetch configmap %s. Setting the feature states to default values: %v. Error: %v", common.CSIFeatureStatesConfigMapName, k8sOrchestratorInstance.featureStates, err)
-			log.Debug(errMsg)
+			log.Errorf("failed to fetch configmap %s from namespace %s. Setting the feature states to default values: %v. Error: %v", featureStatesConfigMapName, featureStatesConfigMapNamespace, k8sOrchestratorInstance.featureStates, err)
 		} else {
 			updateFSSValues(ctx, fssConfigMap, k8sOrchestratorInstance)
 		}
@@ -101,7 +92,7 @@ func configMapAdded(obj interface{}, c *K8sOrchestrator) {
 		log.Warnf("configMapAdded: unrecognized object %+v", obj)
 		return
 	}
-	if fssConfigMap.Name == common.CSIFeatureStatesConfigMapName {
+	if fssConfigMap.Name == featureStatesConfigMapName && fssConfigMap.Namespace == featureStatesConfigMapNamespace {
 		updateFSSValues(ctx, fssConfigMap, c)
 	}
 }
@@ -117,7 +108,7 @@ func configMapUpdated(oldObj, newObj interface{}, c *K8sOrchestrator) {
 		log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
 		return
 	}
-	if fssConfigMap.Name == common.CSIFeatureStatesConfigMapName {
+	if fssConfigMap.Name == featureStatesConfigMapName && fssConfigMap.Namespace == featureStatesConfigMapNamespace {
 		updateFSSValues(ctx, fssConfigMap, c)
 	}
 }
@@ -133,12 +124,12 @@ func configMapDeleted(obj interface{}, c *K8sOrchestrator) {
 		log.Warnf("configMapDeleted: unrecognized object %+v", obj)
 		return
 	}
-	if fssConfigMap.Name == common.CSIFeatureStatesConfigMapName {
+	if fssConfigMap.Name == featureStatesConfigMapName && fssConfigMap.Namespace == featureStatesConfigMapNamespace {
 		for featureName := range c.featureStates {
 			c.featureStates[featureName] = strconv.FormatBool(false)
 		}
+		log.Infof("configMapDeleted: %v deleted. Setting feature state values to false %v", fssConfigMap.Name, c.featureStates)
 	}
-	log.Infof("configMapDeleted: %v deleted. Setting feature state values to false %v", fssConfigMap.Name, c.featureStates)
 }
 
 // updateFSSValues updates feature state switch values in the k8sorchestrator
@@ -159,7 +150,6 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			log.Errorf("Error while converting %v feature state value: %v to boolean. Setting the feature state to false", featureName, featureState)
 			return false
 		}
-		log.Debugf("Feature: %v state is set to %v", featureName, featureState)
 		return featureState
 	}
 	log.Debugf("Could not find the feature state for : %v. Setting the feature state to %v", featureName, featureState)
