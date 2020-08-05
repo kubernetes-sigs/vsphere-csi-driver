@@ -7,11 +7,6 @@ metadata:
   namespace: kube-system
 spec:
   replicas: 1
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   selector:
     matchLabels:
       app: vsphere-csi-controller
@@ -46,10 +41,6 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.1
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -125,9 +116,7 @@ spec:
         secret:
           secretName: vsphere-config-secret
       - name: socket-dir
-        hostPath:
-          path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-          type: DirectoryOrCreate
+        emptyDir: {}
 ---
 apiVersion: v1
 data:
