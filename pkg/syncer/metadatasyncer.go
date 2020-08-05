@@ -122,14 +122,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
-	metadataSyncer.clusterFlavor = clusterFlavor
 	// Initialize the k8s orchestrator interface
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, metadataSyncer.clusterFlavor)
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, metadataSyncer.configInfo.Cfg.FeatureStatesConfig)
 	if err != nil {
 		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err
 	}
-
+	metadataSyncer.clusterFlavor = clusterFlavor
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster
 		// if metadata syncer is being initialized for guest clusters

@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -35,11 +35,11 @@ type COCommonInterface interface {
 
 // GetContainerOrchestratorInterface returns orchestrator object
 // for a given container orchestrator type
-func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int, clusterFlavour cnstypes.CnsClusterFlavor) (COCommonInterface, error) {
+func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int, featureStatesConfigInfo config.FeatureStatesConfigInfo) (COCommonInterface, error) {
 	log := logger.GetLogger(ctx)
 	switch orchestratorType {
 	case common.Kubernetes:
-		k8sorchestratorInstance, err := k8sorchestrator.Newk8sOrchestrator(ctx, clusterFlavour)
+		k8sorchestratorInstance, err := k8sorchestrator.Newk8sOrchestrator(ctx, featureStatesConfigInfo)
 		if err != nil {
 			log.Errorf("Creating k8sorchestratorInstance failed. Err: %v", err)
 			return nil, err
