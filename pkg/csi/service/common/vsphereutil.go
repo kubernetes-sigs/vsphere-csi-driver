@@ -44,11 +44,6 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
-		err = vc.ConnectPbm(ctx)
-		if err != nil {
-			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
-			return "", err
-		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
@@ -193,11 +188,6 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
-		err = vc.ConnectPbm(ctx)
-		if err != nil {
-			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
-			return "", err
-		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)

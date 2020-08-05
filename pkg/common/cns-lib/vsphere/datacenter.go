@@ -126,13 +126,6 @@ func asyncGetAllDatacenters(ctx context.Context, dcsChan chan<- *Datacenter, err
 			return
 		default:
 		}
-
-		if err := vc.Connect(ctx); err != nil {
-			log.Errorf("Failed connecting to VC %q with err: %v", vc.Config.Host, err)
-			errChan <- err
-			return
-		}
-
 		dcs, err := vc.GetDatacenters(ctx)
 		if err != nil {
 			log.Errorf("failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
