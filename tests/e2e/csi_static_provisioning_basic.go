@@ -34,6 +34,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -58,6 +59,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc                        *v1.PersistentVolumeClaim
 		defaultDatacenter          *object.Datacenter
 		defaultDatastore           *object.Datastore
+		nonsharedDatastore         *object.Datastore
 		deleteFCDRequired          bool
 		pandoraSyncWaitTime        int
 		err                        error
@@ -66,12 +68,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		isVsanhealthServiceStopped bool
 		isSPSserviceStopped        bool
 		ctx                        context.Context
+		nonSharedDatastoreURL      string
+		autocreatednamespace       string
 	)
 
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		autocreatednamespace = f.Namespace.Name
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -90,6 +95,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		isSPSserviceStopped = false
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		nonSharedDatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
@@ -110,6 +116,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			finder.SetDatacenter(defaultDatacenter)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nonsharedDatastore, err = getDatastoreByURL(ctx, nonSharedDatastoreURL, defaultDatacenter)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		}
 	})
 
@@ -125,7 +134,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if pvc != nil {
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC", pvc.Name)
 		}
 
 		if pv != nil {
@@ -167,9 +176,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
 		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if err != nil {
-			gomega.Expect(err).To(gomega.HaveOccurred())
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof("storageclass name :%s", storageclass.GetName())
@@ -185,7 +195,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	testCleanUpUtil := func(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolumeName string, namespace string, pvcName string, pvName string) {
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvcName, namespace), "Failed to delete PVC ", pvcName)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvcName, namespace), "Failed to delete PVC", pvcName)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -292,7 +302,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Pod")
-		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod ", pod.Name)
+		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod", pod.Name)
 
 		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
@@ -300,7 +310,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -398,7 +408,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -475,7 +485,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC", pvc.Name)
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
@@ -592,7 +602,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		10. Verify Volume id deleted automatically.
 		11. Verify CRD deleted automatically
 	*/
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import FCD ", func() {
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import FCD", func() {
 
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -682,7 +692,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		13. Verify Volume id deleted automatically.
 		14. Verify CRD deleted automatically
 	*/
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - when there is no resourcequota available ", func() {
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - when there is no resourcequota available", func() {
 
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -785,12 +795,12 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, _ := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class ")
+			framework.Logf("Delete storage class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Create CNS register volume with above created FCD , AccessMode is set to ReadWriteMany ")
+		ginkgo.By("Create CNS register volume with above created FCD , AccessMode is set to ReadWriteMany")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, pvcName, v1.ReadWriteMany)
 		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 		time.Sleep(time.Duration(60) * time.Second)
@@ -856,7 +866,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			log.Infof("Delete storage class ")
+			log.Infof("Delete storage class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
@@ -873,7 +883,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
-		ginkgo.By("Create CNS register volume with above created FCD ")
+		ginkgo.By("Create CNS register volume with above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID1, pvcName, v1.ReadWriteOnce)
 		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -881,7 +891,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 		log.Infof("CNS register volume name : %s", cnsRegisterVolumeName)
 
-		ginkgo.By("verify created PV, PVC ")
+		ginkgo.By("verify created PV, PVC")
 		pvc1, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv1 := getPvFromClaim(client, namespace, pvcName)
@@ -920,7 +930,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		defer func() {
 			ginkgo.By("Deleting the PV Claim")
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace), "Failed to delete PVC ", pvc2.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace), "Failed to delete PVC", pvc2.Name)
 
 			ginkgo.By("Verify PV should be deleted automatically")
 			framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, pollTimeoutShort))
@@ -1172,7 +1182,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
-		ginkgo.By("Create CNS register volume with above created FCD ")
+		ginkgo.By("Create CNS register volume with above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, pvcName, v1.ReadWriteOnce)
 		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1208,6 +1218,212 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, "", namespace, pvc.Name, pv.Name)
 		}()
+	})
+
+	/*
+	   This test verifies the static provisioning workflow on supervisour cluster - on non shared datastore.
+
+	   Test Steps:
+	   1. Create FCD with valid non shared storage policy.
+	   2. Create Resource quota
+	   3. Create CNS register volume with above created FCD
+	   4. Verify the error message
+	   5. Delete Resource quota
+	*/
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow SVC - On non shared datastore", func() {
+
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		curtimeinstring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimeinstring
+		log.Infof("pvc name :%s", pvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		// Get a config to talk to the apiserver
+		k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
+		restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Get the Policy ID and assign policy to storage class")
+		nonsharedDatastoreName := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
+		profileID := e2eVSphere.GetSpbmPolicyID(nonsharedDatastoreName)
+		log.Infof("non shared datastore , profileID : %s", profileID)
+		scParameters := make(map[string]string)
+		scParameters["storagePolicyID"] = profileID
+		err = client.StorageV1().StorageClasses().Delete(ctx, nonsharedDatastoreName, metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, nonsharedDatastoreName, metav1.GetOptions{})
+		log.Infof("storageclass Name :%s", storageclass.GetName())
+
+		defer func() {
+			log.Infof("Delete storage class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating Resource quota")
+		createResourceQuota(client, namespace, rqLimit, nonsharedDatastoreName)
+
+		ginkgo.By("Create FCD")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "nonsharedfcd"+curtimeinstring, profileID, diskSizeInMb, nonsharedDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(time.Duration(20) * time.Second)
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		log.Infof("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("Verify the error message, when non-shared data store is used to created CRD")
+		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		actualErrorMsg := cnsRegisterVolume.Status.Error
+		expectedErrorMsg := "Volume in the spec is not accessible to all nodes in the cluster"
+		if actualErrorMsg != expectedErrorMsg {
+			log.Errorf("Expected error message :", expectedErrorMsg)
+			log.Errorf("Actual error message :", actualErrorMsg)
+			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Delete Resource quota")
+		deleteResourceQuota(client, namespace)
+	})
+
+	/*
+		This test verifies the static provisioning on SVC, when FCD with no storage policy
+
+		Test Steps:
+		1. Create FCD with out storage policy
+		2. Create Resource quota
+		3. Create CNS register volume with above created FCD
+		4. Verify the error message
+	*/
+	ginkgo.It("[csi-supervisor] Verify creating static provisioning workflow when FCD with no storage policy", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		curtimeinstring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimeinstring
+		log.Infof("pvc name :%s", pvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		restConfig, storageclass, _ := staticProvisioningPreSetUpUtil(ctx)
+
+		defer func() {
+			log.Infof("Delete storage class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create FCD")
+		fcdID, err := e2eVSphere.createFCD(ctx, "staticfcd"+curtimeinstring, diskSizeInMinMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(time.Duration(40) * time.Second)
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		log.Infof("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		//In Case of datastore type VSAN and VVOL, FCD is created with default storage policy even when no policy is specified.
+		//Hence this check is necessary to validate the error message
+		ginkgo.By("Check the type of datastore, to validate the expected message")
+		var expectedErrorMsg string
+		dataStoreType, err := defaultDatastore.Type(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		log.Infof("Datastore type: %s", dataStoreType)
+		if dataStoreType == "vsan" || dataStoreType == "VVOL" {
+			expectedErrorMsg = "Failed to find K8S Storageclass mapping"
+		} else {
+			expectedErrorMsg = "Volume in the spec doesn't have storage policy associated with it"
+		}
+
+		ginkgo.By("Verify the error message, when FCD without storage policy is used")
+		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		actualErrorMsg := cnsRegisterVolume.Status.Error
+		log.Infof("Error message :%s", actualErrorMsg)
+
+		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
+			log.Errorf("Expected error message : %s", expectedErrorMsg)
+			log.Errorf("Actual error message : %s", actualErrorMsg)
+			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
+		}
+	})
+
+	/*
+		This test verifies the static provisioning workflow on SVC, when tried to import volume with a storage policy that doesn't belong to the namespace
+		Test Steps:
+		1. Create a Namespace
+		2. Create a storage policy.
+		3. Create FCD with the above created storage policy.
+		4. Import the volume created in step 3 to namespace created in step 1.
+	*/
+	ginkgo.It("[csi-supervisor] static provisioning workflow - when tried to import volume with a storage policy that doesn't belong to the namespace", func() {
+
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		curtimeinstring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimeinstring
+		log.Infof("pvc name :%s", pvcName)
+
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		defer func() {
+			log.Infof("Delete storage class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create FCD")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		log.Infof("Auto created namespace :%s", autocreatednamespace)
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, autocreatednamespace, fcdID, pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(time.Duration(40) * time.Second)
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		log.Infof(" CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("Verify the error message, when FCD without storage policy is used")
+		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		actualErrorMsg := cnsRegisterVolume.Status.Error
+		log.Infof("Error message :%s", actualErrorMsg)
+		expectedErrorMsg := "Failed to create PVC: " + pvcName + " for volume with err: persistentvolumeclaims \"" + pvcName + "\" is forbidden"
+		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
+			log.Errorf("Expected error message : %s", expectedErrorMsg)
+			log.Errorf("Actual error message : %s", actualErrorMsg)
+			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 })
