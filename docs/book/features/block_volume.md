@@ -10,7 +10,8 @@
 - [Static Volume Provisioning](#static_volume_provisioning)
   - [How does it work](#static_volume_provisioning_how)
   - [Use Cases of Static Provisioning](#static_volume_provisioning_use_case)
-  - [Statically Provision a Block Volume on Vanilla Kubernetes Cluster](#static_volume_provisioning_vanilla)
+  - [Statically Provision a Block Volume in Vanilla Kubernetes Cluster](#static_volume_provisioning_vanilla)
+  - [Statically Provision a Block Volume in Tanzu Kubernetes Grid Cluster](#static_volume_provisioning_tkg)
 
 ## Volume Provisioning
 
@@ -21,30 +22,30 @@ There are two types of volume provisioning in a Kubernetes cluster:
 
 ## Dynamic Volume Provisioning<a id="dynamic_volume_provisioning"></a>
 
-  Dynamic volume provisioning allows storage volumes to be created on-demand.
+Dynamic volume provisioning allows storage volumes to be created on-demand.
 
-  Without dynamic provisioning, cluster administrators have to manually make calls to their cloud or storage provider to
-  create new storage volumes and then create PersistentVolume objects to represent them in Kubernetes.
+Without dynamic provisioning, cluster administrators have to manually make calls to their cloud or storage provider to
+create new storage volumes and then create PersistentVolume objects to represent them in Kubernetes.
 
-  The dynamic provisioning feature eliminates the need for cluster administrators to pre-provision storage. Instead, it
-  automatically provisions storage when it is requested by users.
+The dynamic provisioning feature eliminates the need for cluster administrators to pre-provision storage. Instead, it
+automatically provisions storage when it is requested by users.
 
-  The implementation of dynamic volume provisioning is based on the API object `StorageClass` from the API group `storage.k8s.io`
-  A cluster administrator can define as many `StorageClass` objects as needed, each specifying a volume plugin
-  (a.k.a `provisioner`) that provisions a volume and a set of parameters to that `provisioner` when provisioning.
-  A cluster administrator can define and expose multiple flavors of storage (from the same or different storage systems)
-  within a cluster, each with a custom set of parameters.
+The implementation of dynamic volume provisioning is based on the API object `StorageClass` from the API group `storage.k8s.io`
+A cluster administrator can define as many `StorageClass` objects as needed, each specifying a volume plugin
+(a.k.a `provisioner`) that provisions a volume and a set of parameters to that `provisioner` when provisioning.
+A cluster administrator can define and expose multiple flavors of storage (from the same or different storage systems)
+within a cluster, each with a custom set of parameters.
 
-  Dynamic Volume Provisioning is supported both in Vanilla Kubernetes clusters and Project Pacific clusters.
+Dynamic Volume Provisioning is supported both in Vanilla Kubernetes clusters and Project Pacific clusters.
 
-  The details for provisioning volume using topology and use of `WaitForFirstConsumer` volumeBinding mode with dynamic
-  volume provisioning is described [here](volume_topology.md)
+The details for provisioning volume using topology and use of `WaitForFirstConsumer` volumeBinding mode with dynamic
+volume provisioning is described [here](volume_topology.md)
 
-  **NOTE:** The support for Volume topology is present only in Vanilla Kubernetes Block Volume driver today.
+**NOTE:** The support for Volume topology is present only in Vanilla Kubernetes Block Volume driver today.
 
 ### Dynamically Provision a Block Volume on Vanilla Kubernetes Cluster<a id="dynamic_volume_provisioning_vanilla"></a>
 
-  This section describes the step by step instructions to provision a PersistentVolume dynamically on a `Vanilla Kubernetes` Cluster
+This section describes the step by step instructions to provision a PersistentVolume dynamically on a `Vanilla Kubernetes` Cluster
 
 - Define a Storage Class as shown [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-block-driver/example-sc.yaml)
 
@@ -147,8 +148,8 @@ There are two types of volume provisioning in a Kubernetes cluster:
 
 ### Dynamically provision a block volume in Tanzu Kubernetes Grid Cluster<a id="dynamic_volume_provisioning_tanzu"></a>
 
-In `Tanzu Kubernetes Grid` cluster, the `StorageClass` gets automatically created and is made available to it by the
-underlying SV cluster. The name of this `StorageClass` is `gc-storage-profile` which looks like:
+In a Tanzu Kubernetes Grid cluster, the `StorageClass` gets automatically created and is made available to it by the
+underlying Project Pacific cluster. An example storage class looks like -
 
 ```yaml
 apiVersion: v1
@@ -272,7 +273,7 @@ Following are the common use cases for static volume provisioning:
 Sharing persistent storage across clusters is available only if the cluster and the storage instance are located in
 the same zone.
 
-### Statically Provision a Block Volume on Vanilla Kubernetes Cluster<a id="static_volume_provisioning_vanilla"></a>
+### Statically Provision a Block Volume in Vanilla Kubernetes Cluster<a id="static_volume_provisioning_vanilla"></a>
 
 This section describes the step by step instructions to provision a PersistentVolume statically on a `Vanilla Kubernetes`
 Cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com` in the PV annotation.
@@ -287,8 +288,8 @@ Cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
           annotations:
             pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
           labels:
-            "fcd-id": "0c75d40e-7576-4fe7-8aaa-a92946e2805d" # This label is used as selector to bind with volume claim.
-                                                             # This can we any unique key-value to identify PV.
+            fcd-id: 0c75d40e-7576-4fe7-8aaa-a92946e2805d # This label is used as selector to bind with volume claim.
+                                                         # This can we any unique key-value to identify PV.
         spec:
           capacity:
             storage: 2Gi
@@ -374,4 +375,65 @@ Cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
             ReadOnly:          false
             VolumeAttributes:      type=vSphere CNS Block Volume
         Events:                <none>
+    ```
+
+### Statically Provision a Block Volume in Tanzu Kubernetes Grid Cluster<a id="static_volume_provisioning_tkg"></a>
+
+You can statically create a block volume in a Tanzu Kubernetes Grid (TKG) Cluster using an unused PersistentVolumeClaim (PVC) from the Project Pacific cluster only if the latter satisfies the following conditions:
+ - It is present in the same namespace as the TKG Cluster
+ - It is associated with the same `StorageClass` as the default storage class in the TKG Cluster
+ - Not attached to a Pod in the Project Pacific Cluster
+
+Steps to create a static PVC in a TKG Cluster are as follows:
+
+1. Note the name of the PVC in the Project Pacific cluster
+
+2. Create a PersistentVolume with the `storageClassName` set to the default storage class of the TKG Cluster and the `volumeHandle` pointing to the value retrieved in step 1.
+
+    ```yaml
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: static-tkg-block-pv
+        annotations:
+          pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
+      spec:
+        storageClassName: "gc-storage-profile"  # Replace this value with the default storage class in your TKG Cluster
+        capacity:
+          storage: 2Gi
+        accessModes:
+          - ReadWriteOnce
+        persistentVolumeReclaimPolicy: Delete
+        csi:
+          driver: "csi.vsphere.vmware.com"
+          volumeAttributes:
+            type: "vSphere CNS Block Volume"
+          "volumeHandle": "project-pacific-block-pvc-name"  # Mention the PVC name from Project Pacific cluster here
+    ```
+   
+3. Create a PVC to match the PV object created above. Also set the `storageClassName` to the same value as above.
+
+    ```yaml
+      kind: PersistentVolumeClaim
+      apiVersion: v1
+      metadata:
+        name: static-tkg-block-pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+        storageClassName: "gc-storage-profile"  # Replace this value with the default storage class in your TKG Cluster
+    ```
+
+4. Check if the PVC is bound to the PV we created on step 2.
+
+    ```bash
+    $ kubectl get pv,pvc
+    NAME                                    CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                          STORAGECLASS         REASON   AGE
+    persistentvolume/static-tkg-block-pv    2Gi        RWO            Delete           Bound    default/static-tkg-block-pvc   gc-storage-profile            10s
+    
+    NAME                                         STATUS   VOLUME                CAPACITY   ACCESS MODES   STORAGECLASS         AGE
+    persistentvolumeclaim/static-tkg-block-pvc   Bound    static-tkg-block-pv   2Gi        RWO            gc-storage-profile   10s
     ```
