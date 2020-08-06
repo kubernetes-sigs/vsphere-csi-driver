@@ -380,9 +380,12 @@ Cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
 ### Statically Provision a Block Volume in Tanzu Kubernetes Grid Cluster<a id="static_volume_provisioning_tkg"></a>
 
 You can statically create a block volume in a Tanzu Kubernetes Grid (TKG) Cluster using an unused PersistentVolumeClaim (PVC) from the Project Pacific cluster only if the latter satisfies the following conditions:
- - It is present in the same namespace as the TKG Cluster
- - It is associated with the same `StorageClass` as the default storage class in the TKG Cluster
- - Not attached to a Pod in the Project Pacific Cluster
+
+- It is present in the same namespace as the TKG Cluster
+
+- It is associated with the same `StorageClass` as the default storage class in the TKG Cluster
+
+- Not attached to a Pod in the Project Pacific Cluster
 
 Steps to create a static PVC in a TKG Cluster are as follows:
 
@@ -410,7 +413,7 @@ Steps to create a static PVC in a TKG Cluster are as follows:
             type: "vSphere CNS Block Volume"
           "volumeHandle": "project-pacific-block-pvc-name"  # Mention the PVC name from Project Pacific cluster here
     ```
-   
+
 3. Create a PVC to match the PV object created above. Also set the `storageClassName` to the same value as above.
 
     ```yaml
@@ -433,7 +436,7 @@ Steps to create a static PVC in a TKG Cluster are as follows:
     $ kubectl get pv,pvc
     NAME                                    CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                          STORAGECLASS         REASON   AGE
     persistentvolume/static-tkg-block-pv    2Gi        RWO            Delete           Bound    default/static-tkg-block-pvc   gc-storage-profile            10s
-    
+
     NAME                                         STATUS   VOLUME                CAPACITY   ACCESS MODES   STORAGECLASS         AGE
     persistentvolumeclaim/static-tkg-block-pvc   Bound    static-tkg-block-pv   2Gi        RWO            gc-storage-profile   10s
     ```
