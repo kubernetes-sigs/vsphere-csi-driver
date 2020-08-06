@@ -159,7 +159,7 @@ func (c *controller) Init(config *config.Config) error {
 	cfgPath := common.GetConfigPath(ctx)
 
 	// Initialize CO utility
-	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorVanilla)
+	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, config.FeatureStatesConfig)
 	if err != nil {
 		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err
