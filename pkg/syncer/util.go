@@ -5,10 +5,10 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -28,7 +28,8 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil && migratedToAnnotationExists(ctx, pv.GetAnnotations())) {
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil &&
+			isValidvSphereVolume(ctx, pv.ObjectMeta)) {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
@@ -170,29 +171,55 @@ func getPVCKey(ctx context.Context, obj interface{}) (string, error) {
 }
 
 // HasMigratedToAnnotationUpdate returns true if the migrated-to annotation is found in the newer object
-func HasMigratedToAnnotationUpdate(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string) bool {
+func HasMigratedToAnnotationUpdate(ctx context.Context, prevAnnotations map[string]string, newAnnotations map[string]string, objectName string) bool {
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the newer object
 	if _, annMigratedToFound := newAnnotations[common.AnnMigratedTo]; annMigratedToFound {
 		if _, annMigratedToFound = prevAnnotations[common.AnnMigratedTo]; !annMigratedToFound {
-			log.Debugf("Received %v annotation update", common.AnnMigratedTo)
+			log.Debugf("Received %v annotation update for %q", common.AnnMigratedTo, objectName)
 			return true
 		}
 	}
-	log.Debugf("%v annotation not found", common.AnnMigratedTo)
+	log.Debugf("%v annotation not found for %q", common.AnnMigratedTo, objectName)
 	return false
 }
 
-// migratedToAnnotationExists returns true if the migrated-to annotation is found and equal to csi.vsphere.vmware.com
-func migratedToAnnotationExists(ctx context.Context, annotations map[string]string) bool {
+// isValidvSphereVolumeClaim returns true if the given PVC metadata of a vSphere Volume (in-tree volume)
+// has migrated-to annotation on the PVC
+// or if the PVC was provisioned by CSI driver using in-tree storage class
+func isValidvSphereVolumeClaim(ctx context.Context, pvcMetadata metav1.ObjectMeta) bool {
 	log := logger.GetLogger(ctx)
-	// Checking if the migrated-to annotation is found in the PV
-	if annotation, annMigratedToFound := annotations[common.AnnMigratedTo]; annMigratedToFound {
-		if annotation == types.Name {
-			log.Debugf("%v annotation found with value %s", common.AnnMigratedTo, types.Name)
+	// Checking if the migrated-to annotation is found in the PVC metadata
+	if annotation, annMigratedToFound := pvcMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
+		if annotation == types.Name && pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnMigratedTo, types.Name, pvcMetadata.Name)
+			return true
+		}
+	} else { // Checking if the PVC was provisioned by CSI
+		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == types.Name {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnStorageProvisioner, types.Name, pvcMetadata.Name)
 			return true
 		}
 	}
-	log.Debugf("%v annotation not found", common.AnnMigratedTo)
+	return false
+}
+
+// isValidvSphereVolume returns true if the given PV metadata of a vSphere Volume (in-tree volume) and
+// has migrated-to annotation on the PV
+// or if the PV was provisioned by CSI driver using in-tree storage class
+func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) bool {
+	log := logger.GetLogger(ctx)
+	// Checking if the migrated-to annotation is found in the PV metadata
+	if annotation, annMigratedToFound := pvMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
+		if annotation == types.Name && pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnMigratedTo, types.Name, pvMetadata.Name)
+			return true
+		}
+	} else {
+		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == types.Name {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnDynamicallyProvisioned, types.Name, pvMetadata.Name)
+			return true
+		}
+	}
 	return false
 }
