@@ -158,6 +158,20 @@ const (
 	// AnnMigratedTo annotation is added to a PVC and PV that is supposed to be
 	// provisioned/deleted by its corresponding CSI driver
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
+
+	// AnnStorageProvisioner annotation is added to a PVC that is supposed to be dynamically
+	// provisioned. Its value is name of volume plugin that is supposed to provision
+	// a volume for this PVC.
+	AnnStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+
+	// AnnDynamicallyProvisioned annotation is added to a PV that has been dynamically provisioned by
+	// Kubernetes. Its value is name of volume plugin that created the volume.
+	// It serves both user (to show where a PV comes from) and Kubernetes (to
+	// recognize dynamically provisioned PVs in its decisions).
+	AnnDynamicallyProvisioned = "pv.kubernetes.io/provisioned-by"
+
+	// InTreePluginName is the name of vsphere cloud provider in kubernetes
+	InTreePluginName = "kubernetes.io/vsphere-volume"
 )
 
 // Supported container orchestrators
