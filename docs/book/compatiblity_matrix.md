@@ -10,3 +10,5 @@ The following table describes compatibility of the vSphere CSI driver releases w
 Refer to [upgrade support matrix](upgrade_support_matrix.md) to learn about upgrade support.
 
 Refer to [feature matrix](supported_features_matrix.md) to learn about features added to the vSphere CSI 2.0 driver.
+
+Note: vSphere CSI driver is not supported on Windows based vCenter.

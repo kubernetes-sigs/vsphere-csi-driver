@@ -14,4 +14,7 @@ With vSphere CSI driver v2.0.0, deployment is changed from StatefulSet to Deploy
 
 To upgrade driver from v1.0.1/v1.0.2 to v2.0.0, driver needs to be removed and re-deployed using [new YAMLs](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/vsphere-7.0/vanilla).
 
-Note: vSphere CSI driver v2.0.0 requires new set of roles and privileges on vSphere 7.0, please refer updated [roles and privileges requirement](driver-deployment/prerequisites.md).
+Note:
+
+- vSphere CSI driver v2.0.0 requires new set of roles and privileges on vSphere 7.0, please refer updated [roles and privileges requirement](driver-deployment/prerequisites.md).
+- vSphere CSI driver is not supported on Windows based vCenter.

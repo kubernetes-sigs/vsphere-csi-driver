@@ -18,6 +18,7 @@
 | VolumeHealth                                  | No                  | No              | Yes (_Block Volume_)                 | Yes (_Block Volume_)               |
 _Notes_:
 
+* vSphere CSI driver is not supported on Windows based vCenter.
 * Native K8s is any distribution that uses vanilla upstream Kubernetes binaries and pods (e.g. VMware TKG, TKGI, etc)
 * If the CSI version `2.0` driver is installed on K8s running on vSphere 6.7U3, the older CSI `1.0` driver features continue to work but the new CSI `2.0` features are not supported.
 * If the CSI version `1.0.2` is installed on K8s running on vSphere 7.0, the CSI `1.0` driver features continue to work. CSI version `1.0.1` is not compatible with vSphere 7.
