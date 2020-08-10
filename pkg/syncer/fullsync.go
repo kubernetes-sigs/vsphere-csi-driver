@@ -497,7 +497,7 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
 					// If migration is ON, verify if the volume is present in inlineVolumeMap
 					if _, existsInInlineVolumeMap := inlineVolumeMap[vol.VolumeId.Id]; !existsInInlineVolumeMap {
-						log.Infof("FullSync: Inline migrated volume with id %s added to cnsDeletionMap", vol.VolumeId.Id)
+						log.Infof("FullSync: Volume with id %q added to cnsDeletionMap", vol.VolumeId.Id)
 						cnsDeletionMap[vol.VolumeId.Id] = true
 					} else {
 						log.Debugf("FullSync: Inline migrated volume with id %s is in use. Skipping for deletion", vol.VolumeId.Id)
