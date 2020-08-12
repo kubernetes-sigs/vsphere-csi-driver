@@ -79,6 +79,16 @@ datacenters should be comma separated if deployed on multi-datacenters
     export GINKGO_FOCUS="csi-guest"
     export SVC_NAMESPACE="test-gc-e2e-demo-ns"
 
+    # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
+    # added to `SVC_NAMESPACE` with storage limit >=20GiB each
+
+#### Setting SSH keys for VC with your local machine to run tests which toggle VC service states
+
+    1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
+    2.ssh root@<vc-ip-address> mkdir -p .ssh
+    3.cat ~/.ssh/id_rsa.pub | ssh root@<vc-ip-address> 'cat >> .ssh/authorized_keys'
+    4.ssh root@<vc-ip-address> "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
+
 ## Requirements
 
 Go version: 1.13

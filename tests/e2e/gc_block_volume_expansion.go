@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		_ = framework.RunKubectlOrDie("cp", testdataFile, fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+		_ = framework.RunKubectlOrDie(namespace, "cp", testdataFile, fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("Checking data consistency after PVC resize")
-		_ = framework.RunKubectlOrDie("cp", fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
+		_ = framework.RunKubectlOrDie(namespace, "cp", fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
 		defer func() {
 			op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
 			fmt.Println("rm: ", op)
@@ -280,7 +280,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("File system resize finished successfully in GC")
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
-		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the new pod %s in namespace %s after expansion", pod.Name, namespace))
@@ -460,7 +461,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("File system resize finished successfully in GC")
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
-		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the new pod %s in namespace %s after expansion", pod.Name, namespace))
@@ -653,6 +655,399 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 	})
 
+	/*
+		CNS down during resize and delete GC PVC while CNS is still down
+		Steps:
+		1. Create a SC with allowVolumeExpansion set to 'true'
+		2. create a PVC using the SC created in step 1 and wait for binding with PV
+		3. Bring CNS down
+		4. resize the PVC created in step 2
+		5. check that PVC in GC AND SVC are still in "Resizing" state even after 3 mins and retries are being made to resize
+		6. delete GC PVC created in step2
+		7. verify resize retries stop
+		8. Bring CNS up
+		9. delete SC created in step 1
+
+		TODO: There is an upstream work going on to prevent PVC deletion when resize is in progress.
+		      This test needs to be re-evaluated in the future when the upstream happens.
+	*/
+	ginkgo.It("Verify while CNS is down the volume expansion can be triggered and the volume can deleted with pending resize operation", func() {
+		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		vsanDown := true
+		defer func() {
+			if vsanDown {
+				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
+				vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			}
+		}()
+
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		framework.ExpectNoError(err, "While updating pvc for more size")
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc size %q", pvclaim.Name)
+		}
+		ginkgo.By("Checking for PVC request size change on SVC PVC")
+		b, err := verifyPvcRequestedSizeUpdateInSupervisorWithWait(svcPVCName, newSize)
+		gomega.Expect(b).To(gomega.BeTrue())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v for SVC operation timeout...", svOperationTimeout))
+		time.Sleep(svOperationTimeout)
+		pvclaim, err = checkPvcHasGivenStatusCondition(client, namespace, pvclaim.Name, true, v1.PersistentVolumeClaimResizing)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimResizing)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		vsanDown = false
+
+		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
+		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
+		gomega.Expect(volumeExists).To(gomega.BeFalse())
+		pvcDeleted = true
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Resize beyond storage policy quota fails
+		Steps:
+		1. Create a SC with allowVolumeExpansion set to 'true'
+		2. set a quota limit on the storage policy in VC
+		3. create a PVC using the SC created in step 1 and wait for binding with PV
+		4. resize GC PVC to size bigger than what storage policy quota allows
+		5. Verify resize fails
+		6. Increase quota on the storage policy to allow the exapnsion
+		7. Verify SVC and PVC reach "FilesystemResizePending" state and PVs have the new size used in step 3
+		8. Check using CNS query that size has got updated to what was used in step 4
+		9. Verify size of PVs in SVC and GC to same as the one used in the step 4
+		10. delete PVC created in step 2
+		11. delete SC created in step 1
+	*/
+	ginkgo.It("Resize beyond storage policy quota fails", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Set quota in SVC for 5Gi on policy(SC) - " + storagePolicyName)
+		svcClient, svcNamespace := getSvcClientAndNamespace()
+		createResourceQuota(svcClient, svcNamespace, "5Gi", storagePolicyName)
+		defer deleteResourceQuota(svcClient, svcNamespace)
+
+		// Modify PVC spec to trigger volume expansion
+		// We expand the PVC while no pod is using it to ensure offline expansion
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("5Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim.Spec.Resources.Requests[v1.ResourceStorage] = newSize
+
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		framework.ExpectNoError(err, "While updating pvc for more size")
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc size %q", pvclaim.Name)
+		}
+		err = waitForEvent(ctx, client, namespace, "exceeded quota", pvclaim.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Remove quota in SVC for policy(SC) - " + storagePolicyName)
+		deleteResourceQuota(svcClient, svcNamespace)
+
+		ginkgo.By("Checking for PVC request size change on SVC PVC")
+		b, err := verifyPvcRequestedSizeUpdateInSupervisorWithWait(svcPVCName, newSize)
+		gomega.Expect(b).To(gomega.BeTrue())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for controller volume resize to finish")
+		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
+
+		ginkgo.By("Checking for resize on SVC PV")
+		verifyPVSizeinSupervisor(svcPVCName, newSize)
+
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if len(queryResult.Volumes) == 0 {
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verifying disk size requested in volume expansion is honored")
+		newSizeInMb := convertGiStrToMibInt64(newSize)
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
+			err = fmt.Errorf("Got wrong disk size after volume expansion")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+		verify resize triggered when volume was online resumes when volumes becomes offline
+		Steps:
+		1. Create StorageClass with allowVolumeExpansion set to true.
+		2. Create a GC PVC with 1 Gi and wait for it bound in the GC
+		3. Extend the GC PVC to 2Gi, verify GC PVC and SVC PVC remains 1Gi and have FileSystemResizePending condition , GC PV  and SVC PV change to 2Gi.
+		4. Create a pod in GC with PVC created in step 2, wait for the pod to reach running state
+		5. verify GC PVC and SVC PVC size change to 2 Gi and FileSystemResizePending condition is removed.
+		6. Extend GC PVC to 3Gi
+		7. verify error message indicating that we don't support online expansion.
+		8. Delete the pod created in step 4
+		9. Resize triggered in step 6 finishes and GC and SVC PVCs remain at 2Gi and have FileSystemResizePending condition, GC and SVC PVs change to 3Gi.
+		10. Create a pod with PVC created in step 2, wait for the pod to reach running state
+		11. verify GC PVC and SVC PVC size change to 3 Gi and FileSystemResizePending condition is removed.
+		12. delete pod created in step 10
+		13. delete PVC created in step 2
+		14. delete SC created in step 1
+	*/
+	ginkgo.It("verify resize triggered when volume was online resumes when volumes becomes offline", func() {
+		// Create a POD to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID, err := getVMUUIDFromNodeName(pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		cmd[1] = pod.Name
+		lastOutput := framework.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+
+		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
+		originalFsSize, err := getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		framework.ExpectNoError(err, "While updating pvc for more size")
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc %q to size %v", pvclaim.Name, newSize)
+		}
+
+		// Delete POD
+		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+		ginkgo.By("Waiting for controller volume resize to finish")
+		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
+
+		ginkgo.By("Checking for PVC request size change on SVC PVC")
+		b, err := verifyPvcRequestedSizeUpdateInSupervisorWithWait(svcPVCName, newSize)
+		gomega.Expect(b).To(gomega.BeTrue())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Checking for resize on SVC PV")
+		verifyPVSizeinSupervisor(svcPVCName, newSize)
+
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if len(queryResult.Volumes) == 0 {
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verifying disk size requested in volume expansion is honored")
+		newSizeInMb := convertGiStrToMibInt64(newSize)
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
+			err = fmt.Errorf("Got wrong disk size after volume expansion")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create a new POD to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating a new pod to attach PV again to the node")
+		pod, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify after expansion the filesystem type is as expected")
+		cmd[1] = pod.Name
+		lastOutput = framework.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+
+		ginkgo.By("Waiting for file system resize to finish")
+		pvclaim, err = waitForFSResize(pvclaim, client)
+		framework.ExpectNoError(err, "while waiting for fs resize to finish")
+
+		pvcConditions := pvclaim.Status.Conditions
+		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
+		fsSize, err := getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Filesystem size may be smaller than the size of the block volume.
+		// Here since filesystem was already formatted on the original volume,
+		// we can compare the new filesystem size with the original filesystem size.
+		if fsSize < originalFsSize {
+			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
+		}
+		ginkgo.By("File system resize finished successfully in GC")
+		ginkgo.By("Checking for PVC resize completion on SVC PVC")
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Delete POD
+		ginkgo.By(fmt.Sprintf("Deleting the new pod %s in namespace %s after expansion", pod.Name, namespace))
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node after expansion")
+		isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+	})
+
+	/*
+	   Looping resize beyond storage policy quota fails
+	   Steps:
+	   1. Create StorageClass with allowVolumeExpansion set to true.
+	   2. set a quota limit on the storage policy corresponding to SC created in step 1 in VC to 10Gi
+	   3. Create PVC of 2Gi in GC with SC created in step 1 and wait for binding with PV
+	   4. create a pod in GC using the PVC created in step 3, wait for FS creation
+	   5. delete the pod create in step 4 in GC
+	   6. In a loop of 10, modify PVC's size by adding 1 Gi at a time to trigger offline volume expansion
+	   7. Check the resize operation fails since it exceeds quota
+	   8. Check using CNS query that size has got updated to 10Gi
+	   9. Verify size of PVs in SVC and GC are 10Gi
+	   10. delete PVC created in step 3
+	   11. delete SC created in step 1
+	*/
+	/*
+		TODO: revisit in 2.2 version
+
+		ginkgo.It("Looping resize beyond storage policy quota fails", func() {
+			quota := "10Gi"
+			ginkgo.By(fmt.Sprintf("Set quota in SVC for %v on policy(SC) - %v", quota, storagePolicyName))
+			svcClient, svcNamespace := getSvcClientAndNamespace()
+			createResourceQuota(svcClient, svcNamespace, quota, storagePolicyName)
+			defer deleteResourceQuota(svcClient, svcNamespace)
+
+			ginkgo.By("Expanding pvc 10 times")
+			currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+			newSize := currentPvcSize.DeepCopy()
+			quotaSize := resource.MustParse(quota)
+			for i := 0; i < 10; i++ {
+				newSize.Add(resource.MustParse("1Gi"))
+				ginkgo.By(fmt.Sprintf("Expanding pvc to new size: %v", newSize))
+				pvclaim, err := expandPVCSize(pvclaim, newSize, client)
+				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+				if pvcSize.Cmp(newSize) != 0 {
+					framework.Failf("error updating pvc %q to size %v", pvclaim.Name, newSize)
+				}
+				ginkgo.By("Sleeping for 2 seconds...")
+				time.Sleep(2 * time.Second)
+			}
+
+			ginkgo.By(fmt.Sprintf("Waiting for PV resize to %v", quotaSize))
+			err = waitForPvResize(pv, client, quotaSize, totalResizeWaitPeriod)
+			framework.ExpectNoError(err, "While waiting for pvc resize to finish")
+
+			ginkgo.By("Checking for PVC request size change on SVC PVC")
+			b, err := verifyPvcRequestedSizeUpdateInSupervisorWithWait(svcPVCName, quotaSize)
+			gomega.Expect(b).To(gomega.BeTrue())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Checking for resize on SVC PV")
+			verifyPVSizeinSupervisor(svcPVCName, quotaSize)
+
+			ginkgo.By("Checking for conditions on pvc")
+			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+			_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+			queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			if len(queryResult.Volumes) == 0 {
+				err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
+			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verifying disk size requested in volume expansion is honored")
+			newSizeInMb := convertGiStrToMibInt64(quotaSize)
+			if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
+				err = fmt.Errorf("Got wrong disk size after volume expansion")
+			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		})
+	*/
+
 })
 
 func resize(client clientset.Interface, pvc *v1.PersistentVolumeClaim, currentPvcSize resource.Quantity, newSize resource.Quantity, wg *sync.WaitGroup) {
@@ -670,7 +1065,7 @@ func verifyPVCRequestedSizeInSupervisor(pvcName string, size resource.Quantity) 
 	return pvcSize.Cmp(size) == 0
 }
 
-// verifyPVCRequestedSizeInSupervisor waits till Pvc.Spec.Resources.Requests[v1.ResourceStorage] matches with given size in SVC
+// verifyPvcRequestedSizeUpdateInSupervisorWithWait waits till Pvc.Spec.Resources.Requests[v1.ResourceStorage] matches with given size in SVC
 func verifyPvcRequestedSizeUpdateInSupervisorWithWait(pvcName string, size resource.Quantity) (bool, error) {
 	var b bool
 
@@ -687,12 +1082,10 @@ func verifyResizeCompletedInSupervisor(pvcName string) bool {
 	pvc := getPVCFromSupervisorCluster(pvcName)
 	pvcRequestedSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 	pvcCapacitySize := pvc.Status.Capacity[v1.ResourceStorage]
-
 	//If pvc's capacity size is greater than or equal to pvc's request size then done
 	if pvcCapacitySize.Cmp(pvcRequestedSize) < 0 {
 		return false
 	}
-
 	if len(pvc.Status.Conditions) == 0 {
 		return true
 	}
@@ -781,4 +1174,11 @@ func convertGiStrToMibInt64(size resource.Quantity) int64 {
 	sizeInt, err := strconv.Atoi(r.FindString(size.String()))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return int64(sizeInt * 1024)
+}
+
+// waitForFSResize waits for the filesystem in the pv to be resized
+func waitForFSResizeInSvc(svcPVCName string) (*v1.PersistentVolumeClaim, error) {
+	svcClient, _ := getSvcClientAndNamespace()
+	svcPvc := getPVCFromSupervisorCluster(svcPVCName)
+	return waitForFSResize(svcPvc, svcClient)
 }
