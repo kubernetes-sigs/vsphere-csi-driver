@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -1350,4 +1351,23 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
 	}
 
+}
+
+//waitForEvent waits for and event with specified message substr for a given object name
+func waitForEvent(ctx context.Context, client clientset.Interface, namespace string, substr string, name string) error {
+	log := logger.GetLogger(ctx)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		if err != nil {
+			return false, err
+		}
+		for _, item := range eventList.Items {
+			if strings.Contains(item.Message, substr) {
+				log.Infof("Found event %v", item)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	return waitErr
 }
