@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1424,6 +1425,134 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			log.Errorf("Actual error message : %s", actualErrorMsg)
 			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
 		}
+	})
+
+	/*
+	   This test verifies the static provisioning workflow in guest cluster.
+
+	   Test Steps:
+	   1. Create FCD with valid storage policy on gc-svc.
+	   2. Create Resource quota
+	   3. Create CNS register volume with above created FCD on SVC
+	   4. verify PV, PVC got created , check the bidirectional reference on svc.
+	   5. On GC create a PV by pointing volume handle got created by static provisioning on gc-svc (in step 4)
+	   6. On GC create a PVC pointing to above created PV
+	   7. Wait for PV , PVC to get bound
+	   8. Create POD, verify the status
+	   9. Delete all the above created PV, PVC and resource quota
+	*/
+	ginkgo.It("[csi-guest] static volume provisioning on guest cluster", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		svpvcName := "cns-pvc-" + curtimestring + val
+		log.Infof("pvc name :%s", svpvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		// get supvervisor cluster client
+		svcClient, svNamespace := getSvcClientAndNamespace()
+
+		// Get restConfig
+		var restConfig *restclient.Config
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, fcdID, svpvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(time.Duration(60) * time.Second)
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		log.Infof("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
+		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
+		//TODO: add volume health check after PVC creation
+
+		volumeHandle := svcPVC.GetName()
+		log.Infof("Volume Handle :%s", volumeHandle)
+
+		ginkgo.By("Creating PV in guest cluster")
+		gcPV := getPersistentVolumeSpecWithStorageclass(volumeHandle, v1.PersistentVolumeReclaimRetain, storageclass.Name, nil)
+		gcPV, err = client.CoreV1().PersistentVolumes().Create(ctx, gcPV, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gcPVName := gcPV.GetName()
+		time.Sleep(time.Duration(10) * time.Second)
+		log.Infof("PV name in GC : %s", gcPVName)
+
+		ginkgo.By("Creating PVC in guest cluster")
+		gcPVC := getPVCSpecWithPVandStorageClass(svpvcName, "default", nil, gcPVName, storageclass.Name)
+		gcPVC, err = client.CoreV1().PersistentVolumeClaims("default").Create(ctx, gcPVC, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		time.Sleep(time.Duration(10) * time.Second)
+		log.Infof("PVC name in GC : %s", gcPVC.GetName())
+		//TODO: add volume health check after PVC creation
+
+		ginkgo.By("Waiting for claim to be in bound phase")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, "default", gcPVC.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating pod")
+		pod, err := fpod.CreatePod(client, "default", nil, []*v1.PersistentVolumeClaim{gcPVC}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(time.Duration(60) * time.Second)
+		podName := pod.GetName()
+		log.Infof("podName: %s", podName)
+
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
+		time.Sleep(supervisorClusterOperationsTimeout)
+
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+		ginkgo.By("Deleting the PV Claim")
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, gcPVC.Name, "default"), "Failed to delete PVC ", gcPVC.Name)
+
+		ginkgo.By("Verify PV should be released not deleted")
+		gcPV, err = client.CoreV1().PersistentVolumes().Get(ctx, gcPVName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gcPVStatus := gcPV.Status.Phase
+		if gcPVStatus != "Released" {
+			log.Infof("gcPVStatus: %s", gcPVStatus)
+			gomega.Expect(gcPVStatus).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Verify volume is not deleted in Supervisor Cluster")
+		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVC.GetName())
+		gomega.Expect(volumeExists).NotTo(gomega.BeFalse())
+
+		defer func() {
+			testCleanUpUtil(ctx, restConfig, "", svNamespace, svcPVC.Name, svcPV.Name)
+		}()
+
 	})
 
 })
