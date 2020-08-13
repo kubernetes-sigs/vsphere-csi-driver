@@ -957,7 +957,9 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("PVC in supervisor namespace: %s", svPvc.Name)
 	return err == nil
 }
 
@@ -1554,6 +1556,82 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
 	}
 
+}
+
+// getPersistentVolumeSpecWithStorageclass is to create PV volume spec with given FCD ID, Reclaim Policy and labels
+func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string, labels map[string]string) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIBlockDriverName,
+				VolumeHandle: volumeHandle,
+				ReadOnly:     false,
+				FSType:       "ext4",
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: storageClass,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	pv.Annotations = annotations
+	return pv
+}
+
+// getPVCSpecWithPVandStorageClass is to create PVC spec with given PV , storage class and label details
+func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels map[string]string, pvName string, storageclass string) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvcName,
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &storageclass,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
 }
 
 //waitForEvent waits for and event with specified message substr for a given object name
