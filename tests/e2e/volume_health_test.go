@@ -1182,12 +1182,12 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Bring down csi-controller pod in GC")
 		bringDownTKGController(svClient)
-		bringDownCsiContorller(gcClient)
+		bringDownCsiController(gcClient)
 		isControlerUP = false
 		defer func() {
 			if !isControlerUP {
 				bringUpTKGController(svClient)
-				bringUpCsiContorller(gcClient)
+				bringDownCsiController(gcClient)
 			}
 		}()
 
@@ -1204,7 +1204,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Bring up csi-controller pod in GC")
 		bringUpTKGController(svClient)
-		bringUpCsiContorller(gcClient)
+		bringUpCsiController(gcClient)
 		isControlerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")
