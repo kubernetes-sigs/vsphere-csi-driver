@@ -223,6 +223,12 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 		return nil
 	}
 	log.Debugf("Datastore: %s, StoragePool: %s", dsMoid, intendedState.spName)
+	if intendedState.accessible != dsSummary.Accessible {
+		// the accessible nodes are not available immediately after a PC notification
+		log.Infof("Accessibility change for datastore %s. So scheduling a delayed reconcile.", dsMoid)
+		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
+		intendedState.accessible = dsSummary.Accessible
+	}
 	intendedSpName := makeStoragePoolName(dsSummary.Name)
 	oldSpName := intendedState.spName
 	// Get the changes in properties for this Datastore into the intendedState
@@ -230,14 +236,6 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	intendedState.url = dsSummary.Url
 	intendedState.capacity = resource.NewQuantity(dsSummary.Capacity, resource.DecimalSI)
 	intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
-	if intendedState.accessible != dsSummary.Accessible {
-		// the accessible nodes are not available immediately after a PC notification
-		err := ReconcileAllStoragePools(ctx, scWatchCntlr, c)
-		if err != nil {
-			log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
-		}
-		intendedState.accessible = dsSummary.Accessible
-	}
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
 	// update StoragePool as per intendedState
 	if err := c.applyIntendedState(ctx, intendedState); err != nil {
