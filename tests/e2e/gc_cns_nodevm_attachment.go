@@ -36,7 +36,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
-var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistense.", func() {
+var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	f := framework.NewDefaultFramework("e2e-node-vm-attachments")
 	var (
 		client            clientset.Interface
@@ -491,6 +491,85 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistense.", func() {
 				}
 			}
 		}
+	})
+
+	/*
+		Steps:
+		Create multiple PVCs using any replicated storage class from the SV.
+		Wait for PVCs to be in Bound phase
+		Create a Pod with these PVCs mounted as volumes
+		Verify CnsNodeVmAttachment CRDs are created
+		Verify Pod is in Running phase
+		Verify volume is attached to VM.
+		Verify CnsNodeVmAttachment.Attached is true for all objects.
+		Delete Pod.
+		Verify CnsNodeVmAttachment CRDs are deleted.
+		Verify Pod is deleted from GC.
+		Verify volume is detached from VM.
+		Delete PVC in GC.
+	*/
+	ginkgo.It("Create a Pod mounted with multiple PVC", func() {
+		var sc *storagev1.StorageClass
+		var pvc *v1.PersistentVolumeClaim
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		ginkgo.By("Creating Storage Class and PVC")
+		scParameters[svStorageClassName] = storagePolicyName
+		sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+		pv := pvs[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
+		// svcPVCName refers to PVC Name in the supervisor cluster
+		svcPVCName = volumeID
+		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating pod")
+		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		var vmUUID string
+		ginkgo.By("Verifying CNSNodeVMAttachment in supervisor")
+		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
+
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+		// TODO: replace sleep with polling mechanism
+		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
+		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 	})
 
 })
