@@ -339,6 +339,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	*/
 	ginkgo.It("[csi-guest] Static provisioning workflow in guest cluster", func() {
 		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters := make(map[string]string)
@@ -436,6 +438,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	*/
 	ginkgo.It("[csi-guest] Static provisioning workflow II in guest cluster", func() {
 		var err error
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		// create supvervisor cluster client

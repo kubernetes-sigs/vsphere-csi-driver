@@ -41,6 +41,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -950,16 +951,14 @@ func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) b
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var svcClient clientset.Interface
-	var err error
-	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+
+	svcClient, svNamespace := getSvcClientAndNamespace()
+	svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if !apierrors.IsNotFound(err) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("PVC in supervisor namespace: %s", svPvc.Name)
+
 	return err == nil
 }
 
