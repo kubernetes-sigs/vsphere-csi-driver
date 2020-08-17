@@ -80,7 +80,16 @@ func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpControl
 func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	scWatchCntlr *StorageClassWatch) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
-	vc := scWatchCntlr.vc
+
+	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	vc := *scWatchCntlr.vc
+	err := vc.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to vCenter. Err: %+v", err)
+		return nil, err
+	}
+	vcClient := vc.Client
+
 	clusterID := scWatchCntlr.clusterID
 	spName := makeStoragePoolName(ds.Info.Name)
 
@@ -91,7 +100,7 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		return nil, err
 	}
 
-	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vc.Client.Client)
+	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vcClient.Client)
 	if err != nil {
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err
