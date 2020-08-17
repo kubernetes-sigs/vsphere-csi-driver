@@ -18,7 +18,6 @@ package storagepool
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -42,8 +41,16 @@ var (
 	reconcileAllIterations = 5
 )
 
+func startPropertyCollectorListener(ctx context.Context) {
+	scWatchCntlr := defaultStoragePoolService.GetScWatch()
+	SpController := defaultStoragePoolService.GetSPController()
+	exitChannel := make(chan interface{})
+	go managePCListenerInstance(ctx, exitChannel)
+	initListener(ctx, scWatchCntlr, SpController, exitChannel)
+}
+
 // Initialize a PropertyCollector listener that updates the intended state of a StoragePool
-func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController) error {
+func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController, exitChannel chan interface{}) {
 	log := logger.GetLogger(ctx)
 
 	// Initialize a PropertyCollector that watches all objects in the hierarchy of
@@ -77,6 +84,21 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	}
 	filter.Spec.PropSet = append(filter.Spec.PropSet, prodHost, propDs)
 	go func() {
+		defer func() {
+			// signal managePCListenerInstance that PC listener has exited.
+			close(exitChannel)
+			// If this goroutine panics midway during execution, we recover so as to not crash the container.
+			if recoveredErr := recover(); recoveredErr != nil {
+				log.Infof("Recovered Panic in initListener: %v", recoveredErr)
+			}
+		}()
+
+		err := spController.vc.Connect(ctx)
+		if err != nil {
+			log.Errorf("Not able to establish connection with VC. Restarting property collector.")
+			return
+		}
+
 		for {
 			log.Infof("Starting property collector...")
 			p := property.DefaultCollector(spController.vc.Client.Client)
@@ -119,15 +141,19 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 				log.Infof("Property collector session needs to be reestablished")
 				err = spController.vc.Connect(ctx)
 				if err != nil {
-					// Terminate the container and let the pod restart it
-					log.Errorf("Not able to establish connection with VC. Exiting...")
-					os.Exit(-1)
+					log.Errorf("Not able to reestablish connection with VC. Restarting property collector.")
+					return
 				}
 			}
 		}
 	}()
+}
 
-	return nil
+// managePCListenerInstance is responsible for making sure that Property collector listener is always running.
+// If the listener crashes for some reason it restarts the listener.
+func managePCListenerInstance(ctx context.Context, exitChannel chan interface{}) {
+	<-exitChannel
+	startPropertyCollectorListener(ctx)
 }
 
 // XXX: This hack should be removed once we figure out all the properties of a StoragePool that gets updates lazily.
@@ -176,8 +202,15 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	reconcileAllMutex.Lock()
 	defer reconcileAllMutex.Unlock()
 
+	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	vc := *spCtl.vc
+	err := vc.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to vCenter. Err: %+v", err)
+		return err
+	}
 	// Get datastores from VC
-	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, spCtl.vc, spCtl.clusterID)
+	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc, spCtl.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return err
