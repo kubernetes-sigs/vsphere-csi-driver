@@ -963,7 +963,7 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 }
 
 // returns crd if found by name
-func getCRDByName(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment {
+func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment {
 	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
 	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -980,7 +980,7 @@ func getCRDByName(ctx context.Context, f *framework.Framework, expectedInstanceN
 
 		if expectedInstanceName == instance.Name {
 			ginkgo.By(fmt.Sprintf("Found CNSNodeVMAttachment crd: %v, expected: %v", instance, expectedInstanceName))
-			fmt.Printf("instance attached  is : %t\n", instance.Status.Attached)
+			framework.Logf("instance attached  is : %t\n", instance.Status.Attached)
 			return instance
 		}
 	}
@@ -989,20 +989,22 @@ func getCRDByName(ctx context.Context, f *framework.Framework, expectedInstanceN
 
 //verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisior
 func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
-	instance := getCRDByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
-		fmt.Printf("instance attached found to be : %t\n", instance.Status.Attached)
+		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
 		gomega.Expect(instance.Status.Attached).To(gomega.BeTrue())
 	}
+	gomega.Expect(instance).NotTo(gomega.BeNil())
 }
 
 //verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisior
 func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
-	instance := getCRDByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
-		fmt.Printf("instance attached found to be : %t\n", instance.Status.Attached)
+		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
 		gomega.Expect(instance.Status.Attached).To(gomega.BeFalse())
 	}
+	gomega.Expect(instance).To(gomega.BeNil())
 }
 
 //verifyPodCreation helps to create/verify and delete the pod in given namespace
@@ -1018,7 +1020,7 @@ func verifyPodCreation(f *framework.Framework, client clientset.Interface, names
 	svcPVCName := pv.Spec.CSI.VolumeHandle
 
 	ginkgo.By(fmt.Sprintf("Verify cnsnodevmattachment is created with name : %s ", pod.Spec.NodeName))
-	verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+	verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 	verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdVersion, crdGroup)
 
 	ginkgo.By("Deleting the pod")
@@ -1131,6 +1133,33 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	}
 }
 
+//verifyEntityReferenceForKubEntities takes context,client, pv, pvc and pod as inputs
+//and verifies crdCNSVolumeMetadata is attached
+
+func verifyEntityReferenceForKubEntities(ctx context.Context, f *framework.Framework, client clientset.Interface, pv *v1.PersistentVolume, pvc *v1.PersistentVolumeClaim, pod *v1.Pod) {
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	volumeID := pv.Spec.CSI.VolumeHandle
+	// svcPVCName refers to PVC Name in the supervisor cluster
+	svcPVCName := volumeID
+	volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+	gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+
+	podUID := string(pod.UID)
+	fmt.Println("Pod uuid :", podUID)
+	fmt.Println("PVC name in SV", svcPVCName)
+	pvcUID := string(pvc.GetUID())
+	fmt.Println("PVC UUID in GC", pvcUID)
+	gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
+
+	fmt.Println("gcClusterId", gcClusterID)
+	pvUID := string(pv.UID)
+	fmt.Println("PV uuid", pvUID)
+
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+}
+
 // verifyEntityReferenceInCRDInSupervisor is a helper method to check CnsVolumeMetadata CRDs exists and has expected labels
 func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool, volumeNames string, checkLabel bool, labels map[string]string, labelPresent bool) {
 	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
@@ -1142,7 +1171,7 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 	resourceClient := dynamicClient.Resource(gvr).Namespace("")
 	list, err := resourceClient.List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	fmt.Println("expected instancename is :", expectedInstanceName)
+	framework.Logf("expected instancename is : %v", expectedInstanceName)
 
 	var instanceFound bool
 	for _, crd := range list.Items {
