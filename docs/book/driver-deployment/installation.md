@@ -66,7 +66,7 @@ datacenters = "<datacenter-name1>, <datacenter-name2>, ..."
 
 Where the entries have the following meaning:
 
-- `cluster-id` - represents the unique cluster identifier. Each kubernetes cluster should have it's own unique cluster-id set in the configuration file.
+- `cluster-id` - represents the unique cluster identifier. Each kubernetes cluster should have it's own unique cluster-id set in the configuration file. The cluster ID should not exceed 64 characters.
 
 - `VirtualCenter` - section defines vCenter IP address / FQDN.
 
