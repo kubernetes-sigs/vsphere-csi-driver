@@ -76,8 +76,8 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	// Create CnsNodeVmAttachment CRD
 	crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
 	crdNameNodeVMAttachment := apis.CnsNodeVMAttachmentPlural + "." + apis.SchemeGroupVersion.Group
-	err = k8s.CreateCustomResourceDefinition(ctx, crdKindNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
-		crdNameNodeVMAttachment, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+	err = k8s.CreateCustomResourceDefinition(ctx, crdNameNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
+		crdKindNodeVMAttachment, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 	if err != nil {
 		log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVMAttachment, err)
 		return err
