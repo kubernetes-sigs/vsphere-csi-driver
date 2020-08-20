@@ -664,7 +664,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	}
 	// Check for the race condition where DeleteVolume is called before ControllerUnpublishVolume
 	if deletedVolumes.Contains(req.VolumeId) {
-		log.Info("Skipping ControllerUnpublish for deleted volume ", req.VolumeId)
+		log.Infof("Skipping ControllerUnpublish for deleted volume %q", req.VolumeId)
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 	if !strings.Contains(req.VolumeId, ".vmdk") {
@@ -684,7 +684,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, status.Error(codes.Internal, msg)
 		}
 		if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
-			log.Info("Skipping ControllerUnpublish for file volume ", req.VolumeId)
+			log.Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
 	} else {
