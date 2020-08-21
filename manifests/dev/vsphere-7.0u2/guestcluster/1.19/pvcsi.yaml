@@ -359,6 +359,9 @@ data:
     port = "{{ .SupervisorMasterPort }}"
     tanzukubernetescluster-uid = "{{ .TanzuKubernetesClusterUID }}"
     tanzukubernetescluster-name = "{{ .TanzuKubernetesClusterName }}"
+    [FeatureStatesConfig]
+    name = "csi-feature-states"
+    namespace = "{{ .PVCSINamespace }}"
 kind: ConfigMap
 metadata:
   name: pvcsi-config

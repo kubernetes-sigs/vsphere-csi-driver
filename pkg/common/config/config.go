@@ -305,8 +305,8 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
 			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
 			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
-		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
 			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 		}
 	}
@@ -391,9 +391,6 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 		cfg.GC.TanzuKubernetesClusterUID = v
 	}
 
-	if cfg.GC.Port == "" {
-		cfg.GC.Port = DefaultGCPort
-	}
 	err := validateGCConfig(ctx, cfg)
 	if err != nil {
 		return err
@@ -441,6 +438,18 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 			log.Errorf("failed to parse config. Err: %v", err)
 			return cfg, err
 		}
+	}
+	// Set default GCPort if Port is still empty
+	if cfg.GC.Port == "" {
+		cfg.GC.Port = DefaultGCPort
+	}
+	// Set default fss configmap name if SV FSS configmap info is not available in GC Config
+	if cfg.FeatureStatesConfig.Name == "" {
+		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
+	}
+	// Set default csi namespace if SV FSS configmap info is not available in GC Config
+	if cfg.FeatureStatesConfig.Namespace == "" {
+		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 	}
 	return cfg, nil
 }
