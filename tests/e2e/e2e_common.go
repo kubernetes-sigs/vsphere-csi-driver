@@ -49,6 +49,7 @@ const (
 	scParamStoragePolicyID                     = "StoragePolicyId"
 	scParamFsType                              = "csi.storage.k8s.io/fstype"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
+	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
 	defaultPandoraSyncWaitTime                 = 90
