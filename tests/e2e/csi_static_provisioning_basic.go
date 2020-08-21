@@ -1545,6 +1545,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Verify PV should be released not deleted")
 		gcPV, err = client.CoreV1().PersistentVolumes().Get(ctx, gcPVName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// TODO: replace sleep with polling mechanism
+		time.Sleep(time.Duration(20) * time.Second)
 		gcPVStatus := gcPV.Status.Phase
 		if gcPVStatus != "Released" {
 			log.Infof("gcPVStatus: %s", gcPVStatus)
@@ -1558,6 +1560,123 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, "", svNamespace, svcPVC.Name, svcPV.Name)
 		}()
+
+	})
+
+	/*
+		Perform dynamic and static volume provisioning together and verify the PVC creation, Create POD and then delete namespace.
+		Make sure all PV, PVC, POd's and CNS register volume got deleted.
+
+			Test Steps:
+			1. Create CNS volume (FCD)
+			2. Create Resource quota
+			3. Create CNS register volume with above created FCD
+			4. Create pvc through dynamic volume provisioning
+			5. verify PV, PVC got created through static volume provisioning
+			6. Create POD with the PVC created in step 4 and 5
+			7. Delete Namespace
+			8. Verify that PV's got deleted (This ensures that all PVC, CNS register volumes and POD's are deleted)
+	*/
+	ginkgo.It("[csi-supervisor] Perform static and dynamic provisioning together, Create POD and delete Namespace", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		namespaceToDelete := GetAndExpectStringEnvVar(envSupervisorClusterNamespaceToDelete)
+		log.Infof("Namespace To delete :%s", namespaceToDelete)
+
+		curtime := time.Now().Unix()
+		curtimestring := strconv.FormatInt(curtime, 10)
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		pvcName := "cns-pvc-" + curtimestring + val
+		log.Infof("pvc name :%s", pvcName)
+
+		// Get a config to talk to the apiserver
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		ginkgo.By("create resource quota")
+		createResourceQuota(client, namespaceToDelete, rqLimit, storageclass.Name)
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring+val, profileID, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Perform dynamic provisioning and create PVC")
+		pvc1, err := createPVC(client, namespaceToDelete, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Dynamic volume provisioning - Waiting for claim to be in bound phase")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvc1.Namespace, pvc1.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv1 := getPvFromClaim(client, namespaceToDelete, pvc1.Name)
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespaceToDelete)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespaceToDelete, fcdID, pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for CNS register volume to get created")
+		// TODO: replace sleep with polling mechanism
+		time.Sleep(time.Duration(40) * time.Second)
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		log.Infof("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("verify created PV, PVC and check the bidirectional referance")
+		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespaceToDelete).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv2 := getPvFromClaim(client, namespaceToDelete, pvcName)
+		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID)
+
+		ginkgo.By("Creating pod")
+		pod1, err := fpod.CreatePod(client, namespaceToDelete, nil, []*v1.PersistentVolumeClaim{pvc1}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podName1 := pod1.GetName()
+		log.Infof("First podName: %s", podName1)
+		pod2, err := fpod.CreatePod(client, namespaceToDelete, nil, []*v1.PersistentVolumeClaim{pvc2}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podName2 := pod2.GetName()
+		log.Infof("Second podName: %s", podName2)
+
+		ginkgo.By("Delete Namspace")
+		err = client.CoreV1().Namespaces().Delete(ctx, namespaceToDelete, metav1.DeleteOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// TODO: replace sleep with polling mechanism
+		time.Sleep(time.Duration(40) * time.Second)
+
+		ginkgo.By("Verify PV got deleted")
+		framework.Logf("pvc1.Spec.VolumeName :%s" + pvc1.Spec.VolumeName)
+		_, err = client.CoreV1().PersistentVolumes().Get(ctx, pvc1.Spec.VolumeName, metav1.GetOptions{})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(pv1.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult.Volumes) == 0)
+
+		_, err = client.CoreV1().PersistentVolumes().Get(ctx, pvc2.Spec.VolumeName, metav1.GetOptions{})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		queryResult, err = e2eVSphere.queryCNSVolumeWithResult(pv2.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult.Volumes) == 0)
+
+		ginkgo.By("Verify Namespace is deleted")
+		_, err = client.CoreV1().Namespaces().Get(ctx, namespaceToDelete, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 	})
 
