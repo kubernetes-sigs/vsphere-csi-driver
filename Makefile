@@ -355,7 +355,7 @@ fmt:
 	hack/check-format.sh
 
 lint:
-	hack/check-lint.sh
+	hack/check-golangci-lint.sh -d 0
 
 mdlint:
 	hack/check-mdlint.sh
