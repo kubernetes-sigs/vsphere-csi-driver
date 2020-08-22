@@ -61,7 +61,7 @@ user = "<username>"
 password = "<password>"
 port = "<port>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
-datacenters = "<datacenter-name1>, <datacenter-name2>, ..."
+datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 ```
 
 Where the entries have the following meaning:
@@ -80,7 +80,7 @@ Where the entries have the following meaning:
 
 - `ca-file` - path to a CA certificate in PEM format. It is an optional parameter.
 
-- `datacenters` - list of all comma separated datacenters where kubernetes node VMs are present.
+- `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacener is enough but when datacenter is placed in the folder, path needs to be specified as `folder/datacenter-name`.
 
 ### vSphere configuration file for file volumes <a id="vsphereconf_for_file"></a>
 
@@ -118,7 +118,7 @@ user = "<username>"
 password = "<password>"
 port = "<port>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
-datacenters = "<datacenter-name1>, <datacenter-name2>, ..."
+datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 targetvSANFileShareDatastoreURLs = "ds:///vmfs/volumes/vsan:52635b9067079319-95a7473222c4c9cd/" # Optional
 ```
 
