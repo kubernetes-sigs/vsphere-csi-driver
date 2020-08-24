@@ -1524,7 +1524,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := fpod.CreatePod(client, "default", nil, []*v1.PersistentVolumeClaim{gcPVC}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName()
 		log.Infof("podName: %s", podName)
 
@@ -1546,7 +1545,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gcPV, err = client.CoreV1().PersistentVolumes().Get(ctx, gcPVName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// TODO: replace sleep with polling mechanism
-		time.Sleep(time.Duration(20) * time.Second)
+		time.Sleep(time.Duration(50) * time.Second)
 		gcPVStatus := gcPV.Status.Phase
 		if gcPVStatus != "Released" {
 			log.Infof("gcPVStatus: %s", gcPVStatus)
