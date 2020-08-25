@@ -1609,6 +1609,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Perform dynamic provisioning and create PVC")
 		pvc1, err := createPVC(client, namespaceToDelete, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Dynamically created PVC :%s" + pvc1.Name)
 
 		ginkgo.By("Dynamic volume provisioning - Waiting for claim to be in bound phase")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvc1.Namespace, pvc1.Name, framework.Poll, framework.ClaimProvisionTimeout)
@@ -1617,10 +1618,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespaceToDelete)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1638,6 +1635,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional referance")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespaceToDelete).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Statically created PVC :%s" + pvc2.Name)
 		pv2 := getPvFromClaim(client, namespaceToDelete, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID)
 
