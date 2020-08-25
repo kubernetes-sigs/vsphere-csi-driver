@@ -50,3 +50,14 @@ Issue 5<a id="issue_5"></a>: The CSI delete volume is getting called before deta
 Issue 6<a id="issue_6"></a>: vSphere with Kubernetes Cluster Devops can modify the volume health status of a PVC manually since the volume health annotation is not a read-only field. Devops should avoid modifying the volume health annotation manually. If DevOps modifies the volume health to a random or incorrect health status, then any software dependent on this volume health will be affected.
 
 - Impact:Any random volume health status set by the vSphere with Kubernetes Cluster Devops will get reflected in volume health status of PVC in Tanzu Kubernetes Grid Cluster as well.
+
+Issue 7<a id="issue_7"></a>: Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases.
+
+- Impact: Low throughput of attach and detach operations, especially at scale.
+- Upstream issue is tracked at: https://github.com/kubernetes/kubernetes/issues/84169
+- Workaround:  
+  - For Vanilla Kubernetes, upgrade your Kubernetes minor version to 1.17.8 and above or 1.18.5 and above. These versions contain the upstream [fix](https://github.com/kubernetes/kubernetes/pull/91307) for this issue.
+  - If upgrading the Kubernetes version is not possible, then there is a workaround that can be applied on your Kubernetes cluster. On each primary node, perform the following steps:
+    1. Open kube-controller-manager manifest, located at `/etc/kubernetes/manifests/kube-controller-manager.yaml`
+    2. Add `--disable-attach-detach-reconcile-sync` to `spec.containers.command`
+    3. Since kube-controller-manager is a static pod, Kubelet will restart it whenever a new flag is added. Make sure the kube-controller-manager pod is up and running.
