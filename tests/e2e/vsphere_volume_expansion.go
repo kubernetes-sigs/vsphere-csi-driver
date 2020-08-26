@@ -282,7 +282,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	}
 
 	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if guestCluster {
@@ -476,7 +476,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	}
 
 	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if guestCluster {
@@ -960,7 +960,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	}
 
 	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if guestCluster {
