@@ -59,22 +59,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		cmd2              []string
 	)
 
-	newGcKubconfigPath := os.Getenv("NEW_GUEST_CLUSTER_KUBE_CONFIG")
-	if newGcKubconfigPath == "" {
-		framework.Failf("Env NEW_GUEST_CLUSTER_KUBE_CONFIG is missing")
-	}
-	clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
-	if err != nil {
-		framework.Failf(fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
-	}
-	fopts := framework.Options{
-		ClientQPS:   20,
-		ClientBurst: 50,
-	}
-	f2 := framework.NewFramework("gc-resize-reclaim-policy-retain-new", fopts, clientNewGc)
-	f2.SkipNamespaceCreation = true
-	f2.SkipPrivilegedPSPBinding = true
-
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
@@ -263,7 +247,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -360,27 +344,29 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	ginkgo.It("PV with reclaim policy retain can be resized when used in a fresh GC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating namespace on second GC")
-		ns, err := framework.CreateTestingNS(f2.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f2.BaseName,
-		})
-		if err != nil {
-			framework.Failf("Error creating namespace on second GC")
+		newGcKubconfigPath := os.Getenv("NEW_GUEST_CLUSTER_KUBE_CONFIG")
+		if newGcKubconfigPath == "" {
+			ginkgo.Skip("Env NEW_GUEST_CLUSTER_KUBE_CONFIG is missing")
 		}
-		f2.Namespace = ns
+		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
+		ginkgo.By("Creating namespace on second GC")
+		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
+			"e2e-framework": f.BaseName,
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
+
 		namespaceNewGC = ns.Name
 		framework.Logf("Created namespace on second GC %v", namespaceNewGC)
 		defer func() {
-			err := f2.ClientSet.CoreV1().Namespaces().Delete(context.TODO(), ns.Name, metav1.DeleteOptions{})
+			err := clientNewGc.CoreV1().Namespaces().Delete(ctx, namespaceNewGC, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Getting ready nodes on GC 2")
-		nodeList, err := fnodes.GetReadySchedulableNodes(f2.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(clientNewGc)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-		if !(len(nodeList.Items) > 0) {
-			framework.Failf("Unable to find ready and schedulable Node")
-		}
+		gomega.Expect(len(nodeList.Items)).NotTo(gomega.BeZero(), "Unable to find ready and schedulable Node")
 
 		ginkgo.By("Delete PVC and PV form orignal GC")
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvclaim.Name, *metav1.NewDeleteOptions(0))
@@ -467,7 +453,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvcNew, err = waitForPVCToReachFileSystemResizePendingCondition(f2, namespaceNewGC, pvcNew.Name, pollTimeout)
+		pvcNew, err = waitForPVCToReachFileSystemResizePendingCondition(clientNewGc, namespaceNewGC, pvcNew.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")

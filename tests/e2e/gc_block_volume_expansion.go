@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -402,7 +402,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize3)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -631,7 +631,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -791,7 +791,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -893,7 +893,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -1023,7 +1023,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			verifyPVSizeinSupervisor(svcPVCName, quotaSize)
 
 			ginkgo.By("Checking for conditions on pvc")
-			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(f, namespace, pvclaim.Name, pollTimeout)
+			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -1116,14 +1116,14 @@ func verifyPVSizeinSupervisorWithWait(svcPVCName string, newSize resource.Quanti
 }
 
 // waitForPVCToReachFileSystemResizePendingCondition waits for PVC to reach FileSystemResizePendingCondition status condition
-func waitForPVCToReachFileSystemResizePendingCondition(f *framework.Framework, namespace string, pvcName string, timeout time.Duration) (*v1.PersistentVolumeClaim, error) {
+func waitForPVCToReachFileSystemResizePendingCondition(client clientset.Interface, namespace string, pvcName string, timeout time.Duration) (*v1.PersistentVolumeClaim, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
 	waitErr := wait.PollImmediate(resizePollInterval, timeout, func() (bool, error) {
-		pvclaim, err = f.ClientSet.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("error while fetching pvc '%v' after controller resize: %v", pvcName, err)
 		}
