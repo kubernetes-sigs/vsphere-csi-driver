@@ -38,7 +38,7 @@ service K8sCloudOperator {
    rpc GetPodVMUUIDAnnotation(PodListenerRequest) returns (PodListenerResponse) {}
 
    /*
-    * GetHostAnnotation gets the annotation value by querying the API server referring to the annot:wq!ation key
+    * GetHostAnnotation gets the annotation value by querying the API server referring to the annotation key
     * and the host specified in the HostAnnotationRequest
     */
    rpc GetHostAnnotation(HostAnnotationRequest) returns (HostAnnotationResponse) {}
@@ -51,6 +51,18 @@ service K8sCloudOperator {
     * For unsuccessful placement, the PVCPlacementRequest.placeSuccess will be set to false
     */
    rpc PlacePersistenceVolumeClaim(PVCPlacementRequest) returns (PVCPlacementResponse) {}
+
+   /*
+    * To decommission a vSAN Direct datastore we need to migrate all the PSP volumes to other vSAN Direct datastores mounted on the same host.
+    * GetStorageVMotionPlan creates a storage vMotion plan as a map where keys are PVs residing in the specified vSAN Direct Datastore
+    * and values are other vSAN Direct Datastores into which the PV should be migrated.
+    *
+    * The outcome of the below service can be one of the two below:
+    * 1. All the PSP PVs are mapped to a corresponding datastore. We return storage vMotion plan as response with no error.
+    * 2. Some (or all) of the PSP PVs cannot be mapped (may be due to lack of capacity). We return with
+    *    appropriate error and return vMotion plan as nil.
+    */
+   rpc GetStorageVMotionPlan(StorageVMotionRequest) returns (StorageVMotionResponse) {}
 }
 
 message PodListenerRequest {
@@ -90,4 +102,16 @@ message PVCPlacementRequest {
 message PVCPlacementResponse {
     //Succeed or not for placement engine to find proper storage pool
     bool placeSuccess = 1;
+}
+
+message StorageVMotionRequest {
+    // name of the Storage-Pool
+    string storage_pool_name = 1;
+    // Type of maintenance mode, either "ensureAccessibility"/"evacuateAll".
+    string maintenance_mode = 2;
+}
+
+message StorageVMotionResponse {
+    // svMotion plan is returned to caller as a map of PV name to StoragePool name
+    map<string, string> sv_motion_plan = 1;
 }
