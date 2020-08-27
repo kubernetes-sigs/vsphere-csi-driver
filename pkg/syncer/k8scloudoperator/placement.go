@@ -35,6 +35,7 @@ import (
 
 	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 )
 
 var mutex sync.Mutex
@@ -118,9 +119,14 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	hostNames := getHostCandidates(ctx, tops)
 	capacity := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 	volSizeBytes := capacity.Value()
+	scName, err := syncer.GetSCNameFromPVC(curPVC)
+	if err != nil {
+		log.Errorf("Fail to get Storage class name from PVC with +v", err)
+		return err
+	}
 
 	log.Infof("Starting placement for PVC %s, Topology %+v", curPVC.Name, hostNames)
-	spList, err := preFilterSPList(ctx, sps, *curPVC.Spec.StorageClassName, hostNames, volSizeBytes)
+	spList, err := preFilterSPList(ctx, sps, scName, hostNames, volSizeBytes)
 	if err != nil {
 		log.Infof("preFilterSPList failed with %+v", err)
 		return err
