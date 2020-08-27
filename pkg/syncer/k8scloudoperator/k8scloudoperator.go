@@ -26,9 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -37,6 +34,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -286,11 +287,13 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 
-	scName := pvc.Spec.StorageClassName
-	if scName == nil || *scName == "" {
-		return out, nil
+	scName, err := syncer.GetSCNameFromPVC(pvc)
+	if err != nil {
+		log.Errorf("Fail to get Storage class name from PVC with +v", err)
+		return out, err
 	}
-	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(ctx, *scName, metav1.GetOptions{})
+
+	sc, err := k8sCloudOperator.k8sClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 	if err != nil {
 		return out, err
 	}
