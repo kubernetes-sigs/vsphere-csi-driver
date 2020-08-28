@@ -110,7 +110,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			volumeManager:        volumeManager,
 			cnsConfig:            cnsConfig,
 		}
-		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinition(ctx, CRDName, CRDSingular, CRDPlural,
+		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
 			reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
 		if volumeMigrationServiceInitErr != nil {
 			log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
