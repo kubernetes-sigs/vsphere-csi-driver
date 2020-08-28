@@ -201,6 +201,18 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	vol, err := r.volumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
+		// volumeManager.CreateVolume already handles DiskURLPath which is already
+		// registered in CNS. Any other errors would just need to retried.
+		if instance.Spec.DiskURLPath != "" {
+			log.Errorf("Failed to create CNS volume: %s with error: %+v", instance.Spec.DiskURLPath, err)
+			setInstanceError(ctx, r, instance, "Unable to create the volume in CNS")
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		// instance.Spec.VolumeID, there is no direct way of identifying
+		// whether its already registered or not as CNS wraps it under CnsFault. So
+		// instance.Spec.VolumeID will not be retried and would check by verifying
+		// with Query in subsequent step.
+		log.Warnf("Failed to create CNS volume: %s with error: %+v", instance.Spec.VolumeID, err)
 		volumeID = instance.Spec.VolumeID
 	} else {
 		volumeID = vol.Id
