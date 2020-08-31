@@ -384,7 +384,7 @@ You can statically create a block volume in Tanzu Kubernetes Grid Service (TKGS)
 
 - Not attached to a Pod in the Supervisor cluster or in any other TKGS
 
-Using static provisioning, a PVC created by one TKGS can also be re-used in another TKGS when the volume is no longer needed in the former one. In order to do so, you need to modify the `Reclaim policy` of the PV in the old TKGS to `Retain` and then delete the corresponding PVC. Follow the steps below to statically create a PVC in the new TKGS using the information from the leftover underlying volume. 
+Using static provisioning, a PVC created by one TKGS can also be re-used in another TKGS when the volume is no longer needed in the former one. In order to do so, you need to modify the `Reclaim policy` of the PV in the old TKGS to `Retain` and then delete the corresponding PVC. Follow the steps below to statically create a PVC in the new TKGS using the information from the leftover underlying volume.
 
 Steps to create a static PVC in a TKGS are as follows:
 
