@@ -13,10 +13,10 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Delete
   csi:
-    driver: "csi.vsphere.vmware.com"
+    driver: csi.vsphere.vmware.com
     volumeAttributes:
       type: "vSphere CNS Block Volume"
-    "volumeHandle": "0c75d40e-7576-4fe7-8aaa-a92946e2805d"  # First Class Disk (Improved Virtual Disk) ID
+    volumeHandle: 0c75d40e-7576-4fe7-8aaa-a92946e2805d  # First Class Disk (Improved Virtual Disk) ID
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1

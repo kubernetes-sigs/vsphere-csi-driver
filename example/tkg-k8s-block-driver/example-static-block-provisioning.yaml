@@ -5,17 +5,17 @@ metadata:
   annotations:
     pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
 spec:
-  storageClassName: "gc-storage-profile"  # Replace this value with the default storage class in your TKG Cluster
+  storageClassName: gc-storage-profile  # This should preferably be the storage class name of your supervisor cluster PVC
   capacity:
-    storage: 2Gi
+    storage: 1Gi
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Delete
   csi:
-    driver: "csi.vsphere.vmware.com"
+    driver: csi.vsphere.vmware.com
     volumeAttributes:
       type: "vSphere CNS Block Volume"
-    "volumeHandle": "project-pacific-block-pvc-name"  # Mention the PVC name from Project Pacific cluster here
+    volumeHandle: supervisor-cluster-block-pvc-name  # Mention the Supervisor cluster PVC name here
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1
@@ -26,5 +26,6 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi
-  storageClassName: "gc-storage-profile"  # Replace this value with the default storage class in your TKG Cluster
+      storage: 1Gi
+  storageClassName: gc-storage-profile  # This should preferably be the storage class name of your supervisor cluster PVC
+---
