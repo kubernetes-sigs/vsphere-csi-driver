@@ -460,8 +460,8 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PVC
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
-		if !migratedToAnnotationExists(ctx, newPvc.Annotations) {
-			log.Debugf("PVCUpdated: migration annotation is not present on the PVC %q in namespace %q. Skipping update", newPvc.Name, newPvc.Namespace)
+		if !isValidvSphereVolumeClaim(ctx, newPvc.ObjectMeta) {
+			log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update", newPvc.Name, newPvc.Namespace)
 			return
 		}
 		if oldPvc.Status.Phase == v1.ClaimBound &&
@@ -473,7 +473,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		// Verify if there is an annotation update
 		if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
 			// Verify if the annotation update is related to migration. If not, return
-			if !HasMigratedToAnnotationUpdate(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations()) {
+			if !HasMigratedToAnnotationUpdate(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations(), newPvc.Name) {
 				log.Debugf("PVCUpdated: Migrated-to annotation is not added for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
 				// Check if there are no label update, then return
 				if !reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
@@ -526,8 +526,8 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
-		if !migratedToAnnotationExists(ctx, pvc.Annotations) {
-			log.Debugf("PVCDeleted: migration annotation is not present on the PVC %q in namespace %q. Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
+		if !isValidvSphereVolumeClaim(ctx, pvc.ObjectMeta) {
+			log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
 			return
 		}
 	} else {
@@ -573,8 +573,8 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && newPv.Spec.VsphereVolume != nil {
-		if !migratedToAnnotationExists(ctx, newPv.Annotations) {
-			log.Debugf("PVUpdated: migration annotation is not present on the PV %q. Skipping update of PV metadata.", newPv.Name)
+		if !isValidvSphereVolume(ctx, newPv.ObjectMeta) {
+			log.Debugf("PVUpdated: PV %q is not a valid vSphere volume. Skipping update of PV metadata.", newPv.Name)
 			return
 		}
 		if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) &&
@@ -586,7 +586,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		// Verify if migration annotation is getting removed.
 		if !reflect.DeepEqual(newPv.GetAnnotations(), oldPv.GetAnnotations()) {
 			// Verify if the annotation update is related to migration. If not, return
-			if !HasMigratedToAnnotationUpdate(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations()) {
+			if !HasMigratedToAnnotationUpdate(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations(), newPv.Name) {
 				log.Debugf("PVUpdated: Migrated-to annotation is not added for %q. Ignoring other annotation updates", newPv.Name)
 				// Check if there are no label update, then return
 				if !reflect.DeepEqual(newPv.Labels, oldPv.Labels) {
@@ -638,8 +638,8 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
-		if !migratedToAnnotationExists(ctx, pv.Annotations) {
-			log.Debugf("PVDeleted: migration annotation is not present on the PV %q. Skipping deletion of PV metadata.", pv.Name)
+		if !isValidvSphereVolume(ctx, pv.ObjectMeta) {
+			log.Debugf("PVDeleted: PV %q is not a valid vSphereVolume. Skipping deletion of PV metadata.", pv.Name)
 			return
 		}
 	} else {
