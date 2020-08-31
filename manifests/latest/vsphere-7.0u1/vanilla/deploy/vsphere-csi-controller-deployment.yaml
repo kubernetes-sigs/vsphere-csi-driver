@@ -25,7 +25,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v2.2.0
+          image: quay.io/k8scsi/csi-attacher:v3.0.0-rc2
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -38,7 +38,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: quay.io/k8scsi/csi-resizer:v0.5.0
+          image: quay.io/k8scsi/csi-resizer:v1.0.0-rc2
           args:
             - "--v=4"
             - "--csiTimeout=300s"
@@ -52,10 +52,6 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.1
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -111,15 +107,12 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v1.6.0
+          image: quay.io/k8scsi/csi-provisioner:v2.0.0-rc3
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=true"
-            - "--strict-topology"
-            - "--enable-leader-election"
-            - "--leader-election-type=leases"
+            - "--leader-election"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -131,19 +124,17 @@ spec:
         secret:
           secretName: vsphere-config-secret
       - name: socket-dir
-        hostPath:
-          path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-          type: DirectoryOrCreate
+        emptyDir: {}
 ---
 apiVersion: v1
 data:
-  "csi-migration": "false"
+  "csi-migration": "false" # csi-migration feature is only available for vSphere 7.0U1
 kind: ConfigMap
 metadata:
   name: csi-feature-states
   namespace: kube-system
 ---
-apiVersion: storage.k8s.io/v1beta1
+apiVersion: storage.k8s.io/v1 # For k8s 1.17 or lower use storage.k8s.io/v1beta1
 kind: CSIDriver
 metadata:
   name: csi.vsphere.vmware.com
