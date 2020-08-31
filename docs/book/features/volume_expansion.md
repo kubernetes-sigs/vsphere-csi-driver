@@ -1,6 +1,6 @@
 # vSphere CSI Driver - Offline Volume Expansion
 
-CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for dynamically/statically created offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid (TKG) service.
+CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for dynamically/statically created offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid Service (TKGS). Volume expansion is currently not supported in the Supervisor cluster.
 
 ## Feature Gate
 
@@ -12,22 +12,9 @@ An external-resizer sidecar container implements the logic of watching the Kuber
 
 ## Requirements
 
-If you are using the TKG cluster service and your environment adheres to the required kubernetes and vSphere CSI driver versions mentioned above skip this section and directly proceed to the `Expand PVC Example` section below to use this feature.
+If you are using TKGS and your environment adheres to the required kubernetes and vSphere CSI driver versions mentioned above skip this section and directly proceed to the `Expand PVC Example` section below to use this feature.
 
-However, in order to try out this feature using the vanilla kubernetes driver, modify the RBAC rules and the StorageClass definition as mentioned below in your environment.
-
-### RBAC Rules
-
-Add the `patch` privilege to `persistentvolumes` resource and `update`, `patch` privileges to `persistentvolumeclaims/status` resource.
-
-```yaml
-- apiGroups: [""]
-    resources: ["persistentvolumes"]
-    verbs: ["get", "list", "watch", "update", "create", "delete", "patch"]
-- apiGroups: [""]
-    resources: ["persistentvolumeclaims/status"]
-    verbs: ["update", "patch"]
-```
+However, in order to try out this feature using the vanilla kubernetes driver, modify the StorageClass definition as mentioned below in your environment.
 
 ### StorageClass
 
@@ -42,17 +29,19 @@ provisioner: csi.vsphere.vmware.com
 allowVolumeExpansion: true
 ```
 
+Proceed to create/edit a PVC by using this storage class.
+
 ## Expand PVC Example
 
 Prior to increasing the size of a PVC make sure that the PVC is bound and is not attached to a Pod as only offline volume expansion is supported.
 
-Patch the PVC to increase its size:
+Patch the PVC to increase its request size:
 
 ```bash
 kubectl patch pvc example-block-pvc -p '{"spec": {"resources": {"requests": {"storage": "2Gi"}}}}'
 ```
 
-This will trigger an expansion in the volume associated with the PVC in vSphere Cloud Native Storage which finally gets reflected on the size of the corresponding PV object. Note that the size of PVC will not change until the PVC is attached to a node i.e used by a Pod.
+This will trigger an expansion in the volume associated with the PVC in vSphere Cloud Native Storage which finally gets reflected on the capacity of the corresponding PV object. Note that the capacity of PVC will not change until the PVC is attached to a node i.e used by a Pod.
 
 ```bash
 kubectl get pv
@@ -64,7 +53,7 @@ NAME                STATUS VOLUME                                     CAPACITY A
 example-block-pvc   Bound  pvc-9e9a325d-ee1c-11e9-a223-005056ad1fc1   1Gi           RWO       example-block-sc   6m57s
 ```
 
-As you can see above, the size of the PVC is unchanged. You will also notice a `FilesystemResizePending` condition applied on the PVC when you `describe` it.
+As you can see above, the capacity of the PVC is unchanged. You will also notice a `FilesystemResizePending` condition applied on the PVC when you `describe` it.
 
 Now create a pod to use the PVC:
 
@@ -93,7 +82,7 @@ kubectl create -f example-pod.yaml
 pod/example-block-pod created
 ```
 
-The Kubelet on the node will trigger the volume expansion of filesystem when the PVC is used by the Pod.
+The Kubelet on the node will trigger the filesystem expansion on the volume when the PVC is attached to the Pod.
 
 ```bash
 kubectl get pod
@@ -111,4 +100,4 @@ NAME                                       CAPACITY ACCESS MODES RECLAIM POLICY 
 pvc-24114458-9753-428e-9c90-9f568cb25788   2Gi           RWO        Delete      Bound    default/example-block-pvc example-block-sc              2m3s
 ```
 
-You will notice that the size of PVC has been modified and the `FilesystemResizePending` condition has been removed from the PVC. Volume expansion is complete.
+You will notice that the capacity of PVC has been modified and the `FilesystemResizePending` condition has been removed from the PVC. Volume expansion is complete.
