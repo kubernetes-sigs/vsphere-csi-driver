@@ -60,6 +60,9 @@ func main() {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	if clusterFlavor == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	}
 	configInfo, err := types.InitConfigInfo(ctx)
 	if err != nil {
 		log.Errorf("failed to initialize the configInfo. Err: %+v", err)
