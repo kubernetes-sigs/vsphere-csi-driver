@@ -223,3 +223,20 @@ func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) boo
 	}
 	return false
 }
+
+// IsMultiAttachAllowed helps check accessModes on the PV and return true if volume can be attached to
+// multiple nodes.
+func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
+	if pv == nil {
+		return false
+	}
+	if len(pv.Spec.AccessModes) == 0 {
+		return false
+	}
+	for _, accessMode := range pv.Spec.AccessModes {
+		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
+			return true
+		}
+	}
+	return false
+}

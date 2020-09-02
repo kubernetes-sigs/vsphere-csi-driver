@@ -849,7 +849,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && newPv.Spec.StorageClassName == "" {
 		// Static PV is Created
 		var volumeType string
-		if oldPv.Spec.CSI.FSType == common.NfsV4FsType || oldPv.Spec.CSI.FSType == common.NfsFsType {
+		if IsMultiAttachAllowed(oldPv) {
 			volumeType = common.FileVolumeType
 		} else {
 			volumeType = common.BlockVolumeType
@@ -939,7 +939,8 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
 
-	if pv.Spec.CSI.FSType == common.NfsV4FsType || pv.Spec.CSI.FSType == common.NfsFsType {
+	if IsMultiAttachAllowed(pv) {
+		// if PV is file share volume
 		log.Debugf("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
 		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
