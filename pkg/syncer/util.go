@@ -242,3 +242,20 @@ func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
 	}
 	return *scName, nil
 }
+
+// IsMultiAttachAllowed helps check accessModes on the PV and return true if volume can be attached to
+// multiple nodes.
+func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
+	if pv == nil {
+		return false
+	}
+	if len(pv.Spec.AccessModes) == 0 {
+		return false
+	}
+	for _, accessMode := range pv.Spec.AccessModes {
+		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
+			return true
+		}
+	}
+	return false
+}
