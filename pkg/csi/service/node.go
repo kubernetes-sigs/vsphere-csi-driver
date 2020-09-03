@@ -511,15 +511,6 @@ func (s *service) NodeGetVolumeStats(
 		return nil, status.Errorf(codes.InvalidArgument, "received empty targetpath %q", targetPath)
 	}
 
-	dev, err := getDevFromMount(targetPath)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unable to retrieve device from target %q", targetPath)
-	}
-	if dev == nil {
-		return nil, status.Errorf(codes.Internal, "could not find device mounted on targetpath %v", targetPath)
-	}
-	//TODO Check that the matching device is a vSphere volume, and that the volID matches the mount point
-
 	volMetrics, err := getMetrics(targetPath)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -1314,6 +1305,13 @@ func getDevFromMount(target string) (*Device, error) {
 	// Path:/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount
 	// Source:/var/lib/kubelet/plugins/kubernetes.io/csi/pv/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/globalmount
 	// Type:ext4
+	// Opts:[rw relatime]
+
+	// example for File Volume
+	// Device:h10-186-38-214.vsanfs3.testdomain:/5231f3d8-f06b-b67c-8cd1-f3c126013ce4
+	// Path:/var/lib/kubelet/pods/ba41b064-bd0b-4a47-afff-8d262ec6308a/volumes/kubernetes.io~csi/pvc-a425f631-f93c-4cb6-9d61-03bd2dd81b44/mount
+	// Source:h10-186-38-214.vsanfs3.testdomain:/5231f3d8-f06b-b67c-8cd1-f3c126013ce4
+	// Type:nfs4
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
