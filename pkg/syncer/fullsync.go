@@ -536,7 +536,7 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 			pvToPVCMap[pv.Name] = pvc
 			log.Debugf("FullSync: pvc %s/%s is backed by pv %s", pvc.Namespace, pvc.Name, pv.Name)
 			for _, pod := range pods {
-				if pod.Spec.Volumes != nil {
+				if pod.Status.Phase == v1.PodRunning && pod.Spec.Volumes != nil {
 					for _, volume := range pod.Spec.Volumes {
 						pvClaim := volume.VolumeSource.PersistentVolumeClaim
 						if pvClaim != nil && pvClaim.ClaimName == pvc.Name && pod.Namespace == pvc.Namespace {
@@ -548,7 +548,6 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 					}
 				}
 			}
-
 		}
 	}
 	return pvToPVCMap, pvcToPodMap, nil
