@@ -1542,10 +1542,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, gcPVC.Name, "default"), "Failed to delete PVC ", gcPVC.Name)
 
 		ginkgo.By("Verify PV should be released not deleted")
+		framework.Logf("Waiting for PV to move to released state")
+		// TODO: replace sleep with polling mechanism
+		time.Sleep(time.Duration(100) * time.Second)
 		gcPV, err = client.CoreV1().PersistentVolumes().Get(ctx, gcPVName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// TODO: replace sleep with polling mechanism
-		time.Sleep(time.Duration(50) * time.Second)
 		gcPVStatus := gcPV.Status.Phase
 		if gcPVStatus != "Released" {
 			log.Infof("gcPVStatus: %s", gcPVStatus)
