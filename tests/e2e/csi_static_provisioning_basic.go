@@ -1406,7 +1406,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}()
 
 		ginkgo.By("Create FCD")
-		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimeinstring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteFCDRequired = false
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
@@ -1431,6 +1431,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			log.Errorf("Actual error message : %s", actualErrorMsg)
 			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
 		}
+
+		defer func() {
+			pvName := "static-pv-" + fcdID
+			framework.Logf("Deleting PersistentVolume %s", pvName)
+			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvName))
+		}()
+
 	})
 
 	/*
