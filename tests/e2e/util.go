@@ -17,9 +17,11 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +39,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"golang.org/x/crypto/ssh"
 	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -954,12 +957,14 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 
 	svcClient, svNamespace := getSvcClientAndNamespace()
 	svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
-	if !apierrors.IsNotFound(err) {
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	framework.Logf("PVC in supervisor namespace: %s", svPvc.Name)
-
-	return err == nil
+	return true
 }
 
 // returns crd if found by name
@@ -1586,6 +1591,133 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 
 }
 
+// //getClusterName methods returns the cluster and vsan client of the testbed
+// func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
+// 	c := newClient(ctx, vs)
+// 	datacenter := e2eVSphere.Config.Global.Datacenters
+
+// 	vsanHealthClient, err := newVsanHealthSvcClient(ctx, c.Client)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
+// 	dc, err := finder.Datacenter(ctx, datacenter)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	finder.SetDatacenter(dc)
+
+// 	clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+// 	framework.Logf("clusterComputeResource %v", clusterComputeResource)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 	return clusterComputeResource, vsanHealthClient, err
+// }
+
+//psodHostWithPv methods finds the esx host where pv is residing and psods it.
+//It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
+func psodHostWithPv(ctx context.Context, vs *vSphere) string {
+	ginkgo.By("VsanObjIndentities")
+	vsanObjuuid := VsanObjIndentities(ctx, &e2eVSphere)
+	framework.Logf("vsanObjuuid %v", vsanObjuuid)
+	gomega.Expect(vsanObjuuid).NotTo(gomega.BeEmpty())
+
+	ginkgo.By("Get host info using queryVsanObj")
+	hostInfo := queryVsanObj(ctx, &e2eVSphere, vsanObjuuid)
+	framework.Logf("vsan object ID %v", hostInfo)
+	gomega.Expect(hostInfo).NotTo(gomega.BeEmpty())
+	hostIP := e2eVSphere.getHostUUID(ctx, hostInfo)
+	framework.Logf("hostIP %v", hostIP)
+	gomega.Expect(hostIP).NotTo(gomega.BeEmpty())
+
+	ginkgo.By("PSOD")
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
+	op, err := connectESX("root", hostIP, sshCmd)
+	framework.Logf(op)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Injecting PSOD ")
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
+	op, err = connectESX("root", hostIP, psodCmd)
+	framework.Logf(op)
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	return hostIP
+}
+
+//VsanObjIndentities returns the vsanObjectsUUID
+func VsanObjIndentities(ctx context.Context, vs *vSphere) []string {
+	var vsanObjUUID []string
+	clusterComputeResource, vsanHealthClient, err := getClusterName(ctx, vs)
+	framework.Logf("clusterComputeResource %v", clusterComputeResource)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, cluster := range clusterComputeResource {
+		framework.Logf("cluster name %v", cluster.Name())
+		if !strings.Contains(cluster.Name(), edgeCluster) {
+			clusterConfig, err := vsanHealthClient.VsanQueryObjectIdentities(ctx, cluster.Reference())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vsanObjUUID = clusterConfig.Health.ObjectHealthDetail[0].ObjUuids
+			break
+		}
+	}
+	return vsanObjUUID
+}
+
+//queryVsanObj takes vsanObjuuid as input and resturns vsanObj info such as hostUUID
+func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid []string) string {
+	c := newClient(ctx, vs)
+	datacenter := e2eVSphere.Config.Global.Datacenters
+
+	vsanHealthClient, err := newVsanHealthSvcClient(ctx, c.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
+	dc, err := finder.Datacenter(ctx, datacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+
+	result, err := vsanHealthClient.QueryVsanObjects(ctx, vsanObjuuid, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return result
+}
+
+//hostLogin methods sets the ESX host password
+func hostLogin(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
+	answers = make([]string, len(questions))
+	for n := range questions {
+		answers[n] = esxPassword
+	}
+	return answers, nil
+}
+
+//connectESX executes ssh commands on the give ESX host and returns the bash result
+func connectESX(username string, addr string, cmd string) (string, error) {
+	// Authentication
+	config := &ssh.ClientConfig{
+		User:            username,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Auth: []ssh.AuthMethod{
+			ssh.KeyboardInteractive(hostLogin),
+		},
+	}
+	// Connect
+	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
+	if err != nil {
+		framework.Logf("connection failed due to %v", err)
+		return "", err
+	}
+	// Create a session. It is one session per command.
+	session, err := client.NewSession()
+	if err != nil {
+		framework.Logf("session creation failed due to %v", err)
+		return "", err
+	}
+	defer session.Close()
+	var b bytes.Buffer
+	session.Stdout = &b
+	err = session.Start(cmd)
+	return b.String(), err
+}
+
 // getPersistentVolumeSpecWithStorageclass is to create PV volume spec with given FCD ID, Reclaim Policy and labels
 func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string, labels map[string]string) *v1.PersistentVolume {
 	var (
@@ -1677,6 +1809,41 @@ func waitForEvent(ctx context.Context, client clientset.Interface, namespace str
 			}
 		}
 		return false, nil
+	})
+	return waitErr
+}
+
+//annotationWatcher polls the health status of pvc and returns error if any
+func annotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
+	volumeHealthAnnotation := "volumehealth.storage.kubernetes.io/health"
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", pollTimeoutShort)
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if pvc.Annotations[volumeHealthAnnotation] == healthStatus {
+			framework.Logf("health annonation added :%v", pvc.Annotations[volumeHealthAnnotation])
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+//wait for ESX to be up
+func checkHostStatus(ip string) error {
+	framework.Logf("host ip %v", ip)
+	timeout := 1 * time.Second
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait until %v seconds", pollTimeoutShort)
+		_, err := net.DialTimeout("tcp", ip+":22", timeout)
+		if err != nil {
+			framework.Logf("Site unreachable, error: ", err)
+			return false, nil
+		}
+		framework.Logf("Site reachable")
+		return true, nil
 	})
 	return waitErr
 }
