@@ -56,9 +56,15 @@ func validateParam(paramName, value string) bool {
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
 }
 
+const (
+	spTypePrefix = "cns.vmware.com/"
+	spTypeKey    = spTypePrefix + "StoragePoolType"
+)
+
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
+// TODO: Need to remove AttributeHostLocal after external provisioner stops sending this parameter
 func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
 	// Get create params
 	params := req.GetParameters()
@@ -359,34 +365,40 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	return datastoreURL, nil
 }
 
-// getAccessibleNodesFromStoragePool returns the accessibleNodes pertaining to the given StoragePool
-func getAccessibleNodesFromStoragePool(ctx context.Context, spName string) ([]string, error) {
+// getStoragePoolInfo returns the accessibleNodes and the storage-pool-type pertaining to the given StoragePool
+func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, error) {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return nil, "", fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
 	}
 
 	// create a new StoragePool client
 	spClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
+		return nil, "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName
 	sp, err := spClient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
+		return nil, "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
 	// extract the accessibleNodes field
 	accessibleNodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
-		return nil, fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
+		return nil, "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
 	}
 
-	return accessibleNodes, nil
+	// Get the storage pool type
+	poolType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeKey)
+	if !found || err != nil {
+		return nil, "", fmt.Errorf("failed to find pool type in StoragePool %s", spName)
+	}
+
+	return accessibleNodes, poolType, nil
 }
 
 // isValidAccessibilityRequirements validates if the given accessibility requirement has the necessary elements in it
@@ -395,22 +407,6 @@ func isValidAccessibilityRequirement(topologyRequirement *csi.TopologyRequiremen
 		return false
 	}
 	return true
-}
-
-// getHostNameFromAccessibilityRequirements fetches the host node name from the given topology requirement
-func getHostNameFromAccessibilityRequirements(topologyRequirement *csi.TopologyRequirement) (string, error) {
-	var hostName string
-	for _, topology := range topologyRequirement.GetPreferred() {
-		if topology == nil {
-			return "", status.Errorf(codes.NotFound, "invalid accessibility requirement")
-		}
-		value, ok := topology.Segments[v1.LabelHostname]
-		if !ok {
-			return "", status.Errorf(codes.NotFound, "hostname not found in the accessibility requirements")
-		}
-		hostName = value
-	}
-	return hostName, nil
 }
 
 // getOverlappingNodes returns the list of nodes that is present both in the accessibleNodes of the storagePool and the
