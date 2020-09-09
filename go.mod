@@ -38,6 +38,7 @@ require (
 	github.com/vmware/govmomi v0.23.2-0.20200915235406-49b4974659e1
 	github.com/zekroTJA/timedmap v1.1.2
 	go.uber.org/zap v1.15.0
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
@@ -67,6 +68,7 @@ require (
 replace (
 	github.com/go-logr/logr => github.com/go-logr/logr v0.1.0
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.0
+	github.com/vmware/govmomi => github.com/marunachalam/govmomi v0.23.2-0.20200814050114-6161ca6b48c8
 	k8s.io/api => k8s.io/api v0.18.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.18.5
 	k8s.io/apimachinery => k8s.io/apimachinery v0.18.5

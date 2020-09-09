@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -17,8 +18,13 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
+	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
+	vsanmethods "github.com/vmware/govmomi/vsan/methods"
+	vsantypes "github.com/vmware/govmomi/vsan/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -29,6 +35,20 @@ type vSphere struct {
 	Client    *govmomi.Client
 	CnsClient *cnsClient
 }
+
+//VsanClient struct holds vim and soap client
+type VsanClient struct {
+	vim25Client   *vim25.Client
+	serviceClient *soap.Client
+}
+
+// Creates the vsan object identities instance. This is to be queried from vsan health.
+var (
+	VsanQueryObjectIdentitiesInstance = vimtypes.ManagedObjectReference{
+		Type:  "VsanObjectSystem",
+		Value: "vsan-cluster-object-system",
+	}
+)
 
 const (
 	providerPrefix  = "vsphere://"
@@ -508,4 +528,119 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).
 		To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 
+}
+
+//getClusterName methods returns the cluster and vsan client of the testbed
+func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
+	c := newClient(ctx, vs)
+	datacenter := e2eVSphere.Config.Global.Datacenters
+
+	vsanHealthClient, err := newVsanHealthSvcClient(ctx, c.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
+	dc, err := finder.Datacenter(ctx, datacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+
+	clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+	framework.Logf("clusterComputeResource %v", clusterComputeResource)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return clusterComputeResource, vsanHealthClient, err
+}
+
+//getHostUUID takes input of the return value of queryVsanObj api and returns the host uuid of vsan object
+func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
+	var result map[string]interface{}
+
+	err := json.Unmarshal([]byte(hostInfo), &result)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	lsomObject := result["lsom_objects"]
+	lsomObjectInterface, _ := lsomObject.(map[string]interface{})
+
+	//This loop get the the esx host uuid from the queryVsanObj result
+	for _, lsomValue := range lsomObjectInterface {
+		key, _ := lsomValue.(map[string]interface{})
+		for key1, value1 := range key {
+			if key1 == "owner" {
+				framework.Logf("hostUUID %v, hostIP %v", key1, value1)
+				finder := find.NewFinder(vs.Client.Client, false)
+				dc, err := finder.Datacenter(ctx, vs.Config.Global.Datacenters)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				finder.SetDatacenter(dc)
+
+				clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				cluster := clusterComputeResource[0]
+				//TKG setup with NSX has edge-cluster enabled, this check is to skip that cluster
+				if strings.Contains(cluster.Name(), "edge-cluster") {
+					cluster = clusterComputeResource[1]
+				}
+
+				config, err := cluster.Configuration(ctx)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				for counter := range config.VsanHostConfig {
+					if config.VsanHostConfig[counter].ClusterInfo.NodeUuid == value1 {
+						hosts, err := cluster.Hosts(ctx)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						framework.Logf("host name from hostUUID %v", hosts[counter].Name())
+						return hosts[counter].Name()
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+//VsanQueryObjectIdentities return list of vsan uuids
+func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimtypes.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
+	req := vsantypes.VsanQueryObjectIdentities{
+		This:    VsanQueryObjectIdentitiesInstance,
+		Cluster: cluster,
+	}
+
+	res, err := vsanmethods.VsanQueryObjectIdentities(ctx, c.serviceClient, &req)
+
+	if err != nil {
+		return nil, err
+	}
+	return &res.Returnval, nil
+}
+
+//QueryVsanObjects returns the vSANObj related information
+func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
+	clusterComputeResource, _, err := getClusterName(ctx, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cluster := clusterComputeResource[0]
+	if strings.Contains(cluster.Name(), edgeCluster) {
+		cluster = clusterComputeResource[1]
+	}
+	config, err := cluster.Configuration(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	hostSystem := config.VsanHostConfig[0].HostSystem.String()
+
+	hostName := strings.Split(hostSystem, ":")
+	hostValue := strings.Split(hostName[1], "-")
+	value := ("ha-vsan-internal-system-" + hostValue[1])
+	framework.Logf("vsan internal system value %v", value)
+	var (
+		QueryVsanObjectsInstance = vimtypes.ManagedObjectReference{
+			Type:  "HostVsanInternalSystem",
+			Value: value,
+		}
+	)
+	req := vsantypes.QueryVsanObjects{
+		This:  QueryVsanObjectsInstance,
+		Uuids: uuids,
+	}
+	res, err := vsanmethods.QueryVsanObjects(ctx, c.serviceClient, &req)
+	if err != nil {
+		framework.Logf("QueryVsanObjects Failed with err %v", err)
+		return "", err
+	}
+	return res.Returnval, nil
 }

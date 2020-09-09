@@ -60,6 +60,7 @@ const (
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	healthStatusWaitTime                       = 2 * time.Minute
+	hostRecoveryTime                           = 5 * time.Minute
 	healthStatusAccessible                     = "accessible"
 	healthStatusInAccessible                   = "inaccessible"
 	healthGreen                                = "green"
@@ -100,7 +101,10 @@ const (
 	e2eTestPassword                            = "E2E-test-password!23"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
 	svOperationTimeout                         = 240 * time.Second
+	esxPassword                                = "ca$hc0w"
+	psodTime                                   = "120"
 	defaultFullSyncIntervalInMin               = "30"
+	edgeCluster                                = "edge-cluster"
 )
 
 const (
