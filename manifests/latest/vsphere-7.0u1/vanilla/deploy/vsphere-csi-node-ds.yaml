@@ -20,15 +20,12 @@ spec:
       dnsPolicy: "Default"
       containers:
       - name: node-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
-        lifecycle:
-          preStop:
-            exec:
-              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
+        image: quay.io/k8scsi/csi-node-driver-registrar:v2.0.1
         args:
         - "--v=5"
         - "--csi-address=$(ADDRESS)"
         - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+        - "--health-port=9809"
         env:
         - name: ADDRESS
           value: /csi/csi.sock
@@ -41,6 +38,15 @@ spec:
           mountPath: /csi
         - name: registration-dir
           mountPath: /registration
+        ports:
+        - containerPort: 9809
+          name: healthz
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
       - name: vsphere-csi-node
         image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.1
         imagePullPolicy: "Always"
@@ -82,21 +88,19 @@ spec:
         - name: device-dir
           mountPath: /dev
         ports:
-          - name: healthz
-            containerPort: 9808
-            protocol: TCP
+          - containerPort: 9808
+            name: healthz
         livenessProbe:
           httpGet:
             path: /healthz
             port: healthz
           initialDelaySeconds: 10
-          timeoutSeconds: 3
-          periodSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 5
       - name: liveness-probe
-        image: quay.io/k8scsi/livenessprobe:v2.0.0
+        image: quay.io/k8scsi/livenessprobe:v2.1.0
         args:
-        - --csi-address=/csi/csi.sock
+          - "--v=4"
+          - "--csi-address=/csi/csi.sock"
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -111,7 +115,7 @@ spec:
           type: Directory
       - name: plugin-dir
         hostPath:
-          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/
+          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com
           type: DirectoryOrCreate
       - name: pods-mount-dir
         hostPath:
