@@ -117,6 +117,31 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, 
 	return "", errors.New(msg)
 }
 
+// isVolumeBoundByOtherPVC checks if vsphere block volume in cnsregistervolume is bound to any other PVC
+// returns error if true.
+func isVolumeBoundByOtherPVC(ctx context.Context, k8sClient clientset.Interface, instance *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	pvList, err := k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get persistent volume list from API server with error: %+v", err)
+		return errors.New(msg)
+	}
+
+	for _, pv := range pvList.Items {
+		// Check if there exists a PV with vsphere volume attached and bound to a different PVC
+		// than one passed in the spec
+		if pv.Spec.CSI.VolumeHandle == instance.Spec.VolumeID && pv.Status.Phase == v1.VolumeBound &&
+			(pv.Spec.ClaimRef.Name != instance.Spec.PvcName || pv.Spec.ClaimRef.Namespace != instance.Namespace) {
+
+			msg := fmt.Sprintf("VolumeID: %s is already attached to PV: %s and bound to PVC: %s in namespace: %s",
+				instance.Spec.VolumeID, pv.ObjectMeta.Name, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace)
+
+			return errors.New(msg)
+		}
+	}
+
+	return nil
+}
+
 // getPersistentVolumeSpec to create PV volume spec for the given input params
 func getPersistentVolumeSpec(volumeName string, volumeID string,
 	capacity int64, accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {

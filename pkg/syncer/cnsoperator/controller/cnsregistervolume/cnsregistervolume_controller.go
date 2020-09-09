@@ -183,6 +183,22 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to initialize K8S client when registering the CnsRegisterVolume instance: %s on namespace: %s. Error: %+v",
+			instance.Name, instance.Namespace, err)
+		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume registration")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// If requested vsphere volume is already bound to another PVC, return with error
+	err = isVolumeBoundByOtherPVC(ctx, k8sclient, instance)
+	if err != nil {
+		log.Error(err.Error())
+		setInstanceError(ctx, r, instance, err.Error())
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
@@ -244,14 +260,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		if err != nil {
 			log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 		}
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-
-	k8sclient, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("Failed to initialize K8S client when registering the CnsRegisterVolume instance: %s on namespace: %s. Error: %+v",
-			instance.Name, instance.Namespace, err)
-		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume registration")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
