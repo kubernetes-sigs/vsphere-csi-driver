@@ -1,6 +1,6 @@
 # vSphere CSI Driver - Offline Volume Expansion
 
-CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for dynamically/statically created offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid Service (TKGS). Volume expansion is currently not supported in the Supervisor cluster.
+CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver currently extends this support for dynamically/statically created offline block volumes only i.e allows a block volume to be extended when it is not attached to a node. Check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions and the [known issues](../known_issues.md) section to see if this feature caters to your requirement. Note that offline volume expansion is available from vSphere CSI v2.0 onwards in Vanilla Kubernetes and v2.1 onwards in Tanzu Kubernetes Grid Service (TKGS). Volume expansion is currently not supported in the Supervisor cluster.
 
 ## Feature Gate
 
