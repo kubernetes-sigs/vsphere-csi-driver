@@ -121,7 +121,7 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 	for !done {
 		select {
 		case <-ctx.Done():
-			log.Info("watchStorageClass shutdown", "ctxErr", ctx.Err())
+			log.Infof("watchStorageClass shutdown. ctxErr: %+v", ctx.Err())
 			done = true
 		case e, ok := <-w.scWatch.ResultChan():
 			if !ok {

@@ -144,7 +144,7 @@ func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	nodes := make([]string, 0)
 	nodes = append(nodes, node)
 
-	log.Infof("creating vsan sna sp", node)
+	log.Infof("creating vsan sna sp %q", node)
 	compatSC := make([]string, 0)
 	for _, scName := range vsan.compatSC {
 		if scWatchCntlr.isHostLocal(scName) {
