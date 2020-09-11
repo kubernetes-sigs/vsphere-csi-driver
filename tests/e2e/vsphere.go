@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -553,6 +554,15 @@ func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeR
 //getHostUUID takes input of the return value of queryVsanObj api and returns the host uuid of vsan object
 func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	var result map[string]interface{}
+	computeCluster := os.Getenv("CLUSTER_NAME")
+	if computeCluster == "" {
+		if guestCluster {
+			computeCluster = "compute-cluster"
+		} else if supervisorCluster {
+			computeCluster = "wcp-app-platform-sanity-cluster"
+		}
+		framework.Logf("Default cluster is choosen for test")
+	}
 
 	err := json.Unmarshal([]byte(hostInfo), &result)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -576,7 +586,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 
 				cluster := clusterComputeResource[0]
 				//TKG setup with NSX has edge-cluster enabled, this check is to skip that cluster
-				if strings.Contains(cluster.Name(), "edge-cluster") {
+				if !strings.Contains(cluster.Name(), computeCluster) {
 					cluster = clusterComputeResource[1]
 				}
 
@@ -613,10 +623,19 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimt
 
 //QueryVsanObjects returns the vSANObj related information
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
+	computeCluster := os.Getenv("CLUSTER_NAME")
+	if computeCluster == "" {
+		if guestCluster {
+			computeCluster = "compute-cluster"
+		} else if supervisorCluster {
+			computeCluster = "wcp-app-platform-sanity-cluster"
+		}
+		framework.Logf("Default cluster is choosen for test")
+	}
 	clusterComputeResource, _, err := getClusterName(ctx, vs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	cluster := clusterComputeResource[0]
-	if strings.Contains(cluster.Name(), edgeCluster) {
+	if !strings.Contains(cluster.Name(), computeCluster) {
 		cluster = clusterComputeResource[1]
 	}
 	config, err := cluster.Configuration(ctx)
@@ -643,4 +662,27 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 		return "", err
 	}
 	return res.Returnval, nil
+}
+
+//queryCNSVolumeWithWait gets the cns volume health status
+func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", pollTimeoutShort)
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
+		if err != nil {
+			return false, nil
+		}
+		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+		for _, vol := range queryResult.Volumes {
+			if vol.HealthStatus == healthRed {
+				framework.Logf("Volume health status: %v", vol.HealthStatus)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	return waitErr
 }

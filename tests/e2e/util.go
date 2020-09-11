@@ -1591,26 +1591,6 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 
 }
 
-// //getClusterName methods returns the cluster and vsan client of the testbed
-// func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
-// 	c := newClient(ctx, vs)
-// 	datacenter := e2eVSphere.Config.Global.Datacenters
-
-// 	vsanHealthClient, err := newVsanHealthSvcClient(ctx, c.Client)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-// 	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
-// 	dc, err := finder.Datacenter(ctx, datacenter)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	finder.SetDatacenter(dc)
-
-// 	clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
-// 	framework.Logf("clusterComputeResource %v", clusterComputeResource)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-// 	return clusterComputeResource, vsanHealthClient, err
-// }
-
 //psodHostWithPv methods finds the esx host where pv is residing and psods it.
 //It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
 func psodHostWithPv(ctx context.Context, vs *vSphere) string {
@@ -1645,13 +1625,22 @@ func psodHostWithPv(ctx context.Context, vs *vSphere) string {
 //VsanObjIndentities returns the vsanObjectsUUID
 func VsanObjIndentities(ctx context.Context, vs *vSphere) []string {
 	var vsanObjUUID []string
+	computeCluster := os.Getenv("CLUSTER_NAME")
+	if computeCluster == "" {
+		if guestCluster {
+			computeCluster = "compute-cluster"
+		} else if supervisorCluster {
+			computeCluster = "wcp-app-platform-sanity-cluster"
+		}
+		framework.Logf("Default cluster is choosen for test")
+	}
 	clusterComputeResource, vsanHealthClient, err := getClusterName(ctx, vs)
 	framework.Logf("clusterComputeResource %v", clusterComputeResource)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, cluster := range clusterComputeResource {
 		framework.Logf("cluster name %v", cluster.Name())
-		if !strings.Contains(cluster.Name(), edgeCluster) {
+		if strings.Contains(cluster.Name(), computeCluster) {
 			clusterConfig, err := vsanHealthClient.VsanQueryObjectIdentities(ctx, cluster.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vsanObjUUID = clusterConfig.Health.ObjectHealthDetail[0].ObjUuids
@@ -1813,17 +1802,67 @@ func waitForEvent(ctx context.Context, client clientset.Interface, namespace str
 	return waitErr
 }
 
-//annotationWatcher polls the health status of pvc and returns error if any
-func annotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
-	volumeHealthAnnotation := "volumehealth.storage.kubernetes.io/health"
+//bringSvcK8sAPIServerDown function moves the static kube-apiserver.yaml out of k8's manifests directory
+//It takes VC IP and SV K8's master IP as input
+func bringSvcK8sAPIServerDown(vc string) error {
+	file := "master.txt"
+	token := "token.txt"
+	// Note: /usr/lib/vmware-wcp/decryptK8Pwd.py is not an officially supported API and may change at any time
+	sshCmd := fmt.Sprintf("/usr/lib/vmware-wcp/decryptK8Pwd.py > %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err := fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("(awk 'FNR == 7 {print $2}' %s) > %s", file, token)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err = fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("sshpass -f %s ssh root@$(awk 'FNR == 6 {print $2}' master.txt) -o 'StrictHostKeyChecking no' 'mv %s/%s /root'", token, kubeAPIPath, kubeAPIfile)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err = fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	time.Sleep(kubeAPIRecoveryTime)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
+//bringSvcK8sAPIServerUp function moves the static kube-apiserver.yaml to k8's manifests directory
+//It takes VC IP and SV K8's master IP as input
+func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, vc, healthStatus string) error {
+	sshCmd := fmt.Sprintf("sshpass -f token.txt ssh root@$(awk 'FNR == 6 {print $2}' master.txt) -o 'StrictHostKeyChecking no' 'mv /root/%s %s'", kubeAPIfile, kubeAPIPath)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err := fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	ginkgo.By(fmt.Sprintf("polling for %v minutes...", pollTimeout))
+	err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatus)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+//pvcHealthAnnotationWatcher polls the health status of pvc and returns error if any
+func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)
 		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, nil
 		}
-		if pvc.Annotations[volumeHealthAnnotation] == healthStatus {
-			framework.Logf("health annonation added :%v", pvc.Annotations[volumeHealthAnnotation])
+		if pvc.Annotations[pvcHealthAnnotation] == healthStatus {
+			framework.Logf("health annonation added :%v", pvc.Annotations[pvcHealthAnnotation])
 			return true, nil
 		}
 		return false, nil
