@@ -64,6 +64,7 @@ const (
 	healthStatusAccessible                     = "accessible"
 	healthStatusInAccessible                   = "inaccessible"
 	healthGreen                                = "green"
+	healthRed                                  = "red"
 	vsphereTKGSystemNamespace                  = "vmware-system-tkg"
 	vsphereControllerManager                   = "vmware-system-tkg-controller-manager"
 	vsanhealthServiceName                      = "vsan-health"
@@ -101,10 +102,13 @@ const (
 	e2eTestPassword                            = "E2E-test-password!23"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
 	svOperationTimeout                         = 240 * time.Second
+	kubeAPIPath                                = "/etc/kubernetes/manifests/"
+	kubeAPIfile                                = "kube-apiserver.yaml"
+	kubeAPIRecoveryTime                        = 1 * time.Minute
 	esxPassword                                = "ca$hc0w"
 	psodTime                                   = "120"
 	defaultFullSyncIntervalInMin               = "30"
-	edgeCluster                                = "edge-cluster"
+	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
 )
 
 const (
