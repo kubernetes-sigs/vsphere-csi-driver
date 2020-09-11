@@ -384,14 +384,14 @@ func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1b
 
 	fullPath := filepath.Join(manifestPath, fileName)
 	data, err := ioutil.ReadFile(fullPath)
-	if os.IsNotExist(err) {
-		log.Errorf("Manifest file: %s doesn't exist. Error: %+v", fullPath, err)
-		return nil, err
-	} else if err != nil {
-		log.Errorf("Failed to read the manifest file: %s. Error: %+v", fullPath, err)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Errorf("Manifest file: %s doesn't exist. Error: %+v", fullPath, err)
+		} else {
+			log.Errorf("Failed to read the manifest file: %s. Error: %+v", fullPath, err)
+		}
 		return nil, err
 	}
-
 	json, err := utilyaml.ToJSON(data)
 	if err != nil {
 		log.Errorf("Failed to convert the manifest file: %s content to JSON with error: %+v", fullPath, err)
