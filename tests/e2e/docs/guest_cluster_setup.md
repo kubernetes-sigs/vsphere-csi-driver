@@ -81,10 +81,13 @@ datacenters should be comma separated if deployed on multi-datacenters
     # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in pvcsi.yaml
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export NEW_GUEST_CLUSTER_KUBE_CONFIG=/path/to/second-guest-cluster-kube-config-file
+    export STORAGE_POLICY_WITH_THICK_PROVISIONING
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
     # Second guest cluster for `NEW_GUEST_CLUSTER_KUBE_CONFIG` should be created under `SVC_NAMESPACE`
+    # For few GC block volume expansion tests we need a storage policy which has thick provisioning enabled
+    # `STORAGE_POLICY_WITH_THICK_PROVISIONING` needs to be added to `SVC_NAMESPACE` with storage limit >=20GiB
 
 #### Setting SSH keys for VC with your local machine to run tests which toggle states of VC services and full sync tests
 
