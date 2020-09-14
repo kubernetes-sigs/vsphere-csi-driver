@@ -195,6 +195,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	}
 
 	testCleanUpUtil := func(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolumeName string, namespace string, pvcName string, pvName string) {
+
+		if guestCluster {
+			client, _ = getSvcClientAndNamespace()
+		}
 		ginkgo.By("Deleting the PV Claim")
 		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvcName, namespace), "Failed to delete PVC", pvcName)
 		pvc = nil
