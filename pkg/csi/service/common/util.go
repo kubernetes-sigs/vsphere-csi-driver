@@ -230,28 +230,28 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string) (*St
 				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 			} else if param == CSIMigrationParams {
 				scParams.CSIMigration = value
-				log.Infof("vSphere CSI Driver supports StoragePolicyName, Datastore and fsType parameters supplied from legacy in-tree provisioner. All other parameters supplied in csimigrationparams will be dropped.")
 			} else {
 				otherParams[param] = value
 			}
 		}
-
 		// check otherParams belongs to in-tree migrated Parameters
 		if scParams.CSIMigration == "true" {
 			for param, value := range otherParams {
 				param = strings.ToLower(param)
 				if param == DatastoreMigrationParam {
 					scParams.Datastore = value
-				} else if param != DiskFormatMigrationParam && param != HostFailuresToTolerateMigrationParam &&
-					param != ForceProvisioningMigrationParam && param != CacheReservationMigrationParam &&
-					param != DiskstripesMigrationParam && param != ObjectspacereservationMigrationParam &&
-					param != IopslimitMigrationParam {
-					return nil, fmt.Errorf("Invalid parameter key:%v, value:%v", param, value)
+				} else if param == DiskFormatMigrationParam || param == HostFailuresToTolerateMigrationParam ||
+					param == ForceProvisioningMigrationParam || param == CacheReservationMigrationParam ||
+					param == DiskstripesMigrationParam || param == ObjectspacereservationMigrationParam ||
+					param == IopslimitMigrationParam {
+					return nil, fmt.Errorf("vSphere CSI driver does not support creating volume using in-tree vSphere volume plugin parameter key:%v, value:%v", param, value)
+				} else {
+					return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
 				}
 			}
 		} else {
 			if len(otherParams) != 0 {
-				return nil, fmt.Errorf("Invalid parameters :%v", otherParams)
+				return nil, fmt.Errorf("invalid parameters :%v", otherParams)
 			}
 		}
 	}
