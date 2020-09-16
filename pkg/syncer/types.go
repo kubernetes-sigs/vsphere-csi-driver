@@ -47,9 +47,6 @@ const (
 	// default interval for csi volume health
 	defaultVolumeHealthIntervalInMin = 5
 
-	// default interval for syncer to check if the feature is enabled or not
-	defaultFeatureEnablementCheckInterval = 1 * time.Minute
-
 	// default resync period for volume health reconciler
 	volumeHealthResyncPeriod = 10 * time.Minute
 	// default retry start interval time for volume health reconciler

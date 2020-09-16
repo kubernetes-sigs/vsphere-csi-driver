@@ -62,6 +62,8 @@ type Manager interface {
 	QueryVolumeInfo(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error)
 	// QueryAllVolume returns all volumes matching the given filter and selection.
 	QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// RelocateVolume migrates volumes to their target datastore as specified in relocateSpecList
+	RelocateVolume(ctx context.Context, relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error)
 	// ExpandVolume expands a volume to a new size.
 	ExpandVolume(ctx context.Context, volumeID string, size int64) error
 	// ResetManager helps set new manager instance and VC configuration
@@ -689,4 +691,26 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context, volumeIDList []cns
 	volumeInfoResult := interface{}(taskResult).(*cnstypes.CnsQueryVolumeInfoResult)
 	log.Infof("QueryVolumeInfo successfully returned volumeInfo volumeIDList %v:, opId: %q", volumeIDList, taskInfo.ActivationId)
 	return volumeInfoResult, nil
+}
+
+func (m *defaultManager) RelocateVolume(ctx context.Context, relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("validateManager failed with err: %+v", err)
+		return nil, err
+	}
+
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return nil, err
+	}
+	res, err := m.virtualCenter.CnsClient.RelocateVolume(ctx, relocateSpecList...)
+	if err != nil {
+		log.Errorf("CNS RelocateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
+	return res, err
 }
