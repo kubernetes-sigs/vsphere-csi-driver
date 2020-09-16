@@ -59,20 +59,20 @@ func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*
 	return boundPVs, nil
 }
 
-// getInlineMigratedVolumesInfo is a helper function for retrieving  inline PV information from Pods
-func getInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[string]string, error) {
+// fullSyncGetInlineMigratedVolumesInfo is a helper function for retrieving  inline PV information from Pods
+func fullSyncGetInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataSyncInformer, migrationFeatureState bool) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	inlineVolumes := make(map[string]string)
 	// Get all Pods from kubernetes
 	allPods, err := metadataSyncer.podLister.List(labels.Everything())
 	if err != nil {
-		log.Errorf("getInlineMigratedVolumesInfo: failed to fetch the list of pods with err: %+v", err)
+		log.Errorf("FullSync: failed to fetch the list of pods with err: %+v", err)
 		return nil, err
 	}
 	for _, pod := range allPods {
 		for _, volume := range pod.Spec.Volumes {
 			// Check if migration is ON and volumes if of type vSphereVolume
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && volume.VsphereVolume != nil {
+			if migrationFeatureState && volume.VsphereVolume != nil {
 				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath, StoragePolicyName: volume.VsphereVolume.StoragePolicyName})
 				if err != nil {
 					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
@@ -109,7 +109,7 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 		return false, nil, nil
 	}
 	//Verify if pv is vsphere volume and migration flag is disabled
-	if pv.Spec.VsphereVolume != nil && !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
+	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 		log.Warnf("%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", common.CSIMigration, pv.Name, pod.Name)
 		return false, nil, nil
 	}
@@ -239,4 +239,16 @@ func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
 		}
 	}
 	return false
+}
+
+// initVolumeMigrationService is a helper method to initialize volumeMigrationService in Syncer
+func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	var err error
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+	if err != nil {
+		log.Errorf("failed to get migration service. Err: %v", err)
+		return err
+	}
+	return nil
 }
