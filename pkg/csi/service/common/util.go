@@ -199,13 +199,13 @@ func IsTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) 
 
 // ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API call back
 // to StorageClassParams structure.
-func ParseStorageClassParams(ctx context.Context, params map[string]string) (*StorageClassParams, error) {
+func ParseStorageClassParams(ctx context.Context, params map[string]string, csiMigrationFeatureState bool) (*StorageClassParams, error) {
 	log := logger.GetLogger(ctx)
 	scParams := &StorageClassParams{
 		DatastoreURL:      "",
 		StoragePolicyName: "",
 	}
-	if !CSIMigrationFeatureEnabled {
+	if !csiMigrationFeatureState {
 		for param, value := range params {
 			param = strings.ToLower(param)
 			if param == AttributeDatastoreURL {

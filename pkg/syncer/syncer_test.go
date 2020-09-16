@@ -213,7 +213,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.k8sInformerManager.Listen()
 
-	volumeMigrationService, err = unittestcommon.GetFakeVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+	_, err := unittestcommon.GetFakeVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
 	if err != nil {
 		t.Fatalf("failed to get migration service. Err: %v", err)
 	}
