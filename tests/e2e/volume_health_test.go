@@ -43,13 +43,14 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		client                     clientset.Interface
 		namespace                  string
 		scParameters               map[string]string
-		pvc                        *v1.PersistentVolumeClaim
-		pvclaim                    *v1.PersistentVolumeClaim
 		storagePolicyName          string
 		raid0StoragePolicyName     string
 		volumeHealthAnnotation     string = "volumehealth.storage.kubernetes.io/health"
-		isVsanhealthServiceStopped bool
+		datastoreURL               string
 		hostIP                     string
+		pvc                        *v1.PersistentVolumeClaim
+		pvclaim                    *v1.PersistentVolumeClaim
+		isVsanhealthServiceStopped bool
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -58,6 +59,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -1071,7 +1073,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 	*/
 
-	ginkgo.It("[csi-guest] Verify Volume health on Statefulset in GC", func() {
+	ginkgo.It("[csi-guest] In Guest Cluster Verify Volume health on Statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -1379,7 +1381,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 
 	})
-
 	/*
 		Verify Volume health when SV CSI is down
 
@@ -1944,5 +1945,604 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			log.Infof("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
+	})
+	/*
+		Bring the CSI controller down when there is change in health status
+
+		Create a Storage Class
+		Create a GC PVC using above SC
+		Wait for PVC to be in Bound phase
+		Verify health annotation format which is added on the SV PVC and GC PVC is accessible
+		Bring down link between all the hosts and datastore
+		Bring GC CSI down
+		Verify health annotation which is added on the GC PVC is not changed to inaccessible
+		Bring GC CSI controller Up
+		wait for healthStatusWaitTime to make sure the GC PVC is updated with the health annotation
+		Verify health annotation which is added on the SV PVC and GC PVC is changed to inaccessible
+		Restore link between all the hosts and datastore
+		Delete GC PVC
+		Verify PV entry is deleted from CNS
+		Delete the SC
+
+	*/
+	ginkgo.It("[csi-guest] Verify Inaccesssible Volume health when GC CSI is down", func() {
+		var sc *storagev1.StorageClass
+		var err error
+		var isControlerUP = true
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+
+		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
+		if raid0StoragePolicyName == "" {
+			ginkgo.Skip("Env RAID_0_STORAGE_POLICY is missing")
+		}
+
+		ginkgo.By("Creating Storage Class and PVC")
+		scParameters[svStorageClassName] = raid0StoragePolicyName
+		sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+		pv := pvs[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
+		//svPVCName refers to PVC Name in the supervisor cluster
+		svPVCName := volumeID
+		volumeID = getVolumeIDFromSupervisorCluster(svPVCName)
+		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			ginkgo.By("checking host status")
+			err := checkHostStatus(hostIP)
+			time.Sleep(pollTimeoutShort)
+			if err != nil {
+				time.Sleep(hostRecoveryTime)
+			}
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvc = nil
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect health status of the pvc to be accessible")
+		pvclaim, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+
+		var gcClient clientset.Interface
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
+			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		var svClient clientset.Interface
+		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
+			svClient, err = k8s.CreateKubernetesClientFromConfig(k8senvsv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Bring down csi-controller pod in GC")
+		bringDownTKGController(svClient)
+		bringDownCsiController(gcClient)
+		isControlerUP = false
+
+		//PSOD the host
+		ginkgo.By("PSOD the host")
+		hostIP = psodHostWithPv(ctx, &e2eVSphere)
+
+		defer func() {
+			if !isControlerUP {
+				bringUpTKGController(svClient)
+				bringUpCsiController(gcClient)
+			}
+		}()
+
+		//Health status in gc pvc should be still accessible
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect health status of the pvc to be accessible")
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+
+		ginkgo.By("Expect health annotation is added on the SV pvc")
+		svPVC := getPVCFromSupervisorCluster(svPVCName)
+		err = pvcHealthAnnotationWatcher(ctx, client, svPVC, healthStatusInAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+
+		ginkgo.By("Bring up csi-controller pod in GC")
+		bringUpTKGController(svClient)
+		bringUpCsiController(gcClient)
+		isControlerUP = true
+
+		ginkgo.By("Verify health status of GC PVC after GC csi is up")
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+
+		ginkgo.By("Expect health annotation is added on the SV pvc")
+		svPVC = getPVCFromSupervisorCluster(svPVCName)
+		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+
+		//ESX Host Recovery time
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(len(queryResult.Volumes) > 0)
+		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+		for _, vol := range queryResult.Volumes {
+			log.Infof("Volume health status: %s", vol.HealthStatus)
+			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
+		}
+	})
+
+	/*
+		Verify health annotation is added on the volume created by statefulset
+
+		steps
+		Create a storage class.
+		Create nginx service.
+		Create nginx statefulset
+		Wait until all Pods are ready and PVCs are bounded with PV.
+		Verify health annotation added on the PVC is accessible
+		Bring down link between all the hosts and datastore.
+		Verify health annotation on the PVC is updated to inaccessible
+		Restore the link between all the hosts and datastore.
+		Delete the pod(make the replicas to 0)
+		Delete PVC from the tests namespace
+		Delete the storage class.
+
+	*/
+
+	ginkgo.It("[csi-supervisor] [csi-guest] Verify Volume health Inaccessible on Statefulset", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var statusFlag bool = false
+		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
+		if raid0StoragePolicyName == "" {
+			ginkgo.Skip("Env RAID_0_STORAGE_POLICY is missing")
+		}
+
+		ginkgo.By("Creating StorageClass for Statefulset")
+		// decide which test setup is available to run
+		if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(raid0StoragePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, storageclassname)
+			scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
+			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
+
+		if guestCluster {
+			scParameters[svStorageClassName] = raid0StoragePolicyName
+			sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+		// Waiting for pods status to be Ready
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+
+		if supervisorCluster {
+			// Get the list of Volumes attached to Pods
+			for _, sspod := range ssPodsBeforeScaleDown.Items {
+				for _, volumespec := range sspod.Spec.Volumes {
+					if volumespec.PersistentVolumeClaim != nil {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						// Verify the attached volume match the one in CNS cache
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						ginkgo.By("Expect health status of the pvc to be accessible")
+						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						ginkgo.By("poll for health status annotation")
+						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}
+			}
+		}
+
+		if guestCluster {
+			for _, sspod := range ssPodsBeforeScaleDown.Items {
+				_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				for _, volumespec := range sspod.Spec.Volumes {
+					if volumespec.PersistentVolumeClaim != nil {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
+						volumeID := pv.Spec.CSI.VolumeHandle
+						// svcPVCName refers to PVC Name in the supervisor cluster
+						svcPVCName := volumeID
+						volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+						gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+						verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+
+						ginkgo.By("Expect health status of the pvc to be accessible")
+						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						ginkgo.By("poll for health status annotation")
+						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						ginkgo.By("Expect health annotation is added on the SV pvc")
+						svPVC := getPVCFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+
+						ginkgo.By("poll for health status annotation")
+						err = pvcHealthAnnotationWatcher(ctx, client, svPVC, healthStatusAccessible)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+					}
+				}
+			}
+		}
+
+		//PSOD the host
+		ginkgo.By("PSOD the host")
+		hostIP = psodHostWithPv(ctx, &e2eVSphere)
+
+		defer func() {
+			ginkgo.By("checking host status")
+			err := checkHostStatus(hostIP)
+			time.Sleep(pollTimeoutShort)
+			if err != nil {
+				time.Sleep(hostRecoveryTime)
+			}
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v to allow volume health check to be triggered", svOperationTimeout))
+		time.Sleep(svOperationTimeout)
+
+		ginkgo.By("Expect health status of a pvc to be inaccessible")
+		// Get the list of Volumes attached to Pods
+		for _, sspod := range ssPodsBeforeScaleDown.Items {
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					if supervisorCluster {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						// Verify the attached volume match the one in CNS cache
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if pvc.Annotations[volumeHealthAnnotation] == healthStatusInAccessible {
+						statusFlag = true
+						break
+					}
+				}
+			}
+		}
+		ginkgo.By("Expect health annotation is added on the SV pvc is inaccessible")
+		if guestCluster {
+			for _, sspod := range ssPodsBeforeScaleDown.Items {
+				for _, volumespec := range sspod.Spec.Volumes {
+					if volumespec.PersistentVolumeClaim != nil {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+						svPVC := getPVCFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+						if svPVC.Annotations[volumeHealthAnnotation] == healthStatusInAccessible {
+							statusFlag = true
+							break
+						} else {
+							statusFlag = false
+						}
+					}
+				}
+			}
+		}
+
+		if !statusFlag {
+			framework.Logf("Volume health status is not as expected")
+			gomega.Expect(statusFlag).NotTo(gomega.BeFalse())
+		}
+
+		if supervisorCluster {
+			// Get the list of Volumes attached to Pods
+			for _, sspod := range ssPodsBeforeScaleDown.Items {
+				for _, volumespec := range sspod.Spec.Volumes {
+					if volumespec.PersistentVolumeClaim != nil {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						// Verify the attached volume match the one in CNS cache
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						ginkgo.By("Expect health status of the pvc to be accessible")
+						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						ginkgo.By("poll for health status annotation")
+						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}
+			}
+		}
+
+	})
+
+	/*
+		Validate the health status is not updated to "unknown" status from inaccessible
+
+		Steps
+		Create a Storage Class
+		Create a PVC using above SC
+		Wait for PVC to be in Bound phase
+		Bring down link between all the hosts and datastore.
+		Verify health annotation which is added on the PVC is inaccessible
+		Bring VSAN down
+		Verify the health annotation of the PVC remains inaccessible
+		Bring VSAN up
+		Restore link between all the hosts and datastore.
+		Delete PVC
+		Verify PV entry is deleted from CNS
+		Delete the SC
+	*/
+
+	ginkgo.It("[csi-supervisor] [csi-guest] Verify health annotation is not updated to unknown status from inaccessible", func() {
+		var storageclass *storagev1.StorageClass
+		var err error
+		var pvclaims []*v1.PersistentVolumeClaim
+		ctx, cancel := context.WithCancel(context.Background())
+		log := logger.GetLogger(ctx)
+		defer cancel()
+		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
+		if raid0StoragePolicyName == "" {
+			ginkgo.Skip("Env RAID_0_STORAGE_POLICY is missing")
+		}
+		ginkgo.By("Invoking Test for validating health status")
+		// decide which test setup is available to run
+		if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(raid0StoragePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, raid0StoragePolicyName)
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "", raid0StoragePolicyName)
+		} else if guestCluster {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = raid0StoragePolicyName
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		pvclaims = append(pvclaims, pvclaim)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		svPVCName := volHandle
+		if guestCluster {
+			// svcPVCName refers to PVC Name in the supervisor cluster
+			svcPVCName := volHandle
+			volHandle = getVolumeIDFromSupervisorCluster(svcPVCName)
+		}
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+		//PSOD the host
+		ginkgo.By("PSOD the host")
+		hostIP = psodHostWithPv(ctx, &e2eVSphere)
+
+		defer func() {
+			ginkgo.By("checking host status")
+			err := checkHostStatus(hostIP)
+			time.Sleep(pollTimeoutShort)
+			if err != nil {
+				time.Sleep(hostRecoveryTime)
+			}
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaim = nil
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect health annotation is added on the pvc and its inaccessible")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+
+		if guestCluster {
+			//verifying svc pvc health status
+			ginkgo.By("Expect health annotation is added on the SV pvc")
+			svPVC := getPVCFromSupervisorCluster(svPVCName)
+			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+		}
+
+		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, vol := range queryResult.Volumes {
+			log.Infof("Volume health status: %s", vol.HealthStatus)
+			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthRed))
+		}
+
+		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		isVsanhealthServiceStopped = true
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect health annotation is added on the pvc and its inaccessible after the vsan health is down")
+		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+
+		if guestCluster {
+			//verifying svc pvc health status
+			ginkgo.By("Expect health annotation is added on the SV pvc")
+			svPVC := getPVCFromSupervisorCluster(svPVCName)
+			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
+		}
+
+		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanhealthServiceStopped = false
+
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if guestCluster {
+			ginkgo.By("poll for health status annotation")
+			err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			//verifying svc pvc health status
+			ginkgo.By("Expect health annotation is added on the SV pvc")
+			svPVC := getPVCFromSupervisorCluster(svPVCName)
+			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+		}
+
+		ginkgo.By("Expect health annotation is added on the pvc and its accessible")
+		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err = e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(len(queryResult.Volumes) > 0)
+
+		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+		for _, vol := range queryResult.Volumes {
+			log.Infof("Volume health status: %s", vol.HealthStatus)
+			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
+		}
+	})
+
+	/*
+		Verify pvc is not annotated with health status in vanilla setup .
+		(Combined test for Negative testcase TC8 and TC9)
+		Steps
+		Create a Storage Class
+		Create a PVC using above SC
+		Wait for PVC to be in Bound phase
+		Verify health annotation is not added on the PVC
+		Delete PVC
+		Verify PV entry is deleted from CNS
+		Delete the SC
+	*/
+
+	ginkgo.It("[csi-vanilla] Verify pvc is not annotated with health status in vanilla setup", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Invoking Test volume health status")
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var pvclaims []*v1.PersistentVolumeClaim
+		var err error
+
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		scParameters[scParamDatastoreURL] = datastoreURL
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		pvclaims = append(pvclaims, pvclaim)
+
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered", healthStatusWaitTime))
+		time.Sleep(healthStatusWaitTime)
+
+		ginkgo.By("Expect health annotation is not added on the pvc")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for describe := range pvc.Annotations {
+			gomega.Expect(pvc.Annotations[describe]).ShouldNot(gomega.BeEquivalentTo(volumeHealthAnnotation))
+		}
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if len(queryResult.Volumes) == 0 {
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

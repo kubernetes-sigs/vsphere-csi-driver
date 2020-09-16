@@ -551,7 +551,8 @@ func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeR
 	return clusterComputeResource, vsanHealthClient, err
 }
 
-//getHostUUID takes input of the return value of queryVsanObj api and returns the host uuid of vsan object
+//getHostUUID takes input of the HostInfo which has host uuid
+//with the host uuid it maps the corresponding host IP and returns it
 func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	var result map[string]interface{}
 	computeCluster := os.Getenv("CLUSTER_NAME")
@@ -607,6 +608,8 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 }
 
 //VsanQueryObjectIdentities return list of vsan uuids
+//example: For a PVC, It returns the vSAN object UUIDs to their identities
+//It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
 func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimtypes.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
 		This:    VsanQueryObjectIdentitiesInstance,
@@ -621,7 +624,8 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimt
 	return &res.Returnval, nil
 }
 
-//QueryVsanObjects returns the vSANObj related information
+//QueryVsanObjects takes vsan uuid as input and returns the vSANObj related information like lsom_objects and disk_objects
+//example return values: "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06": ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
 	computeCluster := os.Getenv("CLUSTER_NAME")
 	if computeCluster == "" {
