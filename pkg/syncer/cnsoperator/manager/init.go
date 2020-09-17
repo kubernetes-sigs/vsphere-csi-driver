@@ -76,7 +76,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	// Create CnsNodeVmAttachment CRD
 	crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
 	crdNameNodeVMAttachment := apis.CnsNodeVMAttachmentPlural + "." + apis.SchemeGroupVersion.Group
-	err = k8s.CreateCustomResourceDefinition(ctx, crdNameNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
+	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
 		crdKindNodeVMAttachment, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 	if err != nil {
 		log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVMAttachment, err)
@@ -87,10 +87,17 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
 	crdNameVolumeMetadata := apis.CnsVolumeMetadataPlural + "." + apis.SchemeGroupVersion.Group
 
-	err = k8s.CreateCustomResourceDefinition(ctx, crdNameVolumeMetadata, apis.CnsVolumeMetadataSingular, apis.CnsVolumeMetadataPlural,
+	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameVolumeMetadata, apis.CnsVolumeMetadataSingular, apis.CnsVolumeMetadataPlural,
 		crdKindVolumeMetadata, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 	if err != nil {
 		log.Errorf("failed to create %q CRD. Err: %+v", crdKindVolumeMetadata, err)
+		return err
+	}
+
+	// Create CnsRegisterVolume CRD from manifest
+	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsregistervolume_crd.yaml")
+	if err != nil {
+		log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsRegisterVolumePlural, err)
 		return err
 	}
 

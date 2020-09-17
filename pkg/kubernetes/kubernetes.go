@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
@@ -43,6 +45,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	certutil "k8s.io/client-go/util/cert"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -55,8 +58,9 @@ import (
 )
 
 const (
-	timeout  = 60 * time.Second
-	pollTime = 5 * time.Second
+	timeout      = 60 * time.Second
+	pollTime     = 5 * time.Second
+	manifestPath = "/config"
 )
 
 // GetKubeConfig helps retrieve Kubernetes Config
@@ -264,23 +268,11 @@ func getClientThroughput(ctx context.Context, inClusterClient bool) (float32, in
 	return qps, burst
 }
 
-// CreateCustomResourceDefinition creates the CRD and add it into Kubernetes.
+// CreateCustomResourceDefinitionFromSpec creates the custom resource definition from given spec
 // If there is error, function will do the clean up
-func CreateCustomResourceDefinition(ctx context.Context, crdName string, crdSingular string, crdPlural string,
+func CreateCustomResourceDefinitionFromSpec(ctx context.Context, crdName string, crdSingular string, crdPlural string,
 	crdKind string, crdGroup string, crdVersion string, crdScope apiextensionsv1beta1.ResourceScope) error {
-	log := logger.GetLogger(ctx)
-	// Get a config to talk to the apiserver
-	cfg, err := GetKubeConfig(ctx)
-	if err != nil {
-		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
-		return err
-	}
-	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(cfg)
-	if err != nil {
-		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
-		return err
-	}
-	crd := &apiextensionsv1beta1.CustomResourceDefinition{
+	crdSpec := &apiextensionsv1beta1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: crdName,
 		},
@@ -300,23 +292,63 @@ func CreateCustomResourceDefinition(ctx context.Context, crdName string, crdSing
 			},
 		},
 	}
-	_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
-	if err == nil {
-		log.Infof("%q CRD created successfully", crdName)
-	} else if apierrors.IsAlreadyExists(err) {
-		log.Infof("%q CRD already exists", crdName)
-		return nil
-	} else {
-		log.Errorf("failed to create %q CRD with err: %+v", crdName, err)
+	return createCustomResourceDefinition(ctx, crdSpec)
+}
+
+// CreateCustomResourceDefinitionFromManifest creates custom resource definition spec from
+// manifest file
+func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName string) error {
+	log := logger.GetLogger(ctx)
+	manifestcrd, err := getCRDFromManifest(ctx, fileName)
+	if err != nil {
+		log.Errorf("Failed to read the CRD spec from manifest file: %s with err: %+v", fileName, err)
 		return err
 	}
 
-	// CRD takes some time to be established
-	// Creating an instance of non-established runs into errors. So, wait for CRD to be created
-	err = wait.Poll(pollTime, timeout, func() (bool, error) {
-		crd, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+	return createCustomResourceDefinition(ctx, manifestcrd)
+
+}
+
+// createCustomResourceDefinition takes a custom resource definition spec and creates it on the API server
+func createCustomResourceDefinition(ctx context.Context, crd *apiextensionsv1beta1.CustomResourceDefinition) error {
+	log := logger.GetLogger(ctx)
+	// Get a config to talk to the apiserver
+	cfg, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return err
+	}
+	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
+		return err
+	}
+	_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
+	if err == nil {
+		log.Infof("%q CRD created successfully", crd.Name)
+	} else if apierrors.IsAlreadyExists(err) {
+		log.Infof("%q CRD already exists", crd.Name)
+		return nil
+	} else {
+		log.Errorf("failed to create %q CRD with err: %+v", crd.Name, err)
+		return err
+	}
+
+	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crd.Name)
+	if err != nil {
+		log.Errorf("CRD %q created but failed to establish. Err: %+v", crd.Name, err)
+	}
+	return err
+}
+
+// waitForCustomResourceToBeEstablished waits until the CRD status is Established
+func waitForCustomResourceToBeEstablished(ctx context.Context,
+	clientSet apiextensionsclientset.Interface, crdName string) error {
+	log := logger.GetLogger(ctx)
+	err := wait.Poll(pollTime, timeout, func() (bool, error) {
+		crd, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("failed to get %q CRD with err: %+v", crdName, err)
+			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
 			return false, err
 		}
 		for _, cond := range crd.Status.Conditions {
@@ -336,13 +368,41 @@ func CreateCustomResourceDefinition(ctx context.Context, crdName string, crdSing
 
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {
-		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Error: %+v", crdName, err)
-		deleteErr := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx, crdName, metav1.DeleteOptions{})
+		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Err: %+v", crdName, err)
+		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx, crdName, *metav1.NewDeleteOptions(0))
 		if deleteErr != nil {
-			log.Errorf("failed to delete %q CRD with error: %+v", crdName, deleteErr)
+			log.Errorf("Failed to delete %q CRD with err: %+v", crdName, deleteErr)
 		}
 	}
 	return err
+}
+
+// getCRDFromManifest reads a .json/yaml file and returns the CRD in it.
+func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1beta1.CustomResourceDefinition, error) {
+	var crd apiextensionsv1beta1.CustomResourceDefinition
+	log := logger.GetLogger(ctx)
+
+	fullPath := filepath.Join(manifestPath, fileName)
+	data, err := ioutil.ReadFile(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Errorf("Manifest file: %s doesn't exist. Error: %+v", fullPath, err)
+		} else {
+			log.Errorf("Failed to read the manifest file: %s. Error: %+v", fullPath, err)
+		}
+		return nil, err
+	}
+	json, err := utilyaml.ToJSON(data)
+	if err != nil {
+		log.Errorf("Failed to convert the manifest file: %s content to JSON with error: %+v", fullPath, err)
+		return nil, err
+	}
+
+	if err := runtime.DecodeInto(legacyscheme.Codecs.UniversalDecoder(), json, &crd); err != nil {
+		log.Errorf("Failed to decode json content: %+v to crd with error: %+v", json, err)
+		return nil, err
+	}
+	return &crd, nil
 }
 
 // GetDynamicInformer returns informer for specified CRD group, version and name
