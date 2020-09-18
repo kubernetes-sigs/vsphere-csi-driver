@@ -326,7 +326,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	if config == nil {
-		return nil, fmt.Errorf("no vSphere cloud provider config file given")
+		return nil, fmt.Errorf("no vSphere CSI driver config file given")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
