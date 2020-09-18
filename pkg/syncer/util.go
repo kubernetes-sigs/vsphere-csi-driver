@@ -78,7 +78,7 @@ func getInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *metadataS
 					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
 					continue
 				}
-				inlineVolumes[volume.VsphereVolume.VolumePath] = volumeHandle
+				inlineVolumes[volumeHandle] = volume.VsphereVolume.VolumePath
 			}
 		}
 	}

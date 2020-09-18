@@ -1019,20 +1019,21 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	log := logger.GetLogger(ctx)
 	// Iterate through volumes attached to pod
 	for _, volume := range pod.Spec.Volumes {
+		var volumeHandle string
+		var metadataList []cnstypes.BaseCnsEntityMetadata
+		var podMetadata *cnstypes.CnsKubernetesEntityMetadata
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
-				var metadataList []cnstypes.BaseCnsEntityMetadata
-				var podMetadata *cnstypes.CnsKubernetesEntityMetadata
 				if !deleteFlag {
+					// We need to update metadata for pods having corresponding PVC as an entity reference
 					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
+					// Deleting the pod metadata
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
-				containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
-				var volumeHandle string
 				var err error
 				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 					migrationVolumeSpec := migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
@@ -1048,23 +1049,47 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					log.Errorf("failed to get volume id for volume name: %q with err=%v", pv.Name, err)
 					continue
 				}
-				updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
-					VolumeId: cnstypes.CnsVolumeId{
-						Id: volumeHandle,
-					},
-					Metadata: cnstypes.CnsVolumeMetadata{
-						ContainerCluster:      containerCluster,
-						ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
-						EntityMetadata:        metadataList,
-					},
+			}
+		} else {
+			// Inline migrated volumes with no PVC
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
+				if volume.VsphereVolume != nil {
+					// No entity reference is supplied for inline volumes
+					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+					metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
+					var err error
+					migrationVolumeSpec := migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath}
+					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+					if err != nil {
+						log.Warnf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+						return
+					}
+				} else {
+					log.Debugf("Volume %q is not an inline migrated vSphere volume", volume.Name)
+					continue
 				}
-
-				log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-				if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
-					log.Errorf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
-				}
+			} else {
+				log.Warnf("CSI migration feature state is disabled")
+				continue
 			}
 		}
+		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: volumeHandle,
+			},
+			Metadata: cnstypes.CnsVolumeMetadata{
+				ContainerCluster:      containerCluster,
+				ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+				EntityMetadata:        metadataList,
+			},
+		}
+
+		log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+			log.Errorf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
+		}
+
 	}
 }
 
