@@ -122,6 +122,7 @@ spec:
 apiVersion: v1
 data:
   "csi-migration": "false"
+  "csi-auth-check": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

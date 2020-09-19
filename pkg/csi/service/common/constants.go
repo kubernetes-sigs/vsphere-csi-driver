@@ -172,6 +172,15 @@ const (
 
 	// InTreePluginName is the name of vsphere cloud provider in kubernetes
 	InTreePluginName = "kubernetes.io/vsphere-volume"
+
+	// DsPriv is the privilege need to wirte a that datastore
+	DsPriv = "Datastore.FileManagement"
+
+	// SysReadPriv is the privilege to view an entity
+	SysReadPriv = "System.Read"
+
+	// DefaultIgnoreDsIntervalInMinutes is the default interval to compute DatastoreIgnoreMap
+	DefaultIgnoreDsIntervalInMinutes = 5
 )
 
 // Supported container orchestrators
@@ -187,4 +196,6 @@ const (
 	VolumeExtend = "volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI
 	CSIMigration = "csi-migration"
+	// CSIAuthCheck is feature flag for auth check
+	CSIAuthCheck = "csi-auth-check"
 )

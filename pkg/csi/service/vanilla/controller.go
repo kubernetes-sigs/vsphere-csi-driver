@@ -58,6 +58,7 @@ type NodeManagerInterface interface {
 type controller struct {
 	manager *common.Manager
 	nodeMgr NodeManagerInterface
+	authMgr common.AuthorizationService
 }
 
 // timedmap of deleted volumes. This map used to resolve race between detach and delete volume
@@ -157,6 +158,7 @@ func (c *controller) Init(config *config.Config) error {
 		log.Errorf("failed to initialize nodeMgr. err=%v", err)
 		return err
 	}
+
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 
@@ -165,6 +167,16 @@ func (c *controller) Init(config *config.Config) error {
 	if err != nil {
 		log.Errorf("Failed to create co agnostic interface. err=%v", err)
 		return err
+	}
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
+		authMgr, err := common.GetAuthorizationService(ctx, vc)
+		if err != nil {
+			log.Errorf("failed to initialize authMgr. err=%v", err)
+			return err
+		}
+		c.authMgr = authMgr
+		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager))
 	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -262,6 +274,22 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 		log.Debugf("Updating manager.CnsConfig")
 		c.manager.CnsConfig = cfg
 	}
+}
+
+func (c *controller) filterIgoreDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+	log := logger.GetLogger(ctx)
+	dsIgnoreMap := c.authMgr.GetDatastoreIgnoreMapForBlockVolumes(ctx)
+	log.Debugf("filterIgnoreDatastores: dsIgnoreMap %v sharedDatastores %v", dsIgnoreMap, sharedDatastores)
+	var filteredDatastores []*cnsvsphere.DatastoreInfo
+	for _, sharedDatastore := range sharedDatastores {
+		if _, existsInDsIgnoreMap := dsIgnoreMap[sharedDatastore.Info.Url]; existsInDsIgnoreMap {
+			log.Debugf("filter out datastore %v from create volume spec", sharedDatastore)
+		} else {
+			filteredDatastores = append(filteredDatastores, sharedDatastore)
+		}
+	}
+	log.Debug("filterIgnoreDatastores: filteredDatastores %v", filteredDatastores)
+	return filteredDatastores
 }
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
@@ -379,6 +407,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
+	}
+
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		// filter datastores which in datastoreIgnoreMap from sharedDatastores
+		sharedDatastores = c.filterIgoreDatastores(ctx, sharedDatastores)
 	}
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
