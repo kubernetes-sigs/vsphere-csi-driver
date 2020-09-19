@@ -451,7 +451,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters)
 	if err != nil {
 		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
@@ -494,6 +493,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	log.Infof("CreateVolume: called with args %+v", *req)
 
 	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+		if req.Parameters[common.CSIMigrationParams] == "true" {
+			msg := "can't create file volume using VCP StorageClass"
+			log.Error(msg)
+			return nil, status.Error(codes.InvalidArgument, msg)
+		}
 		vsan67u3Release, err := isVsan67u3Release(ctx, c)
 		if err != nil {
 			log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
