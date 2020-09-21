@@ -218,9 +218,11 @@ spec:
           image: vmware.io/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:<image_tag>
           args:
             - "--v=4"
-            - "--csiTimeout=300s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
