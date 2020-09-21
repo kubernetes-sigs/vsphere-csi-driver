@@ -2481,8 +2481,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	})
 
 	/*
-		Verify pvc is not annotated with health status in vanilla setup .
-		(Combined test for Negative testcase TC8 and TC9)
+		Verify pvc is not annotated with health status in block vanilla setup.
 		Steps
 		Create a Storage Class
 		Create a PVC using above SC
@@ -2493,7 +2492,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		Delete the SC
 	*/
 
-	ginkgo.It("[csi-vanilla] Verify pvc is not annotated with health status in vanilla setup", func() {
+	ginkgo.It("[csi-block-vanilla] Verify pvc is not annotated with health status in vanilla setup", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test volume health status")
@@ -2518,8 +2517,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered", healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
+		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered", pollTimeout))
+		time.Sleep(pollTimeout)
 
 		ginkgo.By("Expect health annotation is not added on the pvc")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
@@ -2545,4 +2544,77 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Verify pvc is not annotated with health status in file vanilla setup .
+		Steps
+		Create a Storage Class
+		Create a PVC using above SC
+		Wait for PVC to be in Bound phase
+		Verify health annotation is not added on the PVC
+		Delete PVC
+		Verify PV entry is deleted from CNS
+		Delete the SC
+	*/
+
+	ginkgo.It("[csi-file-vanilla] File Vanilla Verify pvc is not annotated with health status", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scParameters := make(map[string]string)
+		scParameters[scParamFsType] = nfs4FSType
+		accessMode := v1.ReadWriteMany
+		// Create Storage class and PVC
+		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessMode, nfs4FSType))
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Waiting for PVC to be bound
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered", pollTimeout))
+		time.Sleep(pollTimeout)
+
+		ginkgo.By("Expect health annotation is not added on the pvc")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for describe := range pvc.Annotations {
+			gomega.Expect(pvc.Annotations[describe]).ShouldNot(gomega.BeEquivalentTo(pvcHealthAnnotation))
+		}
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+
+		ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+
+		ginkgo.By("Verifying volume type specified in PVC is honored")
+		if queryResult.Volumes[0].VolumeType != testVolumeType {
+			err = fmt.Errorf("volume type is not %q", testVolumeType)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+	})
+
 })
