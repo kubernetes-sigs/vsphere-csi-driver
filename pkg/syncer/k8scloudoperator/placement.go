@@ -53,6 +53,9 @@ const (
 	resourceName = "storagepools"
 	// storagePool type name for vsan-direct
 	vsanDirect = "vsanD"
+	INVALID_PARAMS = "FAILED_PLACEMENT-InvalidParams"
+	GENERIC_ERROR = "FAILED_PLACEMENT-Generic"
+	NOT_ENOUGH_RESOUCES = "FAILED_PLACEMENT-NotEnoughResources"
 )
 
 // StoragePoolInfo is abstraction of a storage pool list
@@ -96,24 +99,33 @@ func isSPInList(name string, spList []StoragePoolInfo) bool {
 	return false
 }
 
+func stampPVCWithError(ctx context.Context, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim, errAnnotation string, err error) error {
+	setPVCAnnotation(ctx, errAnnotation, client, curPVC)
+	return err
+}
+
+
 // PlacePVConStoragePool selects target storage pool to place the given PVC based on its profile and the topology information.
 // If the placement is successful, the PVC will be annotated with the selected storage pool and PlacePVConStoragePool nil that means no error
 // For unsuccessful placement, PlacePVConStoragePool returns error that cause the failure
 func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim) error {
 	log := logger.GetLogger(ctx)
 
-	//XXX Return if this is not a vsan direct placement
-	//XXX Need an identifier on the sc
+	// Validate accessibility requirements
+	if tops == nil {
+		return stampPVCWithError(ctx, client, curPVC, INVALID_PARAMS, 
+					 fmt.Errorf("invalid accessibility requirements input provided"))
+	}
 
 	// Get all StoragePool list
 	sps, err := getStoragePoolList(ctx)
 	if err != nil {
 		log.Errorf("Fail to get StoragePool list with %+v", err)
-		return err
+		return stampPVCWithError(ctx, client, curPVC, GENERIC_ERROR, err)
 	}
 
 	if len(sps.Items) <= 0 { //there is no available storage pools
-		return fmt.Errorf("fail to find any storage pool")
+		return stampPVCWithError(ctx, client, curPVC, GENERIC_ERROR, fmt.Errorf("fail to find any storage pool"))
 	}
 
 	hostNames := getHostCandidates(ctx, tops)
@@ -122,19 +134,20 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	scName, err := syncer.GetSCNameFromPVC(curPVC)
 	if err != nil {
 		log.Errorf("Fail to get Storage class name from PVC with +v", err)
-		return err
+		return stampPVCWithError(ctx, client, curPVC, GENERIC_ERROR, err)
 	}
 
 	log.Infof("Starting placement for PVC %s, Topology %+v", curPVC.Name, hostNames)
 	spList, err := preFilterSPList(ctx, sps, scName, hostNames, volSizeBytes)
 	if err != nil {
 		log.Infof("preFilterSPList failed with %+v", err)
-		return err
+		return stampPVCWithError(ctx, client, curPVC, GENERIC_ERROR, err)
 	}
 
 	if len(spList) <= 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
-		return fmt.Errorf("Fail to find a storage pool passing all criteria")
+		return stampPVCWithError(ctx, client, curPVC, NOT_ENOUGH_RESOUCES, 
+					  fmt.Errorf("Fail to find a storage pool passing all criteria"))
 	}
 
 	sort.Sort(byCOMBINATION(spList))
@@ -148,15 +161,16 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	spList, err = handleUsedStoragePools(ctx, client, curPVC, spList)
 	if err != nil {
 		log.Infof("handleUsedStoragePools failed with %+v", err)
-		return err
+		return stampPVCWithError(ctx, client, curPVC, GENERIC_ERROR, err)
 	}
 
 	if len(spList) <= 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
-		return fmt.Errorf("Fail to find a storage pool passing all criteria")
+		return stampPVCWithError(ctx, client, curPVC, NOT_ENOUGH_RESOUCES, 
+					 fmt.Errorf("Fail to find a storage pool passing all criteria"))
 	}
 
-	err = setPVCAnnotation(ctx, spList[0].Name, client, curPVC.Namespace, curPVC.Name)
+	err = setPVCAnnotation(ctx, spList[0].Name, client, curPVC)
 	if err != nil {
 		log.Infof("setPVCAnnotation failed with %+v", err)
 		return err
@@ -218,7 +232,7 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 		//sc compatible filter
 		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
 		if !found || err != nil {
-			nonVsanDirect++
+			nonSCComp++
 			continue
 		}
 
@@ -425,7 +439,7 @@ func handleUsedStoragePools(ctx context.Context, client kubernetes.Interface, cu
 }
 
 // setPVCAnnotation add annotation of selected storage pool to targeted PVC
-func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface, ns string, pvcName string) error {
+func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim) error {
 	log := logger.GetLogger(ctx)
 
 	if spName == "" {
@@ -446,7 +460,7 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 		return err
 	}
 
-	curPVC, err := client.CoreV1().PersistentVolumeClaims(ns).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+	_, err = client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).Patch(ctx, curPVC.Name, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Fail to update PVC %+v", err)
 		return err

@@ -44,6 +44,10 @@ const (
 
 	// key for HealthStatus annotation on PVC
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+
+	//key for expressing timestamp for volume health annotation
+	annVolumeHealthTS = "volumehealth.storage.kubernetes.io/health-timestamp"
+
 	// default interval for csi volume health
 	defaultVolumeHealthIntervalInMin = 5
 

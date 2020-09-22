@@ -297,17 +297,15 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	if err != nil {
 		return out, err
 	}
+
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
 	if !present || !strings.Contains(spTypes, vsanDirectType) {
 		log.Debug("storage class is not of type vsan direct, aborting placement")
 		return out, nil
 	}
-	// Validate accessibility requirements
-	if req.AccessibilityRequirements == nil {
-		return out, fmt.Errorf("invalid accessibility requirements input provided")
-	}
-	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
+
 	log.Debugf("Enter placementEngine %s", req)
+	
 	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc)
 	if err != nil {
 		log.Errorf("Failed to place this PVC on sp with error %s", err)
