@@ -5,13 +5,17 @@ metadata:
   annotations:
     pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
     labels:
-      static-pv-label-key: static-pv-label-value  # This label is used as selector to bind with volume claim. This can be any unique key-value to identify PV.
+      static-pv-label-key: static-pv-label-value  # This label is optional, it is used as a selector to bind with volume claim. This can be any unique key-value to identify PV.
 spec:
   capacity:
     storage: 2Gi
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Delete
+  storageClassName: example-vanilla-block-sc
+  claimRef:
+    namespace: default
+    name: static-vanilla-block-pvc
   csi:
     driver: csi.vsphere.vmware.com
     volumeAttributes:
@@ -30,6 +34,7 @@ spec:
       storage: 2Gi
   selector:
     matchLabels:
-      static-pv-label-key: static-pv-label-value  # This label is used as selector to find matching PV with specified key and value.
-  storageClassName: ""
+      static-pv-label-key: static-pv-label-value  # This label is optional, it is used as selector to find matching PV with specified key and value.
+  storageClassName: example-vanilla-block-sc
+  volumeName: static-vanilla-block-pv
 ---
