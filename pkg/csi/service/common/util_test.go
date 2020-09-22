@@ -303,7 +303,7 @@ func TestParseStorageClassParamsWithValidParams(t *testing.T) {
 	}
 }
 
-func TestParseStorageClassParamsWithMigrationEnabled(t *testing.T) {
+func TestParseStorageClassParamsWithMigrationEnabledNagative(t *testing.T) {
 	CSIMigrationFeatureEnabled = true
 	params := map[string]string{
 		CSIMigrationParams:                   "true",
@@ -316,17 +316,31 @@ func TestParseStorageClassParamsWithMigrationEnabled(t *testing.T) {
 		ObjectspacereservationMigrationParam: "50",
 		IopslimitMigrationParam:              "16",
 	}
-	expectedScParams := &StorageClassParams{
-		CSIMigration:      "true",
-		StoragePolicyName: "policy1",
-		Datastore:         "vSANDatastore",
+	scParam, err := ParseStorageClassParams(ctx, params)
+	if err == nil {
+		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
 	}
-	actualScParams, err := ParseStorageClassParams(ctx, params)
+	t.Logf("expected err received. err: %v", err)
+}
+
+func TestParseStorageClassParamsWithMigrationEnabledPositive(t *testing.T) {
+	CSIMigrationFeatureEnabled = true
+	params := map[string]string{
+		CSIMigrationParams:         "true",
+		DatastoreMigrationParam:    "vSANDatastore",
+		AttributeStoragePolicyName: "policy1",
+	}
+	expectedScParams := &StorageClassParams{
+		Datastore:         "vSANDatastore",
+		StoragePolicyName: "policy1",
+		CSIMigration:      "true",
+	}
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("failed to parse params: %+v", params)
 	}
-	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
-		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
+	if !isStorageClassParamsEqual(expectedScParams, scParam) {
+		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, scParam)
 	}
 }
 
@@ -338,9 +352,9 @@ func TestParseStorageClassParamsWithMigrationDisabled(t *testing.T) {
 		AttributeStoragePolicyName:           "policy1",
 		HostFailuresToTolerateMigrationParam: "1",
 	}
-	actualScParams, err := ParseStorageClassParams(ctx, params)
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
-		t.Errorf("error expected but not received. actualScParams: %v", actualScParams)
+		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
 	}
 	t.Logf("expected err received. err: %v", err)
 }

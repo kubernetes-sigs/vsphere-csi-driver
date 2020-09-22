@@ -36,9 +36,6 @@ import (
 )
 
 const (
-	// DefaultK8sServiceAccount is the default name of the Kubernetes
-	// service account for csi controller.
-	DefaultK8sServiceAccount string = "vsphere-csi-controller"
 	// DefaultVCenterPort is the default port used to access vCenter.
 	DefaultVCenterPort string = "443"
 	// DefaultGCPort is the default port used to access Supervisor Cluster.
@@ -53,8 +50,6 @@ const (
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
-	// DefaultFeatureStateValue is the default value for Feature state switches
-	DefaultFeatureStateValue = false
 	// DefaultFSSConfigMapName is the default name Feature states config map
 	DefaultFSSConfigMapName = "csi-feature-states"
 	// DefaultFSSConfigMapNamespaceVanillaK8s is the default value for Feature state config map namespace
@@ -128,7 +123,7 @@ func getEnvKeyValue(match string, partial bool) (string, string, error) {
 // takes precedence.
 func FromEnv(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("Config object cannot be nil")
+		return fmt.Errorf("config object cannot be nil")
 	}
 	log := logger.GetLogger(ctx)
 	//Init
@@ -307,11 +302,11 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
 		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-			// If featurte states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
+			// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
 			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
 			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
 		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			// Featurte states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
+			// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
 			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 		}
 	}
@@ -326,7 +321,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	if config == nil {
-		return nil, fmt.Errorf("no vSphere cloud provider config file given")
+		return nil, fmt.Errorf("no vSphere CSI driver config file given")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
@@ -384,7 +379,7 @@ func GetDefaultNetPermission() *NetPermissionConfig {
 // takes precedence.
 func FromEnvToGC(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("Config object cannot be nil")
+		return fmt.Errorf("config object cannot be nil")
 	}
 	if v := os.Getenv("WCP_ENDPOINT"); v != "" {
 		cfg.GC.Endpoint = v
@@ -410,7 +405,7 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 // Environment variables are also checked
 func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
-		return nil, fmt.Errorf("Guest Cluster config file is not present")
+		return nil, fmt.Errorf("guest cluster config file is not present")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
@@ -481,6 +476,7 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 
 // GetClusterFlavor returns the cluster flavor based on the env variable set in the driver deployment file
 func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
+	log := logger.GetLogger(ctx)
 	// CLUSTER_FLAVOR is defined only in Supervisor and Guest cluster deployments.
 	// If it is empty, it is implied that cluster flavor is Vanilla K8S
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv("CLUSTER_FLAVOR"))
@@ -489,5 +485,7 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest || clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		return clusterFlavor, nil
 	}
-	return "", fmt.Errorf("Unrecognized value set for CLUSTER_FLAVOR")
+	errMsg := "unrecognized value set for CLUSTER_FLAVOR"
+	log.Error(errMsg)
+	return "", fmt.Errorf(errMsg)
 }

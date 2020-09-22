@@ -94,18 +94,14 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
-	err = initListener(ctx, scWatchCntlr, spController)
-	if err != nil {
-		log.Errorf("Failed starting the PropertyCollector listener. Err: %+v", err)
-		return err
-	}
-
 	// Create the default Service
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
 	defaultStoragePoolService.spController = spController
 	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
 	defaultStoragePoolService.clusterID = configInfo.Cfg.Global.ClusterID
+
+	startPropertyCollectorListener(ctx)
 
 	log.Infof("Done initializing Storage Pool Service")
 	return nil
@@ -145,11 +141,6 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 
 	defaultStoragePoolService.spController.vc = vc
 	defaultStoragePoolService.scWatchCntlr.vc = vc
-	// Start a new PC listener. The previous listener is auto terminated due to stale VC connection.
-	err = initListener(ctx, defaultStoragePoolService.scWatchCntlr, defaultStoragePoolService.spController)
-	if err != nil {
-		log.Errorf("Failed restarting the PropertyCollector listener. Err: %v", err)
-		return
-	}
+	// PC listener will automatically reestablish its session with VC
 	log.Debugf("Successfully reset VC connection in StoragePool service")
 }

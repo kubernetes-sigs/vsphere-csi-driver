@@ -80,7 +80,16 @@ func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpControl
 func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	scWatchCntlr *StorageClassWatch) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
-	vc := scWatchCntlr.vc
+
+	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	vc := *scWatchCntlr.vc
+	err := vc.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to vCenter. Err: %+v", err)
+		return nil, err
+	}
+	vcClient := vc.Client
+
 	clusterID := scWatchCntlr.clusterID
 	spName := makeStoragePoolName(ds.Info.Name)
 
@@ -91,7 +100,7 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		return nil, err
 	}
 
-	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vc.Client.Client)
+	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vcClient.Client)
 	if err != nil {
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err
@@ -223,6 +232,12 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 		return nil
 	}
 	log.Debugf("Datastore: %s, StoragePool: %s", dsMoid, intendedState.spName)
+	if intendedState.accessible != dsSummary.Accessible {
+		// the accessible nodes are not available immediately after a PC notification
+		log.Infof("Accessibility change for datastore %s. So scheduling a delayed reconcile.", dsMoid)
+		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
+		intendedState.accessible = dsSummary.Accessible
+	}
 	intendedSpName := makeStoragePoolName(dsSummary.Name)
 	oldSpName := intendedState.spName
 	// Get the changes in properties for this Datastore into the intendedState
@@ -230,14 +245,6 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	intendedState.url = dsSummary.Url
 	intendedState.capacity = resource.NewQuantity(dsSummary.Capacity, resource.DecimalSI)
 	intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
-	if intendedState.accessible != dsSummary.Accessible {
-		// the accessible nodes are not available immediately after a PC notification
-		err := ReconcileAllStoragePools(ctx, scWatchCntlr, c)
-		if err != nil {
-			log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
-		}
-		intendedState.accessible = dsSummary.Accessible
-	}
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
 	// update StoragePool as per intendedState
 	if err := c.applyIntendedState(ctx, intendedState); err != nil {
