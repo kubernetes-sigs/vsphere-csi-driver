@@ -1435,11 +1435,20 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			log.Errorf("Actual error message : %s", actualErrorMsg)
 			gomega.Expect(actualErrorMsg).NotTo(gomega.HaveOccurred())
 		}
+		pvc = nil
 
 		defer func() {
 			pvName := "static-pv-" + fcdID
 			framework.Logf("Deleting PersistentVolume %s", pvName)
 			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvName))
+			pv, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pvName, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if pv != nil {
+				framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvName))
+			}
+			pv = nil
 		}()
 
 	})
