@@ -88,6 +88,7 @@ const (
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                         = 2 * time.Second
 	rqLimit                                    = "200Gi"
+	defaultrqLimit                             = "20Gi"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
 	scParamDatastoreURL                        = "DatastoreURL"
 	scParamFsType                              = "csi.storage.k8s.io/fstype"

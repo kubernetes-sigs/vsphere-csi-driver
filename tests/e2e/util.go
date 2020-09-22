@@ -773,8 +773,8 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 	}
 }
 
-// increaseResourceQuota increases the quota for the specified namespace
-func increaseResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
+// setResourceQuota resource quota to the specified limit for the given namespace
+func setResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
@@ -783,7 +783,7 @@ func increaseResourceQuota(client clientset.Interface, namespace string, size st
 	newQuota := newTestResourceQuota(existingResourceQuota.GetName(), size, scName)
 	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(ctx, newQuota, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("Increased resourceQuota details: %+v", resourceQuota))
+	ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", resourceQuota))
 }
 
 // newTestResourceQuota returns a quota that enforces default constraints for testing

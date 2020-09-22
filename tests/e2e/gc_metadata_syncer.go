@@ -55,6 +55,23 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvlabelKey        string
 		pvlabelValue      string
 	)
+
+	ginkgo.BeforeSuite(func() {
+		if guestCluster {
+			ginkgo.By("Inside BeforeSuite")
+			svcClient, svNamespace = getSvcClientAndNamespace()
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			setResourceQuota(svcClient, svNamespace, rqLimit, storagePolicyName)
+		}
+	})
+
+	ginkgo.AfterSuite(func() {
+		if guestCluster {
+			ginkgo.By("Inside AfterSuite")
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit, storagePolicyName)
+		}
+	})
+
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
@@ -68,7 +85,6 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		bootstrap()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		increaseResourceQuota(svcClient, svNamespace, rqLimit, storagePolicyName)
 		labelKey = "app"
 		labelValue = "e2e-labels"
 		pvclabelKey = "pvcapp"
