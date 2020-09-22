@@ -406,6 +406,9 @@ Steps to create a static PVC in a TKGS are as follows:
         accessModes:
           - ReadWriteOnce
         persistentVolumeReclaimPolicy: Delete
+        claimRef:
+          namespace: default
+          name: static-tkg-block-pvc
         csi:
           driver: "csi.vsphere.vmware.com"
           volumeAttributes:
@@ -427,6 +430,7 @@ Steps to create a static PVC in a TKGS are as follows:
           requests:
             storage: 2Gi
         storageClassName: gc-storage-profile
+        volumeName: static-tkg-block-pv
     ```
 
 4. Check if the PVC is bound to the PV we created on step 2.
