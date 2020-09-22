@@ -110,7 +110,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			volumeManager:        volumeManager,
 			cnsConfig:            cnsConfig,
 		}
-		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinition(ctx, CRDName, CRDSingular, CRDPlural,
+		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
 			reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
 		if volumeMigrationServiceInitErr != nil {
 			log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
@@ -387,7 +387,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 			vmdkPath + "?dcPath=" + url.PathEscape(datacenter) + "&dsName=" + url.PathEscape(datastoreName)
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskUrlPath: backingDiskURLPath}
 		log.Infof("Registering volume: %q using backingDiskURLPath :%q", volumeSpec.VolumePath, backingDiskURLPath)
-		log.Debugf("vSphere CNS driver registering volume %q with create spec %+v", volumeSpec.VolumePath, spew.Sdump(createSpec))
+		log.Debugf("vSphere CSI driver registering volume %q with create spec %+v", volumeSpec.VolumePath, spew.Sdump(createSpec))
 		volumeID, err = (*volumeMigration.volumeManager).CreateVolume(ctx, createSpec)
 		if err != nil {
 			log.Warnf("failed to register volume %q with createSpec: %v. error: %+v", volumeSpec.VolumePath, createSpec, err)

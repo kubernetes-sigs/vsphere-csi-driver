@@ -18,8 +18,9 @@ package storagepool
 
 import (
 	"context"
-	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/types"
@@ -34,10 +35,22 @@ import (
 var (
 	// reconcileAllMutex should be acquired to run ReconcileAllStoragePools so that only one thread runs at a time.
 	reconcileAllMutex sync.Mutex
+	// Run ReconcileAllStoragePools every `freq` seconds.
+	reconcileAllFreq = time.Second * 60
+	// Run ReconcileAllStoragePools `n` times.
+	reconcileAllIterations = 5
 )
 
+func startPropertyCollectorListener(ctx context.Context) {
+	scWatchCntlr := defaultStoragePoolService.GetScWatch()
+	SpController := defaultStoragePoolService.GetSPController()
+	exitChannel := make(chan interface{})
+	go managePCListenerInstance(ctx, exitChannel)
+	initListener(ctx, scWatchCntlr, SpController, exitChannel)
+}
+
 // Initialize a PropertyCollector listener that updates the intended state of a StoragePool
-func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController) error {
+func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController, exitChannel chan interface{}) {
 	log := logger.GetLogger(ctx)
 
 	// Initialize a PropertyCollector that watches all objects in the hierarchy of
@@ -71,6 +84,21 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	}
 	filter.Spec.PropSet = append(filter.Spec.PropSet, prodHost, propDs)
 	go func() {
+		defer func() {
+			// signal managePCListenerInstance that PC listener has exited.
+			close(exitChannel)
+			// If this goroutine panics midway during execution, we recover so as to not crash the container.
+			if recoveredErr := recover(); recoveredErr != nil {
+				log.Infof("Recovered Panic in initListener: %v", recoveredErr)
+			}
+		}()
+
+		err := spController.vc.Connect(ctx)
+		if err != nil {
+			log.Errorf("Not able to establish connection with VC. Restarting property collector.")
+			return
+		}
+
 		for {
 			log.Infof("Starting property collector...")
 			p := property.DefaultCollector(spController.vc.Client.Client)
@@ -101,10 +129,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 						// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
 						// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
 						if !reconcileAllScheduled {
-							err := ReconcileAllStoragePools(ctx, scWatchCntlr, spController)
-							if err != nil {
-								log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
-							}
+							scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
 							reconcileAllScheduled = true
 						}
 					}
@@ -116,15 +141,56 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 				log.Infof("Property collector session needs to be reestablished")
 				err = spController.vc.Connect(ctx)
 				if err != nil {
-					// Terminate the container and let the pod restart it
-					log.Errorf("Not able to establish connection with VC. Exiting...")
-					os.Exit(-1)
+					log.Errorf("Not able to reestablish connection with VC. Restarting property collector.")
+					return
 				}
 			}
 		}
 	}()
+}
 
-	return nil
+// managePCListenerInstance is responsible for making sure that Property collector listener is always running.
+// If the listener crashes for some reason it restarts the listener.
+func managePCListenerInstance(ctx context.Context, exitChannel chan interface{}) {
+	<-exitChannel
+	startPropertyCollectorListener(ctx)
+}
+
+// XXX: This hack should be removed once we figure out all the properties of a StoragePool that gets updates lazily.
+// Notifications for Hosts add/remove from a Cluster and Datastores un/mounted on Hosts come in too early
+// before the VC is ready. For example, the vSAN Datastore mount is not completed yet for a newly added host.
+// The Datastore does not have the vSANDirect tag yet for a newly added Datastore in a host. So this function
+// schedules a ReconcileAllStoragePools, that computes addition and deletion of StoragePool instances, to
+// run n times every f secs. Each time this function is called, the counter n is reset, so that
+// ReconcileAllStoragePools can run another n times starting now. The values for n and f can be tuned so that
+// ReconcileAllStoragePools can be retried enough number of times to discover additions and deletions of
+// StoragePool instances in all cases. See bug 2602864.
+func scheduleReconcileAllStoragePools(ctx context.Context, freq time.Duration, nTimes int, scWatchCntrl *StorageClassWatch,
+	spController *SpController) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Scheduled ReconcileAllStoragePools starting")
+	go func() {
+		tick := time.NewTicker(freq)
+		defer tick.Stop()
+		for iteration := 0; iteration < nTimes; iteration++ {
+			iterID := "iteration-" + strconv.Itoa(iteration)
+			select {
+			case <-tick.C:
+				log.Debugf("[%s] Starting reconcile for all StoragePool instances", iterID)
+				err := ReconcileAllStoragePools(ctx, scWatchCntrl, spController)
+				if err != nil {
+					log.Errorf("[%s] Error reconciling StoragePool instances in HostMount listener. Err: %+v", iterID, err)
+				} else {
+					log.Debugf("[%s] Successfully reconciled all StoragePool instances", iterID)
+				}
+			case <-ctx.Done():
+				log.Debugf("[%s] Done reconcile all loop for StoragePools", iterID)
+				return
+			}
+		}
+		log.Infof("Scheduled ReconcileAllStoragePools completed")
+	}()
+	log.Infof("Scheduled ReconcileAllStoragePools started")
 }
 
 // ReconcileAllStoragePools creates/updates/deletes StoragePool instances for datastores found in this k8s cluster.
@@ -136,8 +202,15 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	reconcileAllMutex.Lock()
 	defer reconcileAllMutex.Unlock()
 
+	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	vc := *spCtl.vc
+	err := vc.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to vCenter. Err: %+v", err)
+		return err
+	}
 	// Get datastores from VC
-	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, spCtl.vc, spCtl.clusterID)
+	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc, spCtl.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return err

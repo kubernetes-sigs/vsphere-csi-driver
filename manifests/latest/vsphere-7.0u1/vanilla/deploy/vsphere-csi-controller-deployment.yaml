@@ -25,7 +25,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v3.0.0-rc2
+          image: quay.io/k8scsi/csi-attacher:v3.0.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -38,10 +38,10 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: quay.io/k8scsi/csi-resizer:v1.0.0-rc2
+          image: quay.io/k8scsi/csi-resizer:v1.0.0
           args:
             - "--v=4"
-            - "--csiTimeout=300s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
           env:
@@ -55,7 +55,7 @@ spec:
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              value: unix:///csi/csi.sock
             - name: X_CSI_MODE
               value: "controller"
             - name: VSPHERE_CSI_CONFIG
@@ -66,7 +66,7 @@ spec:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
           ports:
             - name: healthz
@@ -81,15 +81,13 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: quay.io/k8scsi/livenessprobe:v2.0.0
+          image: quay.io/k8scsi/livenessprobe:v2.1.0
           args:
-            - "--csi-address=$(ADDRESS)"
-          env:
-            - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+            - "--v=4"
+            - "--csi-address=/csi/csi.sock"
           volumeMounts:
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
-              name: socket-dir
+            - name: socket-dir
+              mountPath: /csi
         - name: vsphere-syncer
           image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.1
           args:
@@ -107,7 +105,7 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v2.0.0-rc3
+          image: quay.io/k8scsi/csi-provisioner:v2.0.0
           args:
             - "--v=4"
             - "--timeout=300s"
