@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: static-vanilla-block-pv
+  annotations:
+    pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
+    labels:
+      static-pv-label-key: static-pv-label-value  # This label is optional, it is used as a selector to bind with volume claim. This can be any unique key-value to identify PV.
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: example-vanilla-block-sc
+  claimRef:
+    namespace: default
+    name: static-vanilla-block-pvc
+  csi:
+    driver: csi.vsphere.vmware.com
+    volumeAttributes:
+      type: "vSphere CNS Block Volume"
+    volumeHandle: 0c75d40e-7576-4fe7-8aaa-a92946e2805d  # First Class Disk (Improved Virtual Disk) ID
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: static-vanilla-block-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  selector:
+    matchLabels:
+      static-pv-label-key: static-pv-label-value  # This label is optional, it is used as selector to find matching PV with specified key and value.
+  storageClassName: example-vanilla-block-sc
+  volumeName: static-vanilla-block-pv
+---
