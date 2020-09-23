@@ -162,12 +162,12 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			informer.Informer().Run(stopCh)
 			log.Debugf("Informer started for cnsvspherevolumemigrations")
 		}()
+		log.Info("volume migration service initialized")
 	})
 	if volumeMigrationServiceInitErr != nil {
 		log.Info("volume migration service initialization failed")
 		return nil, volumeMigrationServiceInitErr
 	}
-	log.Info("volume migration service initialized")
 	return volumeMigrationInstance, nil
 }
 
