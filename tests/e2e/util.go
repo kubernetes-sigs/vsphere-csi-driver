@@ -1185,6 +1185,8 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	dynamicClient, err := dynamic.NewForConfig(cfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	//This sleep is to make sure the entity reference is populated
+	time.Sleep(10 * time.Second)
 	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
 	resourceClient := dynamicClient.Resource(gvr).Namespace("")
 	list, err := resourceClient.List(ctx, metav1.ListOptions{})
@@ -1198,7 +1200,6 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Found CNSVolumeMetadata type crd instance: %v", instance.Name)
-
 			if expectedInstanceName == instance.Name {
 				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
 				vol := instance.Spec.VolumeNames
