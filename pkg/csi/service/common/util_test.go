@@ -324,6 +324,37 @@ func TestParseStorageClassParamsWithMigrationEnabledNagative(t *testing.T) {
 	t.Logf("expected err received. err: %v", err)
 }
 
+func TestParseStorageClassParamsWithDiskFormatMigrationEnableNegative(t *testing.T) {
+	csiMigrationFeatureState := true
+	params := map[string]string{
+		CSIMigrationParams:       "true",
+		DiskFormatMigrationParam: "thick",
+	}
+	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	if err == nil {
+		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
+	}
+	t.Logf("expected err received. err: %v", err)
+}
+
+func TestParseStorageClassParamsWithDiskFormatMigrationEnablePositive(t *testing.T) {
+	csiMigrationFeatureState := true
+	params := map[string]string{
+		CSIMigrationParams:       "true",
+		DiskFormatMigrationParam: "thin",
+	}
+	expectedScParams := &StorageClassParams{
+		CSIMigration: "true",
+	}
+	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	if err != nil {
+		t.Errorf("failed to parse params: %+v, err: %+v", params, err)
+	}
+	if !isStorageClassParamsEqual(expectedScParams, scParam) {
+		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, scParam)
+	}
+}
+
 func TestParseStorageClassParamsWithMigrationEnabledPositive(t *testing.T) {
 	csiMigrationFeatureState := true
 	params := map[string]string{
