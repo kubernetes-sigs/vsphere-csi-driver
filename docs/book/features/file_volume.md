@@ -29,7 +29,7 @@ The next section on CSI file services integration will explain some of the spec 
 
 To give this example a try, you can first pick the Storage Class spec from [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-file-driver/example-sc.yaml). To create a file volume PVC spec, set `accessModes` to either `ReadWriteMany` or `ReadOnlyMany` depending upon your requirement.
 
-```bash
+```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -75,11 +75,11 @@ Events:                <none>
 
 The `VolumeHandle` associated with the PV should have a prefix of `file:` for file volumes.
 
-### Read-Write Pod
+### Pod with Read-Write access to PVC
 
-Create a Read-Write Pod to use the PVC from above example.
+Create a Pod to use the PVC from above example.
 
-```bash
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -101,11 +101,11 @@ spec:
 
 If you need to read the same file share from multiple pods, specify the PVC associated with the file share in the `ClaimName` in all the Pod specifications.
 
-### Read-Only Pod
+### Pod with Read-Only access to PVC
 
-If you need to create a Read-Only Pod, you need to explicitly mention `readOnly` as `true` in the `persistentVolumeClaim` section as shown below. Note that just setting the `accessModes` to `ReadOnlyMany` in the PVC spec will not make the PVC read-only to the Pods.
+If you need to create a Pod with Read-Only access to the above PVC, you need to explicitly mention `readOnly` as `true` in the `persistentVolumeClaim` section as shown below. Note that just setting the `accessModes` to `ReadOnlyMany` in the PVC spec will not make the PVC read-only to the Pods.
 
-```bash
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -140,7 +140,7 @@ touch: abc.txt: Read-only file system
 If you have an existing persistent storage file volume in your VC, you can use static provisioning to make the storage instance available to your cluster.
 Define a PVC and a PV as shown below
 
-```bash
+```yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:
