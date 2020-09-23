@@ -240,7 +240,9 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 				param = strings.ToLower(param)
 				if param == DatastoreMigrationParam {
 					scParams.Datastore = value
-				} else if param == DiskFormatMigrationParam || param == HostFailuresToTolerateMigrationParam ||
+				} else if param == DiskFormatMigrationParam && value == "thin" {
+					continue
+				} else if param == HostFailuresToTolerateMigrationParam ||
 					param == ForceProvisioningMigrationParam || param == CacheReservationMigrationParam ||
 					param == DiskstripesMigrationParam || param == ObjectspacereservationMigrationParam ||
 					param == IopslimitMigrationParam {
