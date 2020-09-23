@@ -81,7 +81,7 @@ func GetFakeVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume
 }
 
 // GetVolumeID mocks the method with returns Volume Id for a given Volume Path
-func (dummyInstance *mockVolumeMigration) GetVolumeID(ctx context.Context, volumeSpec migration.VolumeSpec) (string, error) {
+func (dummyInstance *mockVolumeMigration) GetVolumeID(ctx context.Context, volumeSpec *migration.VolumeSpec) (string, error) {
 	return mapVolumePathToID["dummy-vms-CR"][volumeSpec.VolumePath], nil
 }
 
