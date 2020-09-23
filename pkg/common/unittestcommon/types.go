@@ -44,7 +44,7 @@ type mockVolumeMigration struct {
 type MockVolumeMigrationService interface {
 	// GetVolumeID returns VolumeID for given migration volumeSpec
 	// Returns an error if not able to retrieve VolumeID.
-	GetVolumeID(ctx context.Context, volumeSpec migration.VolumeSpec) (string, error)
+	GetVolumeID(ctx context.Context, volumeSpec *migration.VolumeSpec) (string, error)
 
 	// GetVolumePath returns VolumePath for given VolumeID
 	// Returns an error if not able to retrieve VolumePath.

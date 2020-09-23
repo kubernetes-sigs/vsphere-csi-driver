@@ -59,7 +59,7 @@ type VolumeSpec struct {
 type VolumeMigrationService interface {
 	// GetVolumeID returns VolumeID for given VolumeSpec
 	// Returns an error if not able to retrieve VolumeID.
-	GetVolumeID(ctx context.Context, volumeSpec VolumeSpec) (string, error)
+	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error)
 
 	// GetVolumePath returns VolumePath for given VolumeID
 	// Returns an error if not able to retrieve VolumePath.
@@ -173,7 +173,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 
 // GetVolumeID returns VolumeID for given VolumeSpec
 // Returns an error if not able to retrieve VolumeID.
-func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec VolumeSpec) (string, error) {
+func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
 	info, found := volumeMigration.volumePathToVolumeID.Load(volumeSpec.VolumePath)
 	if found {
@@ -299,7 +299,7 @@ func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, vo
 
 // registerVolume takes VolumeSpec and helps register Volume with CNS
 // Returns VolumeID for successful registration, otherwise return error
-func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumeSpec VolumeSpec) (string, error) {
+func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
 	uuid, err := uuid.NewUUID()
 	if err != nil {
