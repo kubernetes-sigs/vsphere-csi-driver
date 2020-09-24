@@ -123,6 +123,9 @@ spec:
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--leader-election"
+            # needed only for topology aware setup
+            #- "--feature-gates=Topology=true"
+            #- "--strict-topology"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
