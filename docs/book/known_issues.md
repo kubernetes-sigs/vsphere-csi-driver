@@ -9,6 +9,9 @@ This section lists the major known issues with VMware vSphere CSI driver. For co
 - [Cannot recover from resize failure.](#issue_3)
 - [CNS file volume has a limitation of 8k for metadata.](#issue_4)
 - [CSI volume deletion get called before detach.](#issue_5)
+- [Devops can modify the volume health status of a PVC manually](#issue_6)
+- [Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases](#issue_7)
+- [Migrated Volume Deleted by in-tree vSphere plugin remains on the CNS UI](#issue_8)
 
 Issue 1<a id="issue_1"></a>: Filesystem resize is skipped if the original PVC is deleted when FilesystemResizePending condition is still on the PVC, but PV and its associated volume on the storage system are not deleted due to the Retain policy.
 
@@ -61,3 +64,8 @@ Issue 7<a id="issue_7"></a>: Performance regression in Vanilla Kubernetes 1.17 a
     1. Open kube-controller-manager manifest, located at `/etc/kubernetes/manifests/kube-controller-manager.yaml`
     2. Add `--disable-attach-detach-reconcile-sync` to `spec.containers.command`
     3. Since kube-controller-manager is a static pod, Kubelet will restart it whenever a new flag is added. Make sure the kube-controller-manager pod is up and running.
+
+Issue 8<a id="issue_8"></a>: Migrated in-tree vSphere volume deleted by in-tree vSphere plugin remains on the CNS UI
+
+- Impact: Migrated in-tree vSphere volumes deleted by in-tree vSphere plugin remains on the CNS UI.
+- Workaround: Admin needs to manually reconcile discrepancies in the Managed Virtual Disk Catalog. Admin needs to follow this [KB article](https://kb.vmware.com/s/article/2147750)
