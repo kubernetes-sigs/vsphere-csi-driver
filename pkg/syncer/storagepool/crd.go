@@ -55,12 +55,13 @@ func createCustomResourceDefinition(ctx context.Context, clientSet apiextensions
 		},
 	}
 	_, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
-	if err == nil {
+	switch {
+	case err == nil:
 		log.Infof("%q CRD created successfully", crdName)
-	} else if apierrors.IsAlreadyExists(err) {
+	case apierrors.IsAlreadyExists(err):
 		log.Infof("%q CRD already exists", crdName)
 		return nil
-	} else {
+	default:
 		log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
 		return err
 	}

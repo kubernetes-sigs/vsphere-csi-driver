@@ -560,7 +560,7 @@ func (s *service) NodeGetVolumeStats(
 	}, nil
 }
 
-//getMetrics helps get volume metrics using k8s fsInfo strategy
+// getMetrics helps get volume metrics using k8s fsInfo strategy
 func getMetrics(path string) (*k8svol.Metrics, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no path given")
@@ -676,7 +676,7 @@ func (s *service) NodeGetInfo(
 				}
 			}
 		}()
-		//Connect to vCenter
+		// Connect to vCenter
 		err = vcenter.Connect(ctx)
 		if err != nil {
 			log.Errorf("failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
@@ -734,11 +734,12 @@ func (s *service) NodeExpandVolume(
 	log.Infof("NodeExpandVolume: called with args %+v", *req)
 
 	volumeID := req.GetVolumeId()
-	if len(volumeID) == 0 {
+	switch {
+	case len(volumeID) == 0:
 		return nil, status.Error(codes.InvalidArgument, "volume id must be provided")
-	} else if req.GetCapacityRange() == nil {
+	case req.GetCapacityRange() == nil:
 		return nil, status.Error(codes.InvalidArgument, "capacity range must be provided")
-	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
+	case req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0:
 		return nil, status.Error(codes.InvalidArgument, "capacity ranges values cannot be negative")
 	}
 
@@ -865,7 +866,7 @@ func publishMountVol(
 					rwo = "ro"
 				}
 				if !contains(m.Opts, rwo) {
-					//TODO make sure that all the mount options match
+					// TODO: make sure that all the mount options match
 					return nil, status.Error(codes.AlreadyExists,
 						"volume previously published with different options")
 				}
@@ -932,7 +933,8 @@ func publishBlockVol(
 	log.Debugf("publishBlockVol: device %+v, device mounts %q", *dev, devMnts)
 
 	// check if device is already mounted
-	if len(devMnts) == 0 {
+	switch len(devMnts) {
+	case 0:
 		// do the bind mount
 		mntFlags := make([]string, 0)
 		log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
@@ -943,14 +945,14 @@ func publishBlockVol(
 			return nil, status.Error(codes.Internal, msg)
 		}
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.target)
-	} else if len(devMnts) == 1 {
+	case 1:
 		// already mounted, make sure it's what we want
 		if devMnts[0].Path != params.target {
 			return nil, status.Error(codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
 		log.Debugf("Volume already published to target. Parameters: [%+v]", params)
-	} else {
+	default:
 		return nil, status.Error(codes.AlreadyExists,
 			"block volume already mounted in more than one place")
 	}
@@ -998,7 +1000,7 @@ func publishFileVol(
 				rwo = "ro"
 			}
 			if !contains(m.Opts, rwo) {
-				//TODO make sure that all the mount options match
+				// TODO: make sure that all the mount options match
 				return nil, status.Error(codes.AlreadyExists,
 					"volume previously published with different options")
 			}
@@ -1259,8 +1261,8 @@ func getSystemUUID(ctx context.Context) (string, error) {
 }
 
 // convertUUID helps convert UUID to vSphere format
-//input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
-//returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
+// input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
+// returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
 func convertUUID(uuid string) (string, error) {
 	if len(uuid) != 36 {
 		return "", errors.New("uuid length should be 36")

@@ -125,13 +125,11 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 						if err != nil {
 							log.Errorf("Error updating StoragePool for datastore %v. Err: %v", ds, err)
 						}
-					} else {
+					} else if !reconcileAllScheduled {
 						// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
 						// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
-						if !reconcileAllScheduled {
-							scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
-							reconcileAllScheduled = true
-						}
+						scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
+						reconcileAllScheduled = true
 					}
 				}
 				log.Debugf("Done processing %d property collector update(s)", len(updates))

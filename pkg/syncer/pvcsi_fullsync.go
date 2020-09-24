@@ -97,15 +97,13 @@ func pvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 			if err := metadataSyncer.cnsOperatorClient.Create(ctx, &guestObject); err != nil {
 				log.Warnf("FullSync: Failed to create CnsVolumeMetadata %v. Err: %v", guestObject.Name, err)
 			}
-		} else {
+		} else if guestObject.Spec.EntityType != cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD &&
+			!compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec) {
 			// Compare objects between the guest cluster and supervisor cluster.
 			// Update the supervisor cluster API server if an object is stale.
-			if guestObject.Spec.EntityType != cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD &&
-				!compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec) {
-				log.Infof("FullSync: Updating CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
-				if err := metadataSyncer.cnsOperatorClient.Update(ctx, supervisorObject); err != nil {
-					log.Warnf("FullSync: Failed to update CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
-				}
+			log.Infof("FullSync: Updating CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
+			if err := metadataSyncer.cnsOperatorClient.Update(ctx, supervisorObject); err != nil {
+				log.Warnf("FullSync: Failed to update CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 			}
 		}
 	}

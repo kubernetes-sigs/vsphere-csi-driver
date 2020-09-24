@@ -220,21 +220,19 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Error(),
 			},
 		}
-	} else {
-		if r.URL.Path == "/validate" {
-			log.Debugf("request URL path is /validate")
-			log.Debugf("admissionReview: %+v", ar)
-			switch ar.Request.Kind.Kind {
-			case "StorageClass":
-				admissionResponse = validateStorageClass(ctx, &ar)
-			default:
-				log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
-				admissionResponse = &admissionv1.AdmissionResponse{
-					Allowed: true,
-				}
+	} else if r.URL.Path == "/validate" {
+		log.Debugf("request URL path is /validate")
+		log.Debugf("admissionReview: %+v", ar)
+		switch ar.Request.Kind.Kind {
+		case "StorageClass":
+			admissionResponse = validateStorageClass(ctx, &ar)
+		default:
+			log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
+			admissionResponse = &admissionv1.AdmissionResponse{
+				Allowed: true,
 			}
-			log.Debugf("admissionResponse: %+v", admissionResponse)
 		}
+		log.Debugf("admissionResponse: %+v", admissionResponse)
 	}
 	admissionReview := admissionv1.AdmissionReview{}
 	admissionReview.APIVersion = "admission.k8s.io/v1"

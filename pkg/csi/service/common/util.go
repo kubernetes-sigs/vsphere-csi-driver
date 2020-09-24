@@ -67,8 +67,8 @@ func GetUUIDFromProviderID(providerID string) string {
 // FormatDiskUUID removes any spaces and hyphens in UUID
 // Example UUID input is 42375390-71f9-43a3-a770-56803bcd7baa and output after format is 4237539071f943a3a77056803bcd7baa
 func FormatDiskUUID(uuid string) string {
-	uuidwithNoSpace := strings.Replace(uuid, " ", "", -1)
-	uuidWithNoHypens := strings.Replace(uuidwithNoSpace, "-", "", -1)
+	uuidwithNoSpace := strings.ReplaceAll(uuid, " ", "")
+	uuidWithNoHypens := strings.ReplaceAll(uuidwithNoSpace, "-", "")
 	return strings.ToLower(uuidWithNoHypens)
 }
 
@@ -208,13 +208,14 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 	if !csiMigrationFeatureState {
 		for param, value := range params {
 			param = strings.ToLower(param)
-			if param == AttributeDatastoreURL {
+			switch param {
+			case AttributeDatastoreURL:
 				scParams.DatastoreURL = value
-			} else if param == AttributeStoragePolicyName {
+			case AttributeStoragePolicyName:
 				scParams.StoragePolicyName = value
-			} else if param == AttributeFsType {
+			case AttributeFsType:
 				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
-			} else {
+			default:
 				return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
 			}
 		}
@@ -222,15 +223,16 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 		otherParams := make(map[string]string)
 		for param, value := range params {
 			param = strings.ToLower(param)
-			if param == AttributeDatastoreURL {
+			switch param {
+			case AttributeDatastoreURL:
 				scParams.DatastoreURL = value
-			} else if param == AttributeStoragePolicyName {
+			case AttributeStoragePolicyName:
 				scParams.StoragePolicyName = value
-			} else if param == AttributeFsType {
+			case AttributeFsType:
 				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
-			} else if param == CSIMigrationParams {
+			case CSIMigrationParams:
 				scParams.CSIMigration = value
-			} else {
+			default:
 				otherParams[param] = value
 			}
 		}
@@ -238,23 +240,22 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 		if scParams.CSIMigration == "true" {
 			for param, value := range otherParams {
 				param = strings.ToLower(param)
-				if param == DatastoreMigrationParam {
+				switch {
+				case param == DatastoreMigrationParam:
 					scParams.Datastore = value
-				} else if param == DiskFormatMigrationParam && value == "thin" {
+				case param == DiskFormatMigrationParam && value == "thin":
 					continue
-				} else if param == HostFailuresToTolerateMigrationParam ||
+				case param == HostFailuresToTolerateMigrationParam ||
 					param == ForceProvisioningMigrationParam || param == CacheReservationMigrationParam ||
 					param == DiskstripesMigrationParam || param == ObjectspacereservationMigrationParam ||
-					param == IopslimitMigrationParam {
+					param == IopslimitMigrationParam:
 					return nil, fmt.Errorf("vSphere CSI driver does not support creating volume using in-tree vSphere volume plugin parameter key:%v, value:%v", param, value)
-				} else {
+				default:
 					return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
 				}
 			}
-		} else {
-			if len(otherParams) != 0 {
-				return nil, fmt.Errorf("invalid parameters :%v", otherParams)
-			}
+		} else if len(otherParams) != 0 {
+			return nil, fmt.Errorf("invalid parameters :%v", otherParams)
 		}
 	}
 	return scParams, nil

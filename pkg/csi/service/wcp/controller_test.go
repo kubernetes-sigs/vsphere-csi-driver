@@ -73,7 +73,6 @@ func configFromSim() (*config.Config, func()) {
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
-	defer model.Remove()
 
 	err := model.Create()
 	if err != nil {
@@ -104,6 +103,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer model.Remove()
 
 	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{

@@ -688,7 +688,7 @@ func verifyResizeCompletedInSupervisor(pvcName string) bool {
 	pvcRequestedSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 	pvcCapacitySize := pvc.Status.Capacity[v1.ResourceStorage]
 
-	//If pvc's capacity size is greater than or equal to pvc's request size then done
+	// If pvc's capacity size is greater than or equal to pvc's request size then done
 	if pvcCapacitySize.Cmp(pvcRequestedSize) < 0 {
 		return false
 	}
@@ -767,8 +767,7 @@ func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace strin
 
 // convertGiStrToMibInt64 returns integer numbers of Mb equivalent to string of the form \d+Gi
 func convertGiStrToMibInt64(size resource.Quantity) int64 {
-	r, err := regexp.Compile("[0-9]+")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	r := regexp.MustCompile("[0-9]+")
 	sizeInt, err := strconv.Atoi(r.FindString(size.String()))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return int64(sizeInt * 1024)

@@ -81,7 +81,7 @@ const (
 	// NfsFsType represents nfs mount type
 	NfsFsType = "nfs"
 
-	//ProviderPrefix is the prefix used for the ProviderID set on the node
+	// ProviderPrefix is the prefix used for the ProviderID set on the node
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
 	ProviderPrefix = "vsphere://"
 

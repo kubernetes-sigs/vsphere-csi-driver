@@ -467,7 +467,7 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 	case v1.EventTypeWarning:
 		// Double backOff duration
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[instance.Name] *= 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
@@ -490,12 +490,13 @@ func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata
 	if v := os.Getenv("WORKER_THREADS_VOLUME_METADATA"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
+			switch {
+			case value <= 0:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
-			} else if value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata {
+			case value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
-			} else {
+			default:
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run is set to %d", workerThreads)
 			}

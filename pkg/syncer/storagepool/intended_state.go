@@ -165,8 +165,8 @@ func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		dsMoid:        fmt.Sprintf("%s-%s", vsan.dsMoid, node),
 		dsType:        fmt.Sprintf("%s-sna", vsan.dsType),
 		spName:        fmt.Sprintf("%s-%s", vsan.spName, node),
-		capacity:      vsan.capacity,  //XXX Get these values in a later change
-		freeSpace:     vsan.freeSpace, //XXX Get these values in a later change
+		capacity:      vsan.capacity,  // XXX Get these values in a later change
+		freeSpace:     vsan.freeSpace, // XXX Get these values in a later change
 		url:           vsan.url,
 		accessible:    true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
 		datastoreInMM: false, // If this node is inMM - the storagepool will not exist at all

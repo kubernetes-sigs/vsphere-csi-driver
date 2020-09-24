@@ -98,7 +98,6 @@ func configFromSim() (*cnsconfig.Config, func()) {
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconfig.Config, func()) {
 	cfg := &cnsconfig.Config{}
 	model := simulator.VPX()
-	defer model.Remove()
 
 	err := model.Create()
 	if err != nil {
@@ -127,6 +126,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconf
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer model.Remove()
 
 	cfg.VirtualCenter = make(map[string]*cnsconfig.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &cnsconfig.VirtualCenterConfig{
@@ -732,7 +732,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//update pvc with new label
+	// update pvc with new label
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = newTestPVCLabelValue
 	pvc.Labels = newPVCLabel

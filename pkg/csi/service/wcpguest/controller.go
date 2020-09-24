@@ -393,12 +393,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
 						diskUUID = volume.DiskUuid
 						log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q", volume.DiskUuid, volume.Name, vm.Name)
-					} else {
-						if volume.Error != "" {
-							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q", volume.Error, volume.Name, vm.Name)
-							log.Error(msg)
-							return nil, status.Errorf(codes.Internal, msg)
-						}
+					} else if volume.Error != "" {
+						msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q", volume.Error, volume.Name, vm.Name)
+						log.Error(msg)
+						return nil, status.Errorf(codes.Internal, msg)
 					}
 					break
 				}
@@ -410,7 +408,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
 	}
 
-	//return PublishContext with diskUUID of the volume attached to node.
+	// return PublishContext with diskUUID of the volume attached to node.
 	publishInfo := make(map[string]string)
 	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)

@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -324,7 +324,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -429,7 +429,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -601,7 +601,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -817,8 +817,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		// Get the list of Volumes attached to Pods before scale dow
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
-			// _, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
@@ -1149,7 +1147,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
-		//svPVCName refers to PVC Name in the supervisor cluster
+		// svPVCName refers to PVC Name in the supervisor cluster
 		svPVCName := volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -1301,7 +1299,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -1320,7 +1318,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		if guestCluster {
-			//verifying svc pvc health status
+			// verifying svc pvc health status
 			ginkgo.By("Expect health annotation is added on the SV pvc")
 			svPVC := getPVCFromSupervisorCluster(svPVCName)
 			gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))

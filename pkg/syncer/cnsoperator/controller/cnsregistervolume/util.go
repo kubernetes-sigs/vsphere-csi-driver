@@ -223,12 +223,13 @@ func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
 	workerThreads := defaultMaxWorkerThreadsForRegisterVolume
 	if v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
+			switch {
+			case value <= 0:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForRegisterVolume)
-			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
+			case value > defaultMaxWorkerThreadsForRegisterVolume:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
-			} else {
+			default:
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d", workerThreads)
 			}

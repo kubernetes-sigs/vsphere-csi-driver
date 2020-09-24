@@ -458,7 +458,7 @@ func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume, instance *c
 	case v1.EventTypeWarning:
 		// Double backOff duration
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[instance.Name] *= 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:

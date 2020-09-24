@@ -86,7 +86,6 @@ func configFromSim() (*config.Config, func()) {
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
-	defer model.Remove()
 
 	err := model.Create()
 	if err != nil {
@@ -117,6 +116,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer model.Remove()
 
 	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
@@ -629,7 +629,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	diskUUID := respControllerPublishVolume.PublishContext[common.AttributeFirstClassDiskUUID]
 	t.Log(fmt.Sprintf("ControllerPublishVolume succeed, diskUUID %s is returned", diskUUID))
 
-	//Detach
+	// Detach
 	reqControllerUnpublishVolume := &csi.ControllerUnpublishVolumeRequest{
 		VolumeId: volID,
 		NodeId:   NodeID,

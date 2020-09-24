@@ -164,8 +164,8 @@ func getVMUUIDFromNodeName(nodeName string) (string, error) {
 }
 
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the one is CNS cache
-func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeClaimName string, PersistentVolumeName string,
-	PodName string, Labels ...types.KeyValue) error {
+func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, persistentVolumeClaimName string, persistentVolumeName string,
+	podName string, labels ...types.KeyValue) error {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return err
@@ -176,12 +176,13 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeCla
 	}
 	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
 		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-		if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.EntityName != PodName {
-			return fmt.Errorf("entity POD with name %s not found for volume %s", PodName, volumeID)
-		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" && kubernetesMetadata.EntityName != PersistentVolumeName {
-			return fmt.Errorf("entity PV with name %s not found for volume %s", PersistentVolumeName, volumeID)
-		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" && kubernetesMetadata.EntityName != PersistentVolumeClaimName {
-			return fmt.Errorf("entity PVC with name %s not found for volume %s", PersistentVolumeClaimName, volumeID)
+		switch {
+		case kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.EntityName != podName:
+			return fmt.Errorf("entity POD with name %s not found for volume %s", podName, volumeID)
+		case kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" && kubernetesMetadata.EntityName != persistentVolumeName:
+			return fmt.Errorf("entity PV with name %s not found for volume %s", persistentVolumeName, volumeID)
+		case kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" && kubernetesMetadata.EntityName != persistentVolumeClaimName:
+			return fmt.Errorf("entity PVC with name %s not found for volume %s", persistentVolumeClaimName, volumeID)
 		}
 	}
 	labelMap := make(map[string]string)
@@ -196,7 +197,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeCla
 			// these are the actual labels in the provisioned PV. populate them in the label map
 			labelMap[al.Key] = al.Value
 		}
-		for _, el := range Labels {
+		for _, el := range labels {
 			// Traverse through the slice of expected labels and see if all of them are present in the label map
 			if val, ok := labelMap[el.Key]; ok {
 				gomega.Expect(el.Value == val).To(gomega.BeTrue(),
@@ -339,15 +340,15 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 
 // bringDownCsiContorller helps to bring the csi controller pod down
 // Its taks svc/gc client as input
-func bringDownCsiContorller(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 0, vsphereCSIcontroller, vsphereSystemNamespace)
+func bringDownCsiContorller(client clientset.Interface) {
+	updateDeploymentReplica(client, 0, vsphereCSIcontroller, vsphereSystemNamespace)
 	ginkgo.By("Controller is down")
 }
 
 // bringDownTKGController helps to bring the TKG control manager pod down
 // Its taks svc client as input
-func bringDownTKGController(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 0, vsphereControllerManager, vsphereTKGSystemNamespace)
+func bringDownTKGController(client clientset.Interface) {
+	updateDeploymentReplica(client, 0, vsphereControllerManager, vsphereTKGSystemNamespace)
 	ginkgo.By("TKGControllManager replica is set to 0")
 }
 
@@ -361,8 +362,8 @@ func bringUpCsiContorller(gcClient clientset.Interface) {
 
 // bringUpTKGController helps to bring the TKG control manager pod up
 // Its taks svc client as input
-func bringUpTKGController(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
+func bringUpTKGController(client clientset.Interface) {
+	updateDeploymentReplica(client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
 	ginkgo.By("TKGControllManager is up")
 }
 
@@ -716,7 +717,7 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	waitTime := 15
-	//deleteResourceQuota if already present
+	// deleteResourceQuota if already present
 	deleteResourceQuota(client, namespace)
 
 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
@@ -1078,7 +1079,7 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 	return cnsRegisterVolume
 }
 
-//Create CNS register volume
+// Create CNS register volume
 func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
 	log := logger.GetLogger(ctx)
 
@@ -1090,7 +1091,7 @@ func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config, cnsRe
 	return err
 }
 
-//Query CNS Register volume . Returns true if the CNSRegisterVolume is available otherwise false
+// Query CNS Register volume . Returns true if the CNSRegisterVolume is available otherwise false
 func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolumeName string, namespace string) bool {
 	isPresent := false
 	log := logger.GetLogger(ctx)
@@ -1114,7 +1115,7 @@ func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config, 
 
 }
 
-//Verify Bi-directional referance of Pv and PVC in case of static volume provisioning
+// Verify Bi-directional referance of Pv and PVC in case of static volume provisioning
 func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientset.Interface, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, fcdID string) {
 	log := logger.GetLogger(ctx)
 
@@ -1148,7 +1149,7 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 	}
 }
 
-//Get CNS register volume
+// Get CNS register volume
 func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *v1alpha1.CnsRegisterVolume) *v1alpha1.CnsRegisterVolume {
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -21,7 +21,7 @@ import vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 // Config is used to read and store information from the cloud configuration file
 type Config struct {
 	Global struct {
-		//vCenter IP address or FQDN
+		// vCenter IP address or FQDN
 		VCenterIP string
 		// Kubernetes Cluster ID
 		ClusterID string `gcfg:"cluster-id"`

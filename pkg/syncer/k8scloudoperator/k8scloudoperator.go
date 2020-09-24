@@ -263,12 +263,12 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	return response, nil
 }
 
-//response of PlacePersistenceVolumeClaim RPC call include only success tag
-//pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
-//pvc already has a annotation  - case 2
-//pvc needs a storage pool annotation and we cant find one - case 3
-//pvc needs an annotation and we can find one - case 4
-//everything other than case 3 is success
+// response of PlacePersistenceVolumeClaim RPC call include only success tag
+// pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
+// pvc already has a annotation  - case 2
+// pvc needs a storage pool annotation and we cant find one - case 3
+// pvc needs an annotation and we can find one - case 4
+// everything other than case 3 is success
 func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx context.Context,
 	req *PVCPlacementRequest) (*PVCPlacementResponse, error) {
 

@@ -114,7 +114,7 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 		log.Debugf("Pod %s does not have a valid vSphereVolume. Ignoring the pod update", pod.Name)
 		return false, nil, nil
 	}
-	//Verify if pv is vsphere volume and migration flag is disabled
+	// Verify if pv is vsphere volume and migration flag is disabled
 	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 		log.Warnf("%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", common.CSIMigration, pv.Name, pod.Name)
 		return false, nil, nil

@@ -180,7 +180,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 
-	//clean up for pvc
+	// clean up for pvc
 	defer func() {
 		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -191,12 +191,12 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	// Verify variuos properties Capacity, VolumeType, datastore and datacenter of volume using CNS Query API
 	verifyVolPropertiesFromCnsQueryResults(e2eVSphere, volHandle)
 
-	//Create Pod1 with pvc created above
+	// Create Pod1 with pvc created above
 	ginkgo.By("Create Pod1 with pvc created above")
 	pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//cleanup for Pod1
+	// cleanup for Pod1
 	defer func() {
 		if !isDeletePodAfterFileCreation {
 			ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
@@ -209,17 +209,17 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		}
 	}()
 
-	//Create file1.txt on Pod1
+	// Create file1.txt on Pod1
 	ginkgo.By("Create file1.txt on Pod1")
 	err = framework.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//Write data on file1.txt on Pod1
+	// Write data on file1.txt on Pod1
 	data := "This file file1 is written by Pod1"
 	ginkgo.By("Write on file1.txt from Pod1")
 	writeDataOnFileFromPod(namespace, pod1.Name, filePath1, data)
 
-	//Delete Pod if needed
+	// Delete Pod if needed
 	if isDeletePodAfterFileCreation {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
 		err = fpod.DeletePodWithWait(client, pod1)
@@ -244,7 +244,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	//Create Pod2 using the same pvc
+	// Create Pod2 using the same pvc
 	ginkgo.By("Create Pod2 with pvc created above")
 	userid := int64(1000)
 	var pod2 *v1.Pod
@@ -255,7 +255,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//cleanup for Pod2
+	// cleanup for Pod2
 	defer func() {
 		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod2.Name, namespace))
 		err = fpod.DeletePodWithWait(client, pod2)
@@ -266,27 +266,27 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod2.Spec.NodeName))
 	}()
 
-	//Read file1.txt created from Pod1
+	// Read file1.txt created from Pod1
 	ginkgo.By("Read file1.txt from Pod2 created by Pod1")
 	output := readFileFromPod(namespace, pod2.Name, filePath1)
 	ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", output))
-	data = data + "\n"
+	data += "\n"
 	gomega.Expect(output == data).To(gomega.BeTrue(), "Pod2 is able to read file1 written by Pod1")
 
-	//Create a file file2.txt from Pod2
+	// Create a file file2.txt from Pod2
 	err = framework.CreateEmptyFileOnPod(namespace, pod2.Name, filePath2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//Write to the file
+	// Write to the file
 	ginkgo.By("Write on file2.txt from Pod2")
 	data = "This file file2 is written by Pod2"
 	writeDataOnFileFromPod(namespace, pod2.Name, filePath2, data)
 
 	if !isDeletePodAfterFileCreation {
-		//Read file2.txt created from Pod1
+		// Read file2.txt created from Pod1
 		ginkgo.By("Read file2.txt from Pod1 created by Pod2")
 		output = readFileFromPod(namespace, pod1.Name, filePath2)
-		data = data + "\n"
+		data += "\n"
 		ginkgo.By(fmt.Sprintf("File content of file2.txt are: %s", output))
 		gomega.Expect(output == data).To(gomega.BeTrue(), "Pod1 is able to read file2 written by Pod2")
 	}

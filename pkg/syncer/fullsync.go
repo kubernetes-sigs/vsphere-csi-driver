@@ -86,7 +86,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log.Debugf("FullSync: pvToPVCMap %v", pvToPVCMap)
 	log.Debugf("FullSync: pvcToPodMap %v", pvcToPodMap)
 
-	//Call CNS QueryAll to get container volumes by cluster ID
+	// Call CNS QueryAll to get container volumes by cluster ID
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{
 			metadataSyncer.configInfo.Cfg.Global.ClusterID,
@@ -159,11 +159,12 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	for _, createSpec := range createSpecArray {
 		// Create volume if present in currentK8sPVMap
 		var volumeID string
-		if createSpec.VolumeType == common.BlockVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil {
+		switch {
+		case createSpec.VolumeType == common.BlockVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil:
 			volumeID = createSpec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskId
-		} else if createSpec.VolumeType == common.FileVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails) != nil {
+		case createSpec.VolumeType == common.FileVolumeType && createSpec.BackingObjectDetails != nil && createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails) != nil:
 			volumeID = createSpec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).BackingFileId
-		} else {
+		default:
 			log.Warnf("Skipping createSpec: %+v as VolumeType is not known or BackingObjectDetails is either nil or not typecastable  ", spew.Sdump(createSpec))
 			continue
 		}
@@ -320,16 +321,17 @@ func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolum
 	for _, pv := range pvList {
 		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		var volumeHandle string
-		if pv.Spec.CSI != nil {
+		switch {
+		case pv.Spec.CSI != nil:
 			volumeHandle = pv.Spec.CSI.VolumeHandle
-		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
+		case migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil:
 			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return nil, nil, err
 			}
-		} else {
+		default:
 			// Do nothing for other cases
 			continue
 		}

@@ -110,7 +110,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
+	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVMAttachment(ctx)
 	// Create a new controller
 	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
@@ -479,21 +479,22 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instan
 	return err
 }
 
-// getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
+// getMaxWorkerThreadsToReconcileCnsNodeVMAttachment returns the maximum
 // number of worker threads which can be run to reconcile CnsNodeVmAttachment instances.
 // If environment variable WORKER_THREADS_NODEVM_ATTACH is set and valid,
 // return the value read from environment variable otherwise, use the default value
-func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
+func getMaxWorkerThreadsToReconcileCnsNodeVMAttachment(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach
 	if v := os.Getenv("WORKER_THREADS_NODEVM_ATTACH"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
+			switch {
+			case value <= 0:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else if value > defaultMaxWorkerThreadsForNodeVMAttach {
+			case value > defaultMaxWorkerThreadsForNodeVMAttach:
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsForNodeVMAttach, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else {
+			default:
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment instances is set to %d", workerThreads)
 			}
@@ -515,7 +516,7 @@ func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment, instance 
 	case v1.EventTypeWarning:
 		// Double backOff duration
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[instance.Name] *= 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)

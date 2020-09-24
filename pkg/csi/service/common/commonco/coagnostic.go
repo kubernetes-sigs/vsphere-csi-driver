@@ -46,7 +46,7 @@ func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int
 		}
 		return k8sorchestratorInstance, nil
 	default:
-		//if type is invalid, return an error
+		// if type is invalid, return an error
 		return nil, errors.New("Invalid orchestrator Type")
 	}
 }

@@ -482,12 +482,12 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
 		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints))
 
-	//Verifying disk size specified in PVC is honored
+	// Verifying disk size specified in PVC is honored
 	ginkgo.By("Verifying disk size specified in PVC is honored")
 	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb == diskSizeInMb).
 		To(gomega.BeTrue(), "wrong disk size provisioned")
 
-	//Verifying volume type specified in PVC is honored
+	// Verifying volume type specified in PVC is honored
 	ginkgo.By("Verifying volume type specified in PVC is honored")
 	gomega.Expect(queryResult.Volumes[0].VolumeType == testVolumeType).To(gomega.BeTrue(), "volume type is not FILE")
 

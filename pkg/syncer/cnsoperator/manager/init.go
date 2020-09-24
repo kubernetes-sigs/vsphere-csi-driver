@@ -199,8 +199,8 @@ func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 	return err
 }
 
-//reloadConfiguration reloads configuration from the secret, and cnsOperator
-//with the latest configInfo
+// reloadConfiguration reloads configuration from the secret, and cnsOperator
+// with the latest configInfo
 func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
 	log := logger.GetLogger(ctx)
 	cfg, err := common.GetConfig(ctx)

@@ -230,13 +230,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
-		if param == common.AttributeStoragePolicyID {
+		switch param {
+		case common.AttributeStoragePolicyID:
 			storagePolicyID = req.Parameters[paramName]
-		} else if param == common.AttributeAffineToHost {
+		case common.AttributeAffineToHost:
 			affineToHost = req.Parameters[common.AttributeAffineToHost]
 			// XXX: We don't set the accessibleNodes here as we expect the partners to specify the node selector in pod
 			// spec while creating it. This mode of placement will be deprecated soon as we progress towards storagePool
-		} else if param == common.AttributeStoragePool {
+		case common.AttributeStoragePool:
 			storagePool = req.Parameters[paramName]
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
@@ -253,7 +254,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			accessibleNodes = append(accessibleNodes, overlappingNodes...)
 			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
-		} else if param == common.AttributeHostLocal {
+		case common.AttributeHostLocal:
 			hostLocalMode = true
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
@@ -275,7 +276,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
-		//Ignore affineToHost if received, as storagePool takes precedence for placement decision
+		// Ignore affineToHost if received, as storagePool takes precedence for placement decision
 		affineToHost = ""
 	} else if hostLocalMode && hostLocalNodeName != "" {
 		// Query API server to get ESX Host Moid from the hostLocalNodeName

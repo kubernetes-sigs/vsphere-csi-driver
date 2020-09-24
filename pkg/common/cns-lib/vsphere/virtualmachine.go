@@ -134,18 +134,21 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 			for {
 				select {
 				case err, ok := <-errChan:
-					if !ok {
-						// Async function finished.
-						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
-						return
-					} else if err == context.Canceled {
-						// Canceled by another instance of this goroutine.
-						log.Debugf("AsyncGetAllDatacenters ctx was canceled with uuid %s", uuid)
-						return
-					} else {
+					switch {
+					case ok:
+						if err == context.Canceled {
+							// Canceled by another instance of this goroutine.
+							log.Debugf("AsyncGetAllDatacenters ctx was canceled with uuid %s", uuid)
+							return
+						}
 						// Some error occurred.
 						log.Errorf("AsyncGetAllDatacenters with uuid %s sent an error: %v", uuid, err)
 						poolErr = err
+						return
+
+					case !ok:
+						// Async function finished.
+						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
 						return
 					}
 
@@ -180,14 +183,14 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 		}()
 	}
 	wg.Wait()
-
-	if nodeVM != nil {
+	switch {
+	case nodeVM != nil:
 		log.Infof("Returning VM %v for UUID %s", nodeVM, uuid)
 		return nodeVM, nil
-	} else if poolErr != nil {
+	case poolErr != nil:
 		log.Errorf("Returning err: %v for UUID %s", poolErr, uuid)
 		return nil, poolErr
-	} else {
+	default:
 		log.Errorf("Returning VM not found err for UUID %s", uuid)
 		return nil, ErrVMNotFound
 	}

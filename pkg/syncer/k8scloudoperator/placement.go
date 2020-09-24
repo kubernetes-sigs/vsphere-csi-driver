@@ -49,7 +49,7 @@ const (
 	spPolicyAntiPreferred = "placement.beta.vmware.com/storagepool_antiAffinityPreferred"
 	// AntiAffinityRequired placement policy for storagepool
 	spPolicyAntiRequired = "placement.beta.vmware.com/storagepool_antiAffinityRequired"
-	//resource name to get storage class
+	// resource name to get storage class
 	resourceName = "storagepools"
 	// storagePool type name for vsan-direct
 	vsanDirect = "vsanD"
@@ -102,8 +102,8 @@ func isSPInList(name string, spList []StoragePoolInfo) bool {
 func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim) error {
 	log := logger.GetLogger(ctx)
 
-	//XXX Return if this is not a vsan direct placement
-	//XXX Need an identifier on the sc
+	// XXX Return if this is not a vsan direct placement
+	// XXX Need an identifier on the sc
 
 	// Get all StoragePool list
 	sps, err := getStoragePoolList(ctx)
@@ -112,7 +112,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	if len(sps.Items) <= 0 { //there is no available storage pools
+	if len(sps.Items) == 0 { // there is no available storage pools
 		return fmt.Errorf("fail to find any storage pool")
 	}
 
@@ -132,7 +132,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	if len(spList) <= 0 {
+	if len(spList) == 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
 		return fmt.Errorf("Fail to find a storage pool passing all criteria")
 	}
@@ -151,7 +151,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	if len(spList) <= 0 {
+	if len(spList) == 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
 		return fmt.Errorf("Fail to find a storage pool passing all criteria")
 	}
@@ -215,7 +215,7 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 			continue
 		}
 
-		//sc compatible filter
+		// sc compatible filter
 		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
 		if !found || err != nil {
 			nonVsanDirect++
@@ -251,7 +251,7 @@ func preFilterSPList(ctx context.Context, sps *unstructured.UnstructuredList, st
 			continue
 		}
 
-		if spSize > volSizeBytes+bufferDiskSize { //filter by capacity
+		if spSize > volSizeBytes+bufferDiskSize { // filter by capacity
 			spList = append(spList, StoragePoolInfo{
 				Name:           spName,
 				FreeCapInBytes: spSize,
@@ -291,7 +291,7 @@ func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstruc
 		return false
 	}
 
-	for _, host := range hostNames { //filter by node candidate list
+	for _, host := range hostNames { // filter by node candidate list
 		for _, node := range nodes {
 			if node == host {
 				return true

@@ -58,7 +58,7 @@ func ValidateCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeReque
 // Function returns error if validation fails otherwise returns nil.
 func ValidateDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRequest) error {
 	log := logger.GetLogger(ctx)
-	//check for required parameters
+	// check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
 		log.Error(msg)
@@ -72,7 +72,7 @@ func ValidateDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeReque
 // Function returns error if validation fails otherwise returns nil.
 func ValidateControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
 	log := logger.GetLogger(ctx)
-	//check for required parameters
+	// check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
 		log.Error(msg)
@@ -98,7 +98,7 @@ func ValidateControllerPublishVolumeRequest(ctx context.Context, req *csi.Contro
 // Function returns error if validation fails otherwise returns nil.
 func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
 	log := logger.GetLogger(ctx)
-	//check for required parameters
+	// check for required parameters
 	if len(req.VolumeId) == 0 {
 		msg := "Volume ID is a required parameter."
 		log.Error(msg)
@@ -147,15 +147,16 @@ func CheckAPI(version string) error {
 func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
 	log := logger.GetLogger(ctx)
 	// check for required parameters
-	if len(req.GetVolumeId()) == 0 {
+	switch {
+	case len(req.GetVolumeId()) == 0:
 		msg := "volume id is a required parameter"
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
-	} else if req.GetCapacityRange() == nil {
+	case req.GetCapacityRange() == nil:
 		msg := "capacity range is a required parameter"
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)
-	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
+	case req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0:
 		msg := "capacity ranges values cannot be negative"
 		log.Error(msg)
 		return status.Error(codes.InvalidArgument, msg)

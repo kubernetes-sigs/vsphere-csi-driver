@@ -72,11 +72,12 @@ func getFullSyncIntervalInMin(ctx context.Context) int {
 	fullSyncIntervalInMin := defaultFullSyncIntervalInMin
 	if v := os.Getenv("FULL_SYNC_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
+			switch {
+			case value <= 0:
 				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
-			} else if value > defaultFullSyncIntervalInMin {
+			case value > defaultFullSyncIntervalInMin:
 				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is larger than max value can be set, will use the default interval", v)
-			} else {
+			default:
 				fullSyncIntervalInMin = value
 				log.Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
 			}
@@ -891,7 +892,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			log.Errorf("PVUpdated: QueryVolume failed. error: %+v", err)
 			return
 		}
-		if len(queryResult.Volumes) == 0 {
+		switch {
+		case len(queryResult.Volumes) == 0:
 			log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
 			// Call CreateVolume for Static Volume Provisioning
 			createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -925,10 +927,10 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			}
 			// Volume is successfully created so returning from here.
 			return
-		} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
+		case queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle:
 			log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.", oldPv.Spec.CSI.VolumeHandle)
 			// Volume is already present in the CNS, so continue with the UpdateVolumeMetadata
-		} else {
+		default:
 			log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.", oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
 			// unknown Volume is returned from the CNS, so returning from here.
 			return

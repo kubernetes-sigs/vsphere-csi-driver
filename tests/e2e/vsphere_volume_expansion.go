@@ -927,7 +927,7 @@ func invokeTestForUnsupportedFileVolumeExpansion(f *framework.Framework, client 
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	//persistentvolumes
+	// persistentvolumes
 	_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1026,7 +1026,7 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 		pvcSize := updatedPVC.Spec.Resources.Requests[v1.ResourceStorage]
 		pvcStatusSize := updatedPVC.Status.Capacity[v1.ResourceStorage]
 
-		//If pvc's status field size is greater than or equal to pvc's size then done
+		// If pvc's status field size is greater than or equal to pvc's size then done
 		if pvcStatusSize.Cmp(pvcSize) >= 0 {
 			return true, nil
 		}
@@ -1042,7 +1042,7 @@ func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 		return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
 	}
 	arrMountOut := strings.Fields(string(output))
-	if len(arrMountOut) <= 0 {
+	if len(arrMountOut) == 0 {
 		return -1, fmt.Errorf("error when parsing output of `df -T`. output: %s", string(output))
 	}
 	var devicePath, strSize string

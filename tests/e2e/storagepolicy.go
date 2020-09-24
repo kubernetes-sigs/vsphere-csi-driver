@@ -140,15 +140,17 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// decide which test setup is available to run
-	if vanillaCluster {
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
-	} else if guestCluster {
-		ginkgo.By("CNS_TEST: Running for GC setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
-	} else {
+	switch {
+	case supervisorCluster:
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+	case guestCluster:
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+	default:
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -188,16 +190,17 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	var exists bool
 	nodeName := pod.Spec.NodeName
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
-	if supervisorCluster {
+	switch {
+	case supervisorCluster:
 		annotations := pod.Annotations
 		vmUUID, exists = annotations[vmUUIDLabel]
 		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else if vanillaCluster {
-		vmUUID = getNodeUUID(client, nodeName)
-	} else {
+	case guestCluster:
 		vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+	default:
+		vmUUID = getNodeUUID(client, nodeName)
 	}
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -233,15 +236,16 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 	// decide which test setup is available to run
-	if vanillaCluster {
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
-	} else if guestCluster {
+	switch {
+	case guestCluster:
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
-	} else {
+	case supervisorCluster:
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+	default:
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create a StorageClass. Error: %v", err))
 

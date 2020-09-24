@@ -139,10 +139,7 @@ func getHostInMaintenanceMode(ctx context.Context, host *object.HostSystem) (boo
 
 // makeStoragePoolName returns the given datastore name dsName with any non-alphanumeric chars replaced with '-'
 func makeStoragePoolName(dsName string) string {
-	reg, err := regexp.Compile(`[^\\.a-zA-Z0-9]+`)
-	if err != nil {
-		return dsName
-	}
+	reg := regexp.MustCompile(`[^\\.a-zA-Z0-9]+`)
 	spName := "storagepool-" + reg.ReplaceAllString(dsName, "-")
 	// spName should be in lower case and should not end with "-"
 	spName = strings.TrimSuffix(strings.ToLower(spName), "-")

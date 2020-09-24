@@ -352,15 +352,16 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			// Detach failed with NotFound error, check if the volume is already detached
 			log.Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
 			diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
-			if err != nil {
+			switch {
+			case err != nil:
 				log.Errorf("DetachVolume: CNS Detach has failed with err: %q. Unable to check if volume: %q is already detached from vm: %+v",
 					err, volumeID, vm)
 				return err
-			} else if diskUUID == "" {
+			case diskUUID == "":
 				log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
 					volumeID, vm)
 				return nil
-			} else {
+			default:
 				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
 				log.Error(msg)
 				return errors.New(msg)
@@ -393,15 +394,16 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 	if volumeOperationRes.Fault != nil {
 		// Volume is already attached to VM
 		diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
-		if err != nil {
+		switch {
+		case err != nil:
 			log.Errorf("DetachVolume: CNS Detach has failed with fault: %q. Unable to check if volume: %q is already detached from vm: %+v",
 				spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
 			return err
-		} else if diskUUID == "" {
+		case diskUUID == "":
 			log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
 				volumeID, vm)
 			return nil
-		} else {
+		default:
 			msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. fault: %q, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 			log.Error(msg)
 			return errors.New(msg)
@@ -609,7 +611,7 @@ func (m *defaultManager) QueryVolume(ctx context.Context, queryFilter cnstypes.C
 		log.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
-	//Call the CNS QueryVolume
+	// Call the CNS QueryVolume
 	res, err := m.virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		log.Errorf("CNS QueryVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
@@ -631,7 +633,7 @@ func (m *defaultManager) QueryAllVolume(ctx context.Context, queryFilter cnstype
 		log.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
-	//Call the CNS QueryAllVolume
+	// Call the CNS QueryAllVolume
 	res, err := m.virtualCenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("CNS QueryAllVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
@@ -653,7 +655,7 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context, volumeIDList []cns
 		log.Errorf("ConnectCns failed with err: %+v", err)
 		return nil, err
 	}
-	//Call the CNS QueryVolumeInfo
+	// Call the CNS QueryVolumeInfo
 	queryVolumeInfoTask, err := m.virtualCenter.CnsClient.QueryVolumeInfo(ctx, volumeIDList)
 	if err != nil {
 		log.Errorf("CNS QueryAllVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)

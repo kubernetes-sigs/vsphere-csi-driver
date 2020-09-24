@@ -65,13 +65,13 @@ func main() {
 	if clusterFlavor == "" {
 		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
 	}
-
-	if *operationMode == operationModeWebHookServer {
+	switch *operationMode {
+	case operationModeWebHookServer:
 		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
 		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
 			log.Fatalf("failed to start webhook server. err: %v", webHookStartError)
 		}
-	} else if *operationMode == operationModeMetaDataSync {
+	case operationModeMetaDataSync:
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
 		var err error
 		configInfo, err := types.InitConfigInfo(ctx)
@@ -110,7 +110,7 @@ func main() {
 				log.Fatalf("Error initializing leader election: %v", err)
 			}
 		}
-	} else {
+	default:
 		log.Fatalf("unsupported operation mode: %v", *operationMode)
 	}
 }

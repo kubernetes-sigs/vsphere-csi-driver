@@ -126,12 +126,12 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("config object cannot be nil")
 	}
 	log := logger.GetLogger(ctx)
-	//Init
+	// Init
 	if cfg.VirtualCenter == nil {
 		cfg.VirtualCenter = make(map[string]*VirtualCenterConfig)
 	}
 
-	//Globals
+	// Globals
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
 		cfg.Global.VCenterIP = v
 	}
@@ -161,7 +161,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("VSPHERE_LABEL_ZONE"); v != "" {
 		cfg.Labels.Zone = v
 	}
-	//Build VirtualCenter from ENVs
+	// Build VirtualCenter from ENVs
 	for _, e := range os.Environ() {
 		pair := strings.Split(e, "=")
 
@@ -233,7 +233,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 
 func validateConfig(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
-	//Fix default global values
+	// Fix default global values
 	if cfg.Global.VCenterPort == "" {
 		cfg.Global.VCenterPort = DefaultVCenterPort
 	}
@@ -340,7 +340,7 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("GetCnsconfig called with cfgPath: %s", cfgPath)
 	var cfg *Config
-	//Read in the vsphere.conf if it exists
+	// Read in the vsphere.conf if it exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		log.Infof("Could not stat %s, reading config params from env", cfgPath)
 		// config from Env var only
