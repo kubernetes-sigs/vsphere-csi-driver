@@ -60,6 +60,14 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # To run e2e test for file volume, need to set the following env variable
     export GINKGO_FOCUS="csi-file-vanilla"
 
+    # For VCP to CSI migration tests following are needed as well
+    export SHARED_VSPHERE_DATASTORE_NAME="vsanDatastore"
+
+    # SHARED_VSPHERE_DATASTORE_NAME and SHARED_VSPHERE_DATASTORE_URL should correspond to same shared datastore
+   
+    # To run e2e test for VCP to CSI migration, need to set the following env variable
+    export GINKGO_FOCUS="csi-vcp-mig"
+
 ### To run full sync test, need do extra following steps
 
 #### Setting SSH keys for VC with your local machine to run full sync test

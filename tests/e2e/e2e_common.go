@@ -73,6 +73,7 @@ const (
 	invalidFSType                              = "ext10"
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
+	kcmManifest                                = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
 	kubeAPIPath                                = "/etc/kubernetes/manifests/"
 	kubeAPIfile                                = "kube-apiserver.yaml"
 	kubeAPIRecoveryTime                        = 1 * time.Minute
@@ -122,6 +123,18 @@ var (
 	vanillaCluster    bool
 	supervisorCluster bool
 	guestCluster      bool
+)
+
+// For VCP to CSI migration tests
+var (
+	envSharedDatastoreName          = "SHARED_VSPHERE_DATASTORE_NAME"
+	vcpProvisionerName              = "kubernetes.io/vsphere-volume"
+	vcpScParamDatastoreName         = "datastore"
+	vcpScParamPolicyName            = "storagePolicyName"
+	migratedToAnnotation            = "pv.kubernetes.io/migrated-to"
+	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
+	nodeMapper                      = &NodeMapper{}
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable
