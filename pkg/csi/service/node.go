@@ -437,7 +437,11 @@ func (s *service) NodeUnpublishVolume(
 	}
 
 	// Figure out if the target path is a file or block volume
-	isFileMount, _ := common.IsFileVolumeMount(ctx, target, mnts)
+	isFileMount, err := common.IsFileVolumeMount(ctx, target, mnts)
+	if err != nil {
+		log.Errorf("NodeUnpublishVolume: Target %q not found in the list of mount points %v", target, mnts)
+		return nil, err
+	}
 	isPublished := true
 	if !isFileMount {
 		isPublished, err = isBlockVolumePublished(ctx, volID, target)

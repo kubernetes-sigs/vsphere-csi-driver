@@ -65,12 +65,17 @@ func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCent
 }
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec
-func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume, host string) *cnstypes.CnsVolumeCreateSpec {
+func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume, host string) (*cnstypes.CnsVolumeCreateSpec, error) {
+	log := logger.GetLogger(ctx)
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
 	} else {
-		id, _ := uuid.NewUUID()
+		id, err := uuid.NewUUID()
+		if err != nil {
+			log.Errorf("failed to obtain new UUID while creating CNS CreateVolume spec for volumeId: %q. Err: %+v", instance.Spec.VolumeID, err)
+			return nil, err
+		}
 		volumeName = staticPvNamePrefix + id.String()
 	}
 	containerCluster := vsphere.GetContainerCluster(r.configInfo.Cfg.Global.ClusterID,
@@ -97,7 +102,7 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 	} else {
 		createSpec.VolumeType = common.FileVolumeType
 	}
-	return createSpec
+	return createSpec, nil
 }
 
 // getK8sStorageClassName gets the storage class name in K8S mapping the vsphere

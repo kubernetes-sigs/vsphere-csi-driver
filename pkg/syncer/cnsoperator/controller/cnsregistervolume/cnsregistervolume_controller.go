@@ -201,7 +201,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		pvName   string
 	)
 	// Create Volume for the input CnsRegisterVolume instance
-	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host)
+	createSpec, err := constructCreateSpecForInstance(ctx, r, instance, vc.Config.Host)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to construct CreateSpec for instance with error: %+v", err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{}, err
+	}
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
