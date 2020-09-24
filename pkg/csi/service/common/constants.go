@@ -159,19 +159,24 @@ const (
 	// provisioned/deleted by its corresponding CSI driver
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
 
-	// IPs is Client IP address, IP range or IP subnet
-	IPs string = "ips"
+	// AnnStorageProvisioner annotation is added to a PVC that is supposed to be dynamically
+	// provisioned. Its value is name of volume plugin that is supposed to provision
+	// a volume for this PVC.
+	AnnStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 
-	// CSINamespace is the namespace of pvCSI in TKC Cluster
-	CSINamespace = "vmware-system-csi"
+	// AnnDynamicallyProvisioned annotation is added to a PV that has been dynamically provisioned by
+	// Kubernetes. Its value is name of volume plugin that created the volume.
+	// It serves both user (to show where a PV comes from) and Kubernetes (to
+	// recognize dynamically provisioned PVs in its decisions).
+	AnnDynamicallyProvisioned = "pv.kubernetes.io/provisioned-by"
 
-	// CSIFeatureStatesConfigMapName is the name of configmap to store FSS values
-	CSIFeatureStatesConfigMapName = "csi-feature-states"
+	// InTreePluginName is the name of vsphere cloud provider in kubernetes
+	InTreePluginName = "kubernetes.io/vsphere-volume"
 )
 
 // Supported container orchestrators
 const (
-	Kubernetes = iota // Default container orchestor for TKC, Supervisor Cluster and Vanilla K8s
+	Kubernetes = iota // Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s
 )
 
 // Feature state flag names
@@ -180,4 +185,6 @@ const (
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion
 	VolumeExtend = "volume-extend"
+	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI
+	CSIMigration = "csi-migration"
 )

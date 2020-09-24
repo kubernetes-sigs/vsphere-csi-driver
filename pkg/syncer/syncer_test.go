@@ -42,6 +42,8 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -209,6 +211,15 @@ func TestSyncerWorkflows(t *testing.T) {
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.k8sInformerManager.Listen()
+
+	_, err := unittestcommon.GetFakeVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+	if err != nil {
+		t.Fatalf("failed to get migration service. Err: %v", err)
+	}
+	metadataSyncer.coCommonInterface, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("Failed to create co agnostic interface. err=%v", err)
+	}
 
 	var sharedDatastore string
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {

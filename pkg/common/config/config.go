@@ -28,15 +28,14 @@ import (
 
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"gopkg.in/gcfg.v1"
 )
 
 const (
-	// DefaultK8sServiceAccount is the default name of the Kubernetes
-	// service account for csi controller.
-	DefaultK8sServiceAccount string = "vsphere-csi-controller"
 	// DefaultVCenterPort is the default port used to access vCenter.
 	DefaultVCenterPort string = "443"
 	// DefaultGCPort is the default port used to access Supervisor Cluster.
@@ -47,16 +46,16 @@ const (
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
-	// EnvFeatureStates contains the path to the CSI Feature States Config
-	EnvFeatureStates = "FEATURE_STATES"
-	// DefaultVanillaFeatureStateConfigPath is the default path of csi feature states config file in Vanilla Cluster
-	DefaultVanillaFeatureStateConfigPath = "/etc/cloud/csi-feature-states/csi-feature-states.conf"
 	// EnvGCConfig contains the path to the CSI GC Config
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
-	// DefaultFeatureStateValue is the default value for Feature state switches
-	DefaultFeatureStateValue = false
+	// DefaultFSSConfigMapName is the default name Feature states config map
+	DefaultFSSConfigMapName = "csi-feature-states"
+	// DefaultFSSConfigMapNamespaceVanillaK8s is the default value for Feature state config map namespace
+	DefaultFSSConfigMapNamespaceVanillaK8s = "kube-system"
+	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers
+	DefaultCSINamespace = "vmware-system-csi"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
@@ -124,7 +123,7 @@ func getEnvKeyValue(match string, partial bool) (string, string, error) {
 // takes precedence.
 func FromEnv(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("Config object cannot be nil")
+		return fmt.Errorf("config object cannot be nil")
 	}
 	log := logger.GetLogger(ctx)
 	//Init
@@ -296,7 +295,21 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
-
+	clusterFlavor, err := GetClusterFlavor(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
+		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
+			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
+			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+			// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
+			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
+		}
+	}
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
 	}
@@ -308,7 +321,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	if config == nil {
-		return nil, fmt.Errorf("no vSphere cloud provider config file given")
+		return nil, fmt.Errorf("no vSphere CSI driver config file given")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
@@ -351,39 +364,6 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// GetFeatureStatesConfig returns feature states config from specified file path
-func GetFeatureStatesConfig(ctx context.Context, featureStatesCfgPath string, cfg *Config) error {
-	log := logger.GetLogger(ctx)
-	log.Debugf("GetFeatureStatesConfig called with featureStatesCfgPath: %s", featureStatesCfgPath)
-	//Fetch feature state information in the csi-feature-states.conf if it exists
-	if _, err := os.Stat(featureStatesCfgPath); os.IsNotExist(err) {
-		log.Warnf("failed to stat csi-feature-states.conf. Setting the feature state values to false")
-		cfg.FeatureStates.CSIMigration = false
-		cfg.FeatureStates.VolumeExtend = false
-		cfg.FeatureStates.VolumeHealth = false
-		return nil
-	}
-	featureStatesConfig, err := os.Open(featureStatesCfgPath)
-	if err != nil {
-		log.Errorf("failed to open %s. Err: %v", featureStatesCfgPath, err)
-		return err
-	}
-	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, featureStatesConfig)); err != nil {
-		log.Errorf("error while reading config file: %+v", err)
-		return err
-	}
-	if !cfg.FeatureStates.CSIMigration {
-		log.Infof("CSI Migration feature is disabled.")
-	}
-	if !cfg.FeatureStates.VolumeExtend {
-		log.Infof("Volume resize feature is disabled.")
-	}
-	if !cfg.FeatureStates.VolumeHealth {
-		log.Infof("Volume health feature is disabled.")
-	}
-	return nil
-}
-
 // GetDefaultNetPermission returns the default file share net permission.
 func GetDefaultNetPermission() *NetPermissionConfig {
 	return &NetPermissionConfig{
@@ -399,7 +379,7 @@ func GetDefaultNetPermission() *NetPermissionConfig {
 // takes precedence.
 func FromEnvToGC(ctx context.Context, cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("Config object cannot be nil")
+		return fmt.Errorf("config object cannot be nil")
 	}
 	if v := os.Getenv("WCP_ENDPOINT"); v != "" {
 		cfg.GC.Endpoint = v
@@ -425,7 +405,7 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 // Environment variables are also checked
 func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
-		return nil, fmt.Errorf("Guest Cluster config file is not present")
+		return nil, fmt.Errorf("guest cluster config file is not present")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
@@ -492,4 +472,20 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return string(namespace), nil
+}
+
+// GetClusterFlavor returns the cluster flavor based on the env variable set in the driver deployment file
+func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
+	log := logger.GetLogger(ctx)
+	// CLUSTER_FLAVOR is defined only in Supervisor and Guest cluster deployments.
+	// If it is empty, it is implied that cluster flavor is Vanilla K8S
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv("CLUSTER_FLAVOR"))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		return cnstypes.CnsClusterFlavorVanilla, nil
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest || clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		return clusterFlavor, nil
+	}
+	errMsg := "unrecognized value set for CLUSTER_FLAVOR"
+	log.Error(errMsg)
+	return "", fmt.Errorf(errMsg)
 }

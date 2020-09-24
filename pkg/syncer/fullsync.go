@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -35,7 +36,11 @@ import (
 func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: start")
-
+	var migrationFeatureStateForFullSync bool
+	// Fetch CSI migration feature state once, before performing full sync operations
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		migrationFeatureStateForFullSync = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
+	}
 	// Get K8s PVs in State "Bound", "Available" or "Released"
 	k8sPVs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
@@ -45,23 +50,31 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 
 	// k8sPVMap is useful for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
+	// Instantiate volumeMigrationService when migration feature state is True
+	if migrationFeatureStateForFullSync {
+		// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+		if err := initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+			log.Errorf("FullSync: Failed to get migration service. Err: %v", err)
+			return
+		}
+	}
 
 	// Iterate through all the k8sPVs and use volume id as the key for k8sPVMap items
 	// For migrated volumes, invoke GetVolumeID from migration service.
 	for _, pv := range k8sPVs {
-		var volumeHandle string
-		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
+		// k8sPVs contains valid CSI volumes or migrated vSphere volumes
+		if pv.Spec.CSI != nil {
+			k8sPVMap[pv.Spec.CSI.VolumeHandle] = ""
+		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
 			// For vSphere volumes, the migration service will register volumes in CNS.
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
-		} else {
-			volumeHandle = pv.Spec.CSI.VolumeHandle
+			k8sPVMap[volumeHandle] = ""
 		}
-		k8sPVMap[volumeHandle] = ""
 	}
 	// pvToPVCMap maps pv name to corresponding PVC
 	// pvcToPodMap maps pvc to the mounted Pod
@@ -86,16 +99,16 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		return
 	}
 	// get map of "pv to EntityMetadata" in CNS and "pv to EntityMetadata" in kubernetes
-	pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, err := getEntityMetadata(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap, pvcToPodMap, metadataSyncer)
+	pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, err := fullSyncGetEntityMetadata(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap, pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
-		log.Errorf("FullSync: getEntityMetadata failed with err %+v", err)
+		log.Errorf("FullSync: fullSyncGetEntityMetadata failed with err %+v", err)
 		return
 	}
 	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(pvToCnsEntityMetadataMap), spew.Sdump(pvToK8sEntityMetadataMap))
 	// Get specs for create and update volume calls
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
-	createSpecArray, updateSpecArray := getVolumeSpecs(ctx, k8sPVs, pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, containerCluster)
-	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer)
+	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, k8sPVs, pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
+	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: failed to get list of volumes to be deleted with err %+v", err)
 		return
@@ -103,9 +116,9 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	wg := sync.WaitGroup{}
 	wg.Add(3)
 	// Perform operations
-	go fullSyncCreateVolumes(ctx, createSpecArray, metadataSyncer, &wg)
+	go fullSyncCreateVolumes(ctx, createSpecArray, metadataSyncer, &wg, migrationFeatureStateForFullSync)
 	go fullSyncUpdateVolumes(ctx, updateSpecArray, metadataSyncer, &wg)
-	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg)
+	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg, migrationFeatureStateForFullSync)
 	wg.Wait()
 
 	cleanupCnsMaps(k8sPVMap)
@@ -117,7 +130,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 // fullSyncCreateVolumes create volumes with given array of createSpec
 // Before creating a volume, all current K8s volumes are retrieved
 // If the volume is successfully created, it is removed from cnsCreationMap
-func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup) {
+func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup, migrationFeatureStateForFullSync bool) {
 	log := logger.GetLogger(ctx)
 	defer wg.Done()
 	currentK8sPVMap := make(map[string]bool)
@@ -131,18 +144,17 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	}
 	// Create map for easy lookup
 	for _, pv := range currentK8sPV {
-		var volumeHandle string
-		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if pv.Spec.CSI != nil {
+			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
+		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
-		} else {
-			volumeHandle = pv.Spec.CSI.VolumeHandle
+			currentK8sPVMap[volumeHandle] = true
 		}
-		currentK8sPVMap[volumeHandle] = true
 	}
 	for _, createSpec := range createSpecArray {
 		// Create volume if present in currentK8sPVMap
@@ -171,7 +183,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 // fullSyncDeleteVolumes delete volumes with given array of volumeId
 // Before deleting a volume, all current K8s volumes are retrieved
 // If the volume is successfully deleted, it is removed from cnsDeletionMap
-func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup) {
+func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.CnsVolumeId, metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup, migrationFeatureStateForFullSync bool) {
 	defer wg.Done()
 	log := logger.GetLogger(ctx)
 	deleteDisk := false
@@ -184,20 +196,20 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 		log.Errorf("FullSync: fullSyncDeleteVolumes failed to get PVs from kubernetes. Err: %v", err)
 		return
 	}
+
 	// Create map for easy lookup
 	for _, pv := range currentK8sPV {
-		var volumeHandle string
-		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if pv.Spec.CSI != nil {
+			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
+		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return
 			}
-		} else {
-			volumeHandle = pv.Spec.CSI.VolumeHandle
+			currentK8sPVMap[volumeHandle] = true
 		}
-		currentK8sPVMap[volumeHandle] = true
 	}
 	var queryVolumeIds []cnstypes.CnsVolumeId
 	for _, volID := range volumeIDDeleteArray {
@@ -236,8 +248,10 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v", volume.VolumeId.Id, err)
 					continue
 				}
-				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
-					err := volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
+				if migrationFeatureStateForFullSync {
+					err = volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
+					// For non-migrated volumes DeleteVolumeInfo will not return error and
+					// So, the volume id will be deleted from cnsDeletionMap
 					if err != nil {
 						log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume mapping CR for %s with error %+v", volume.VolumeId.Id, err)
 						continue
@@ -290,9 +304,9 @@ func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCM
 	return metadataList
 }
 
-// getEntityMetadata builds and return map of pv to EntityMetadata in CNS (pvToCnsEntityMetadataMap) and
+// fullSyncGetEntityMetadata builds and return map of pv to EntityMetadata in CNS (pvToCnsEntityMetadataMap) and
 // map of pv to EntityMetadata in kubernetes (pvToK8sEntityMetadataMap)
-func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsVolume, pvToPVCMap pvcMap, pvcToPodMap podMap, metadataSyncer *metadataSyncInformer) (map[string][]cnstypes.BaseCnsEntityMetadata, map[string][]cnstypes.BaseCnsEntityMetadata, error) {
+func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsVolume, pvToPVCMap pvcMap, pvcToPodMap podMap, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) (map[string][]cnstypes.BaseCnsEntityMetadata, map[string][]cnstypes.BaseCnsEntityMetadata, error) {
 	log := logger.GetLogger(ctx)
 	pvToCnsEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
 	pvToK8sEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
@@ -301,20 +315,23 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 	for _, vol := range cnsVolumeList {
 		cnsVolumeMap[vol.VolumeId.Id] = true
 	}
-
+	var err error
 	var queryVolumeIds []cnstypes.CnsVolumeId
 	for _, pv := range pvList {
 		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 		var volumeHandle string
-		var err error
-		if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if pv.Spec.CSI != nil {
+			volumeHandle = pv.Spec.CSI.VolumeHandle
+		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				return nil, nil, err
 			}
 		} else {
-			volumeHandle = pv.Spec.CSI.VolumeHandle
+			// Do nothing for other cases
+			continue
 		}
 		pvToK8sEntityMetadataMap[volumeHandle] = k8sMetadata
 		if cnsVolumeMap[volumeHandle] {
@@ -350,9 +367,9 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 	return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil
 }
 
-// getVolumeSpecs return list of CnsVolumeCreateSpec for volumes which needs to be created in CNS and a list of
+// fullSyncGetVolumeSpecs return list of CnsVolumeCreateSpec for volumes which needs to be created in CNS and a list of
 // CnsVolumeMetadataUpdateSpec for volumes which needs to be updated in CNS.
-func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, pvToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, containerCluster cnstypes.CnsContainerCluster) ([]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
+func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, pvToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, containerCluster cnstypes.CnsContainerCluster, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) ([]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
 	log := logger.GetLogger(ctx)
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
@@ -360,11 +377,12 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 	for _, pv := range pvList {
 		var operationType string
 		var volumeHandle string
-		var err error
-		if common.CSIMigrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if pv.Spec.VsphereVolume != nil && migrationFeatureStateForFullSync {
+			var err error
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", pv.Spec.VsphereVolume.VolumePath, err)
+				log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
 				continue
 			}
 		} else {
@@ -374,7 +392,7 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 		pvToK8sEntityMetadata, presentInK8S := pvToK8sEntityMetadataMap[volumeHandle]
 
 		if !presentInK8S {
-			log.Infof("FullSync: getVolumeSpecs. skipping volume: %s with VolumeId %q. Volume is not present in the k8s", pv.Name, volumeHandle)
+			log.Infof("FullSync: Skipping volume: %s with VolumeId %q. Volume is not present in the k8s", pv.Name, volumeHandle)
 			continue
 		}
 		if !presentInCNS {
@@ -398,7 +416,7 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 		switch operationType {
 		case "createVolume":
 			var volumeType string
-			if pv.Spec.CSI.FSType == common.NfsV4FsType || pv.Spec.CSI.FSType == common.NfsFsType {
+			if IsMultiAttachAllowed(pv) {
 				volumeType = common.FileVolumeType
 			} else {
 				volumeType = common.BlockVolumeType
@@ -467,14 +485,14 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 
 // getVolumesToBeDeleted return list of volumeIds that need to be deleted
 // A volumeId is added to this list only if it was present in cnsDeletionMap across two cycles of full sync
-func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume, k8sPVMap map[string]string, metadataSyncer *metadataSyncInformer) ([]cnstypes.CnsVolumeId, error) {
+func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume, k8sPVMap map[string]string, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) ([]cnstypes.CnsVolumeId, error) {
 	log := logger.GetLogger(ctx)
 	var volToBeDeleted []cnstypes.CnsVolumeId
 	// inlineVolumeMap holds the volume path information for migrated volumes which are used by Pods
 	inlineVolumeMap := make(map[string]string)
 	var err error
-	if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
-		inlineVolumeMap, err = getInlineMigratedVolumesInfo(ctx, metadataSyncer)
+	if migrationFeatureStateForFullSync {
+		inlineVolumeMap, err = fullSyncGetInlineMigratedVolumesInfo(ctx, metadataSyncer, migrationFeatureStateForFullSync)
 		if err != nil {
 			log.Errorf("FullSync: Failed to get inline migrated volumes. Err: %v", err)
 			return volToBeDeleted, err
@@ -488,10 +506,10 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 				volToBeDeleted = append(volToBeDeleted, vol.VolumeId)
 			} else {
 				// Add to cnsDeletionMap
-				if metadataSyncer.configInfo.Cfg.FeatureStates.CSIMigration {
+				if migrationFeatureStateForFullSync {
 					// If migration is ON, verify if the volume is present in inlineVolumeMap
 					if _, existsInInlineVolumeMap := inlineVolumeMap[vol.VolumeId.Id]; !existsInInlineVolumeMap {
-						log.Infof("FullSync: Inline migrated volume with id %s added to cnsDeletionMap", vol.VolumeId.Id)
+						log.Infof("FullSync: Volume with id %q added to cnsDeletionMap", vol.VolumeId.Id)
 						cnsDeletionMap[vol.VolumeId.Id] = true
 					} else {
 						log.Debugf("FullSync: Inline migrated volume with id %s is in use. Skipping for deletion", vol.VolumeId.Id)
@@ -530,7 +548,7 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 			pvToPVCMap[pv.Name] = pvc
 			log.Debugf("FullSync: pvc %s/%s is backed by pv %s", pvc.Namespace, pvc.Name, pv.Name)
 			for _, pod := range pods {
-				if pod.Spec.Volumes != nil {
+				if pod.Status.Phase == v1.PodRunning && pod.Spec.Volumes != nil {
 					for _, volume := range pod.Spec.Volumes {
 						pvClaim := volume.VolumeSource.PersistentVolumeClaim
 						if pvClaim != nil && pvClaim.ClaimName == pvc.Name && pod.Namespace == pvc.Namespace {
@@ -542,7 +560,6 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume, metad
 					}
 				}
 			}
-
 		}
 	}
 	return pvToPVCMap, pvcToPodMap, nil

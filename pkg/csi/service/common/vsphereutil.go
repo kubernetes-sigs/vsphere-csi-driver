@@ -44,11 +44,6 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
-		err = vc.ConnectPbm(ctx)
-		if err != nil {
-			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
-			return "", err
-		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
@@ -174,7 +169,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	log.Debugf("vSphere CNS driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create disk %s with error %+v", spec.Name, err)
@@ -193,11 +188,6 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
-		err = vc.ConnectPbm(ctx)
-		if err != nil {
-			log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
-			return "", err
-		}
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
@@ -321,7 +311,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	log.Debugf("vSphere CNS driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
@@ -354,7 +344,7 @@ func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("vSphere CNS driver is attaching volume: %q to vm: %q", volumeID, vm.String())
+	log.Debugf("vSphere CSI driver is attaching volume: %q to vm: %q", volumeID, vm.String())
 	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID)
 	if err != nil {
 		log.Errorf("failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
@@ -369,7 +359,7 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) error {
 	log := logger.GetLogger(ctx)
-	log.Debugf("vSphere CNS driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
+	log.Debugf("vSphere CSI driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
 	err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
 	if err != nil {
 		log.Errorf("failed to detach disk %s with err %+v", volumeID, err)
@@ -383,7 +373,7 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	log.Debugf("vSphere Cloud Provider deleting volume: %s with deleteDisk flag: %t", volumeID, deleteDisk)
+	log.Debugf("vSphere CSI driver is deleting volume: %s with deleteDisk flag: %t", volumeID, deleteDisk)
 	err = volManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
 		log.Errorf("failed to delete disk %s, deleteDisk flag: %t with error %+v", volumeID, deleteDisk, err)
@@ -397,7 +387,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64) error {
 	var err error
 	log := logger.GetLogger(ctx)
-	log.Debugf("vSphere CNS driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
+	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
 
 	expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager)
 	if err != nil {

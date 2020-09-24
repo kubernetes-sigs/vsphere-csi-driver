@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 // COCommonInterface provides functionality to define
@@ -33,10 +35,16 @@ type COCommonInterface interface {
 
 // GetContainerOrchestratorInterface returns orchestrator object
 // for a given container orchestrator type
-func GetContainerOrchestratorInterface(orchestratorType int) (COCommonInterface, error) {
+func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int, featureStatesConfigInfo config.FeatureStatesConfigInfo) (COCommonInterface, error) {
+	log := logger.GetLogger(ctx)
 	switch orchestratorType {
 	case common.Kubernetes:
-		return k8sorchestrator.Newk8sOrchestrator(), nil
+		k8sorchestratorInstance, err := k8sorchestrator.Newk8sOrchestrator(ctx, featureStatesConfigInfo)
+		if err != nil {
+			log.Errorf("Creating k8sorchestratorInstance failed. Err: %v", err)
+			return nil, err
+		}
+		return k8sorchestratorInstance, nil
 	default:
 		//if type is invalid, return an error
 		return nil, errors.New("Invalid orchestrator Type")

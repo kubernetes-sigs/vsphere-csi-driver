@@ -47,12 +47,19 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
+// VolumeSpec contains VolumePath and StoragePolicyID
+// using which Volume can be looked up using VolumeMigrationService
+type VolumeSpec struct {
+	VolumePath        string
+	StoragePolicyName string
+}
+
 // VolumeMigrationService exposes interfaces to support VCP to CSI migration.
 // It will maintain internal state to map volume path to volume ID and reverse mapping.
 type VolumeMigrationService interface {
-	// GetVolumeID returns VolumeID for given VolumePath
+	// GetVolumeID returns VolumeID for given VolumeSpec
 	// Returns an error if not able to retrieve VolumeID.
-	GetVolumeID(ctx context.Context, volumePath string) (string, error)
+	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error)
 
 	// GetVolumePath returns VolumePath for given VolumeID
 	// Returns an error if not able to retrieve VolumePath.
@@ -103,7 +110,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			volumeManager:        volumeManager,
 			cnsConfig:            cnsConfig,
 		}
-		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinition(ctx, CRDName, CRDSingular, CRDPlural,
+		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
 			reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
 		if volumeMigrationServiceInitErr != nil {
 			log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
@@ -155,35 +162,35 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			informer.Informer().Run(stopCh)
 			log.Debugf("Informer started for cnsvspherevolumemigrations")
 		}()
+		log.Info("volume migration service initialized")
 	})
 	if volumeMigrationServiceInitErr != nil {
 		log.Info("volume migration service initialization failed")
 		return nil, volumeMigrationServiceInitErr
 	}
-	log.Info("volume migration service initialized")
 	return volumeMigrationInstance, nil
 }
 
-// GetVolumeID returns VolumeID for given VolumePath
+// GetVolumeID returns VolumeID for given VolumeSpec
 // Returns an error if not able to retrieve VolumeID.
-func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumePath string) (string, error) {
+func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
-	info, found := volumeMigration.volumePathToVolumeID.Load(volumePath)
+	info, found := volumeMigration.volumePathToVolumeID.Load(volumeSpec.VolumePath)
 	if found {
-		log.Infof("VolumeID: %q found from the cache for VolumePath: %q", info.(string), volumePath)
+		log.Debugf("VolumeID: %q found from the cache for VolumePath: %q", info.(string), volumeSpec.VolumePath)
 		return info.(string), nil
 	}
-	log.Infof("Could not retrieve VolumeID from cache for Volume Path: %q. volume may not be registered. Registering Volume with CNS", volumePath)
-	volumeID, err := volumeMigration.registerVolume(ctx, volumePath)
+	log.Infof("Could not retrieve VolumeID from cache for Volume Path: %q. volume may not be registered. Registering Volume with CNS", volumeSpec.VolumePath)
+	volumeID, err := volumeMigration.registerVolume(ctx, volumeSpec)
 	if err != nil {
-		log.Errorf("failed to register volume for VolumePath: %q, with err: %v", volumePath, err)
+		log.Errorf("failed to register volume for volumeSpec: %v, with err: %v", volumeSpec, err)
 		return "", err
 	}
-	log.Infof("successfully registered volume: %q with CNS. VolumeID: %q", volumePath, volumeID)
+	log.Infof("Successfully registered volumeSpec: %v with CNS. VolumeID: %v", volumeSpec, volumeID)
 	cnsvSphereVolumeMigration := migrationv1alpha1.CnsVSphereVolumeMigration{
 		ObjectMeta: metav1.ObjectMeta{Name: volumeID},
 		Spec: migrationv1alpha1.CnsVSphereVolumeMigrationSpec{
-			VolumePath: volumePath,
+			VolumePath: volumeSpec.VolumePath,
 			VolumeID:   volumeID,
 		},
 	}
@@ -193,7 +200,6 @@ func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeP
 		log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", err)
 		return "", err
 	}
-	log.Infof("successfully saved cnsvSphereVolumeMigration CR: %v", cnsvSphereVolumeMigration)
 	return volumeID, nil
 }
 
@@ -236,7 +242,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	log.Debugf("QueryVolumeInfo successfully returned volumeInfo %v for volumeIDList %v:", spew.Sdump(queryVolumeInfoResult), volumeIds)
 	cnsBlockVolumeInfo := interface{}(queryVolumeInfoResult.VolumeInfo).(*cnstypes.CnsBlockVolumeInfo)
 	fileBackingInfo := interface{}(cnsBlockVolumeInfo.VStorageObject.Config.Backing).(*vim25types.BaseConfigInfoDiskFileBackingInfo)
-	log.Infof("successfully retrieved volume path: %q for VolumeID: %q", fileBackingInfo.FilePath, volumeID)
+	log.Infof("Successfully retrieved volume path: %q for VolumeID: %q", fileBackingInfo.FilePath, volumeID)
 	cnsvSphereVolumeMigration := migrationv1alpha1.CnsVSphereVolumeMigration{
 		ObjectMeta: metav1.ObjectMeta{Name: volumeID},
 		Spec: migrationv1alpha1.CnsVSphereVolumeMigrationSpec{
@@ -250,7 +256,6 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 		log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", err)
 		return "", err
 	}
-	log.Infof("successfully saved cnsvSphereVolumeMigration CR: %v", cnsvSphereVolumeMigration)
 	return fileBackingInfo.FilePath, nil
 }
 
@@ -268,7 +273,7 @@ func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context, cnsV
 		log.Info("CR already exists")
 		return nil
 	}
-	log.Infof("successfully created CR for cnsVSphereVolumeMigration: %+v", cnsVSphereVolumeMigration)
+	log.Infof("Successfully created CR for cnsVSphereVolumeMigration: %+v", cnsVSphereVolumeMigration)
 	return nil
 }
 
@@ -292,9 +297,9 @@ func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, vo
 	return nil
 }
 
-// registerVolume takes VolumePath and helps register Volume with CNS
+// registerVolume takes VolumeSpec and helps register Volume with CNS
 // Returns VolumeID for successful registration, otherwise return error
-func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumePath string) (string, error) {
+func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
 	uuid, err := uuid.NewUUID()
 	if err != nil {
@@ -302,13 +307,13 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		return "", err
 	}
 	re := regexp.MustCompile(`\[([^\[\]]*)\]`)
-	if !re.MatchString(volumePath) {
-		msg := fmt.Sprintf("failed to extract datastore name from in-tree volume path: %q", volumePath)
+	if !re.MatchString(volumeSpec.VolumePath) {
+		msg := fmt.Sprintf("failed to extract datastore name from in-tree volume path: %q", volumeSpec.VolumePath)
 		log.Errorf(msg)
 		return "", errors.New(msg)
 	}
-	datastoreName := re.FindAllString(volumePath, -1)[0]
-	vmdkPath := strings.TrimSpace(strings.Trim(volumePath, datastoreName))
+	datastoreName := re.FindAllString(volumeSpec.VolumePath, -1)[0]
+	vmdkPath := strings.TrimSpace(strings.Trim(volumeSpec.VolumePath, datastoreName))
 	datastoreName = strings.Trim(strings.Trim(datastoreName, "["), "]")
 
 	var datacenters string
@@ -325,22 +330,16 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		host = key
 		break
 	}
+	// Get vCenter
+	vCenter, err := vsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("failed to get vCenter. err: %v", err)
+		return "", err
+	}
 	datacenterPaths := make([]string, 0)
 	if datacenters != "" {
 		datacenterPaths = strings.Split(datacenters, ",")
 	} else {
-		// Get vCenter
-		vCenter, err := vsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, host)
-		if err != nil {
-			log.Errorf("failed to get vCenter. err: %v", err)
-			return "", err
-		}
-		// Connect to vCenter
-		err = vCenter.Connect(ctx)
-		if err != nil {
-			log.Errorf("failed to connect to vCenter. err: %v", err)
-			return "", err
-		}
 		// Get all datacenters from vCenter
 		dcs, err := vCenter.GetDatacenters(ctx)
 		if err != nil {
@@ -353,39 +352,53 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		log.Debugf("retrieved all datacenters %v from vCenter", datacenterPaths)
 	}
 	var volumeID *cnstypes.CnsVolumeId
+	var storagePolicyID string
+	if volumeSpec.StoragePolicyName != "" {
+		log.Debugf("Obtaining storage policy ID for storage policy name: %q", volumeSpec.StoragePolicyName)
+		storagePolicyID, err = vCenter.GetStoragePolicyIDByName(ctx, volumeSpec.StoragePolicyName)
+		if err != nil {
+			msg := fmt.Sprintf("Error occurred while getting stroage policy ID from storage policy name: %q, err: %+v", volumeSpec.StoragePolicyName, err)
+			log.Error(msg)
+			return "", errors.New(msg)
+		}
+		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q", storagePolicyID, volumeSpec.StoragePolicyName)
+	}
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user, cnstypes.CnsClusterFlavorVanilla)
+	containerClusterArray = append(containerClusterArray, containerCluster)
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       uuid.String(),
+		VolumeType: common.BlockVolumeType,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+	}
+	if storagePolicyID != "" {
+		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
+			ProfileId: storagePolicyID,
+		}
+		createSpec.Profile = append(createSpec.Profile, profileSpec)
+	}
 	for _, datacenter := range datacenterPaths {
 		// Format:
 		// https://<vc_ip>/folder/<vm_vmdk_path>?dcPath=<datacenter-path>&dsName=<datastoreName>
 		backingDiskURLPath := "https://" + host + "/folder/" +
 			vmdkPath + "?dcPath=" + url.PathEscape(datacenter) + "&dsName=" + url.PathEscape(datastoreName)
-
-		log.Infof("Registering volume: %q using backingDiskURLPath :%q", volumePath, backingDiskURLPath)
-		var containerClusterArray []cnstypes.CnsContainerCluster
-		containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user, cnstypes.CnsClusterFlavorVanilla)
-		containerClusterArray = append(containerClusterArray, containerCluster)
-		createSpec := &cnstypes.CnsVolumeCreateSpec{
-			Name:       uuid.String(),
-			VolumeType: common.BlockVolumeType,
-			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster:      containerCluster,
-				ContainerClusterArray: containerClusterArray,
-			},
-			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-				BackingDiskUrlPath: backingDiskURLPath,
-			},
-		}
-		log.Debugf("vSphere CNS driver registering volume %q with create spec %+v", volumePath, spew.Sdump(createSpec))
+		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskUrlPath: backingDiskURLPath}
+		log.Infof("Registering volume: %q using backingDiskURLPath :%q", volumeSpec.VolumePath, backingDiskURLPath)
+		log.Debugf("vSphere CSI driver registering volume %q with create spec %+v", volumeSpec.VolumePath, spew.Sdump(createSpec))
 		volumeID, err = (*volumeMigration.volumeManager).CreateVolume(ctx, createSpec)
 		if err != nil {
-			log.Warnf("failed to register volume %q with error %+v", volumePath, err)
+			log.Warnf("failed to register volume %q with createSpec: %v. error: %+v", volumeSpec.VolumePath, createSpec, err)
 		} else {
 			break
 		}
 	}
 	if volumeID != nil {
-		log.Infof("successfully registered volume %q as container volume with ID: %q", volumePath, volumeID.Id)
+		log.Infof("Successfully registered volume %q as container volume with ID: %q", volumeSpec.VolumePath, volumeID.Id)
 	} else {
-		msg := fmt.Sprintf("registration failed for volumePath: %q", volumePath)
+		msg := fmt.Sprintf("registration failed for volumeSpec: %v", volumeSpec)
 		log.Error(msg)
 		return "", errors.New(msg)
 	}

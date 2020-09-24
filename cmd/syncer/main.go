@@ -22,23 +22,31 @@ import (
 	"fmt"
 	"os"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/admissionhandler"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
+
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
+// OperationModeWebHookServer starts container for webhook server
+const operationModeWebHookServer = "WEBHOOK_SERVER"
+
+// OperationModeWebHookServer starts container for metadata sync
+const operationModeMetaDataSync = "METADATA_SYNC"
+
 var (
 	enableLeaderElection = flag.Bool("leader-election", false, "Enable leader election.")
 	printVersion         = flag.Bool("version", false, "Print syncer version and exit")
+	operationMode        = flag.String("operation-mode", operationModeMetaDataSync, "specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
 )
 
 // main for vsphere syncer
@@ -48,53 +56,62 @@ func main() {
 		fmt.Printf("%s\n", syncer.Version)
 		return
 	}
-	log := logger.GetLoggerWithNoContext()
-	log.Infof("Version : %s", syncer.Version)
-	// run will be executed if this instance is elected as the leader
-	// or if leader election is not enabled
-	var run func(ctx context.Context)
-	var err error
-
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
+	log.Infof("Version : %s", syncer.Version)
 
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	configInfo, err := types.InitConfigInfo(ctx)
-	if err != nil {
-		log.Errorf("failed to initialize the configInfo. Err: %+v", err)
-		os.Exit(1)
+	if clusterFlavor == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
 	}
 
-	// Initialize K8sCloudOperator for every instance of vsphere-syncer in the Supervisor
-	// Cluster, independent of whether leader election is enabled.
-	// K8sCloudOperator should run on every node where csi controller can run.
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		go func() {
-			if err := k8scloudoperator.InitK8sCloudOperatorService(ctx); err != nil {
-				log.Errorf("Error initializing K8s Cloud Operator gRPC sever. Error: %+v", err)
-				os.Exit(1)
-			}
-		}()
-	}
-
-	// Initialize syncer components that are dependant on the outcome of leader election, if enabled.
-	run = initSyncerComponents(ctx, clusterFlavor, configInfo)
-
-	if !*enableLeaderElection {
-		run(context.TODO())
-	} else {
-		k8sClient, err := k8s.NewClient(ctx)
+	if *operationMode == operationModeWebHookServer {
+		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
+		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
+			log.Fatalf("failed to start webhook server. err: %v", webHookStartError)
+		}
+	} else if *operationMode == operationModeMetaDataSync {
+		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
+		var err error
+		configInfo, err := types.InitConfigInfo(ctx)
 		if err != nil {
-			log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+			log.Errorf("failed to initialize the configInfo. Err: %+v", err)
 			os.Exit(1)
 		}
-		lockName := "vsphere-syncer"
-		le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
+		// run will be executed if this instance is elected as the leader
+		// or if leader election is not enabled
+		var run func(ctx context.Context)
 
-		if err := le.Run(); err != nil {
-			log.Fatalf("Error initializing leader election: %v", err)
+		// Initialize K8sCloudOperator for every instance of vsphere-syncer in the Supervisor
+		// Cluster, independent of whether leader election is enabled.
+		// K8sCloudOperator should run on every node where csi controller can run.
+		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			go func() {
+				if err := k8scloudoperator.InitK8sCloudOperatorService(ctx); err != nil {
+					log.Fatalf("Error initializing K8s Cloud Operator gRPC sever. Error: %+v", err)
+				}
+			}()
 		}
+		// Initialize syncer components that are dependant on the outcome of leader election, if enabled.
+		run = initSyncerComponents(ctx, clusterFlavor, configInfo)
+
+		if !*enableLeaderElection {
+			run(context.TODO())
+		} else {
+			k8sClient, err := k8s.NewClient(ctx)
+			if err != nil {
+				log.Fatalf("Creating Kubernetes client failed. Err: %v", err)
+			}
+			lockName := "vsphere-syncer"
+			le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
+
+			if err := le.Run(); err != nil {
+				log.Fatalf("Error initializing leader election: %v", err)
+			}
+		}
+	} else {
+		log.Fatalf("unsupported operation mode: %v", *operationMode)
 	}
 }
 

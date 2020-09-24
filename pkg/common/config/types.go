@@ -63,15 +63,14 @@ type Config struct {
 		Zone   string `gcfg:"zone"`
 		Region string `gcfg:"region"`
 	}
-	// Set of features with state flags
-	FeatureStates FeatureStateSwitches
+	// FeatureStatesConfig is the details about feature states configmap
+	FeatureStatesConfig FeatureStatesConfigInfo
 }
 
-// FeatureStateSwitches contains flags to enable/disable features
-type FeatureStateSwitches struct {
-	CSIMigration bool `gcfg:"csi-migration"`
-	VolumeExtend bool `gcfg:"volume-extend"`
-	VolumeHealth bool `gcfg:"volume-health"`
+// FeatureStatesConfigInfo is the details about feature states configmap
+type FeatureStatesConfigInfo struct {
+	Name      string `gcfg:"name"`
+	Namespace string `gcfg:"namespace"`
 }
 
 // NetPermissionConfig consists of information used to restrict the
