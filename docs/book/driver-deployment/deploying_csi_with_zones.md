@@ -163,6 +163,27 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    zone = k8s-zone
    ```
 
+   Make sure secret is mounted on all workload nodes as well. This is required to help node discover its topology.
+
+   ```yaml
+     containers:
+     - name: vsphere-csi-node
+     .
+     .
+     volumeMounts:
+     - name: vsphere-config-volume
+       mountPath: /etc/cloud
+       readOnly: true
+     .
+     .
+     volumes:
+     - name: vsphere-config-volume
+       secret:
+         secretName: vsphere-config-secret
+     .
+     .
+     ```
+
 4. Verify that your CSI driver installation is successful.
 
    ```bash
