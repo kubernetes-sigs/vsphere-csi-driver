@@ -80,7 +80,8 @@ Where the entries have the following meaning:
 
 - `ca-file` - path to a CA certificate in PEM format. It is an optional parameter.
 
-- `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacener is enough but when datacenter is placed in the folder, path needs to be specified as `folder/datacenter-name`.
+- `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacenter is enough but when datacenter is placed in the folder, path needs to be specified as `folder/datacenter-name`.
+Please note since comma is used as a delimiter, the datacenter name itself must not contain a comma.
 
 ### vSphere configuration file for file volumes <a id="vsphereconf_for_file"></a>
 
