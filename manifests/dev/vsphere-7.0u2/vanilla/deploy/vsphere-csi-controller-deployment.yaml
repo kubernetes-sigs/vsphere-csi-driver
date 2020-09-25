@@ -64,6 +64,10 @@ spec:
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -102,6 +106,10 @@ spec:
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume

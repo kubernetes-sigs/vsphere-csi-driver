@@ -133,7 +133,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster
 		// if metadata syncer is being initialized for guest clusters
-		restClientConfig := k8s.GetRestClientConfig(ctx, metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("Creating Cns Operator client failed. Err: %v", err)
@@ -341,7 +341,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
-		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("failed to create cns operator client. Err: %v", err)
