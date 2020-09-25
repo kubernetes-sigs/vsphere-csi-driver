@@ -56,7 +56,6 @@ import (
 var (
 	// volumeMigrationService holds the pointer to VolumeMigration instance
 	volumeMigrationService        migration.VolumeMigrationService
-	onceForVolumeHealthReconciler sync.Once
 	onceForVolumeResizeReconciler sync.Once
 )
 
@@ -1166,19 +1165,19 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 		return err
 	}
 	log.Infof("supervisorNamespace %s", supervisorNamespace)
-	onceForVolumeHealthReconciler.Do(func() {
-		log.Infof("initVolumeHealthReconciler is triggered")
-		tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
-		svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
-
-		rc := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
-			workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
-			supervisorNamespace,
-		)
-		tkgInformerFactory.Start(wait.NeverStop)
-		svcInformerFactory.Start(wait.NeverStop)
-		rc.Run(ctx, volumeHealthWorkers)
-	})
+	log.Infof("initVolumeHealthReconciler is triggered")
+	tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
+	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	rc, err := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
+		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
+		supervisorNamespace, stopCh,
+	)
+	if err != nil {
+		return err
+	}
+	rc.Run(ctx, volumeHealthWorkers)
 	return nil
 }
 
