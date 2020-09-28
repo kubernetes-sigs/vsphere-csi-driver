@@ -30,7 +30,9 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
@@ -89,6 +91,10 @@ func getControllerTest(t *testing.T) *controllerTest {
 			supervisorClient:    supervisorClient,
 			supervisorNamespace: supervisorNamespace,
 		}
+		commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
+		}
 
 		controllerTestInstance = &controllerTest{
 			controller: c,
@@ -110,80 +116,85 @@ func createVolume(ctx context.Context, ct *controllerTest, reqCreate *csi.Create
  */
 func TestGuestClusterControllerFlow(t *testing.T) {
 	ct := getControllerTest(t)
-
-	// Create
-	params := make(map[string]string)
-
-	params[common.AttributeSupervisorStorageClass] = testStorageClass
-	if v := os.Getenv("SUPERVISOR_STORAGE_CLASS"); v != "" {
-		params[common.AttributeSupervisorStorageClass] = v
+	modes := []csi.VolumeCapability_AccessMode_Mode{
+		csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 	}
-	capabilities := []*csi.VolumeCapability{
-		{
-			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+	for _, mode := range modes {
+
+		// Create
+		params := make(map[string]string)
+
+		params[common.AttributeSupervisorStorageClass] = testStorageClass
+		if v := os.Getenv("SUPERVISOR_STORAGE_CLASS"); v != "" {
+			params[common.AttributeSupervisorStorageClass] = v
+		}
+		capabilities := []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: mode,
+				},
 			},
-		},
-	}
+		}
 
-	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
-		CapacityRange: &csi.CapacityRange{
-			RequiredBytes: 1 * common.GbInBytes,
-		},
-		Parameters:         params,
-		VolumeCapabilities: capabilities,
-	}
+		reqCreate := &csi.CreateVolumeRequest{
+			Name: testVolumeName,
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			Parameters:         params,
+			VolumeCapabilities: capabilities,
+		}
 
-	var respCreate *csi.CreateVolumeResponse
-	var err error
+		var respCreate *csi.CreateVolumeResponse
+		var err error
 
-	if isUnitTest {
-		// Invoking CreateVolume in a separate thread and then setting the Status to Bound explicitly
-		response := make(chan *csi.CreateVolumeResponse)
-		error := make(chan error)
+		if isUnitTest {
+			// Invoking CreateVolume in a separate thread and then setting the Status to Bound explicitly
+			response := make(chan *csi.CreateVolumeResponse)
+			error := make(chan error)
 
-		go createVolume(ctx, ct, reqCreate, response, error)
-		time.Sleep(1 * time.Second)
-		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, testSupervisorPVCName, metav1.GetOptions{})
-		pvc.Status.Phase = "Bound"
-		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			go createVolume(ctx, ct, reqCreate, response, error)
+			time.Sleep(1 * time.Second)
+			pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, testSupervisorPVCName, metav1.GetOptions{})
+			pvc.Status.Phase = "Bound"
+			_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			respCreate, err = <-response, <-error
+		} else {
+			respCreate, err = ct.controller.CreateVolume(ctx, reqCreate)
+			// wait for create volume finish
+			time.Sleep(1 * time.Second)
+		}
+
 		if err != nil {
 			t.Fatal(err)
 		}
-		respCreate, err = <-response, <-error
-	} else {
-		respCreate, err = ct.controller.CreateVolume(ctx, reqCreate)
-		// wait for create volume finish
+
+		supervisorPVCName := respCreate.Volume.VolumeId
+		// verify the pvc has been created
+		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Delete
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: supervisorPVCName,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for delete volume finish
 		time.Sleep(1 * time.Second)
+		// Verify the pvc has been deleted
+		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
+		if !errors.IsNotFound(err) {
+			t.Fatal(err)
+		}
 	}
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	supervisorPVCName := respCreate.Volume.VolumeId
-	// verify the pvc has been created
-	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Delete
-	reqDelete := &csi.DeleteVolumeRequest{
-		VolumeId: supervisorPVCName,
-	}
-	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Wait for delete volume finish
-	time.Sleep(1 * time.Second)
-	// Verify the pvc has been deleted
-	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
-	if !errors.IsNotFound(err) {
-		t.Fatal(err)
-	}
-
 }
