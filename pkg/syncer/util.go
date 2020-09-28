@@ -116,11 +116,12 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 	return true, pv, pvc
 }
 
-// getQueryResults returns list of CnsQueryResult retrieved using
+// fullSyncGetQueryResults returns list of CnsQueryResult retrieved using
 // queryFilter with offset and limit to query volumes using pagination
 // if volumeIds is empty, then all volumes from CNS will be retrieved by pagination
-func getQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string, volumeManager volumes.Manager) ([]*cnstypes.CnsQueryResult, error) {
+func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string, volumeManager volumes.Manager) ([]*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
+	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s", volumeIds, clusterID)
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 		Cursor: &cnstypes.CnsCursor{
