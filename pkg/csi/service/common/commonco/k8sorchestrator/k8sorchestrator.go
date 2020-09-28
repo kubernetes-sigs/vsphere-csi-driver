@@ -189,6 +189,8 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 
 	// Set up kubernetes resource listeners for k8s orchestrator
 	k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
+	// TODO: Restrict the Configmap listener to the CSI namespace.
+	// Refer to https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/464
 	k8sOrchestratorInstance.informerManager.AddConfigMapListener(
 		// Add
 		func(obj interface{}) {
