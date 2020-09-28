@@ -141,9 +141,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
 		}
 	} else {
-		mssg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
-		log.Error(mssg)
-		return errors.New(mssg)
+		msg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 
 	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)

@@ -50,6 +50,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -58,6 +59,8 @@ const (
 	blockPrefix = "wwn-0x"
 	dmiDir      = "/sys/class/dmi"
 )
+
+var containerOrchestratorUtility commonco.COCommonInterface
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume
@@ -742,8 +745,8 @@ func (s *service) NodeExpandVolume(
 		return nil, status.Error(codes.InvalidArgument, "capacity ranges values cannot be negative")
 	}
 
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+	reqVolSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	reqVolSizeMB := int64(common.RoundUpSize(reqVolSizeBytes, common.MbInBytes))
 
 	// TODO(xyang): In CSI spec 1.2, NodeExpandVolume will be
 	// passing in a staging_target_path which is more precise
@@ -774,6 +777,26 @@ func (s *service) NodeExpandVolume(
 		Interface: realMounter,
 		Exec:      realExec,
 	}
+
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
+		// Fetch the current block size
+		currentBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
+		if err != nil {
+			return nil, status.Error(codes.Internal, fmt.Sprintf("error when getting size of block volume at path %s: %v", dev.RealDev, err))
+		}
+		// Check if a rescan is required
+		if currentBlockSizeBytes < reqVolSizeBytes {
+			// If a device is expanded while it is attached to a VM, we need to rescan
+			// the device on the guest OS in order to see the modified size on the Guest OS
+			// Refer to https://kb.vmware.com/s/article/1006371
+			err = rescanDevice(ctx, dev)
+			if err != nil {
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+		}
+	}
+
+	// Resize file system
 	resizer := resizefs.NewResizeFs(mounter)
 	_, err = resizer.Resize(dev.RealDev, volumePath)
 	if err != nil {
@@ -782,20 +805,20 @@ func (s *service) NodeExpandVolume(
 	log.Debugf("NodeExpandVolume: Resized filesystem with devicePath %s volumePath %s", dev.RealDev, volumePath)
 
 	// Check the block size
-	gotBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
+	currentBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("error when getting size of block volume at path %s: %v", dev.RealDev, err))
 	}
 	// NOTE(xyang): Make sure new size is greater than or equal to the
 	// requested size. It is possible for volume size to be rounded up
 	// and therefore bigger than the requested size.
-	if gotBlockSizeBytes < volSizeBytes {
-		return nil, status.Errorf(codes.Internal, "requested volume size was %d, but got volume with size %d", volSizeBytes, gotBlockSizeBytes)
+	if currentBlockSizeBytes < reqVolSizeBytes {
+		return nil, status.Errorf(codes.Internal, "requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
 	}
 
-	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(volSizeMB*common.MbInBytes)))
+	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(reqVolSizeMB*common.MbInBytes)))
 	return &csi.NodeExpandVolumeResponse{
-		CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
+		CapacityBytes: int64(units.FileSize(reqVolSizeMB * common.MbInBytes)),
 	}, nil
 }
 
@@ -1067,6 +1090,35 @@ func getDevice(path string) (*Device, error) {
 		FullPath: path,
 		RealDev:  d,
 	}, nil
+}
+
+func rescanDevice(ctx context.Context, dev *Device) error {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	devRescanPath, err := getDeviceRescanPath(dev)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(devRescanPath, []byte{'1'}, 0666)
+	if err != nil {
+		msg := fmt.Sprintf("error rescanning block device %q. %v", dev.RealDev, err)
+		log.Error(msg)
+		return fmt.Errorf(msg)
+	}
+	return nil
+}
+
+func getDeviceRescanPath(dev *Device) (string, error) {
+	// A typical dev.RealDev path looks like `/dev/sda`. To rescan a block
+	// device we need to write into `/sys/block/$DEVICE/device/rescan`
+	// Refer to https://kb.vmware.com/s/article/1006371
+	parts := strings.Split(dev.RealDev, "/")
+	if len(parts) == 3 && strings.HasPrefix(parts[1], "dev") {
+		return filepath.EvalSymlinks(filepath.Join("/sys/block", parts[2], "device", "rescan"))
+	}
+	return "", fmt.Errorf("illegal path for device %q", dev.RealDev)
 }
 
 // The files parameter is optional for testing purposes
