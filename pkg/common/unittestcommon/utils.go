@@ -39,6 +39,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"volume-extend": "true",
 				"volume-health": "true",
 				"csi-migration": "true",
+				"file-volume":   "true",
 			},
 		}
 		return fakeCO, nil
