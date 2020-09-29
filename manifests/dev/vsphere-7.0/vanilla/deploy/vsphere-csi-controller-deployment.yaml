@@ -114,8 +114,9 @@ spec:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=true"
-            - "--strict-topology"
+            # needed only for topology aware setup
+            #- "--feature-gates=Topology=true"
+            #- "--strict-topology"
             - "--enable-leader-election"
             - "--leader-election-type=leases"
           env:
