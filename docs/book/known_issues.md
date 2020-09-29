@@ -12,6 +12,7 @@ This section lists the major known issues with VMware vSphere CSI driver. For co
 - [Devops can modify the volume health status of a PVC manually](#issue_6)
 - [Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases](#issue_7)
 - [Migrated Volume Deleted by in-tree vSphere plugin remains on the CNS UI](#issue_8)
+= [CnsRegisterVolume API does not validate if the volume to import is already imported or already present in the supervisor cluster](#issue_9)
 
 Issue 1<a id="issue_1"></a>: Filesystem resize is skipped if the original PVC is deleted when FilesystemResizePending condition is still on the PVC, but PV and its associated volume on the storage system are not deleted due to the Retain policy.
 
@@ -69,3 +70,8 @@ Issue 8<a id="issue_8"></a>: Migrated in-tree vSphere volume deleted by in-tree 
 
 - Impact: Migrated in-tree vSphere volumes deleted by in-tree vSphere plugin remains on the CNS UI.
 - Workaround: Admin needs to manually reconcile discrepancies in the Managed Virtual Disk Catalog. Admin needs to follow this [KB article](https://kb.vmware.com/s/article/2147750)
+
+Issue 9<a id="issue_9"></a>: CnsRegisterVolume API does not validate if the volume to import is already imported or already present in the supervisor cluster
+
+- Impact: One of the PVC using the CNS volume will be usable at any point in time. Usage of any other PVC will lead to attach failures.
+- Workaround: None
