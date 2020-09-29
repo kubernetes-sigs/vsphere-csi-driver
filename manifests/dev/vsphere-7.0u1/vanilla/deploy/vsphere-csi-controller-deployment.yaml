@@ -64,7 +64,7 @@ spec:
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: INCLUSTER_CLIENT_QPS
               value: "100"
-            - name: INCLUSTER_CLIENT_QPS
+            - name: INCLUSTER_CLIENT_BURST
               value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
@@ -106,7 +106,7 @@ spec:
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: INCLUSTER_CLIENT_QPS
               value: "100"
-            - name: INCLUSTER_CLIENT_QPS
+            - name: INCLUSTER_CLIENT_BURST
               value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
