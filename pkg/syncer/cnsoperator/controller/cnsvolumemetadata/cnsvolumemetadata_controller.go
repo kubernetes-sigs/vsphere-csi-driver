@@ -363,7 +363,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		metadata := cnsvsphere.GetCnsKubernetesEntityMetaData(instance.Spec.EntityName, instance.Spec.Labels, deleteFlag, string(instance.Spec.EntityType), instance.Spec.Namespace, instance.Spec.GuestClusterID, []cnstypes.CnsKubernetesEntityReference{entityReferences[index]})
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
 
-		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID, r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest)
+		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID, r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest, instance.Spec.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: pv.Spec.CSI.VolumeHandle,

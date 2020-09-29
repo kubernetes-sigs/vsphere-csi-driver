@@ -71,6 +71,11 @@ type CnsVolumeMetadataSpec struct {
 	// namespace is set for objects whose EntityType is PERSISTENT_VOLUME.
 	//+optional
 	Namespace string `json:"namespace,omitempty"`
+
+	// ClusterDistribution indicates the cluster distribution where the
+	// PVCSI driver is deployed
+	//+optional
+	ClusterDistribution string `json:"clusterdistribution,omitempty"`
 }
 
 // CnsVolumeMetadataStatus defines the observed state of CnsVolumeMetadata
@@ -141,13 +146,14 @@ func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig
 			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion, cnsoperatortypes.GCKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
 		},
 		Spec: CnsVolumeMetadataSpec{
-			VolumeNames:      volumeHandle,
-			GuestClusterID:   gcConfig.TanzuKubernetesClusterUID,
-			EntityType:       entityType,
-			EntityName:       name,
-			Labels:           labels,
-			Namespace:        namespace,
-			EntityReferences: reference,
+			VolumeNames:         volumeHandle,
+			GuestClusterID:      gcConfig.TanzuKubernetesClusterUID,
+			EntityType:          entityType,
+			EntityName:          name,
+			Labels:              labels,
+			Namespace:           namespace,
+			EntityReferences:    reference,
+			ClusterDistribution: gcConfig.ClusterDistribution,
 		},
 	}
 }
