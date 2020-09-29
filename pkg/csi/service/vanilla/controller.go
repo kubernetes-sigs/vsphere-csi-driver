@@ -419,6 +419,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
+
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	if csiMigrationFeatureState && scParams.CSIMigration == "true" {
