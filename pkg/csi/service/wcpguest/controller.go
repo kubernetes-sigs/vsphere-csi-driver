@@ -85,7 +85,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
-	restClientConfig := k8s.GetRestClientConfig(ctx, config.GC.Endpoint, config.GC.Port)
+	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
 		log.Errorf("failed to create supervisorClient. Error: %+v", err)
@@ -162,7 +162,7 @@ func (c *controller) ReloadConfiguration() {
 		return
 	}
 	if cfg != nil {
-		restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
 		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
 			log.Errorf("failed to create supervisorClient. Error: %+v", err)

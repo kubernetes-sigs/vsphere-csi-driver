@@ -68,7 +68,7 @@ func configFromEnvOrSim(ctx context.Context) (clientset.Interface, error) {
 		return configFromSim()
 	}
 	isUnitTest = false
-	restClientConfig := k8s.GetRestClientConfig(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
 	supervisorClient, err := k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
 		return nil, err
