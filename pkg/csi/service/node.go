@@ -626,27 +626,46 @@ func (s *service) NodeGetInfo(
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	nodeID := os.Getenv("NODE_NAME")
-	if nodeID == "" {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
+
+	//For guest clusters, return nodeName instead of UUID as it's used to fetch nodeVM via VMOperator.
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		return &csi.NodeGetInfoResponse{
-			NodeId:             nodeID,
+			NodeId:             nodeName,
 			AccessibleTopology: &csi.Topology{},
 		}, nil
+	}
+
+	uuid, err := getSystemUUID(ctx)
+	if err != nil {
+		log.Errorf("failed to get system uuid for node VM")
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	log.Debugf("Successfully retrieved uuid:%s from the node: %s", uuid, nodeName)
+
+	// convert UUID to a vSphere format UUID(stripped provider ID)
+	// e.g. System UUID: 3f081b42-00b7-6b1e-77ad-9e5ab7c936fd
+	//      ProviderID:  vsphere://421b083f-b700-1e6b-77ad-9e5ab7c936fd
+	//      vFormatUUID: 421b083f-b700-1e6b-77ad-9e5ab7c936fd
+	vFormatUUID, err := convertUUID(uuid)
+	if err != nil {
+		log.Errorf("convertUUID failed with error: %v", err)
+		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	var cfg *cnsconfig.Config
 	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
-	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
+	cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
 			return &csi.NodeGetInfoResponse{
-				NodeId: nodeID,
+				NodeId: vFormatUUID,
 			}, nil
 		}
 		log.Errorf("failed to read cnsconfig. Error: %v", err)
@@ -682,22 +701,11 @@ func (s *service) NodeGetInfo(
 			log.Errorf("failed to connect to vcenter host: %s. err=%v", vcenter.Config.Host, err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		// Get VM UUID
-		uuid, err := getSystemUUID(ctx)
-		if err != nil {
-			log.Errorf("failed to get system uuid for node VM")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
+
 		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
 		if err != nil || nodeVM == nil {
 			log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			uuid, err = convertUUID(uuid)
-			if err != nil {
-				log.Errorf("convertUUID failed with error: %v", err)
-				return nil, status.Errorf(codes.Internal, err.Error())
-			}
-			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
+			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, vFormatUUID, false)
 			if err != nil || nodeVM == nil {
 				log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
 				return nil, status.Errorf(codes.Internal, err.Error())
@@ -708,7 +716,7 @@ func (s *service) NodeGetInfo(
 			log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
+		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeName)
 		if zone != "" && region != "" {
 			accessibleTopology = make(map[string]string)
 			accessibleTopology[v1.LabelZoneRegion] = region
@@ -720,7 +728,7 @@ func (s *service) NodeGetInfo(
 	}
 
 	return &csi.NodeGetInfoResponse{
-		NodeId:             nodeID,
+		NodeId:             vFormatUUID,
 		AccessibleTopology: topology,
 	}, nil
 }

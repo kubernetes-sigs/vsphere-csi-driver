@@ -217,6 +217,27 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	return vm, nil
 }
 
+func (f *FakeNodeManager) GetNode(ctx context.Context, nodeUUID string, dc *cnsvsphere.Datacenter) (*cnsvsphere.VirtualMachine, error) {
+	var (
+		vm  *cnsvsphere.VirtualMachine
+		err error
+		t   *testing.T
+	)
+	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
+		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+		if err != nil {
+			t.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+			return nil, err
+		}
+	} else {
+		obj := simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine)
+		vm = &cnsvsphere.VirtualMachine{
+			VirtualMachine: object.NewVirtualMachine(f.client, obj.Reference()),
+		}
+	}
+	return vm, nil
+}
+
 func (f *FakeNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error) {
 	return nil, nil
 }

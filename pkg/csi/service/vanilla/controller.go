@@ -52,6 +52,7 @@ type NodeManagerInterface interface {
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
 	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNode(ctx context.Context, nodeUUID string, dc *cnsvsphere.Datacenter) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
 
@@ -648,7 +649,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 		}
-		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+		node, err := c.nodeMgr.GetNode(ctx, req.NodeId, nil)
 		if err != nil {
 			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			log.Error(msg)
@@ -736,7 +737,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 	}
 	// Block Volume
-	node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+	node, err := c.nodeMgr.GetNode(ctx, req.NodeId, nil)
 	if err != nil {
 		msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 		log.Error(msg)

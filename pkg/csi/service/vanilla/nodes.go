@@ -113,6 +113,14 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachi
 	return nodes.cnsNodeManager.GetAllNodes(ctx)
 }
 
+// GetNode returns VirtualMachine object for given nodeUUID.
+// This is called by ControllerPublishVolume and ControllerUnpublishVolume to perform attach and detach operations.
+// If Datacenter is passed, VirtualMachine will be searched within this datacenter given its UUID.
+// If not, it will be searched in all registered datacenters.
+func (nodes *Nodes) GetNode(ctx context.Context, nodeUUID string, dc *cnsvsphere.Datacenter) (*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNode(ctx, nodeUUID, nil)
+}
+
 // GetSharedDatastoresInTopology returns shared accessible datastores for specified topologyRequirement along with the map of
 // datastore URL and array of accessibleTopology map for each datastore returned from this function.
 // Here in this function, argument topologyRequirement can be passed in following form
