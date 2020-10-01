@@ -142,6 +142,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 		log.Errorf("FullSync: fullSyncCreateVolumes failed to get PVs from kubernetes. Err: %v", err)
 		return
 	}
+
 	// Create map for easy lookup
 	for _, pv := range currentK8sPV {
 		if pv.Spec.CSI != nil {
@@ -174,6 +175,8 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 				log.Warnf("FullSync: Failed to create volume with the spec: %+v. Err: %+v", spew.Sdump(createSpec), err)
 				continue
 			}
+		} else {
+			log.Debugf("FullSync: volumeID %s does not exist in Kubernetes, no need to create volume in CNS", volumeID)
 		}
 		delete(cnsCreationMap, volumeID)
 	}
@@ -225,9 +228,9 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 		log.Info("FullSync: fullSyncDeleteVolumes could not find any volume which is not present in k8s and needs to be checked for volume deletion.")
 		return
 	}
-	allQueryResults, err := getQueryResults(ctx, queryVolumeIds, "", metadataSyncer.volumeManager)
+	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds, "", metadataSyncer.volumeManager)
 	if err != nil {
-		log.Errorf("FullSync: getQueryResults failed to query volume metadata from vc. Err: %v", err)
+		log.Errorf("FullSync: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", err)
 		return
 	}
 	// Verify if Volume is not in use by any other Cluster before removing CNS tag
@@ -346,9 +349,9 @@ func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolum
 		log.Warn("could not find any volume which is present in both k8s and in CNS")
 		return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil
 	}
-	allQueryResults, err := getQueryResults(ctx, queryVolumeIds, metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.volumeManager)
+	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds, metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.volumeManager)
 	if err != nil {
-		log.Errorf("getQueryResults failed to query volume metadata from vc. Err: %v", err)
+		log.Errorf("FullSync: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", err)
 		return nil, nil, err
 	}
 
