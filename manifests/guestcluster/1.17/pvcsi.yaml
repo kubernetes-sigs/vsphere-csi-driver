@@ -130,7 +130,7 @@ spec:
           image: vmware.io/csi-attacher:<image_tag>
           args:
             - "--v=4"
-            - "--timeout=300s"
+            - "--timeout=1700s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
           imagePullPolicy: "IfNotPresent"
@@ -236,7 +236,7 @@ spec:
           image: vmware.io/csi-provisioner/csi-provisioner:<image_tag>
           args:
             - "--v=4"
-            - "--timeout=300s"
+            - "--timeout=1700s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
             - "--default-fstype=ext4"
@@ -251,7 +251,7 @@ spec:
           image: vmware.io/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:<image_tag>
           args:
             - "--v=4"
-            - "--timeout=300s"
+            - "--timeout=1700s"
             - "--handle-volume-inuse-error=false"  # Set this to true if used in vSphere 7.0U1
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"

@@ -73,7 +73,7 @@ func New() csitypes.CnsController {
 // Init is initializing controller struct.
 func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Infof("Initializing CNS controller")
+	log.Infof("Verify e2e Pipeline: Initializing CNS controller")
 	var err error
 	// Get VirtualCenterManager instance and validate version.
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
