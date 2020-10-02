@@ -584,6 +584,7 @@ func (m *defaultManager) QueryVolume(ctx context.Context, queryFilter cnstypes.C
 		log.Errorf("CNS QueryVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
+	res = updateQueryResult(ctx, m, res)
 	return res, err
 }
 
@@ -606,5 +607,6 @@ func (m *defaultManager) QueryAllVolume(ctx context.Context, queryFilter cnstype
 		log.Errorf("CNS QueryAllVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
+	res = updateQueryResult(ctx, m, res)
 	return res, err
 }
