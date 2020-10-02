@@ -20,6 +20,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/vmware/govmomi/cns"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -73,4 +76,25 @@ func IsDiskAttachedToVMs(ctx context.Context, volumeID string, vms []*cnsvsphere
 		}
 	}
 	return "", nil
+}
+
+// updateQueryResult helps update CnsQueryResult to populate volume.Metadata.EntityMetadata.ClusterID
+// with value from volume.Metadata.ContainerCluster.ClusterId
+// This is required to make driver code compatible to vSphere 67 release
+func updateQueryResult(ctx context.Context, m *defaultManager, res *cnstypes.CnsQueryResult) *cnstypes.CnsQueryResult {
+	if m.virtualCenter.Client.Version == cns.ReleaseVSAN67u3 {
+		log := logger.GetLogger(ctx)
+		for volumeIndex, volume := range res.Volumes {
+			for metadataIndex, metadata := range volume.Metadata.EntityMetadata {
+				if cnsK8sMetaEntityMetadata, ok := metadata.(*cnstypes.CnsKubernetesEntityMetadata); ok {
+					cnsK8sMetaEntityMetadata.ClusterID = volume.Metadata.ContainerCluster.ClusterId
+					volume.Metadata.EntityMetadata[metadataIndex] = cnsK8sMetaEntityMetadata
+				} else {
+					log.Debugf("metadata: %v is not of type CnsKubernetesEntityMetadata", metadata)
+				}
+			}
+			res.Volumes[volumeIndex] = volume
+		}
+	}
+	return res
 }
