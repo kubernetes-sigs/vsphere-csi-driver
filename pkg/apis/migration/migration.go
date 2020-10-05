@@ -92,81 +92,84 @@ const (
 	CRDPlural = "cnsvspherevolumemigrations"
 )
 
-// onceForVolumeMigrationService is used for initializing the VolumeMigrationService singleton.
-var onceForVolumeMigrationService sync.Once
-
-// volumeMigrationInstance is instance of volumeMigration and implements interface for VolumeMigrationService
-var volumeMigrationInstance *volumeMigration
-
-var volumeMigrationServiceInitErr error
+var (
+	// volumeMigrationInstance is instance of volumeMigration and implements interface for VolumeMigrationService
+	volumeMigrationInstance *volumeMigration
+	// volumeMigrationInstanceLock is used for handling race conditions during read, write on volumeMigrationInstance
+	volumeMigrationInstanceLock = &sync.RWMutex{}
+)
 
 // GetVolumeMigrationService returns the singleton VolumeMigrationService
 func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager, cnsConfig *cnsconfig.Config) (VolumeMigrationService, error) {
 	log := logger.GetLogger(ctx)
-	onceForVolumeMigrationService.Do(func() {
-		log.Info("Initializing volume migration service...")
-		volumeMigrationInstance = &volumeMigration{
-			volumePathToVolumeID: sync.Map{},
-			volumeManager:        volumeManager,
-			cnsConfig:            cnsConfig,
-		}
-		volumeMigrationServiceInitErr = k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
-			reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
-		if volumeMigrationServiceInitErr != nil {
-			log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
-			return
-		}
-		config, volumeMigrationServiceInitErr := k8s.GetKubeConfig(ctx)
-		if volumeMigrationServiceInitErr != nil {
-			log.Errorf("failed to get kubeconfig. err: %v", volumeMigrationServiceInitErr)
-			return
-		}
-		volumeMigrationInstance.k8sClient, volumeMigrationServiceInitErr = k8s.NewClientForGroup(ctx, config, CRDGroupName)
-		if volumeMigrationServiceInitErr != nil {
-			log.Errorf("failed to create k8sClient. Err: %v", volumeMigrationServiceInitErr)
-			return
-		}
-		go func() {
-			log.Debugf("Starting Informer for cnsvspherevolumemigrations")
-			informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, "cnsvspherevolumemigrations", "")
-			if err != nil {
-				log.Errorf("failed to create dynamic informer for volume migration CRD. Err: %v", err)
-				return
+	volumeMigrationInstanceLock.RLock()
+	if volumeMigrationInstance == nil {
+		volumeMigrationInstanceLock.RUnlock()
+		volumeMigrationInstanceLock.Lock()
+		defer volumeMigrationInstanceLock.Unlock()
+		if volumeMigrationInstance == nil {
+			log.Info("Initializing volume migration service...")
+			// This is idempotent if CRD is pre-created then we continue with initialization of volumeMigrationInstance
+			volumeMigrationServiceInitErr := k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
+				reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
+			if volumeMigrationServiceInitErr != nil {
+				log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
+				return nil, volumeMigrationServiceInitErr
 			}
-			handlers := cache.ResourceEventHandlerFuncs{
-				AddFunc: func(obj interface{}) {
-					log.Debugf("received add event for VolumeMigration CR!")
-					var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-					err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
-					if err != nil {
-						log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
-						return
-					}
-					volumeMigrationInstance.volumePathToVolumeID.Store(volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
-					log.Debugf("successfully added volumePath: %q, volumeID: %q mapping in the cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
-				},
-				DeleteFunc: func(obj interface{}) {
-					log.Debugf("received delete event for VolumeMigration CR!")
-					var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-					err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
-					if err != nil {
-						log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
-						return
-					}
-					volumeMigrationInstance.volumePathToVolumeID.Delete(volumeMigrationObject.Spec.VolumePath)
-					log.Debugf("successfully deleted volumePath: %q, volumeID: %q mapping from cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
-				},
+			config, volumeMigrationServiceInitErr := k8s.GetKubeConfig(ctx)
+			if volumeMigrationServiceInitErr != nil {
+				log.Errorf("failed to get kubeconfig. err: %v", volumeMigrationServiceInitErr)
+				return nil, volumeMigrationServiceInitErr
 			}
-			informer.Informer().AddEventHandler(handlers)
-			stopCh := make(chan struct{})
-			informer.Informer().Run(stopCh)
-			log.Debugf("Informer started for cnsvspherevolumemigrations")
-		}()
-		log.Info("volume migration service initialized")
-	})
-	if volumeMigrationServiceInitErr != nil {
-		log.Info("volume migration service initialization failed")
-		return nil, volumeMigrationServiceInitErr
+			volumeMigrationInstance = &volumeMigration{
+				volumePathToVolumeID: sync.Map{},
+				volumeManager:        volumeManager,
+				cnsConfig:            cnsConfig,
+			}
+			volumeMigrationInstance.k8sClient, volumeMigrationServiceInitErr = k8s.NewClientForGroup(ctx, config, CRDGroupName)
+			if volumeMigrationServiceInitErr != nil {
+				volumeMigrationInstance = nil
+				log.Errorf("failed to create k8sClient. Err: %v", volumeMigrationServiceInitErr)
+				return nil, volumeMigrationServiceInitErr
+			}
+			go func() {
+				log.Debugf("Starting Informer for cnsvspherevolumemigrations")
+				informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, "cnsvspherevolumemigrations", "")
+				if err != nil {
+					log.Errorf("failed to create dynamic informer for volume migration CRD. Err: %v", err)
+				}
+				handlers := cache.ResourceEventHandlerFuncs{
+					AddFunc: func(obj interface{}) {
+						log.Debugf("received add event for VolumeMigration CR!")
+						var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
+						err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+						if err != nil {
+							log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
+							return
+						}
+						volumeMigrationInstance.volumePathToVolumeID.Store(volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+						log.Debugf("successfully added volumePath: %q, volumeID: %q mapping in the cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+					},
+					DeleteFunc: func(obj interface{}) {
+						log.Debugf("received delete event for VolumeMigration CR!")
+						var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
+						err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+						if err != nil {
+							log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
+							return
+						}
+						volumeMigrationInstance.volumePathToVolumeID.Delete(volumeMigrationObject.Spec.VolumePath)
+						log.Debugf("successfully deleted volumePath: %q, volumeID: %q mapping from cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+					},
+				}
+				informer.Informer().AddEventHandler(handlers)
+				stopCh := make(chan struct{})
+				informer.Informer().Run(stopCh)
+			}()
+			log.Info("volume migration service initialized")
+		}
+	} else {
+		volumeMigrationInstanceLock.RUnlock()
 	}
 	return volumeMigrationInstance, nil
 }
