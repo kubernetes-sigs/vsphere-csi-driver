@@ -890,6 +890,10 @@ func isVsan67u3Release(ctx context.Context, c *controller) (bool, error) {
 // initVolumeMigrationService is a helper method to initialize volumeMigrationService in controller
 func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	log := logger.GetLogger(ctx)
+	// This check is to prevent unnecessary RLocks on the volumeMigration instance
+	if volumeMigrationService != nil {
+		return nil
+	}
 	// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
 	var err error
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig)
