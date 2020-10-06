@@ -49,7 +49,7 @@ import (
 )
 
 const (
-	defaultMaxWorkerThreadsForRegisterVolume = 10
+	defaultMaxWorkerThreadsForRegisterVolume = 40
 	staticPvNamePrefix                       = "static-pv-"
 )
 
