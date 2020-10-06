@@ -138,7 +138,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 				return false
 			})
 			if err != nil {
-				log.Infof("Property collector session needs to be reestablished")
+				log.Infof("Property collector session needs to be reestablished due to err: %v", err)
 				err = spController.vc.Connect(ctx)
 				if err != nil {
 					log.Errorf("Not able to reestablish connection with VC. Restarting property collector.")
@@ -233,22 +233,12 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 		}
 
 		if intendedState.dsType == "cns.vmware.com/vsan" {
-			// create storage pools for all accessible nodes
-			for _, snaNode := range intendedState.nodes {
-				intendedSNAState, err := newIntendedVsanSNAState(ctx, dsInfo, scWatchCntlr, intendedState, snaNode)
-				if err != nil {
-					log.Errorf("Error reconciling StoragePool for vsan sna node %s. Err: %v", snaNode, err)
-					continue
-				}
-				validStoragePoolNames[intendedSNAState.spName] = true
-				err = spCtl.applyIntendedState(ctx, intendedSNAState)
-				if err != nil {
-					log.Errorf("Error applying intended state of StoragePool %s. Err: %v", intendedSNAState.spName, err)
-					continue
-				}
+			err := spCtl.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
+			if err != nil {
+				log.Errorf("Error updating intended state of vSAN SNA StoragePools. Err: %v", err)
+				continue
 			}
 		}
-
 	}
 
 	// Delete unknown StoragePool instances owned by this driver

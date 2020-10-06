@@ -18,11 +18,13 @@ package vsphere
 
 import (
 	"context"
+	"encoding/json"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -80,4 +82,83 @@ func (host *HostSystem) GetHostVsanNodeUUID(ctx context.Context) (string, error)
 		return "", err
 	}
 	return vsan.Config.ClusterInfo.NodeUuid, nil
+}
+
+// VsanHostCapacity captures the capacity info of a host. It exists to support the API within this Go helper module
+type VsanHostCapacity struct {
+	Capacity         int64
+	CapacityReserved int64
+	CapacityUsed     int64
+	HostMoID         string
+}
+
+// VsanPhysicalDisk reflects the fields of JSON structure emitted by the VsanInternalSystem.QueryPhysicalVsanDisks API that we care about
+type VsanPhysicalDisk struct {
+	IsSSD            int    `json:"isSsd,omitempty"`
+	SsdUUID          string `json:"ssdUuid,omitempty"`
+	Capacity         int64  `json:"capacity,omitempty"`
+	CapacityReserved int64  `json:"capacityReserved,omitempty"`
+	CapacityUsed     int64  `json:"capacityUsed,omitempty"`
+	IsAllFlash       int    `json:"isAllFlash,omitempty"`
+}
+
+// VsanPhysicalDiskMap is what VsanInternalSystem.QueryPhysicalVsanDisks returns
+type VsanPhysicalDiskMap map[string]VsanPhysicalDisk
+
+// QueryPhysicalVsanDisks wraps the underlying vSAN API and unmarshals the JSON result as well
+func (host *HostSystem) QueryPhysicalVsanDisks(ctx context.Context) (VsanPhysicalDiskMap, error) {
+	out := make(VsanPhysicalDiskMap)
+	log := logger.GetLogger(ctx)
+	// XXX: We could consider caching the VsanInternalSystem
+	hostVis, err := host.ConfigManager().VsanInternalSystem(ctx)
+	if err != nil {
+		log.Errorf("Failed getting the VsanSystem for host %v with err: %v", host, err)
+		return out, err
+	}
+
+	// self_only means we only want the disks from this host. We could ask one host for all
+	// disks, but that depends on the vSAN network being healthy. For this code we rather
+	// ask the hosts for their authoritative info, which is their local disks.
+	req := types.QueryPhysicalVsanDisks{
+		This:  hostVis.Reference(),
+		Props: []string{"self_only", "disk_health", "capacity", "isSsd", "ssdUuid", "isAllFlash", "capacityReserved", "capacityUsed"},
+	}
+
+	res, err := methods.QueryPhysicalVsanDisks(ctx, hostVis.Client(), &req)
+	if err != nil {
+		return out, err
+	}
+
+	err = json.Unmarshal([]byte(res.Returnval), &out)
+	if err != nil {
+		return out, err
+	}
+
+	return out, nil
+}
+
+// GetHostVsanCapacity wraps around QueryPhysicalVsanDisks to sum up all the capacity disks of a host
+func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapacity, error) {
+	out := VsanHostCapacity{
+		Capacity:         0,
+		CapacityReserved: 0,
+		CapacityUsed:     0,
+		HostMoID:         host.Reference().Value,
+	}
+	disks, err := host.QueryPhysicalVsanDisks(ctx)
+	if err != nil {
+		return &out, err
+	}
+
+	for _, disk := range disks {
+		if disk.IsSSD == 1 {
+			// Cache disk doesn't count as capacity
+			continue
+		}
+		// XXX: Check for health?
+		out.Capacity += disk.Capacity
+		out.CapacityReserved += disk.CapacityReserved
+		out.CapacityUsed += disk.CapacityUsed
+	}
+	return &out, nil
 }

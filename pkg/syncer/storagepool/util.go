@@ -72,6 +72,29 @@ func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (
 	return capacity, freeSpace, ds.Summary.Url, spTypePrefix + dsType, accessible, inMM
 }
 
+// getHostMoIDToK8sNameMap looks up the hostMoid annotation on each k8s node.
+func getHostMoIDToK8sNameMap(ctx context.Context) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	hostMoIDTok8sName := make(map[string]string)
+	clientSet, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
+		return hostMoIDTok8sName, err
+	}
+	// TODO: Replace this direct API call with an informer
+	nodeList, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("Failed getting all k8s nodes in cluster, err=%+v", err)
+		return hostMoIDTok8sName, err
+	}
+
+	for _, node := range nodeList.Items {
+		hostMoid := node.ObjectMeta.Annotations[nodeMoidAnnotation]
+		hostMoIDTok8sName[hostMoid] = node.ObjectMeta.Name
+	}
+	return hostMoIDTok8sName, nil
+}
+
 // findAccessibleNodes returns the k8s node names of ESX hosts (limited to clusterID) on which
 // the given datastore is mounted and accessible. The values in the map tells whether the ESX
 // host is in Maintenance Mode.
@@ -90,22 +113,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 	}
 
 	// Now find the k8s node names of these hosts
-	clientSet, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
-		return nil, err
-	}
-	nodeList, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("Failed getting all k8s nodes in cluster, err=%+v", err)
-		return nil, err
-	}
-
-	hostMoIDTok8sName := make(map[string]string)
-	for _, node := range nodeList.Items {
-		hostMoid := node.ObjectMeta.Annotations[nodeMoidAnnotation]
-		hostMoIDTok8sName[hostMoid] = node.ObjectMeta.Name
-	}
+	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
 	nodes := make(map[string]bool)
 	for _, host := range hosts {
 		thisName, ok := hostMoIDTok8sName[host.Reference().Value]
