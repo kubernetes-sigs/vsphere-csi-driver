@@ -50,7 +50,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		storageclass      *storagev1.StorageClass
 		bindingMode       storagev1.VolumeBindingMode
 		err               error
-		ctx               context.Context
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -62,9 +61,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
 	})
 
 	ginkgo.AfterEach(func() {
@@ -80,13 +76,15 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	})
 	verifyTopologyAwareProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string,
 		allowedTopologies []v1.TopologySelectorLabelRequirement) {
+		var cancel context.CancelFunc
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
+			ginkgo.By("Deleting the Storage Class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvclaim.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
@@ -145,11 +143,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Verify if PV is deleted")
 		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 		pv = nil
-
-		ginkgo.By("Deleting the Storage Class")
-		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass = nil
 	}
 
 	/*
