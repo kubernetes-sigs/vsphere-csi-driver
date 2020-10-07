@@ -844,10 +844,7 @@ func isVsan67u3Release(ctx context.Context, c *controller) (bool, error) {
 		return false, err
 	}
 	log.Debugf("vCenter version is :%q", vc.Client.Version)
-	if vc.Client.Version == cns.ReleaseVSAN67u3 {
-		return true, nil
-	}
-	return false, nil
+	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
 }
 
 // initVolumeMigrationService is a helper method to initialize volumeMigrationService in controller
