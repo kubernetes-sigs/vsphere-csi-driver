@@ -137,11 +137,11 @@ port = "8443"
 cert-file = "/etc/webhook/cert.pem"
 key-file = "/etc/webhook/key.pem"
 
-# FeatureStatesConfig holds the details about feature states configmap.
-# Default feature states configmap name is set to "csi-feature-states"  and namespace is set to "kube-system"
+# InternalFeatureStatesConfig holds the details about internal feature states configmap.
+# Default feature states configmap name is set to "internal-feature-states.csi.vsphere.vmware.com"  and namespace is set to "kube-system"
 # Provide the configmap name and namespace details only when feature states configmap is not in the default namespace
-[FeatureStatesConfig]
-name = "csi-feature-states"
+[InternalFeatureStatesConfig]
+name = "internal-feature-states.csi.vsphere.vmware.com"
 namespace = "${namespace}"
 eof
 

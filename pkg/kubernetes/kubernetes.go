@@ -154,18 +154,18 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 	case vmoperatorv1alpha1.GroupName:
 		err = vmoperatorv1alpha1.AddToScheme(scheme)
 		if err != nil {
-			log.Error("failed to add to scheme with err: %+v", err)
+			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
 	case cnsoperatorv1alpha1.GroupName:
 		err = cnsoperatorv1alpha1.AddToScheme(scheme)
 		if err != nil {
-			log.Error("failed to add to scheme with err: %+v", err)
+			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
 		err = migrationv1alpha1.AddToScheme(scheme)
 		if err != nil {
-			log.Error("failed to add to scheme with err: %+v", err)
+			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
 	}
@@ -173,7 +173,7 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		Scheme: scheme,
 	})
 	if err != nil {
-		log.Error("failed to create client for group %s with err: %+v", groupName, err)
+		log.Errorf("failed to create client for group %s with err: %+v", groupName, err)
 	}
 	return client, err
 
@@ -197,7 +197,7 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, na
 
 	client, err := apiutils.RESTClientForGVK(gvk, config, serializer.NewCodecFactory(scheme))
 	if err != nil {
-		log.Error("failed to create RESTClient with err: %+v", err)
+		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
 	}
 	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil

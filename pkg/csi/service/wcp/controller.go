@@ -21,23 +21,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fsnotify/fsnotify"
-	v1 "k8s.io/api/core/v1"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	v1 "k8s.io/api/core/v1"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -107,9 +106,17 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, config.FeatureStatesConfig)
+
+	// Initialize CO common utility
+	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
+	}
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
+		k8sorchestrator.K8sSupervisorInitParams{SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig})
+	if err != nil {
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 	go func() {
