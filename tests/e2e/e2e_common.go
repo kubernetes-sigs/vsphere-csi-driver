@@ -28,6 +28,7 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
+	configSecret                               = "vsphere-config-secret"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdGroup                                   = "cns.vmware.com"

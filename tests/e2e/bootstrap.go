@@ -27,9 +27,14 @@ import (
 var e2eVSphere vSphere
 
 // bootstrap function takes care of initializing necessary tests context for e2e tests
-func bootstrap() {
+func bootstrap(withoutDc ...bool) {
 	config, err := getConfig()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if len(withoutDc) > 0 {
+		if withoutDc[0] {
+			(*config).Global.Datacenters = ""
+		}
+	}
 	e2eVSphere = vSphere{
 		Config: config,
 	}

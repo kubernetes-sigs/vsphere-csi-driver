@@ -344,9 +344,13 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 }
 
 // bringDownCsiController helps to bring the csi controller pod down
-// Its taks svc/gc client as input
-func bringDownCsiController(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+// Default namespace used here is csiSystemNamespace
+func bringDownCsiController(Client clientset.Interface, namespace ...string) {
+	if len(namespace) == 0 {
+		updateDeploymentReplica(Client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+	} else {
+		updateDeploymentReplica(Client, 0, vSphereCSIControllerPodNamePrefix, namespace[0])
+	}
 	ginkgo.By("Controller is down")
 }
 
@@ -358,11 +362,14 @@ func bringDownTKGController(Client clientset.Interface) {
 }
 
 // bringUpCsiController helps to bring the csi controller pod down
-// Its taks svc/gc client as input
-func bringUpCsiController(gcClient clientset.Interface) {
-	updateDeploymentReplica(gcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+// Default namespace used here is csiSystemNamespace
+func bringUpCsiController(Client clientset.Interface, namespace ...string) {
+	if len(namespace) == 0 {
+		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+	} else {
+		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, namespace[0])
+	}
 	ginkgo.By("Controller is up")
-
 }
 
 // bringUpTKGController helps to bring the TKG control manager pod up
