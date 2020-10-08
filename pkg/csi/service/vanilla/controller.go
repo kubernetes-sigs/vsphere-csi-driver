@@ -25,24 +25,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vmware/govmomi/cns"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
+	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"github.com/zekroTJA/timedmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -96,7 +95,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *config.Config) error {
+func (c *controller) Init(config *cnsconfig.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -162,10 +161,16 @@ func (c *controller) Init(config *config.Config) error {
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 
-	// Initialize CO utility
-	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, config.FeatureStatesConfig)
+	// Initialize CO common utility
+	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
+	}
+	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
+		k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: config.InternalFeatureStatesConfig})
+	if err != nil {
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
@@ -178,6 +183,7 @@ func (c *controller) Init(config *config.Config) error {
 		c.authMgr = authMgr
 		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager))
 	}
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)

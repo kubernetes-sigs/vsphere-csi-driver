@@ -87,7 +87,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
              "csi-migration": "true"
            kind: ConfigMap
            metadata:
-             name: csi-feature-states
+             name: internal-feature-states.csi.vsphere.vmware.com
              namespace: kube-system
 
 4. Install admission webhook.
