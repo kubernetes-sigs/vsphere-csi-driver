@@ -26,13 +26,12 @@ import (
 	"strconv"
 	"strings"
 
-	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+	"gopkg.in/gcfg.v1"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	"gopkg.in/gcfg.v1"
 )
 
 const (
@@ -50,10 +49,13 @@ const (
 	EnvGCConfig = "GC_CONFIG"
 	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
-	// DefaultFSSConfigMapName is the default name Feature states config map
-	DefaultFSSConfigMapName = "csi-feature-states"
-	// DefaultFSSConfigMapNamespaceVanillaK8s is the default value for Feature state config map namespace
-	DefaultFSSConfigMapNamespaceVanillaK8s = "kube-system"
+	// DefaultSupervisorFSSConfigMapName is the default name of Feature states config map in Supervisor cluster
+	// This configmap is also replicated by the supervisor unto any TKGS deployed on it
+	DefaultSupervisorFSSConfigMapName = "csi-feature-states"
+	// DefaultInternalFSSConfigMapName is the default name of feature states config map used in pvCSI and Vanilla drivers
+	DefaultInternalFSSConfigMapName = "internal-feature-states.csi.vsphere.vmware.com"
+	// DefaultCSINamespaceVanillaK8s is the default namespace for vanilla driver
+	DefaultCSINamespaceVanillaK8s = "kube-system"
 	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers
 	DefaultCSINamespace = "vmware-system-csi"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
@@ -308,16 +310,21 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
-		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
-		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-			// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
-			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
-			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
-		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
-			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
-		}
+	// Validate FeatureStateConfig used in Supervisor cluster
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
+		// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
+		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
+			DefaultSupervisorFSSConfigMapName, DefaultCSINamespace)
+		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
+		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
+	}
+	// Validate InternalFeatureStateConfig used in vanilla cluster
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla && cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
+		// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
+		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
+			DefaultInternalFSSConfigMapName, DefaultCSINamespaceVanillaK8s)
+		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
+		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespaceVanillaK8s
 	}
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
@@ -453,11 +460,13 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		cfg.GC.Port = DefaultGCPort
 	}
 	// Set default fss configmap name if SV FSS configmap info is not available in GC Config
-	if cfg.FeatureStatesConfig.Name == "" {
-		cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
+	if cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
+		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
+		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespace
 	}
-	// Set default csi namespace if SV FSS configmap info is not available in GC Config
-	if cfg.FeatureStatesConfig.Namespace == "" {
+
+	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
+		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
 		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 	}
 	return cfg, nil

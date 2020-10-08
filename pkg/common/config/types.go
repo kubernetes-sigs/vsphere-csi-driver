@@ -63,8 +63,12 @@ type Config struct {
 		Zone   string `gcfg:"zone"`
 		Region string `gcfg:"region"`
 	}
-	// FeatureStatesConfig is the details about feature states configmap
+	// FeatureStatesConfig contains feature states configmap info specific to supervisor cluster
 	FeatureStatesConfig FeatureStatesConfigInfo
+
+	// InternalFeatureStatesConfig contains feature states configmap info specific to pvCSI and vanilla drivers
+	// NOTE: Do not edit this. Only to be used for dev and testing purposes.
+	InternalFeatureStatesConfig FeatureStatesConfigInfo
 }
 
 // FeatureStatesConfigInfo is the details about feature states configmap

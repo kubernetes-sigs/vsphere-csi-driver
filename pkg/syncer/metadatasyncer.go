@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,6 +45,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -123,10 +125,31 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
+
 	// Initialize the k8s orchestrator interface
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, metadataSyncer.configInfo.Cfg.FeatureStatesConfig)
+	var k8sInitParams interface{}
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
+			InternalFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		k8sInitParams = k8sorchestrator.K8sSupervisorInitParams{
+			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		k8sInitParams = k8sorchestrator.K8sGuestInitParams{
+			InternalFeatureStatesConfigInfo:   metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
+			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
+		}
+	} else {
+		mssg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
+		log.Error(mssg)
+		return errors.New(mssg)
+	}
+
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
 	if err != nil {
-		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor

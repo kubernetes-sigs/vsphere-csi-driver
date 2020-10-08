@@ -140,7 +140,7 @@ data:
   "csi-migration": "false" # csi-migration feature is only available for vSphere 7.0U1
 kind: ConfigMap
 metadata:
-  name: csi-feature-states
+  name: internal-feature-states.csi.vsphere.vmware.com
   namespace: kube-system
 ---
 apiVersion: storage.k8s.io/v1 # For k8s 1.17 or lower use storage.k8s.io/v1beta1
