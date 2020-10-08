@@ -9,10 +9,13 @@ This section lists the major known issues with VMware vSphere CSI driver. For co
 - [Cannot recover from resize failure.](#issue_3)
 - [CNS file volume has a limitation of 8k for metadata.](#issue_4)
 - [CSI volume deletion get called before detach.](#issue_5)
-- [Devops can modify the volume health status of a PVC manually](#issue_6)
-- [Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases](#issue_7)
-- [Migrated Volume Deleted by in-tree vSphere plugin remains on the CNS UI](#issue_8)
-= [CnsRegisterVolume API does not validate if the volume to import is already imported or already present in the supervisor cluster](#issue_9)
+- [Devops can modify the volume health status of a PVC manually.](#issue_6)
+- [Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases.](#issue_7)
+- [Migrated Volume Deleted by in-tree vSphere plugin remains on the CNS UI.](#issue_8)
+- [CnsRegisterVolume API does not validate if the volume to import is already imported or already present in the supervisor cluster.](#issue_9)
+- [Volume expansion might fail when it is called with pod creation simultaneously.](#issue_10)
+- [Supervisor devops can manually expand the PVC in Supervisor namespace in vSphere 7.0 Update1.](#issue_11)
+- [Supervisor Cluster PVC expanded size is lost and cannot be reclaimed in vSphere 7.0 Update1.](#issue_12)
 
 Issue 1<a id="issue_1"></a>: Filesystem resize is skipped if the original PVC is deleted when FilesystemResizePending condition is still on the PVC, but PV and its associated volume on the storage system are not deleted due to the Retain policy.
 
@@ -75,3 +78,18 @@ Issue 9<a id="issue_9"></a>: CnsRegisterVolume API does not validate if the volu
 
 - Impact: One of the PVC using the CNS volume will be usable at any point in time. Usage of any other PVC will lead to attach failures.
 - Workaround: None
+
+Issue 10<a id="issue_10"></a>: Volume expansion might fail when it is called with pod creation simultaneously.
+
+- Impact: Users can resize the PVC and create a pod using that PVC simultaneously. In this case, pod creation might be completed first using the PVC with original size. Volume expansion will fail because online resize is not supported in vSphere 7.0 Update1.
+- Workaround: Wait for the PVC to reach FileVolumeResizePending condition before attaching a pod to it.
+
+Issue 11<a id="issue_11"></a>: Supervisor devops can manually expand the PVC in Supervisor namespace in vSphere 7.0 Update1.
+
+- Impact: Supervisor devops can manually expand the PVC in Supervisor namespace, but the file system will not be expanded. It is not a supported use case and a current limitation now.
+- Workaround: Create a static PVC in Tanzu Kubernetes Grid Service Cluster using the SVC PVC, and expand the TKGS PVC to a size equal to or greater than the previously requested size and then attach to a Pod for the underlying filesystem to resize.
+
+Issue 12<a id="issue_12"></a>: The Supervisor Cluster PVC expanded size is lost and cannot be reclaimed in vSphere 7.0 Update1.
+
+- Impact: Users can create a PVC and expand the volume in a Tanzu Kubernetes Grid Service Cluster. Before the TKGS PVC is attached to a pod, the TKGS is destroyed. Supervisor Cluster PVC with its FilesystemResizePending condition can be reused in a different TKGS but filesystem will not be expanded.
+- Workaround: Create a static PVC in Tanzu Kubernetes Grid Service Cluster using the SVC PVC if it is not present and expand the TKGS PVC to a size equal to or greater than the previously requested size and then attach to a Pod for the underlying filesystem to resize.
