@@ -39,6 +39,12 @@ import (
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 )
 
+const (
+	// Suffix with each storage class resource on the quota
+	// https://kubernetes.io/docs/concepts/policy/resource-quotas/#storage-resource-quota
+	scResourceNameSuffix = ".storageclass.storage.k8s.io/requests.storage"
+)
+
 // isDatastoreAccessibleToCluster verifies if the datastoreUrl is accessible to cluster
 // with clusterID.
 func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCenter,
@@ -95,8 +101,8 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 }
 
 // getK8sStorageClassName gets the storage class name in K8S mapping the vsphere
-// storagepolicy id.
-func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, storagePolicyID string) (string, error) {
+// storagepolicy id. The policy must also be assigned to the passed namespace.
+func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, storagePolicyID string, namespace string) (string, error) {
 	log := logger.GetLogger(ctx)
 	scList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -104,16 +110,46 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, 
 		log.Error(msg)
 		return "", errors.New(msg)
 	}
+	var scName string
 	for _, sc := range scList.Items {
 		scParams := sc.Parameters
 		for paramName, val := range scParams {
 			param := strings.ToLower(paramName)
 			if param == common.AttributeStoragePolicyID && val == storagePolicyID {
-				return sc.Name, nil
+				scName = sc.Name
+				break //There will be only one storage class in the cluster with a given policy ID.
 			}
 		}
 	}
-	msg := fmt.Sprintf("Failed to find K8s Storageclass mapping storagepolicyId: %s", storagePolicyID)
+
+	/*
+		Resource Quotas
+			Name:                                                                   <namespace>-storagequota
+			Resource                                                                Used  Hard
+			--------                                                                ---   ---
+			<storage-class-name>.storageclass.storage.k8s.io/requests.storage  		0     5Gi
+	*/
+	quotaList, err := k8sClient.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get resource quotas on the namespace: %s", namespace)
+		log.Error(msg)
+		return "", errors.New(msg)
+	}
+
+	if scName != "" && len(quotaList.Items) > 0 {
+		for _, quota := range quotaList.Items {
+			//Looping over each named resource in the storage quota to check if it matches the storage class.
+			for resource := range quota.Spec.Hard {
+				if scName+scResourceNameSuffix == resource.String() {
+					log.Debugf("Found k8s storage class: %s with storagePolicyId: %s and the policy is assigned to namespace: %s", scName, storagePolicyID, namespace)
+					return scName, nil
+				}
+			}
+		}
+	}
+
+	msg := fmt.Sprintf("Failed to find matching K8s Storageclass. Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s", storagePolicyID, namespace)
+	log.Error(msg)
 	return "", errors.New(msg)
 }
 
