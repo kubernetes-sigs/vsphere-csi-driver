@@ -1429,7 +1429,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		actualErrorMsg := cnsRegisterVolume.Status.Error
 		log.Infof("Error message :%s", actualErrorMsg)
-		expectedErrorMsg := "Failed to create PVC: " + pvcName + " for volume with err: persistentvolumeclaims \"" + pvcName + "\" is forbidden"
+		expectedErrorMsg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s", profileID, autocreatednamespace)
 		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 			log.Errorf("Expected error message : %s", expectedErrorMsg)
 			log.Errorf("Actual error message : %s", actualErrorMsg)
