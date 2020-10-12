@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/vmware/govmomi/vim25/types"
@@ -31,6 +32,10 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+)
+
+const (
+	changeThresholdB = 1 * 1024 * 1024 * 1024
 )
 
 // intendedState of a StoragePool from Datastore properties fetched from VC as source of truth
@@ -147,8 +152,8 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 }
 
 // newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool
-func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
-	scWatchCntlr *StorageClassWatch, vsan *intendedState, node string) (*intendedState, error) {
+func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatch, vsan *intendedState, node string,
+	vsanHost *cnsvsphere.VsanHostCapacity) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
 	nodes := make([]string, 0)
 	nodes = append(nodes, node)
@@ -165,8 +170,8 @@ func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		dsMoid:        fmt.Sprintf("%s-%s", vsan.dsMoid, node),
 		dsType:        fmt.Sprintf("%s-sna", vsan.dsType),
 		spName:        fmt.Sprintf("%s-%s", vsan.spName, node),
-		capacity:      vsan.capacity,  //XXX Get these values in a later change
-		freeSpace:     vsan.freeSpace, //XXX Get these values in a later change
+		capacity:      resource.NewQuantity(vsanHost.Capacity, resource.DecimalSI),
+		freeSpace:     resource.NewQuantity(vsanHost.Capacity-vsanHost.CapacityUsed, resource.DecimalSI),
 		url:           vsan.url,
 		accessible:    true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
 		datastoreInMM: false, // If this node is inMM - the storagepool will not exist at all
@@ -174,6 +179,44 @@ func newIntendedVsanSNAState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		nodes:         nodes,
 		compatSC:      compatSC,
 	}, nil
+}
+
+// getVsanHostCapacities queries each ESX for vSAN disk capacity information
+func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*cnsvsphere.VsanHostCapacity, error) {
+	log := logger.GetLogger(ctx)
+	out := make(map[string]*cnsvsphere.VsanHostCapacity)
+
+	// fetch all hosts in VC cluster
+	hosts, err := c.vc.GetHostsByCluster(ctx, c.clusterID)
+	if err != nil {
+		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
+		return out, err
+	}
+
+	// get hostMoid to k8s node names
+	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
+	if err != nil {
+		log.Errorf("Failed to get host Moids from k8s. Err: %+v", err)
+		return out, err
+	}
+
+	// XXX: We should consider running these in threads to speed this up
+	for _, host := range hosts {
+		capacity, err := host.GetHostVsanCapacity(ctx)
+		if err != nil {
+			log.Errorf("Failed to query vsan disks. Err: %+v", err)
+			return nil, err
+		}
+		nodeName, exists := hostMoIDTok8sName[host.Reference().Value]
+		if !exists {
+			err := fmt.Errorf("failed to find node name for %s in this cluster", host.Reference().Value)
+			log.Error(err)
+			return nil, err
+		}
+		log.Infof("Host %s has capacity %+v", nodeName, capacity)
+		out[nodeName] = capacity
+	}
+	return out, nil
 }
 
 // applyIntendedState applies the given in-memory IntendedState on to the actual state of a StoragePool in the WCP cluster.
@@ -238,21 +281,61 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
 		intendedState.accessible = dsSummary.Accessible
 	}
+	// For a vSAN datastore, update its own and all the vsan sna per host capacity/freeSpace only if it has had a
+	// significant change.
+	needToUpdateVsanCapacity := false
+	if dsSummary.Type == "vsan" && intendedState.isCapacityChangeSignificant(ctx, dsSummary.Capacity, dsSummary.FreeSpace) {
+		needToUpdateVsanCapacity = true
+	}
+	if dsSummary.Type != "vsan" || needToUpdateVsanCapacity {
+		intendedState.capacity = resource.NewQuantity(dsSummary.Capacity, resource.DecimalSI)
+		intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
+	}
 	intendedSpName := makeStoragePoolName(dsSummary.Name)
 	oldSpName := intendedState.spName
 	// Get the changes in properties for this Datastore into the intendedState
 	intendedState.spName = intendedSpName
 	intendedState.url = dsSummary.Url
-	intendedState.capacity = resource.NewQuantity(dsSummary.Capacity, resource.DecimalSI)
-	intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
 	// update StoragePool as per intendedState
 	if err := c.applyIntendedState(ctx, intendedState); err != nil {
 		return err
 	}
+	if needToUpdateVsanCapacity {
+		log.Debugf("Updating vSAN SNA capacity.")
+		validStoragePoolNames := make(map[string]bool)
+		err := c.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
+		if err != nil {
+			return err
+		}
+	}
 	if intendedSpName != oldSpName {
 		// need to also delete the older StoragePool
 		return deleteStoragePool(ctx, oldSpName)
+	}
+	return nil
+}
+
+func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState *intendedState,
+	validStoragePoolNames map[string]bool, scWatchCntlr *StorageClassWatch) error {
+	log := logger.GetLogger(ctx)
+	vsanHostCapacities, err := c.getVsanHostCapacities(ctx)
+	if err != nil {
+		log.Errorf("Error encountered fetching vSAN SNA Host capacities. Err: %v", err)
+		return err
+	}
+	for snaNode, vsanHostCapacity := range vsanHostCapacities {
+		intendedSNAState, err := newIntendedVsanSNAState(ctx, scWatchCntlr, vsanState, snaNode, vsanHostCapacity)
+		if err != nil {
+			log.Errorf("Error reconciling StoragePool for vsan sna node %s. Err: %v", snaNode, err)
+			continue
+		}
+		validStoragePoolNames[intendedSNAState.spName] = true
+		err = c.applyIntendedState(ctx, intendedSNAState)
+		if err != nil {
+			log.Errorf("Error applying intended state of StoragePool %s. Err: %v", intendedSNAState.spName, err)
+			continue
+		}
 	}
 	return nil
 }
@@ -371,4 +454,31 @@ func setNestedField(ctx context.Context, obj map[string]interface{}, value inter
 	if err := unstructured.SetNestedField(obj, value, fields...); err != nil {
 		log.Errorf("err: %v", err)
 	}
+}
+
+// isCapacityChangeSignificant returns true if the capacity change from old to new
+// is deemed significant enough to warrant a remediation.
+// currently set to 1GB space change, somewhat arbitrarily.
+func isCapacityChangeSignificant(old int64, new int64) bool {
+	return math.Abs(float64(old-new)) > float64(changeThresholdB)
+}
+
+// Returns true if the freeCapacity is below a threshold (chosen to be 20% to match with disk capacity health) or if the
+// change in capacity or freeSpace is significant.
+func (state *intendedState) isCapacityChangeSignificant(ctx context.Context, vsanCapacity int64, vsanFreeCapacity int64) bool {
+	log := logger.GetLogger(ctx)
+	// has the vSAN Datastore's freeSpace dropped below threshold
+	freeSpaceThreshold := 0.2
+	vsanFreeSpaceLow := float64(vsanFreeCapacity)/float64(vsanCapacity) <= freeSpaceThreshold
+	if vsanFreeSpaceLow {
+		log.Debugf("vSAN freeSpace low: %v", vsanFreeCapacity)
+		return true
+	}
+
+	// has the vSAN Datastore's capacity of freeSpace changed significantly?
+	vsanCapacityChanged := isCapacityChangeSignificant(vsanCapacity, state.capacity.Value())
+	vsanFreeSpaceChanged := isCapacityChangeSignificant(vsanFreeCapacity, state.freeSpace.Value())
+	log.Debugf("vSAN freeSpace changed significantly: %t, capacity changed significantly: %t",
+		vsanFreeSpaceChanged, vsanCapacityChanged)
+	return vsanCapacityChanged || vsanFreeSpaceChanged
 }
