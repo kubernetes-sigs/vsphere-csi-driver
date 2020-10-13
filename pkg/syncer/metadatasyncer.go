@@ -1036,7 +1036,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	} else {
 		var volumeHandle string
 		var err error
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
+		// Fetch FSS value for CSI migration once
+		migrationFeatureEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
+		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
 			// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
 			if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 				log.Errorf("PVDeleted: Failed to get migration service. Err: %v", err)
@@ -1064,6 +1066,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, deleteDisk); err != nil {
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
+			return
 		}
 	}
 }
