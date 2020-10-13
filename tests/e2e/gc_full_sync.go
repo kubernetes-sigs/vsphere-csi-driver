@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		fysncInterval := string(int((fullSyncWaitTime - 20) / 120))
+		fysncInterval := fmt.Sprintf("%v", int((fullSyncWaitTime-20)/120))
 		ginkgo.By(fmt.Sprintf("Reducing full sync interval to %v mins for the test...", fysncInterval))
 		_ = updateCSIDeploymentTemplateFullSyncInterval(client, fysncInterval, csiSystemNamespace)
 		defer func() {
