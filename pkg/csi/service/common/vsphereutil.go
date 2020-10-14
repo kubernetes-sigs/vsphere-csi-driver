@@ -135,7 +135,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor)
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
@@ -282,7 +282,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor)
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,

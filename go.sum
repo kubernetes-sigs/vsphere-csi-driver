@@ -642,11 +642,8 @@ github.com/vishvananda/netlink v1.0.0/go.mod h1:+SR5DhBJrl6ZM7CoCKvpw5BKroDKQ+PJ
 github.com/vishvananda/netns v0.0.0-20171111001504-be1fbeda1936/go.mod h1:ZjcWmFBXmLKZu9Nxj3WKYEafiSqer2rnvPr0en9UNpI=
 github.com/vmware-tanzu/vm-operator-api v0.1.3 h1:4vxewu0jAN3fSoCBI6FhjmRGJ7ci0R2WNu/I6hacTYs=
 github.com/vmware-tanzu/vm-operator-api v0.1.3/go.mod h1:mubK0QMyaA2TbeAmGsu2GVfiqDFppNUAUqoMPoKFgzM=
-github.com/vmware/govmomi v0.20.3/go.mod h1:URlwyTFZX72RmxtxuaFL2Uj3fD1JTvZdx59bHWk6aFU=
-github.com/vmware/govmomi v0.23.1 h1:vU09hxnNR/I7e+4zCJvW+5vHu5dO64Aoe2Lw7Yi/KRg=
-github.com/vmware/govmomi v0.23.1/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
-github.com/vmware/govmomi v0.23.2-0.20200914215146-b553bfc00728 h1:ZNyGvj9oVMJormlAZuO/1NuWEukPvIl/MyrG5vgjx7o=
-github.com/vmware/govmomi v0.23.2-0.20200914215146-b553bfc00728/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
+github.com/vmware/govmomi v0.23.2-0.20200915235406-49b4974659e1 h1:cOmmloKpYtLP8sHzFK9g841PXQzjIB6abTdz7uvrakI=
+github.com/vmware/govmomi v0.23.2-0.20200915235406-49b4974659e1/go.mod h1:Y+Wq4lst78L85Ge/F8+ORXIWiKYqaro1vhAulACy9Lc=
 github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9oS4Wk2s2u4tS29nEaDLdzvuHdB19CvSGJjPgkZJNk=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=

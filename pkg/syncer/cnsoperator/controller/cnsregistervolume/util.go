@@ -69,7 +69,7 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 	}
 	containerCluster := vsphere.GetContainerCluster(r.configInfo.Cfg.Global.ClusterID,
 		r.configInfo.Cfg.VirtualCenter[host].User,
-		cnstypes.CnsClusterFlavorWorkload)
+		cnstypes.CnsClusterFlavorWorkload, r.configInfo.Cfg.Global.ClusterDistribution)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       volumeName,
 		VolumeType: common.BlockVolumeType,
