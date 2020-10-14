@@ -62,6 +62,10 @@ spec:
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
+            - name: INCLUSTER_CLIENT_BURST
+              value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -100,6 +104,10 @@ spec:
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "100"
+            - name: INCLUSTER_CLIENT_BURST
+              value: "100"
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -111,6 +119,9 @@ spec:
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
+            # needed only for topology aware setup
+            #- "--feature-gates=Topology=true"
+            #- "--strict-topology"
           env:
             - name: ADDRESS
               value: /csi/csi.sock

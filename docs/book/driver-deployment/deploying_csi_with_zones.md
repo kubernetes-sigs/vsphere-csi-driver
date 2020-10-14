@@ -153,7 +153,7 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
 
 3. Install the CSI driver.
 
-   Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true`.
+   Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true` and `--strict-topology`.
 
    In the credential secret file, add entries for region and zone.
 
@@ -163,6 +163,27 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    zone = k8s-zone
    ```
 
+   Make sure secret is mounted on all workload nodes as well. This is required to help node discover its topology.
+
+   ```yaml
+     containers:
+     - name: vsphere-csi-node
+     .
+     .
+     volumeMounts:
+     - name: vsphere-config-volume
+       mountPath: /etc/cloud
+       readOnly: true
+     .
+     .
+     volumes:
+     - name: vsphere-config-volume
+       secret:
+         secretName: vsphere-config-secret
+     .
+     .
+     ```
+
 4. Verify that your CSI driver installation is successful.
 
    ```bash
@@ -171,5 +192,5 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    k8s-node2 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node2 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
    k8s-node3 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node3 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
    k8s-node4 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node4 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   k8s-node5 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:
+   k8s-node5 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node5 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
    ```

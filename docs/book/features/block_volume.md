@@ -1,4 +1,5 @@
 <!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD034 -->
 # vSphere CSI Driver - Block Volume
 
 - [Dynamic Volume Provisioning](#dynamic_volume_provisioning)
@@ -10,6 +11,7 @@
   - [How does it work](#static_volume_provisioning_how)
   - [Use Cases of Static Provisioning](#static_volume_provisioning_use_case)
   - [Statically Provision a Block Volume in Vanilla Kubernetes Cluster](#static_volume_provisioning_vanilla)
+  - [Statically Provision a Block Volume in vSphere with Kubernetes](#static_volume_provisioning_vsphere_with_k8s)
   - [Statically Provision a Block Volume in Tanzu Kubernetes Grid Service](#static_volume_provisioning_tkg)
 
 ## Volume Provisioning
@@ -375,6 +377,47 @@ cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
             VolumeAttributes:      type=vSphere CNS Block Volume
         Events:                <none>
     ```
+
+### Statically Provision a Block Volume in vSphere with Kubernetes<a id="static_volume_provisioning_vsphere_with_k8s"></a>
+
+vSphere 7.0 did not support static volume provisioning in vSphere with Kubernetes aka supervisor cluster. Static volume provisioning is a process where an existing volume on the storage is made available in the Kubernetes cluster. There are use cases where we want to import existing volumes into supervisor cluster.
+
+A new CnsRegisterVolume API is introduced in vSphere 7.0 Update1 release in vSphere with Kubernetes that allows importing an existing CNS volume or First Class Disk (FCD) or vmdk into a supervisor namespace. CnsRegisterVolume API objects are namespaced objects and once created successfully it would create a PVC in that namespace and a PV bound to that PVC.
+
+**NOTE:** Please note that CnsRegisterVolume API instances cannot be created by normal SV devop users.
+
+1. Import CNS volume or First Class Disk (FCD) into Supervisor Cluster.
+
+    ```yaml
+      apiVersion: cns.vmware.com/v1alpha1
+      kind: CnsRegisterVolume
+      metadata:
+        name: import-mongodb
+      spec:
+        pvcName: mongo-pvc
+        volumeID: fe1efbd0-79f7-4a2f-a8a9-69852e62225a
+        accessMode: ReadWriteOnce
+    ```
+
+    - `pvcName` is the name of the PVC that will be created in the namespace.
+    - `volumeID` is the CNS volume Id or FCD Id that will be imported into the supervisor namespace. CNS volume Id is available on CNS UI.
+    - `accessMode` indicates whether its a block or a file volume. Currently only block volume with `ReadWriteOnce` is supported.
+
+2. Import VMDK into Supervisor Cluster.
+
+    ```yaml
+      apiVersion: cns.vmware.com/v1alpha1
+      kind: CnsRegisterVolume
+      metadata:
+        name: import-mongodb
+      spec:
+        pvcName: mongo-pvc
+        diskURLPath: https://10.161.1.195/folder/testdisk2.vmdk?dcPath=test-vpx-1586388419-26155-wcp.wcp-sanity&dsName=nfs0-1
+    ```
+
+    - `diskURLPath` this field would identify the URL path to an existing disk that will be used to import into supervisor namespace.
+    Format: `https://<vc_ip>/folder/<vm_vmdk_path>?dcPath=<datacenterPath>&dsName=<datastoreName>`
+    - `accessMode` will be defaulted to `ReadWriteOnce` in this case.
 
 ### Statically Provision a Block Volume in Tanzu Kubernetes Grid Service<a id="static_volume_provisioning_tkg"></a>
 

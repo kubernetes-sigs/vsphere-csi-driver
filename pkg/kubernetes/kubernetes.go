@@ -87,6 +87,7 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 			return nil, err
 		}
 	}
+	config.QPS, config.Burst = getClientThroughput(ctx, false)
 	return config, nil
 }
 
@@ -98,12 +99,11 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 		log.Errorf("Failed to get KubeConfig. err: %v", err)
 		return nil, err
 	}
-	config.QPS, config.Burst = getClientThroughput(ctx, true)
 	return clientset.NewForConfig(config)
 }
 
-// GetRestClientConfig returns restclient config for given endpoint, port, certificate and token
-func GetRestClientConfig(ctx context.Context, endpoint string, port string) *restclient.Config {
+// GetRestClientConfigForSupervisor returns restclient config for given endpoint, port, certificate and token
+func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port string) *restclient.Config {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	const (
@@ -125,7 +125,7 @@ func GetRestClientConfig(ctx context.Context, endpoint string, port string) *res
 		},
 		BearerToken: string(token),
 	}
-	config.QPS, config.Burst = getClientThroughput(ctx, false)
+	config.QPS, config.Burst = getClientThroughput(ctx, true)
 	return config
 }
 
@@ -236,18 +236,18 @@ func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName 
 // QPS and Burst default to 50.
 // The maximum accepted value for QPS or Burst is set to 1000.
 // The minimum accepted value for QPS or Burst is set to 5.
-func getClientThroughput(ctx context.Context, inClusterClient bool) (float32, int) {
+func getClientThroughput(ctx context.Context, isSupervisorClient bool) (float32, int) {
 	log := logger.GetLogger(ctx)
 	var envClientQPS, envClientBurst string
 	qps := defaultClientQPS
 	burst := defaultClientBurst
 
-	if inClusterClient {
-		envClientQPS = types.EnvInClusterClientQPS
-		envClientBurst = types.EnvInClusterClientBurst
-	} else {
+	if isSupervisorClient {
 		envClientQPS = types.EnvSupervisorClientQPS
 		envClientBurst = types.EnvSupervisorClientBurst
+	} else {
+		envClientQPS = types.EnvInClusterClientQPS
+		envClientBurst = types.EnvInClusterClientBurst
 	}
 
 	if v := os.Getenv(envClientQPS); v != "" {
