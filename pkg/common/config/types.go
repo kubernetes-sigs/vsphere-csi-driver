@@ -46,6 +46,8 @@ type Config struct {
 		// VCClientTimeout specifies a time limit in minutes for requests made by client
 		// If not set, default will be 5 minutes
 		VCClientTimeout int `gcfg:"vc-client-timeout"`
+		// Cluster Distribution Name
+		ClusterDistribution string `gcfg:"cluster-distribution"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
@@ -112,4 +114,6 @@ type GCConfig struct {
 	TanzuKubernetesClusterUID string `gcfg:"tanzukubernetescluster-uid"`
 	// Guest Cluster Name
 	TanzuKubernetesClusterName string `gcfg:"tanzukubernetescluster-name"`
+	// Cluster Distribution Name
+	ClusterDistribution string `gcfg:"cluster-distribution"`
 }

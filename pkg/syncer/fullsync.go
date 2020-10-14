@@ -106,7 +106,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	}
 	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(pvToCnsEntityMetadataMap), spew.Sdump(pvToK8sEntityMetadataMap))
 	// Get specs for create and update volume calls
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, k8sPVs, pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
 	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {

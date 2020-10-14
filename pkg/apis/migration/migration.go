@@ -364,7 +364,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q", storagePolicyID, volumeSpec.StoragePolicyName)
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user, cnstypes.CnsClusterFlavorVanilla)
+	containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user, cnstypes.CnsClusterFlavorVanilla, volumeMigration.cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       uuid.String(),
