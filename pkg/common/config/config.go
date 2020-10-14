@@ -78,6 +78,10 @@ var (
 	// define any vCenters.
 	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
 
+	// ErrClusterIdCharLimit is returned when the provided cluster id is more
+	// than 64 characters.
+	ErrClusterIDCharLimit = errors.New("cluster id must not exceed 64 characters")
+
 	// ErrMissingEndpoint is returned when the provided configuration does not
 	// define any endpoints.
 	ErrMissingEndpoint = errors.New("no Supervisor Cluster endpoint defined in Guest Cluster config")
@@ -241,6 +245,11 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if len(cfg.VirtualCenter) == 0 {
 		log.Error(ErrMissingVCenter)
 		return ErrMissingVCenter
+	}
+	// Cluster ID should not exceed 64 characters.
+	if len(cfg.Global.ClusterID) > 64 {
+		log.Error(ErrClusterIDCharLimit)
+		return ErrClusterIDCharLimit
 	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)
