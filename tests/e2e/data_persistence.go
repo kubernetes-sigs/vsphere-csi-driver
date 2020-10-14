@@ -29,6 +29,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -303,8 +304,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		scParameters["storagePolicyID"] = profileID
 
 		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if err != nil {
-			gomega.Expect(err).To(gomega.HaveOccurred())
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
