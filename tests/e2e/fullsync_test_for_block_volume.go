@@ -88,7 +88,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
+			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
+			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
 				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
 			}
 		} else {

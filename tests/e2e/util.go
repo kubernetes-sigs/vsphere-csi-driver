@@ -17,12 +17,15 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -36,15 +39,18 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"golang.org/x/crypto/ssh"
 	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -289,7 +295,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ginkgo.By(fmt.Sprintf("Creating StorageClass [%q] With scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
+	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName, scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
@@ -337,10 +343,14 @@ func updateDeploymentReplica(client clientset.Interface, count int32, name strin
 	return deployment
 }
 
-// bringDownCsiContorller helps to bring the csi controller pod down
-// Its taks svc/gc client as input
-func bringDownCsiContorller(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 0, vsphereCSIcontroller, vsphereSystemNamespace)
+// bringDownCsiController helps to bring the csi controller pod down
+// Default namespace used here is csiSystemNamespace
+func bringDownCsiController(Client clientset.Interface, namespace ...string) {
+	if len(namespace) == 0 {
+		updateDeploymentReplica(Client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+	} else {
+		updateDeploymentReplica(Client, 0, vSphereCSIControllerPodNamePrefix, namespace[0])
+	}
 	ginkgo.By("Controller is down")
 }
 
@@ -351,12 +361,15 @@ func bringDownTKGController(Client clientset.Interface) {
 	ginkgo.By("TKGControllManager replica is set to 0")
 }
 
-// bringUpCsiContorller helps to bring the csi controller pod down
-// Its taks svc/gc client as input
-func bringUpCsiContorller(gcClient clientset.Interface) {
-	updateDeploymentReplica(gcClient, 1, vsphereCSIcontroller, vsphereSystemNamespace)
+// bringUpCsiController helps to bring the csi controller pod down
+// Default namespace used here is csiSystemNamespace
+func bringUpCsiController(Client clientset.Interface, namespace ...string) {
+	if len(namespace) == 0 {
+		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+	} else {
+		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, namespace[0])
+	}
 	ginkgo.By("Controller is up")
-
 }
 
 // bringUpTKGController helps to bring the TKG control manager pod up
@@ -376,6 +389,34 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 	}
 	return svcClient, svcNamespace
+}
+
+// updateCSIDeploymentTemplateFullSyncInterval helps to update the FULL_SYNC_INTERVAL_MINUTES in deployment template
+// For this to take effect we need to terminate the running csi controller pod
+// returns fsync interval value before the change
+func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containers := deployment.Spec.Template.Spec.Containers
+	oldValue := ""
+	for _, c := range containers {
+		if c.Name == "vsphere-syncer" {
+			for _, e := range c.Env {
+				if e.Name == "FULL_SYNC_INTERVAL_MINUTES" {
+					oldValue = e.Value
+					e.Value = mins
+				}
+			}
+		}
+	}
+	deployment.Spec.Template.Spec.Containers = containers
+	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Waiting for a min for update operation on deployment to take effect...")
+	time.Sleep(1 * time.Minute)
+	return oldValue
 }
 
 // getLabelsMapFromKeyValue returns map[string]string for given array of vim25types.KeyValue
@@ -739,6 +780,19 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 	}
 }
 
+// setResourceQuota resource quota to the specified limit for the given namespace
+func setResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	newQuota := newTestResourceQuota(existingResourceQuota.GetName(), size, scName)
+	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(ctx, newQuota, metav1.UpdateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", resourceQuota))
+}
+
 // newTestResourceQuota returns a quota that enforces default constraints for testing
 func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQuota {
 	hard := v1.ResourceList{}
@@ -920,15 +974,143 @@ func isDatastorePresentinTargetvSANFileShareDatastoreURLs(datastoreURL string) b
 func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var svcClient clientset.Interface
-	var err error
-	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+
+	svcClient, svNamespace := getSvcClientAndNamespace()
+	svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	_, err = svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
-	return err == nil
+	framework.Logf("PVC in supervisor namespace: %s", svPvc.Name)
+	return true
+}
+
+// returns crd if found by name
+func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: "cnsnodevmattachments"}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, crd := range list.Items {
+		instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if expectedInstanceName == instance.Name {
+			ginkgo.By(fmt.Sprintf("Found CNSNodeVMAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+			framework.Logf("instance attached  is : %t\n", instance.Status.Attached)
+			return instance
+		}
+	}
+	return nil
+}
+
+//verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisior
+func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
+	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+	if instance != nil {
+		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
+		gomega.Expect(instance.Status.Attached).To(gomega.BeTrue())
+	}
+	gomega.Expect(instance).NotTo(gomega.BeNil())
+}
+
+//verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisior
+func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
+	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+	if instance != nil {
+		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
+		gomega.Expect(instance.Status.Attached).To(gomega.BeFalse())
+	}
+	gomega.Expect(instance).To(gomega.BeNil())
+}
+
+//verifyPodCreation helps to create/verify and delete the pod in given namespace
+//It takes client, namespace, pvc, pv as input
+func verifyPodCreation(f *framework.Framework, client clientset.Interface, namespace string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
+	ginkgo.By("Create pod and wait for this to be in running phase")
+	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// svcPVCName refers to PVC Name in the supervisor cluster
+	svcPVCName := pv.Spec.CSI.VolumeHandle
+
+	ginkgo.By(fmt.Sprintf("Verify cnsnodevmattachment is created with name : %s ", pod.Spec.NodeName))
+	verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+	verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdVersion, crdGroup)
+
+	ginkgo.By("Deleting the pod")
+	err = fpod.DeletePodWithWait(client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Verify volume is detached from the node")
+	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+	ginkgo.By("Verify CnsNodeVmAttachment CRDs are deleted")
+	verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+
+}
+
+// verifyCRDInSupervisor is a helper method to check if a given crd is created/deleted in the supervisor cluster
+// This method will fetch the List of CRD Objects for a given crdName, Version and Group and then
+// verifies if the given expectedInstanceName exist in the list
+func verifyCRDInSupervisorWithWait(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	var instanceFound bool
+
+	const timeout time.Duration = 30
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		list, err := resourceClient.List(ctx, metav1.ListOptions{})
+		if err != nil || list == nil {
+			continue
+		}
+		if list != nil {
+			for _, crd := range list.Items {
+				if crdName == "cnsnodevmattachments" {
+					instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+					err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if expectedInstanceName == instance.Name {
+						ginkgo.By(fmt.Sprintf("Found CNSNodeVMAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+						instanceFound = true
+						break
+					}
+				}
+				if crdName == "cnsvolumemetadatas" {
+					instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+					err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if expectedInstanceName == instance.Name {
+						ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+						instanceFound = true
+						break
+					}
+				}
+			}
+		}
+		if isCreated {
+			gomega.Expect(instanceFound).To(gomega.BeTrue())
+		} else {
+			gomega.Expect(instanceFound).To(gomega.BeFalse())
+		}
+	}
 }
 
 // verifyCRDInSupervisor is a helper method to check if a given crd is created/deleted in the supervisor cluster
@@ -964,6 +1146,84 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if expectedInstanceName == instance.Name {
 				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+		}
+	}
+	if isCreated {
+		gomega.Expect(instanceFound).To(gomega.BeTrue())
+	} else {
+		gomega.Expect(instanceFound).To(gomega.BeFalse())
+	}
+}
+
+//verifyEntityReferenceForKubEntities takes context,client, pv, pvc and pod as inputs
+//and verifies crdCNSVolumeMetadata is attached
+
+func verifyEntityReferenceForKubEntities(ctx context.Context, f *framework.Framework, client clientset.Interface, pv *v1.PersistentVolume, pvc *v1.PersistentVolumeClaim, pod *v1.Pod) {
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	volumeID := pv.Spec.CSI.VolumeHandle
+	// svcPVCName refers to PVC Name in the supervisor cluster
+	svcPVCName := volumeID
+	volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+	gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+
+	podUID := string(pod.UID)
+	fmt.Println("Pod uuid :", podUID)
+	fmt.Println("PVC name in SV", svcPVCName)
+	pvcUID := string(pvc.GetUID())
+	fmt.Println("PVC UUID in GC", pvcUID)
+	gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
+
+	fmt.Println("gcClusterId", gcClusterID)
+	pvUID := string(pv.UID)
+	fmt.Println("PV uuid", pvUID)
+
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+	verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+}
+
+// verifyEntityReferenceInCRDInSupervisor is a helper method to check CnsVolumeMetadata CRDs exists and has expected labels
+func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool, volumeNames string, checkLabel bool, labels map[string]string, labelPresent bool) {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	//This sleep is to make sure the entity reference is populated
+	time.Sleep(10 * time.Second)
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("expected instancename is : %v", expectedInstanceName)
+
+	var instanceFound bool
+	for _, crd := range list.Items {
+		if crdName == "cnsvolumemetadatas" {
+			instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Found CNSVolumeMetadata type crd instance: %v", instance.Name)
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				vol := instance.Spec.VolumeNames
+				if vol[0] == volumeNames {
+					ginkgo.By(fmt.Sprintf("Entity reference for the volume: %v ,found in the CRD : %v", volumeNames, expectedInstanceName))
+				}
+
+				if checkLabel {
+					ginkgo.By(fmt.Sprintf("Checking the cnsvolumemetadatas for the expected label %v", labels))
+					labelsPresent := instance.Spec.Labels
+					labelFound := reflect.DeepEqual(labelsPresent, labels)
+					if labelFound {
+						gomega.Expect(labelFound).To(gomega.BeTrue())
+					} else {
+						gomega.Expect(labelFound).To(gomega.BeFalse())
+					}
+				}
 				instanceFound = true
 				break
 			}
@@ -1350,4 +1610,300 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
 	}
 
+}
+
+//psodHostWithPv methods finds the esx host where pv is residing and psods it.
+//It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
+func psodHostWithPv(ctx context.Context, vs *vSphere) string {
+	ginkgo.By("VsanObjIndentities")
+	vsanObjuuid := VsanObjIndentities(ctx, &e2eVSphere)
+	framework.Logf("vsanObjuuid %v", vsanObjuuid)
+	gomega.Expect(vsanObjuuid).NotTo(gomega.BeEmpty())
+
+	ginkgo.By("Get host info using queryVsanObj")
+	hostInfo := queryVsanObj(ctx, &e2eVSphere, vsanObjuuid)
+	framework.Logf("vsan object ID %v", hostInfo)
+	gomega.Expect(hostInfo).NotTo(gomega.BeEmpty())
+	hostIP := e2eVSphere.getHostUUID(ctx, hostInfo)
+	framework.Logf("hostIP %v", hostIP)
+	gomega.Expect(hostIP).NotTo(gomega.BeEmpty())
+
+	ginkgo.By("PSOD")
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
+	op, err := connectESX("root", hostIP, sshCmd)
+	framework.Logf(op)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Injecting PSOD ")
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
+	op, err = connectESX("root", hostIP, psodCmd)
+	framework.Logf(op)
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	return hostIP
+}
+
+//VsanObjIndentities returns the vsanObjectsUUID
+func VsanObjIndentities(ctx context.Context, vs *vSphere) []string {
+	var vsanObjUUID []string
+	computeCluster := os.Getenv("CLUSTER_NAME")
+	if computeCluster == "" {
+		if guestCluster {
+			computeCluster = "compute-cluster"
+		} else if supervisorCluster {
+			computeCluster = "wcp-app-platform-sanity-cluster"
+		}
+		framework.Logf("Default cluster is choosen for test")
+	}
+	clusterComputeResource, vsanHealthClient, err := getClusterName(ctx, vs)
+	framework.Logf("clusterComputeResource %v", clusterComputeResource)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, cluster := range clusterComputeResource {
+		framework.Logf("cluster name %v", cluster.Name())
+		if strings.Contains(cluster.Name(), computeCluster) {
+			clusterConfig, err := vsanHealthClient.VsanQueryObjectIdentities(ctx, cluster.Reference())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vsanObjUUID = clusterConfig.Health.ObjectHealthDetail[0].ObjUuids
+			break
+		}
+	}
+	return vsanObjUUID
+}
+
+//queryVsanObj takes vsanObjuuid as input and resturns vsanObj info such as hostUUID
+func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid []string) string {
+	c := newClient(ctx, vs)
+	datacenter := e2eVSphere.Config.Global.Datacenters
+
+	vsanHealthClient, err := newVsanHealthSvcClient(ctx, c.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
+	dc, err := finder.Datacenter(ctx, datacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+
+	result, err := vsanHealthClient.QueryVsanObjects(ctx, vsanObjuuid, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return result
+}
+
+//hostLogin methods sets the ESX host password
+func hostLogin(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
+	answers = make([]string, len(questions))
+	for n := range questions {
+		answers[n] = esxPassword
+	}
+	return answers, nil
+}
+
+//connectESX executes ssh commands on the give ESX host and returns the bash result
+func connectESX(username string, addr string, cmd string) (string, error) {
+	// Authentication
+	config := &ssh.ClientConfig{
+		User:            username,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Auth: []ssh.AuthMethod{
+			ssh.KeyboardInteractive(hostLogin),
+		},
+	}
+	// Connect
+	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
+	if err != nil {
+		framework.Logf("connection failed due to %v", err)
+		return "", err
+	}
+	// Create a session. It is one session per command.
+	session, err := client.NewSession()
+	if err != nil {
+		framework.Logf("session creation failed due to %v", err)
+		return "", err
+	}
+	defer session.Close()
+	var b bytes.Buffer
+	session.Stdout = &b
+	err = session.Start(cmd)
+	return b.String(), err
+}
+
+// getPersistentVolumeSpecWithStorageclass is to create PV volume spec with given FCD ID, Reclaim Policy and labels
+func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string, labels map[string]string) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIBlockDriverName,
+				VolumeHandle: volumeHandle,
+				ReadOnly:     false,
+				FSType:       "ext4",
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: storageClass,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	pv.Annotations = annotations
+	return pv
+}
+
+// getPVCSpecWithPVandStorageClass is to create PVC spec with given PV , storage class and label details
+func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels map[string]string, pvName string, storageclass string) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvcName,
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &storageclass,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
+//waitForEvent waits for and event with specified message substr for a given object name
+func waitForEvent(ctx context.Context, client clientset.Interface, namespace string, substr string, name string) error {
+	log := logger.GetLogger(ctx)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		if err != nil {
+			return false, err
+		}
+		for _, item := range eventList.Items {
+			if strings.Contains(item.Message, substr) {
+				log.Infof("Found event %v", item)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+//bringSvcK8sAPIServerDown function moves the static kube-apiserver.yaml out of k8's manifests directory
+//It takes VC IP and SV K8's master IP as input
+func bringSvcK8sAPIServerDown(vc string) error {
+	file := "master.txt"
+	token := "token.txt"
+	// Note: /usr/lib/vmware-wcp/decryptK8Pwd.py is not an officially supported API and may change at any time
+	sshCmd := fmt.Sprintf("/usr/lib/vmware-wcp/decryptK8Pwd.py > %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err := fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("(awk 'FNR == 7 {print $2}' %s) > %s", file, token)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err = fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("sshpass -f %s ssh root@$(awk 'FNR == 6 {print $2}' master.txt) -o 'StrictHostKeyChecking no' 'mv %s/%s /root'", token, kubeAPIPath, kubeAPIfile)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err = fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	time.Sleep(kubeAPIRecoveryTime)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
+//bringSvcK8sAPIServerUp function moves the static kube-apiserver.yaml to k8's manifests directory
+//It takes VC IP and SV K8's master IP as input
+func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, vc, healthStatus string) error {
+	sshCmd := fmt.Sprintf("sshpass -f token.txt ssh root@$(awk 'FNR == 6 {print $2}' master.txt) -o 'StrictHostKeyChecking no' 'mv /root/%s %s'", kubeAPIfile, kubeAPIPath)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
+	result, err := fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	ginkgo.By(fmt.Sprintf("polling for %v minutes...", pollTimeout))
+	err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatus)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+//pvcHealthAnnotationWatcher polls the health status of pvc and returns error if any
+func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", pollTimeoutShort)
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if pvc.Annotations[pvcHealthAnnotation] == healthStatus {
+			framework.Logf("health annonation added :%v", pvc.Annotations[pvcHealthAnnotation])
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+//wait for ESX to be up
+func checkHostStatus(ip string) error {
+	framework.Logf("host ip %v", ip)
+	timeout := 1 * time.Second
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait until %v seconds", pollTimeoutShort)
+		_, err := net.DialTimeout("tcp", ip+":22", timeout)
+		if err != nil {
+			framework.Logf("Site unreachable, error: ", err)
+			return false, nil
+		}
+		framework.Logf("Site reachable")
+		return true, nil
+	})
+	return waitErr
 }

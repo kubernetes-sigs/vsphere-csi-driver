@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	*/
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with datastoreURL is set in storage class, when no storage policy is offered", func() {
 		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL)
+		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL, false)
 	})
 
 	/*
@@ -245,9 +245,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" not specified in TargetvSANFileShareDatastoreURLs
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Expect the PVC to fail.
-		4. Verify the error message returned on PVC failure is correct.
-		5. Delete PVC
-		6. Delete Storage class
+		4. Delete PVC
+		5. Delete Storage class
 	*/
 	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning fails using datastoreURL specified in storage class not matching the ones specified in TargetvSANFileShareDatastoreURLs", func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -284,10 +283,12 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		ginkgo.By("Expect claim to fail as the datastore URL mentioned in Storage class does not match any of the URLs mentioned in TargetvSANFileShareDatastoreURLs")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		expectedErrMsg := "Non-vsan datastores type VMFS in createSpecs"
-		ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
-		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
+
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)})
+		for _, item := range eventList.Items {
+			framework.Logf(fmt.Sprintf(item.Message))
+		}
+
 	})
 
 })
@@ -354,7 +355,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 }
 
-func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
+func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string, isDCEmpty bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -415,8 +416,13 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 	// Verify if VolumeID is created on the VSAN datastores
 	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
 
-	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
-	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf, only if datacenter list is not empty
+	if !isDCEmpty {
+		gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+	} else {
+		gomega.Expect(e2eVSphere.Config.Global.Datacenters == "").To(gomega.BeTrue(), "Volume is provisioned on the datastore not specified on config file")
+	}
+
 }
 
 func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
