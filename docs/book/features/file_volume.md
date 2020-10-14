@@ -179,3 +179,5 @@ spec:
 ```
 
 The `labels` key-value pair `static-pv-label-key: static-pv-label-value` used in PV `metadata` and PVC `selector` aid in matching the PVC to the PV during static provisioning. Also, remember to retain the `file:` prefix of the vSAN file share while filling up the `volumeHandle` field in PV spec.
+
+**NOTE:** For File volumes, CNS supports multiple PV's referring to the same file-share volume.

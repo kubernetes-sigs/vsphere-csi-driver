@@ -250,6 +250,8 @@ There are many ways to create static PV and PVC binding. Example: Label matching
 
 Static Volume Provisioning is supported only in Vanilla Kubernetes clusters but not in Supervisor clusters
 
+**NOTE:** For Block volumes, vSphere Cloud Native Storage (CNS) only allows one PV in the Kubernetes cluster to refer to a storage disk. Creating multiple PV's using the same Block Volume Handle is not supported.
+
 ### Use Cases of Static Provisioning<a id="static_volume_provisioning_use_case"></a>
 
 Following are the common use cases for static volume provisioning:
