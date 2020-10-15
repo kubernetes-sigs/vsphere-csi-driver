@@ -146,6 +146,18 @@ func TestValidateConfigWithInvalidPermissions(t *testing.T) {
 	}
 }
 
+func TestValidateConfigWithInvalidClusterId(t *testing.T) {
+	cfg := &Config{
+		VirtualCenter: idealVCConfig,
+	}
+	cfg.Global.ClusterID = "test-cluster-with-a-long-name-with-more-than-sixty-four-characters"
+
+	err := validateConfig(ctx, cfg)
+	if err == nil {
+		t.Errorf("Expected error due to invalid cluster id. Config given - %+v", *cfg)
+	}
+}
+
 func isConfigEqual(actual *Config, expected *Config) bool {
 	// TODO: Compare Global struct
 	// Compare VC Config
