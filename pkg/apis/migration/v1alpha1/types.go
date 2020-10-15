@@ -41,8 +41,8 @@ type CnsVSphereVolumeMigrationSpec struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// CnsvSphereVolumeMigrationList contains a list of CnsVSphereVolumeMigration
-type CnsvSphereVolumeMigrationList struct {
+// CnsVSphereVolumeMigrationList contains a list of CnsVSphereVolumeMigration
+type CnsVSphereVolumeMigrationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CnsVSphereVolumeMigration `json:"items"`
