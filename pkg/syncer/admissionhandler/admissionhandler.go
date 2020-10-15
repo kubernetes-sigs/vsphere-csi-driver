@@ -32,8 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -124,7 +126,13 @@ func StartWebhookServer(ctx context.Context) error {
 		log.Debugf("webhook config: %v", cfg)
 	}
 	if k8s == nil {
-		k8s, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cfg.FeatureStatesConfig)
+		clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
+		if err != nil {
+			log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+			return err
+		}
+		k8s, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
+			k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: cfg.InternalFeatureStatesConfig})
 		if err != nil {
 			log.Errorf("failed to get k8s interface. err: %v", err)
 			return err

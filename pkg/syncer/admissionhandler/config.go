@@ -36,8 +36,8 @@ const (
 type config struct {
 	// WebHookConfig contains the detail about webhook - certfile, keyfile, port etc.
 	WebHookConfig webHookConfig
-	// FeatureStatesConfig is the details about feature states configmap
-	FeatureStatesConfig commonconfig.FeatureStatesConfigInfo
+	// InternalFeatureStatesConfig is the details about feature states configmap
+	InternalFeatureStatesConfig commonconfig.FeatureStatesConfigInfo
 }
 
 // webHookConfig holds webhook configuration using which webhook http server will be created

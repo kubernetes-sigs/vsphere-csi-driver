@@ -39,9 +39,11 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -108,9 +110,20 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, config.FeatureStatesConfig)
+
+	// Initialize CO common interface
+	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
+	}
+	k8sInitParams := k8sorchestrator.K8sGuestInitParams{
+		InternalFeatureStatesConfigInfo:   config.InternalFeatureStatesConfig,
+		SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig,
+	}
+	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+	if err != nil {
+		log.Errorf("Failed to create CO agnostic interface. err=%v", err)
 		return err
 	}
 
