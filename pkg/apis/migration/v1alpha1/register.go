@@ -52,7 +52,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&CnsVSphereVolumeMigration{},
-		&CnsvSphereVolumeMigrationList{},
+		&CnsVSphereVolumeMigrationList{},
 	)
 
 	scheme.AddKnownTypes(
