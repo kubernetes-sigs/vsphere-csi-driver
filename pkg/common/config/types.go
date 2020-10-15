@@ -51,6 +51,9 @@ type Config struct {
 		VCClientTimeout int `gcfg:"vc-client-timeout"`
 		// Cluster Distribution Name
 		ClusterDistribution string `gcfg:"cluster-distribution"`
+
+		//CSIAuthCheckIntervalInMin specifies the interval that the auth check for datastores will be trigger
+		CSIAuthCheckIntervalInMin int `gcfg:"csi-auth-check-intervalinmin"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
