@@ -82,7 +82,7 @@ const (
 	podContainerCreatingState                  = "ContainerCreating"
 	poll                                       = 2 * time.Second
 	pollTimeout                                = 5 * time.Minute
-	pollTimeoutShort                           = 1 * time.Minute / 2
+	pollTimeoutShort                           = 1 * time.Minute
 	psodTime                                   = "120"
 	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
 	quotaName                                  = "cns-test-quota"

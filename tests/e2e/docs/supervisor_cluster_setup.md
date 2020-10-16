@@ -4,6 +4,8 @@
 
 ### 1. Create namespace
 
+#### Create two namespaces "e2e-test-namespace" and "e2e-namespace-to-delete"
+
 #### Go to Workload Management
 
 ![Go to Workload Management](images/create_namespace_step_1.png)
@@ -77,8 +79,12 @@ datacenters should be comma separated if deployed on multi-datacenters
     export CLUSTER_FLAVOR="WORKLOAD"
     export GINKGO_FOCUS="csi-supervisor"
     export SVC_NAMESPACE="e2e-test-namespace"
+    #Create a namespace with the name e2e-namespace-to-delete
+    export SVC_NAMESPACE_TO_DELETE="e2e-namespace-to-delete"
     # Set the SHARED_VSPHERE_DATASTORE_URL to the url fetched from the Vcenter as mentioned in the steps above
     export SHARED_VSPHERE_DATASTORE_URL="<shared-vsphere-datastore-url>"
+    # Set the NONSHARED_VSPHERE_DATASTORE_URL to the url fetched from the Vcenter as mentioned in the steps above
+    export NONSHARED_VSPHERE_DATASTORE_URL="<non-shared-vsphere-datastore-url>"
 
 ### To run full sync test, need do extra following steps
 
