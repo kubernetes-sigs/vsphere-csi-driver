@@ -239,6 +239,79 @@ func getVirtualDeviceByDiskID(ctx context.Context, vm *object.VirtualMachine, di
 	return nil, nil
 }
 
+//getPersistentVolumeClaimSpecForFileShare return the PersistentVolumeClaim spec in the specified namespace
+func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
+// getPersistentVolumeSpecForFileShare returns the PersistentVolume spec
+func getPersistentVolumeSpecForFileShare(fileshareID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIBlockDriverName,
+				VolumeHandle: fileshareID,
+				FSType:       "nfs4",
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: "",
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	pv.Annotations = annotations
+	return pv
+}
+
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string, storageclass *storagev1.StorageClass, pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
 	disksize := diskSize

@@ -64,6 +64,8 @@ const (
 	ext3FSType                                 = "ext3"
 	ext4FSType                                 = "ext4"
 	fcdName                                    = "BasicStaticFCD"
+	fileServiceEnabledDatastore                = "FILE_SERVICE_ENABLED_DATASTORE"
+	fileSizeInMb                               = int64(2048)
 	healthGreen                                = "green"
 	healthRed                                  = "red"
 	healthStatusAccessible                     = "accessible"

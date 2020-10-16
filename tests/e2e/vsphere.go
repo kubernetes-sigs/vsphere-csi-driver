@@ -56,6 +56,46 @@ const (
 	virtualDiskUUID = "virtualDiskUUID"
 )
 
+func (vs *vSphere) createCnsVolume(ctx context.Context, createSpecList []cnstypes.CnsVolumeCreateSpec) (*object.Task, error) {
+	connect(ctx, vs)
+	err := connectCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	req := cnstypes.CnsCreateVolume{
+		This:        cnsVolumeManagerInstance,
+		CreateSpecs: createSpecList,
+	}
+	res, err := cnsmethods.CnsCreateVolume(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+	return object.NewTask(vs.Client.Client, res.Returnval), nil
+}
+
+func (vs *vSphere) deleteCnsVolume(ctx context.Context, fileShareID string, delete bool) (*object.Task, error) {
+	connect(ctx, vs)
+	err := connectCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	var cnsVolumeIDList []cnstypes.CnsVolumeId
+	cnsVolumeID := cnstypes.CnsVolumeId{
+		Id: fileShareID,
+	}
+	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+	req := cnstypes.CnsDeleteVolume{
+		This:       cnsVolumeManagerInstance,
+		VolumeIds:  cnsVolumeIDList,
+		DeleteDisk: delete,
+	}
+	res, err := cnsmethods.CnsDeleteVolume(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+	return object.NewTask(vs.Client.Client, res.Returnval), nil
+}
+
 // queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client
 func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
