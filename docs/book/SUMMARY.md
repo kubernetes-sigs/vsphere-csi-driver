@@ -9,6 +9,7 @@
 * Driver Deployment
   * [Prerequisites](driver-deployment/prerequisites.md)
   * [Installation](driver-deployment/installation.md)
+  * [Upgrade](driver-deployment/upgrade.md)
   * [Deployment with Zones](driver-deployment/deploying_csi_with_zones.md)
 * Features
   * [Block Volume](features/block_volume.md)
