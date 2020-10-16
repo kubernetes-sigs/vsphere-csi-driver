@@ -16,7 +16,15 @@ Documentation for vSphere CSI Driver is available here:
 
 Please use appropriate deployment yaml files available here - <https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests>
 
-Note: `v1.0.2`, deployment yamls files are compatible with `v1.0.1`.
+Note:
+
+* `v1.0.2`, deployment yamls files are compatible with `v1.0.1`.
+* It is recommended to use `v2.0.1` if you're on `vSphere 6.7 Update3`
+
+### v2.0.1
+
+* gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.1
+* gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.1
 
 ### v2.0.0
 
