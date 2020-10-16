@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, pvcName, v1.ReadWriteOnce)
 		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(60) * time.Second)
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
 		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 		log.Infof("cnsRegisterVolumeName : %s", cnsRegisterVolumeName)
 
@@ -412,9 +412,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		pv = nil
 
 		ginkgo.By("Verify CRD should be deleted automatically")
-		time.Sleep(time.Duration(40) * time.Second)
-		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
-		gomega.Expect(flag).NotTo(gomega.BeTrue())
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx, restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
 
 		ginkgo.By("Delete Resource quota")
 		deleteResourceQuota(client, namespace)
