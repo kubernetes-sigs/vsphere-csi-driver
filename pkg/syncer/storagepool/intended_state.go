@@ -22,6 +22,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -62,6 +65,8 @@ type intendedState struct {
 	nodes []string
 	// compatible list of StorageClass names computed from SPBM
 	compatSC []string
+	// is a remote vSAN Datastore mounted into this cluster - HCI Mesh feature
+	isRemoteVsan bool
 }
 
 // SpController holds the intended state updated by property collector listener and has methods to apply intended state
@@ -98,8 +103,9 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	clusterID := scWatchCntlr.clusterID
 	spName := makeStoragePoolName(ds.Info.Name)
 
-	capacity, freeSpace, dsURL, dsType, accessible, inMM := getDatastoreProperties(ctx, ds)
-	if capacity == nil || freeSpace == nil {
+	// get datastore properties like capacity, freeSpace, dsURL, dsType, accessible, inMM, containerID
+	dsProps := getDatastoreProperties(ctx, ds)
+	if dsProps.capacity == nil || dsProps.freeSpace == nil {
 		err := fmt.Errorf("error fetching datastore properties for %v", ds.Reference().Value)
 		log.Error(err)
 		return nil, err
@@ -136,19 +142,58 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	} else {
 		log.Infof("Failed to get compatible policies for %s", ds.Reference().Value)
 	}
+
+	remoteVsan, err := isRemoteVsan(ctx, dsProps, clusterID, vcClient.Client)
+	if err != nil {
+		log.Errorf("Not able to determine whether Datastore is vSAN Remote. %+v", err)
+		return nil, err
+	}
+
 	return &intendedState{
 		dsMoid:        ds.Reference().Value,
-		dsType:        dsType,
+		dsType:        dsProps.dsType,
 		spName:        spName,
-		capacity:      capacity,
-		freeSpace:     freeSpace,
-		url:           dsURL,
-		accessible:    accessible,
-		datastoreInMM: inMM,
+		capacity:      dsProps.capacity,
+		freeSpace:     dsProps.freeSpace,
+		url:           dsProps.dsURL,
+		accessible:    dsProps.accessible,
+		datastoreInMM: dsProps.inMM,
 		allHostsInMM:  allNodesInMM,
 		nodes:         nodes,
 		compatSC:      compatSC,
+		isRemoteVsan:  remoteVsan,
 	}, nil
+}
+
+func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vcclient *vim25.Client) (bool, error) {
+	log := logger.GetLogger(ctx)
+	// if datastore type is not vsan, then return false
+	if dsprops.dsType != vsanDsType {
+		return false, nil
+	}
+	// get vsan cluster uuid
+	clsMoRef := types.ManagedObjectReference{
+		Type:  "ClusterComputeResource",
+		Value: clusterID,
+	}
+	cls := object.NewClusterComputeResource(vcclient, clsMoRef)
+	var clsMo mo.ClusterComputeResource
+	err := cls.Properties(ctx, clsMoRef, []string{"configurationEx"}, &clsMo)
+	if err != nil {
+		log.Errorf("Error fetching cluster properties for %s. Err: %+v", clusterID, err)
+		return false, err
+	}
+	vsanClsUUID := clsMo.ConfigurationEx.(*types.ClusterConfigInfoEx).VsanConfigInfo.DefaultConfig.Uuid
+	vsanClsUUID = strings.ReplaceAll(vsanClsUUID, "-", "")
+	dsContainerID := strings.ReplaceAll(dsprops.containerID, "-", "")
+	log.Debugf("Verifying whether vSAN Datastore %s with containerID: %s is local to cluster uuid %s",
+		dsprops.dsName, dsContainerID, vsanClsUUID)
+	// the vsan datastore is a remote mounted one if its containerID is not the same as vsan cluster uuid
+	if dsContainerID != vsanClsUUID {
+		log.Infof("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
+		return true, nil
+	}
+	return false, nil
 }
 
 // newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool
@@ -178,6 +223,7 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 		allHostsInMM:  false, // If this node is inMM - the storagepool will not exist at all
 		nodes:         nodes,
 		compatSC:      compatSC,
+		isRemoteVsan:  false,
 	}, nil
 }
 
