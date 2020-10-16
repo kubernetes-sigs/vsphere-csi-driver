@@ -47,29 +47,44 @@ const (
 	spTypePrefix        = "cns.vmware.com/"
 	spTypeLabelKey      = spTypePrefix + "StoragePoolType"
 	spTypeAnnotationKey = spTypePrefix + "StoragePoolTypeHint"
+	vsanDsType          = spTypePrefix + "vsan"
 	nodeMoidAnnotation  = "vmware-system-esxi-node-moid"
 )
 
+type dsProps struct {
+	dsName      string
+	dsURL       string
+	dsType      string
+	containerID string
+	inMM        bool
+	accessible  bool
+	capacity    *resource.Quantity
+	freeSpace   *resource.Quantity
+}
+
 // getDatastoreProperties returns the total capacity, freeSpace, URL, type and accessibility of the given datastore
-func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) (
-	*resource.Quantity, *resource.Quantity, string, string, bool, bool) {
+func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) *dsProps {
 	log := logger.GetLogger(ctx)
 	var ds mo.Datastore
 	pc := property.DefaultCollector(d.Client())
-	err := pc.RetrieveOne(ctx, d.Reference(), []string{"summary"}, &ds)
+	err := pc.RetrieveOne(ctx, d.Reference(), []string{"summary", "info"}, &ds)
 	if err != nil {
 		log.Errorf("Error retrieving datastore summary for %v. Err: %v", d, err)
-		return nil, nil, "", "", false, false
+		return nil
 	}
-	capacity := resource.NewQuantity(ds.Summary.Capacity, resource.DecimalSI)
-	freeSpace := resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI)
-	accessible := ds.Summary.Accessible
-	inMM := ds.Summary.MaintenanceMode != string(vimtypes.DatastoreSummaryMaintenanceModeStateNormal)
-	dsType := ds.Summary.Type
+	p := dsProps{
+		dsName:      ds.Summary.Name,
+		dsURL:       ds.Summary.Url,
+		dsType:      spTypePrefix + ds.Summary.Type,
+		containerID: ds.Info.GetDatastoreInfo().ContainerId,
+		inMM:        ds.Summary.MaintenanceMode != string(vimtypes.DatastoreSummaryMaintenanceModeStateNormal),
+		accessible:  ds.Summary.Accessible,
+		capacity:    resource.NewQuantity(ds.Summary.Capacity, resource.DecimalSI),
+		freeSpace:   resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI),
+	}
 
-	log.Infof("Datastore %s properties: type %v, capacity %v, freeSpace %v, accessibility %t, "+
-		"inMaintenanceMode %t", d.Info.Name, dsType, capacity, freeSpace, accessible, inMM)
-	return capacity, freeSpace, ds.Summary.Url, spTypePrefix + dsType, accessible, inMM
+	log.Infof("Datastore %s properties: %v", d.Info.Name, p)
+	return &p
 }
 
 // getHostMoIDToK8sNameMap looks up the hostMoid annotation on each k8s node.

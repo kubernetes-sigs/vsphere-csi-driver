@@ -232,7 +232,8 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 			continue
 		}
 
-		if intendedState.dsType == "cns.vmware.com/vsan" {
+		// create vsan-sna StoragePools for local vsan datastore
+		if intendedState.dsType == vsanDsType && !intendedState.isRemoteVsan {
 			err := spCtl.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
 			if err != nil {
 				log.Errorf("Error updating intended state of vSAN SNA StoragePools. Err: %v", err)
