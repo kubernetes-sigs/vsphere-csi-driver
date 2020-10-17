@@ -22,6 +22,7 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -325,7 +326,16 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 	for _, policyID := range w.policyIds {
 		compat, err := w.vc.PbmCheckCompatibility(ctx, datastoreMorList, policyID)
 		if err != nil {
-			log.Errorf("Failed to check PBM compatibility: %s %s", datastoreMorList, policyID)
+			if soap.IsSoapFault(err) {
+				soapFault := soap.ToSoapFault(err)
+				vimFault, isInvalidArgumentErr := soapFault.VimFault().(vimtypes.InvalidArgument)
+				if isInvalidArgumentErr && vimFault.InvalidProperty == "profileId" {
+					// stale policyIDs can be skipped safely
+					log.Infof("Skipping non-existent policy %s that failed in check PBM compatibility %v with error %v",
+						policyID, datastoreMorList, soapFault.String)
+					continue
+				}
+			}
 			return datastoreToPoliciesMap, err
 		}
 
