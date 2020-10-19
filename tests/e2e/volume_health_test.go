@@ -1761,7 +1761,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			if !isSvcUp {
 				ginkgo.By("Bringing SV API server UP")
-				err = bringSvcK8sAPIServerUp(ctx, client, pvclaim, vcAddress, healthStatusAccessible)
+				err = bringSvcK8sAPIServerUp(ctx, client, pvclaim, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -1775,14 +1775,19 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing SV API server UP")
-		err = bringSvcK8sAPIServerUp(ctx, client, pvclaim, vcAddress, healthStatusAccessible)
+		err = bringSvcK8sAPIServerUp(ctx, client, pvclaim, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isSvcUp = true
 
-		ginkgo.By("Expect health status of the pvc to be accessible")
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		ginkgo.By("Expect health status of the pvc to be inaccessible")
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+
+		ginkgo.By("Expect health status of the pvc to be accessible")
+		ginkgo.By("poll for health status annotation")
+		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
