@@ -245,6 +245,10 @@ func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
 // initVolumeMigrationService is a helper method to initialize volumeMigrationService in Syncer
 func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx)
+	// This check is to prevent unnecessary RLocks on the volumeMigration instance
+	if volumeMigrationService != nil {
+		return nil
+	}
 	var err error
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
 	if err != nil {

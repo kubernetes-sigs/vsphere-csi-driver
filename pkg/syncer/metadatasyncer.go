@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,6 +45,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -123,10 +125,31 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
+
 	// Initialize the k8s orchestrator interface
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, metadataSyncer.configInfo.Cfg.FeatureStatesConfig)
+	var k8sInitParams interface{}
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
+			InternalFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		k8sInitParams = k8sorchestrator.K8sSupervisorInitParams{
+			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		k8sInitParams = k8sorchestrator.K8sGuestInitParams{
+			InternalFeatureStatesConfigInfo:   metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
+			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
+		}
+	} else {
+		mssg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
+		log.Error(mssg)
+		return errors.New(mssg)
+	}
+
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
 	if err != nil {
-		log.Errorf("Failed to create co agnostic interface. err=%v", err)
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor
@@ -1013,7 +1036,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	} else {
 		var volumeHandle string
 		var err error
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
+		// Fetch FSS value for CSI migration once
+		migrationFeatureEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
+		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
 			// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
 			if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 				log.Errorf("PVDeleted: Failed to get migration service. Err: %v", err)
@@ -1041,6 +1066,16 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, deleteDisk); err != nil {
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
+		}
+		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
+			// Delete the cnsvspherevolumemigration crd instance when PV is deleted
+			err = volumeMigrationService.DeleteVolumeInfo(ctx, volumeHandle)
+			if err != nil {
+				// TODO: Need to add a cleanup routine for deleting stale volume migration CRs
+				// Mentioned in issue: https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/441
+				log.Errorf("PVDeleted: failed to delete volumeInfo CR for volume: %q. Error: %+v", volumeHandle, err)
+				return
+			}
 		}
 	}
 }

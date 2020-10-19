@@ -137,7 +137,7 @@ data:
   "csi-migration": "false"
 kind: ConfigMap
 metadata:
-  name: csi-feature-states
+  name: internal-feature-states.csi.vsphere.vmware.com
   namespace: kube-system
 ---
 apiVersion: storage.k8s.io/v1beta1

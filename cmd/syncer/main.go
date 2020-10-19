@@ -25,14 +25,13 @@ import (
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/admissionhandler"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
-
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/admissionhandler"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -61,9 +60,9 @@ func main() {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", syncer.Version)
 
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	if clusterFlavor == "" {
-		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	clusterFlavor, err := config.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
 	}
 
 	if *operationMode == operationModeWebHookServer {
