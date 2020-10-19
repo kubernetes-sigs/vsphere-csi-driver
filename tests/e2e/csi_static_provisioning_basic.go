@@ -1115,7 +1115,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Verify the error message, when vsanhealth is down")
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		actualErrorMsg := cnsRegisterVolume.Status.Error
-		expectedErrorMsg := "Unable to find the volume in CNS"
+		expectedErrorMsg := "failed to create CNS volume"
 		if actualErrorMsg != expectedErrorMsg {
 			log.Errorf("Expected error message : ", expectedErrorMsg)
 			log.Errorf("Actual error message : ", actualErrorMsg)
@@ -1204,7 +1204,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Verify the error message, when SPSService is down, CRD should not be successful")
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		actualErrorMsg := cnsRegisterVolume.Status.Error
-		expectedErrorMsg := "CNS Volume: " + fcdID + " not found"
+		expectedErrorMsg := "failed to create CNS volume"
 		if actualErrorMsg != expectedErrorMsg {
 			log.Errorf("Expected error message : ", expectedErrorMsg)
 			log.Errorf("Actual error message : ", actualErrorMsg)
