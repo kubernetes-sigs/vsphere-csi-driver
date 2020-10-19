@@ -50,6 +50,7 @@ const (
 	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
 	vsanDirectType              = spTypePrefix + "vsanD"
 	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
+	diskDecommissionModeField   = "decommMode"
 )
 
 type k8sCloudOperator struct {
@@ -317,4 +318,26 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	log.Debugf("End placementEngine")
 	out.PlaceSuccess = true
 	return out, err
+}
+
+// GetStorageVMotionPlan provide the implementation for the GetHostAnnotation interface method
+// It creates a storage vMotion plan as a map where keys are PVs residing in the specified vSAN Direct Datastore
+// and values are other vSAN Direct Datastores into which the PV should be migrated.
+func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Context, req *StorageVMotionRequest) (*StorageVMotionResponse, error) {
+	log := logger.GetLogger(ctx)
+	out := &StorageVMotionResponse{
+		SvMotionPlan: nil,
+	}
+	if req == nil || req.StoragePoolName == "" {
+		log.Errorf("no right inputs given to GetStorageVMotionPlan")
+		return out, fmt.Errorf("malformed request provided to GetStorageVMotionPlan")
+	}
+	log.Debugf("received GetStorageVMotionPlan for StoragePool %v and maintenance mode %v", req.StoragePoolName, req.MaintenanceMode)
+	svMotionPlan, err := GetSVMotionPlan(ctx, k8sCloudOperator.k8sClient, req.StoragePoolName, req.MaintenanceMode)
+	if err != nil {
+		log.Errorf("Failed to get SvMotion plan. Error: %v", err)
+		return out, err
+	}
+	out.SvMotionPlan = svMotionPlan
+	return out, nil
 }
