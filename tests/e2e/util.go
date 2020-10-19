@@ -1856,24 +1856,6 @@ func bringSvcK8sAPIServerDown(vc string) error {
 	return nil
 }
 
-//bringSvcK8sAPIServerUp function moves the static kube-apiserver.yaml to k8's manifests directory
-//It takes VC IP and SV K8's master IP as input
-// func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, vc, healthStatus string) error {
-// 	sshCmd := fmt.Sprintf("sshpass -f token.txt ssh root@$(awk 'FNR == 6 {print $2}' master.txt) -o 'StrictHostKeyChecking no' 'mv /root/%s %s'", kubeAPIfile, kubeAPIPath)
-// 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
-// 	result, err := fssh.SSH(sshCmd, vc, framework.TestContext.Provider)
-// 	if err != nil || result.Code != 0 {
-// 		fssh.LogResult(result)
-// 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
-// 	}
-// 	ginkgo.By(fmt.Sprintf("polling for %v minutes...", pollTimeout))
-// 	err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatus)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
-
 func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, vc string) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		sshCmd1 := "rm /root/.ssh/known_hosts"
@@ -1890,7 +1872,7 @@ func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvc
 			fssh.LogResult(result)
 			return false, nil
 		}
-		if err == nil || result.Code == 0 {
+		if err == nil && result.Code == 0 {
 			return true, nil
 		}
 		return false, nil

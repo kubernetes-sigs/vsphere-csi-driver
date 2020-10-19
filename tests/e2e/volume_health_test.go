@@ -1780,12 +1780,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isSvcUp = true
 
 		ginkgo.By("Expect health status of the pvc to be inaccessible")
-		ginkgo.By("poll for health status annotation")
 		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect health status of the pvc to be accessible")
-		ginkgo.By("poll for health status annotation")
 		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
