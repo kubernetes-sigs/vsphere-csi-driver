@@ -33,10 +33,12 @@ spec:
             pvcName:
               description: Name of the PVC
               type: string
+              pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
             volumeID:
               description: VolumeID indicates an existing vsphere volume to be imported
                 into Project Pacific cluster
               type: string
+              pattern: '^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$'
             accessMode:
               description: AccessMode contains the actual access mode the volume backing
                 the CnsRegisterVolume has
@@ -45,6 +47,7 @@ spec:
               description: DiskUrlPath is URL path to an existing block volume to be
                 imported into Project Pacific cluster.
               type: string
+              pattern: '^(http[s]?:\/\/)?([^\/\s]+\/folder\/)(.*)$'
           required:
           - pvcName
           type: object
