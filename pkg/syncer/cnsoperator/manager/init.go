@@ -60,7 +60,7 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	log.Infof("Initializing CNS Operator")
 	cnsOperator := &cnsOperator{}
 	cnsOperator.configInfo = configInfo
-	vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo)
+	vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
 	if err != nil {
 		return err
 	}
