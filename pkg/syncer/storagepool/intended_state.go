@@ -119,7 +119,8 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 
 	// only add nodes that are not inMM to the list of nodes
 	nodes := make([]string, 0)
-	allNodesInMM := true
+	// allNodesInMM makes sense to be true only when there are nodes visible for this datastore
+	allNodesInMM := len(nodesMap) != 0
 	for node, inMM := range nodesMap {
 		if !inMM {
 			nodes = append(nodes, node)
@@ -370,7 +371,15 @@ func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState
 		log.Errorf("Error encountered fetching vSAN SNA Host capacities. Err: %v", err)
 		return err
 	}
+	vsanNodes := make(map[string]bool)
+	for _, vsanNode := range vsanState.nodes {
+		vsanNodes[vsanNode] = true
+	}
 	for snaNode, vsanHostCapacity := range vsanHostCapacities {
+		if _, ok := vsanNodes[snaNode]; !ok {
+			log.Infof("Skipping vSAN SNA StoragePool for %s as it is not accessible", snaNode)
+			continue
+		}
 		intendedSNAState, err := newIntendedVsanSNAState(ctx, scWatchCntlr, vsanState, snaNode, vsanHostCapacity)
 		if err != nil {
 			log.Errorf("Error reconciling StoragePool for vsan sna node %s. Err: %v", snaNode, err)
@@ -421,17 +430,17 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 
 // getStoragePoolError returns the ErrCode and Message to fill within StoragePool.Status.Error
 func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
-	if state.nodes == nil || len(state.nodes) == 0 {
-		return v1alpha1.SpErrors[v1alpha1.ErrStateNoAccessibleHosts]
-	}
 	if state.datastoreInMM {
 		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreInMM]
+	}
+	if !state.accessible {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreNotAccessible]
 	}
 	if state.allHostsInMM {
 		return v1alpha1.SpErrors[v1alpha1.ErrStateAllHostsInMM]
 	}
-	if !state.accessible {
-		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreNotAccessible]
+	if state.nodes == nil || len(state.nodes) == 0 {
+		return v1alpha1.SpErrors[v1alpha1.ErrStateNoAccessibleHosts]
 	}
 	return nil
 }
