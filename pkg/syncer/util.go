@@ -269,7 +269,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 		return nil
 	}
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg, true)
 	if err != nil {
 		log.Errorf("failed to get migration service. Err: %v", err)
 		return err

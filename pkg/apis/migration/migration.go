@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
@@ -97,10 +98,13 @@ var (
 	volumeMigrationInstance *volumeMigration
 	// volumeMigrationInstanceLock is used for handling race conditions during read, write on volumeMigrationInstance
 	volumeMigrationInstanceLock = &sync.RWMutex{}
+	// deleteVolumeInfoLock is used for handling race conditions during volumeMigration CR deletion
+	deleteVolumeInfoLock = &sync.Mutex{}
 )
 
 // GetVolumeMigrationService returns the singleton VolumeMigrationService
-func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager, cnsConfig *cnsconfig.Config) (VolumeMigrationService, error) {
+// Starts a cleanup routine to delete stale CRD instances if needed
+func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager, cnsConfig *cnsconfig.Config, runCleanupRoutine bool) (VolumeMigrationService, error) {
 	log := logger.GetLogger(ctx)
 	volumeMigrationInstanceLock.RLock()
 	if volumeMigrationInstance == nil {
@@ -166,6 +170,10 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 				stopCh := make(chan struct{})
 				informer.Informer().Run(stopCh)
 			}()
+			if runCleanupRoutine {
+				// Run cleanupStaleCRDInstances routine when runCleanupRoutine set to true
+				go volumeMigrationInstance.cleanupStaleCRDInstances()
+			}
 			log.Info("volume migration service initialized")
 		}
 	} else {
@@ -283,6 +291,8 @@ func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context, cnsV
 // DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for specified volumeID
 func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
+	deleteVolumeInfoLock.Lock()
+	defer deleteVolumeInfoLock.Unlock()
 	object := migrationv1alpha1.CnsVSphereVolumeMigration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: volumeID,
@@ -406,4 +416,58 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		return "", errors.New(msg)
 	}
 	return volumeID.Id, nil
+}
+
+// cleanupStaleCRDInstances helps in cleaning up stale volume migration CRD instances
+func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
+	ticker := time.NewTicker(time.Duration(volumeMigrationInstance.cnsConfig.Global.VolumeMigrationCRCleanupIntervalInMin) * time.Minute)
+	for range ticker.C {
+		ctx, log := logger.GetNewContextWithLogger()
+		config, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Warnf("failed to get kubeconfig. err: %v", err)
+			continue
+		}
+		crdGroupClient, err := k8s.NewClientForGroup(ctx, config, CRDGroupName)
+		if err != nil {
+			log.Warnf("failed to create new client for group %q . Err: %+v", CRDGroupName, err)
+			continue
+		}
+
+		log.Infof("Triggering CnsVSphereVolumeMigration cleanup routine")
+		volumeMigrationResourceList := &migrationv1alpha1.CnsVSphereVolumeMigrationList{}
+		err = crdGroupClient.List(ctx, volumeMigrationResourceList)
+		if err != nil {
+			log.Warnf("failed to get CnsVSphereVolumeMigration list from the cluster. Err: %+v", err)
+			continue
+		}
+		log.Debugf("CnsVSphereVolumeMigrationList: %+v", volumeMigrationResourceList)
+		queryFilter := cnstypes.CnsQueryFilter{
+			ContainerClusterIds: []string{
+				volumeMigrationInstance.cnsConfig.Global.ClusterID,
+			},
+		}
+		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		if err != nil {
+			log.Warnf("failed to queryAllVolume with err %+v", err)
+			continue
+		}
+		log.Debugf("QueryVolumeInfo successfully returned with result:  %v:", spew.Sdump(queryAllResult))
+		cnsVolumesMap := make(map[string]bool)
+		for _, vol := range queryAllResult.Volumes {
+			cnsVolumesMap[vol.VolumeId.Id] = true
+		}
+		log.Debugf("cnsVolumesMap:  %v:", cnsVolumesMap)
+		for _, volumeMigrationResource := range volumeMigrationResourceList.Items {
+			if _, existsInCNSVolumesMap := cnsVolumesMap[volumeMigrationResource.Name]; !existsInCNSVolumesMap {
+				log.Debugf("Volume with id %s is not found in CNS", volumeMigrationResource.Name)
+				err = volumeMigrationInstance.DeleteVolumeInfo(ctx, volumeMigrationResource.Name)
+				if err != nil {
+					log.Warnf("failed to delete volume mapping CR for %s with error %+v", volumeMigrationResource.Name, err)
+					continue
+				}
+			}
+		}
+		log.Infof("Completed CnsVSphereVolumeMigration cleanup")
+	}
 }
