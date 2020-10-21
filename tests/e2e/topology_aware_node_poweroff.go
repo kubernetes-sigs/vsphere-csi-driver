@@ -51,10 +51,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		namespace = f.Namespace.Name
 		bootstrap()
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 	})
 
 	/*
@@ -159,6 +159,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify Pod is scheduled on another node belonging to same topology as the PV it is attached to")
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
 		err = verifyPodLocation(&pod, nodeList, pvZone, pvRegion)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
