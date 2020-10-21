@@ -310,7 +310,7 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName st
 }
 
 // createCustomResourceDefinition takes a custom resource definition spec and creates it on the API server
-func createCustomResourceDefinition(ctx context.Context, crd *apiextensionsv1beta1.CustomResourceDefinition) error {
+func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1beta1.CustomResourceDefinition) error {
 	log := logger.GetLogger(ctx)
 	// Get a config to talk to the apiserver
 	cfg, err := GetKubeConfig(ctx)
@@ -323,15 +323,27 @@ func createCustomResourceDefinition(ctx context.Context, crd *apiextensionsv1bet
 		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
 		return err
 	}
-	_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
-	if err == nil {
-		log.Infof("%q CRD created successfully", crd.Name)
-	} else if apierrors.IsAlreadyExists(err) {
-		log.Infof("%q CRD already exists", crd.Name)
-		return nil
+
+	crdName := newCrd.ObjectMeta.Name
+	crd, err := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, newCrd, metav1.CreateOptions{})
+		if err != nil {
+			log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
+			return err
+		}
+		log.Infof("%q CRD created successfully", crdName)
 	} else {
-		log.Errorf("failed to create %q CRD with err: %+v", crd.Name, err)
-		return err
+		// Update the existing CRD with new CRD
+		crd.Spec = newCrd.Spec
+		crd.Status = newCrd.Status
+		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Update(ctx, crd, metav1.UpdateOptions{})
+		if err != nil {
+			log.Errorf("Failed to update %q CRD with err: %+v", crdName, err)
+			return err
+		}
+		log.Infof("%q CRD updated successfully", crdName)
+		return nil
 	}
 
 	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crd.Name)
