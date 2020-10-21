@@ -75,7 +75,7 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 	}
 
 	// Get VC connection
-	vc, err := commontypes.GetVirtualCenterInstance(ctx, configInfo)
+	vc, err := commontypes.GetVirtualCenterInstance(ctx, configInfo, false)
 	if err != nil {
 		log.Errorf("Failed to get vCenter from ConfigInfo. Err: %+v", err)
 		return err
