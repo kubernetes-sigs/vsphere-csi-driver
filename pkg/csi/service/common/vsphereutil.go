@@ -517,6 +517,10 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 		finder.SetDatacenter(datacenter.Datacenter)
 		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
 		if err != nil {
+			if _, ok := err.(*find.NotFoundError); ok {
+				log.Debugf("No clusterComputeResource found in dc: %+v. error: %+v", datacenter, err)
+				continue
+			}
 			log.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
 			return nil, err
 		}
