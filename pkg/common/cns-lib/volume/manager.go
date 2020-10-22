@@ -42,6 +42,9 @@ const (
 	// defaultOpsExpirationTimeInHours is expiration time for create volume operations
 	// TODO: This timeout will be configurable in future releases
 	defaultOpsExpirationTimeInHours = 1
+
+	// maxLengthOfVolumeNameInCNS is the maximum length of CNS volume name
+	maxLengthOfVolumeNameInCNS = 80
 )
 
 // Manager provides functionality to manage volumes.
@@ -170,15 +173,24 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 
 	// Construct the CNS VolumeCreateSpec list
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
-	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
 	var task *object.Task
 	var taskInfo *vim25types.TaskInfo
+	// store the volume name passed in by input spec, this name may exceed 80 characters
+	volNameFromInputSpec := spec.Name
 	// Call the CNS CreateVolume
-	taskDetailsInMap, ok := volumeTaskMap[spec.Name]
+	taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
 	if ok {
 		task = taskDetailsInMap.task
-		log.Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", spec.Name, task)
+		log.Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", volNameFromInputSpec, task)
 	} else {
+		// truncate the volume name to make sure the name is within 80 characters before calling CNS
+		if len(spec.Name) > maxLengthOfVolumeNameInCNS {
+			volNameAfterTruncate := spec.Name[0 : maxLengthOfVolumeNameInCNS-1]
+			spec.Name = volNameAfterTruncate
+			log.Infof("Create Volume with name %s is too long, truncate the name to %s", volNameFromInputSpec, spec.Name)
+			log.Debugf("CNS Create Volume is called with %v", spew.Sdump(*spec))
+		}
+		cnsCreateSpecList = append(cnsCreateSpecList, *spec)
 		task, err = m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
 		if err != nil {
 			log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
@@ -189,7 +201,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		taskDetails.Lock()
 		taskDetails.task = task
 		taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
-		volumeTaskMap[spec.Name] = &taskDetails
+		volumeTaskMap[volNameFromInputSpec] = &taskDetails
 		taskDetails.Unlock()
 	}
 	// Get the taskInfo
@@ -198,7 +210,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		log.Errorf("failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
-	log.Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
+	log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
 	// Get the taskResult
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 
@@ -223,14 +235,14 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		}
 		// Remove the taskInfo object associated with the volume name when the current task fails.
 		//  This is needed to ensure the sub-sequent create volume call from the external provisioner invokes Create Volume
-		taskDetailsInMap, ok := volumeTaskMap[spec.Name]
+		taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
 		if ok {
 			taskDetailsInMap.Lock()
-			log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed", spec.Name)
-			delete(volumeTaskMap, spec.Name)
+			log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed", volNameFromInputSpec)
+			delete(volumeTaskMap, volNameFromInputSpec)
 			taskDetailsInMap.Unlock()
 		}
-		msg := fmt.Sprintf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		msg := fmt.Sprintf("failed to create cns volume %s. createSpec: %q, fault: %q, opId: %q", volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		log.Error(msg)
 		return nil, errors.New(msg)
 	}
@@ -238,15 +250,15 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	// Remove this task from volumeTaskMap in case successful static volume provisioning
 	// as it doesn't result in orphaned volumes
 	if ok && (blockBackingDetails.BackingDiskId != "" || blockBackingDetails.BackingDiskUrlPath != "") {
-		taskDetailsInMap, ok1 := volumeTaskMap[spec.Name]
+		taskDetailsInMap, ok1 := volumeTaskMap[volNameFromInputSpec]
 		if ok1 {
 			taskDetailsInMap.Lock()
 			log.Debugf("Deleted task for %s from volumeTaskMap for statically provisioned volume", spec.Name)
-			delete(volumeTaskMap, spec.Name)
+			delete(volumeTaskMap, volNameFromInputSpec)
 			taskDetailsInMap.Unlock()
 		}
 	}
-	log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", spec.Name, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
+	log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", volNameFromInputSpec, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
 	return &cnstypes.CnsVolumeId{
 		Id: volumeOperationRes.VolumeId.Id,
 	}, nil

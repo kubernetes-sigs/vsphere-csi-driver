@@ -210,7 +210,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	deletedVolumes = timedmap.New(1 * time.Minute)
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
-		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config)
+		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
 		if err != nil {
 			log.Errorf("failed to get migration service. Err: %v", err)
 			return err
@@ -861,7 +861,7 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	}
 	// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig)
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get migration service. Err: %v", err)
 		log.Error(msg)
