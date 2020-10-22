@@ -16,6 +16,8 @@ limitations under the License.
 
 package common
 
+import "time"
+
 const (
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
@@ -188,8 +190,10 @@ const (
 	Kubernetes = iota // Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s
 )
 
-// Feature state flag names
+// Constants related to Feature state
 const (
+	// default interval to check if the feature is enabled or not
+	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
 	// VolumeHealth is the feature flag name for volume health
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion
@@ -198,4 +202,6 @@ const (
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check
 	CSIAuthCheck = "csi-auth-check"
+	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
+	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
 )

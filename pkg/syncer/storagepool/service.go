@@ -20,20 +20,27 @@ import (
 	"context"
 	"reflect"
 	"sync"
+	"time"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // Service holds the controllers needed to manage StoragePools
 type Service struct {
-	spController *SpController
-	scWatchCntlr *StorageClassWatch
-	clusterID    string
+	spController   *SpController
+	scWatchCntlr   *StorageClassWatch
+	migrationCntlr *migrationController
+	clusterID      string
 }
 
 var (
@@ -94,11 +101,35 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
+	migrationController := initMigrationController(vc, configInfo.Cfg.Global.ClusterID)
+	go func() {
+		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
+		defer diskDecommEnablementTicker.Stop()
+		clusterFlavor := cnstypes.CnsClusterFlavorWorkload
+		for ; true; <-diskDecommEnablementTicker.C {
+			k8sInitParams := k8sorchestrator.K8sSupervisorInitParams{
+				SupervisorFeatureStatesConfigInfo: configInfo.Cfg.FeatureStatesConfig,
+			}
+			coCommonInterface, _ := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+			if !coCommonInterface.IsFSSEnabled(ctx, common.VSANDirectDiskDecommission) {
+				log.Infof("VSANDirectDiskDecommission feature is disabled on the cluster")
+			} else {
+				_, err := initDiskDecommController(ctx, migrationController)
+				if err != nil {
+					log.Warnf("Error while initializing disk decommission controller. Error: %+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+					continue
+				}
+				break
+			}
+		}
+	}()
+
 	// Create the default Service
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
 	defaultStoragePoolService.spController = spController
 	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
+	defaultStoragePoolService.migrationCntlr = migrationController
 	defaultStoragePoolService.clusterID = configInfo.Cfg.Global.ClusterID
 
 	startPropertyCollectorListener(ctx)
@@ -141,6 +172,7 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 
 	defaultStoragePoolService.spController.vc = vc
 	defaultStoragePoolService.scWatchCntlr.vc = vc
+	defaultStoragePoolService.migrationCntlr.vc = vc
 	// PC listener will automatically reestablish its session with VC
 	log.Debugf("Successfully reset VC connection in StoragePool service")
 }

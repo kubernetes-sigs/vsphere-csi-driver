@@ -317,7 +317,7 @@ func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID s
 	// get all datastores in this cluster
 	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
 	if err != nil {
-		log.Warnf("Not able to fetch datastores in cluster %s. Err: %v", clusterID, err)
+		log.Warnf("Not able to fetch datastores in cluster %q. Err: %v", clusterID, err)
 		return nil, err
 	}
 
@@ -333,4 +333,21 @@ func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID s
 		}
 	}
 	return datastores, nil
+}
+
+// GetDatastoreInfoByURL returns info of a datastore found in given cluster whose URL matches the specified datastore URL
+func GetDatastoreInfoByURL(ctx context.Context, vc *VirtualCenter, clusterID, dsURL string) (*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	// get all datastores in this cluster
+	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
+	if err != nil {
+		log.Warnf("Not able to fetch datastores in cluster %q. Err: %v", clusterID, err)
+		return nil, err
+	}
+	for _, dsInfo := range datastoreInfos {
+		if dsInfo.Info.Url == dsURL {
+			return dsInfo, nil
+		}
+	}
+	return nil, fmt.Errorf("datastore corresponding to URL %v not found in cluster %v", dsURL, clusterID)
 }

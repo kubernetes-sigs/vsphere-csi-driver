@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 )
 
 var (
@@ -117,7 +119,7 @@ func TestGetSCNameFromPVC(t *testing.T) {
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through only Spec.StorageClassName")
 	pvcName := testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", specSCName)
-	scName, err := GetSCNameFromPVC(pvc)
+	scName, err := k8scloudoperator.GetSCNameFromPVC(pvc)
 	err = verifySCName(scName, err, specSCName, nil)
 	if err != nil {
 		t.Error(err)
@@ -127,8 +129,8 @@ func TestGetSCNameFromPVC(t *testing.T) {
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through only Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", "")
-	pvc.Annotations = map[string]string{scNameAnnotationKey: annotatedSCName}
-	scName, err = GetSCNameFromPVC(pvc)
+	pvc.Annotations = map[string]string{k8scloudoperator.ScNameAnnotationKey: annotatedSCName}
+	scName, err = k8scloudoperator.GetSCNameFromPVC(pvc)
 	err = verifySCName(scName, err, annotatedSCName, nil)
 	if err != nil {
 		t.Error(err)
@@ -138,8 +140,8 @@ func TestGetSCNameFromPVC(t *testing.T) {
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through both Spec.StorageClassName and Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", specSCName)
-	pvc.Annotations = map[string]string{scNameAnnotationKey: annotatedSCName}
-	scName, err = GetSCNameFromPVC(pvc)
+	pvc.Annotations = map[string]string{k8scloudoperator.ScNameAnnotationKey: annotatedSCName}
+	scName, err = k8scloudoperator.GetSCNameFromPVC(pvc)
 	err = verifySCName(scName, err, specSCName, nil)
 	if err != nil {
 		t.Error(err)
@@ -149,8 +151,8 @@ func TestGetSCNameFromPVC(t *testing.T) {
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through neither Spec.StorageClassName nor Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", "")
-	expError := fmt.Errorf("storage class name not specified in PVC")
-	scName, err = GetSCNameFromPVC(pvc)
+	expError := fmt.Errorf("storage class name not specified in PVC %q", pvcName)
+	scName, err = k8scloudoperator.GetSCNameFromPVC(pvc)
 	err = verifySCName(scName, err, "", expError)
 	if err != nil {
 		t.Error(err)

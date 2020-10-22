@@ -19,8 +19,10 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
@@ -30,8 +32,12 @@ import (
 	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/clock"
+	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -260,4 +266,157 @@ func getStoragePolicyIDFromSC(sc *v1.StorageClass) string {
 		}
 	}
 	return ""
+}
+
+// updateDrainStatus updates the status of the disk decommission request. newStatus can either be "done" or "fail".
+// In case of "fail" we also add the reason for failure given by errorString. In case of "done" errorString is not considered.
+func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus string, errorString string) error {
+	log := logger.GetLogger(ctx)
+	task := func() (done bool, err error) {
+		k8sDynamicClient, spResource, err := getSPClient(ctx)
+		if err != nil {
+			return false, err
+		}
+		// try to get the current drain Mode
+		sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("Could not get StoragePool with name %v. Error: %v", storagePoolName, err)
+			return false, err
+		}
+		drainMode, _, _ := unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
+
+		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM {
+			var patch map[string]interface{}
+			if newStatus == drainFailStatus {
+				log.Infof("Errorstring: %v", errorString)
+				patch = map[string]interface{}{
+					"status": map[string]interface{}{
+						"diskDecomm": map[string]interface{}{
+							drainStatusField:     newStatus,
+							drainFailReasonField: errorString,
+						},
+					},
+				}
+			} else {
+				patch = map[string]interface{}{
+					"status": map[string]interface{}{
+						"diskDecomm": map[string]interface{}{
+							drainStatusField: newStatus,
+						},
+					},
+				}
+			}
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				log.Errorf("Could not marshal patch for drain label. Error: %v", err)
+				return false, err
+			}
+
+			updatedSP, err := k8sDynamicClient.Resource(*spResource).Patch(ctx, storagePoolName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+			if err != nil {
+				log.Errorf("Failed to update StoragePool instance %v with new drain status %v. Error %v", newStatus, storagePoolName, err)
+				return false, err
+			}
+			log.Debugf("Successfully updated drain status to %v in StoragePool %v", newStatus, updatedSP.GetName())
+			return true, nil
+		}
+		// if the decommMode was not found or current mode is not "evacuateAll"/"ensureAccessibility" then simply return
+		return true, nil
+	}
+
+	baseDuration := time.Duration(100) * time.Millisecond
+	thresholdDuration := time.Duration(10) * time.Second
+	_, err := ExponentialBackoff(task, baseDuration, thresholdDuration, 1.5, 10)
+	return err
+}
+
+// getDrainMode gets the disk decommission mode for a given StoragePool
+func getDrainMode(ctx context.Context, storagePoolName string) (mode string, found bool, err error) {
+	k8sDynamicClient, spResource, err := getSPClient(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+	if err != nil {
+		return "", false, err
+	}
+	mode, found, err = unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
+	return mode, found, err
+}
+
+func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace, targetSPName string) (*unstructured.Unstructured, error) {
+	log := logger.GetLogger(ctx)
+	pvcResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				targetSPAnnotationKey: targetSPName,
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("Failed to marshal json to add target SP annotation. Error: %v", err)
+		return nil, err
+	}
+
+	var updatedPVC *unstructured.Unstructured
+	task := func() (done bool, err error) {
+		k8sDynamicClient, _, err := getSPClient(ctx)
+		if err != nil {
+			return false, err
+		}
+
+		updatedPVC, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+		if err != nil {
+			log.Errorf("Failed to update target StoragePool annotation on PVC %v in ns %v. Error: %v", pvcName, namespace, err)
+			return false, err
+		}
+		log.Debugf("Successfully updated target StoragePool information to %v. Updated PVC: %v", targetSPName, updatedPVC.GetName())
+		return true, nil
+	}
+	baseDuration := time.Duration(100) * time.Millisecond
+	thresholdDuration := time.Duration(10) * time.Second
+	_, err = ExponentialBackoff(task, baseDuration, thresholdDuration, 1.5, 5)
+	return updatedPVC, err
+}
+
+// ExponentialBackoff is an algorithm which is used to spread out repeated execution of task (usually reconnection or packet
+// sending task to avoid network congestion or to decrease server load). In exponential backoff, wait time is increased
+// exponentially till maxBackoffDuration. We have introduced jitter here to avoid thundering herd problem in future.
+func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDuration time.Duration, multiplier float64, retries int) (done bool, err error) {
+	jitter := 0.3
+	backoffResetDuration := maxBackoffDuration * 3
+	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration, backoffResetDuration, multiplier, jitter, clock.RealClock{})
+
+	var timer clock.Timer
+	for i := 0; i < retries; i++ {
+		timer = expBackoffManager.Backoff()
+		done, err = func() (bool, error) {
+			defer runtime.HandleCrash()
+			done, err := task()
+			return done, err
+		}()
+		if done {
+			return done, err
+		}
+
+		<-timer.C()
+	}
+	return done, err
+}
+
+// RetryOnError retries the given task function in case of error till it succeeds. Each retried is exponentially backed off
+// as per the parameter provided to the function. Wait time starts from baseDuration and on each error wait time is
+// exponentially increased by the provided multiplier till maxBackoffDuration.
+// example input: RetryOnError(func() error { return vc.ConnectVsan(ctx) }, time.Duration(100) * time.Millisecond, time.Duration(10) * time.Second, 1.5)
+func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Duration, multiplier float64) {
+	taskFunc := func() (done bool, _ error) {
+		err := task()
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	_, _ = ExponentialBackoff(taskFunc, baseDuration, maxBackoffDuration, multiplier, math.MaxInt32)
 }

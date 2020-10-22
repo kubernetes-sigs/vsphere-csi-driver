@@ -37,7 +37,6 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -288,7 +287,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 
-	scName, err := syncer.GetSCNameFromPVC(pvc)
+	scName, err := GetSCNameFromPVC(pvc)
 	if err != nil {
 		log.Errorf("Fail to get Storage class name from PVC with +v", err)
 		return out, err
