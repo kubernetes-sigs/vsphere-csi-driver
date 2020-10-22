@@ -300,7 +300,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}()
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		volumeHealthEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeHealthEnablementTicker.Stop()
 		// Trigger volume health reconciler
 		go func() {
@@ -310,7 +310,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("VolumeHealth feature is disabled on the cluster")
 				} else {
 					if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break
@@ -318,7 +318,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}()
 
-		volumeResizeEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		volumeResizeEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeResizeEnablementTicker.Stop()
 		// Trigger resize reconciler
 		go func() {
@@ -328,7 +328,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("ExpandVolume feature is disabled on the cluster")
 				} else {
 					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break

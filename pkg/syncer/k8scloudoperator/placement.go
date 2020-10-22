@@ -35,7 +35,6 @@ import (
 
 	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 )
 
 var (
@@ -46,8 +45,10 @@ var (
 const (
 	// bufferDiskSize to ensure successful allocation
 	bufferDiskSize = 4 * 1024 * 1024
-	// PVC annotation key to specify the StoragePool on which PV should be placed.
-	storagePoolAnnotationKey = "failure-domain.beta.vmware.com/storagepool"
+	// StoragePoolAnnotationKey is a PVC annotation to specify the StoragePool on which PV should be placed.
+	StoragePoolAnnotationKey = "failure-domain.beta.vmware.com/storagepool"
+	// ScNameAnnotationKey is a PVC annotation to specify storage class from which PV should be provisioned
+	ScNameAnnotationKey = "volume.beta.kubernetes.io/storage-class"
 	// AntiAffinityPreferred placement policy for storagepool
 	spPolicyAntiPreferred = "placement.beta.vmware.com/storagepool_antiAffinityPreferred"
 	// AntiAffinityRequired placement policy for storagepool
@@ -163,7 +164,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context) (map[s
 		for index, pvc := range pvcList {
 			if pvc.Name == pvcName {
 				curAnnotations := pvc.GetAnnotations()
-				curAnnotations[storagePoolAnnotationKey] = assignedSPName
+				curAnnotations[StoragePoolAnnotationKey] = assignedSPName
 				pvcList[index].SetAnnotations(curAnnotations)
 				break
 			}
@@ -197,7 +198,7 @@ func getVolumesToMigrate(ctx context.Context, client kubernetes.Interface, sourc
 		namespace := pvc.Namespace
 		namespaceToPVCsMap[namespace] = append(namespaceToPVCsMap[namespace], pvc)
 
-		spName, found := pvc.Annotations[storagePoolAnnotationKey]
+		spName, found := pvc.Annotations[StoragePoolAnnotationKey]
 		if !found || spName != sourceSPName {
 			continue
 		}
@@ -302,7 +303,7 @@ func getSPForPVCPlacement(ctx context.Context, curPVC *v1.PersistentVolumeClaim,
 
 	log.Infof("Starting placement for PVC %s, Topology %+v", curPVC.Name, hostNames)
 
-	scName, err := syncer.GetSCNameFromPVC(curPVC)
+	scName, err := GetSCNameFromPVC(curPVC)
 	if err != nil {
 		log.Errorf("Fail to get Storage class name from PVC with +v", err)
 		return assignedSP, err
@@ -590,7 +591,7 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 
 	usedSPList := []StoragePoolInfo{}
 	for _, pvcItem := range nsPVCList {
-		spName, ok := pvcItem.Annotations[storagePoolAnnotationKey]
+		spName, ok := pvcItem.Annotations[StoragePoolAnnotationKey]
 		if !ok {
 			continue
 		}
@@ -668,7 +669,7 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 	patch := map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"annotations": map[string]string{
-				storagePoolAnnotationKey: spName,
+				StoragePoolAnnotationKey: spName,
 			},
 		},
 	}
@@ -685,8 +686,21 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 		return err
 	}
 
-	log.Infof("Picked sp %s for PVC %s", curPVC.Annotations[storagePoolAnnotationKey], curPVC.Name)
+	log.Infof("Picked sp %s for PVC %s", curPVC.Annotations[StoragePoolAnnotationKey], curPVC.Name)
 	return nil
+}
+
+// GetSCNameFromPVC gets name of the storage class from provided PVC
+func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
+	scName := pvc.Spec.StorageClassName
+	if scName == nil || *scName == "" {
+		scNameFromAnnotation := pvc.Annotations[ScNameAnnotationKey]
+		if scNameFromAnnotation == "" {
+			return "", fmt.Errorf("storage class name not specified in PVC %q", pvc.Name)
+		}
+		scName = &scNameFromAnnotation
+	}
+	return *scName, nil
 }
 
 // getHostCandidates get all candidate hosts from topology requirements
