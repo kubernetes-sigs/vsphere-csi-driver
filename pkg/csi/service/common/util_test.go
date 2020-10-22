@@ -116,7 +116,7 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("Block VolCap = %+v failed validation!", volCap)
 	}
 	// fstype=empty and mode=SINGLE_NODE_WRITER
@@ -130,7 +130,7 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("Block VolCap = %+v failed validation!", volCap)
 	}
 }
@@ -149,7 +149,7 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
 		t.Errorf("Invalid Block VolCap = %+v passed validation!", volCap)
 	}
 
@@ -166,7 +166,7 @@ func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
 		t.Errorf("Invalid Block VolCap = %+v passed validation!", volCap)
 	}
 }
@@ -185,7 +185,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 
@@ -202,7 +202,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 
@@ -219,7 +219,7 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if !IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 }
@@ -238,7 +238,7 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 
@@ -255,7 +255,7 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 			},
 		},
 	}
-	if IsValidVolumeCapabilities(ctx, volCap) {
+	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 }
