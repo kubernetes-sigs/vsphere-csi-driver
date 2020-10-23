@@ -199,7 +199,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
-	vol, err := r.volumeManager.CreateVolume(ctx, createSpec)
+	volInfo, err := r.volumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		msg := "failed to create CNS volume"
 		log.Errorf(msg)
@@ -207,7 +207,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	volumeID = vol.Id
+	volumeID = volInfo.VolumeID.Id
 	log.Infof("Created CNS volume with volumeID: %s", volumeID)
 
 	pvName = staticPvNamePrefix + volumeID
