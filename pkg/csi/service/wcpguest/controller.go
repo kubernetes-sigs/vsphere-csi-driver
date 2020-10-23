@@ -446,7 +446,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
-		return nil, err
+		return nil, status.Errorf(codes.Aborted, msg)
 	}
 
 	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
@@ -459,7 +459,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Errorf(codes.Aborted, msg)
 	}
 	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 
@@ -481,14 +481,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 			msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, status.Errorf(codes.Aborted, msg)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	}
 	if err != nil {
 		msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Errorf(codes.DeadlineExceeded, msg)
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
@@ -500,12 +500,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err != nil {
 		msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Errorf(codes.Aborted, msg)
 	}
 	if watchVirtualMachine == nil {
 		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Errorf(codes.Aborted, msg)
 
 	}
 	defer watchVirtualMachine.Stop()
@@ -520,7 +520,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if !ok {
 			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
 			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, status.Errorf(codes.Aborted, msg)
 		}
 		if vm.Name != virtualMachine.Name {
 			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
@@ -534,7 +534,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				if volume.Attached && volume.Error != "" {
 					msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
 					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, status.Errorf(codes.Aborted, msg)
 				}
 				break
 			}

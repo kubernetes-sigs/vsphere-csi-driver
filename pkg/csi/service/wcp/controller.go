@@ -460,7 +460,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
-		return nil, err
+		return nil, status.Errorf(codes.Aborted, msg)
 	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }

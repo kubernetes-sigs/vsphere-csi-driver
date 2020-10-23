@@ -720,7 +720,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err != nil {
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, status.Errorf(codes.Aborted, msg)
 	}
 	// Check for the race condition where DeleteVolume is called before ControllerUnpublishVolume
 	if deletedVolumes.Contains(req.VolumeId) {
@@ -736,12 +736,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if err != nil {
 			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
 			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, status.Error(codes.Aborted, msg)
 		}
 		if len(queryResult.Volumes) == 0 {
 			msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
 			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, status.Error(codes.Aborted, msg)
 		}
 		if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
 			log.Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
@@ -753,7 +753,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			// Migration feature switch is disabled
 			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, status.Errorf(codes.Aborted, msg)
 		}
 		// Migration feature switch is enabled
 		// ControllerUnpublishVolume will never be the first call back for vmdk registration with CNS.
@@ -772,7 +772,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if err != nil {
 			msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, status.Errorf(codes.Aborted, msg)
 		}
 	}
 	// Block Volume
@@ -780,13 +780,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	if err != nil {
 		msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, status.Error(codes.Aborted, msg)
 	}
 	err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 	if err != nil {
 		msg := fmt.Sprintf("failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
 		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, status.Error(codes.Aborted, msg)
 	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
