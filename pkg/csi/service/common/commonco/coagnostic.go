@@ -18,7 +18,7 @@ package commonco
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
@@ -48,6 +48,6 @@ func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int
 		return k8sOrchestratorInstance, nil
 	default:
 		// If type is invalid, return an error
-		return nil, errors.New("invalid orchestrator type")
+		return nil, fmt.Errorf("invalid orchestrator type")
 	}
 }

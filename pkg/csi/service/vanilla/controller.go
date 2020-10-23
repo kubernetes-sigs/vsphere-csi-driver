@@ -804,7 +804,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log.Error(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
-	err := validateVanillaControllerExpandVolumeRequest(ctx, req)
+	isOnlineExpansionEnabled := containerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+	err := validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled)
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)

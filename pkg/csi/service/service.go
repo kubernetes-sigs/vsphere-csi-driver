@@ -18,25 +18,24 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
-
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -106,20 +105,45 @@ func (s *service) BeforeServe(
 		log.Infof("configured: %q with clusterFlavor: %q and mode: %q", csitypes.Name, clusterFlavor, s.mode)
 	}()
 
+	var (
+		err error
+		cfg *cnsconfig.Config
+	)
+
+	cfg, err = common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return err
+	}
+
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-		var cfg *cnsconfig.Config
-		var err error
-
-		cfg, err = common.GetConfig(ctx)
-		if err != nil {
-			log.Errorf("failed to read config. Error: %+v", err)
-			return err
-		}
 		if err := s.cnscs.Init(cfg); err != nil {
 			log.Errorf("failed to init controller. Error: %+v", err)
+			return err
+		}
+	} else {
+		// Initialize CO utility in Nodes
+		var k8sInitParams interface{}
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
+				InternalFeatureStatesConfigInfo: cfg.InternalFeatureStatesConfig,
+			}
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+			k8sInitParams = k8sorchestrator.K8sGuestInitParams{
+				InternalFeatureStatesConfigInfo:   cfg.InternalFeatureStatesConfig,
+				SupervisorFeatureStatesConfigInfo: cfg.FeatureStatesConfig,
+			}
+		} else {
+			msg := fmt.Sprintf("unrecognized mode %q in cluster flavor %q", s.mode, clusterFlavor)
+			log.Error(msg)
+			return fmt.Errorf(msg)
+		}
+		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+		if err != nil {
+			log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 			return err
 		}
 	}

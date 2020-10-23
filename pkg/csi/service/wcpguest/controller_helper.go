@@ -130,15 +130,23 @@ func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interf
 		if !ok {
 			continue
 		}
-		for _, condition := range pvc.Status.Conditions {
-			log.Debugf("Supervisor PersistentVolumeClaim %s in namespace %s is in %s condition", pvcName, ns, condition.Type)
-			if condition.Type == reqCondition {
-				log.Infof("Supervisor PersistentVolumeClaim %s in namespace %s is in %s condition", pvcName, ns, condition.Type)
-				return nil
-			}
+		if checkPVCCondition(ctx, pvc, reqCondition) {
+			return nil
 		}
 	}
 	return fmt.Errorf("supervisor persistentVolumeClaim %s in namespace %s not in %q condition within %d seconds", pvcName, ns, reqCondition, timeoutSeconds)
+}
+
+func checkPVCCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType) bool {
+	log := logger.GetLogger(ctx)
+	for _, condition := range pvc.Status.Conditions {
+		log.Debugf("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name, pvc.Namespace, condition.Type)
+		if condition.Type == reqCondition {
+			log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name, pvc.Namespace, condition.Type)
+			return true
+		}
+	}
+	return false
 }
 
 // getAccessMode returns the PersistentVolumeAccessMode for the PVC Spec given VolumeCapability_AccessMode

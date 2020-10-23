@@ -556,7 +556,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
-	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager)
+	isOnlineExpansionEnabled := c.coCommonInterface.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 	if err != nil {
 		log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		return nil, err
