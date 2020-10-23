@@ -304,7 +304,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
-	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
+	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
@@ -315,7 +315,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:      volumeID,
+			VolumeId:      volumeInfo.VolumeID.Id,
 			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			VolumeContext: attributes,
 		},

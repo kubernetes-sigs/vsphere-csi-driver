@@ -32,19 +32,19 @@ import (
 )
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
-func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (string, error) {
+func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
 		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		return "", err
+		return nil, err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
-			return "", err
+			return nil, err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
@@ -82,7 +82,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			if datastores == nil {
 				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the create volume spec is not found.",
 					spec.VsanDirectDatastoreURL)
-				return "", errors.New(errMsg)
+				return nil, errors.New(errMsg)
 			}
 		} else {
 			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
@@ -98,7 +98,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
 			log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
-			return "", err
+			return nil, err
 		}
 		isSharedDatastoreURL := false
 		var datastoreObj *vsphere.Datastore
@@ -121,14 +121,14 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		if datastoreObj == nil {
 			errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not found.", spec.ScParams.DatastoreURL)
 			log.Errorf(errMsg)
-			return "", errors.New(errMsg)
+			return nil, errors.New(errMsg)
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
 		} else {
 			errMsg := fmt.Sprintf("Datastore: %s specified in the storage class is not accessible to all nodes.", spec.ScParams.DatastoreURL)
 			log.Errorf(errMsg)
-			return "", errors.New(errMsg)
+			return nil, errors.New(errMsg)
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
@@ -156,7 +156,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			hostVsanUUID, err := getHostVsanUUID(ctx, spec.AffineToHost, vc)
 			if err != nil {
 				log.Errorf("failed to get the vSAN UUID for node: %s", spec.AffineToHost)
-				return "", err
+				return nil, err
 			}
 			param1 := vim25types.KeyValue{Key: VsanAffinityKey, Value: hostVsanUUID}
 			param2 := vim25types.KeyValue{Key: VsanAffinityMandatory, Value: "1"}
@@ -167,12 +167,12 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create disk %s with error %+v", spec.Name, err)
-		return "", err
+		return nil, err
 	}
-	return volumeID.Id, nil
+	return volumeInfo, nil
 }
 
 // CreateFileVolumeUtil is the helper function to create CNS file volume with datastores.
@@ -255,12 +255,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
 		return "", err
 	}
-	return volumeID.Id, nil
+	return volumeInfo.VolumeID.Id, nil
 }
 
 // CreateFileVolumeUtilOld is the helper function to create CNS file volume with datastores from
@@ -399,12 +399,12 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
 		return "", err
 	}
-	return volumeID.Id, nil
+	return volumeInfo.VolumeID.Id, nil
 }
 
 // getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's HostVsanSystem

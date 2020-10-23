@@ -295,7 +295,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 		},
 	}
 
-	volumeID, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
-				Id: volumeID.Id,
+				Id: volumeInfo.VolumeID.Id,
 			},
 		},
 	}
@@ -315,8 +315,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volumeID.Id {
-		t.Fatalf("failed to find the newly created volume with ID: %s", volumeID)
+	if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volumeInfo.VolumeID.Id {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volumeInfo.VolumeID.Id)
 	}
 
 	// Set old and new PV labels
@@ -329,8 +329,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 
 	// Test pvUpdate workflow for dynamic provisioning of Volume
 	pvName := testVolumeName + "-" + uuid.New().String()
-	oldPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumeAvailable, "")
-	newPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	oldPv := getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumeAvailable, "")
+	newPv := getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -338,18 +338,18 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
 	// Delete volume with DeleteDisk=false
-	if err = volumeManager.DeleteVolume(ctx, volumeID.Id, false); err != nil {
+	if err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, false); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create PV on K8S with VolumeHandle of recently deleted Volume
 	pvcName := testPVCName + "-" + uuid.New().String()
-	pv := getPersistentVolumeSpec(pvcName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	pv := getPersistentVolumeSpec(pvcName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -357,8 +357,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	// Test pvUpdate workflow on VC for static provisioning of Volume
 	// pvUpdate should create the volume on vc for static provisioning
 	pvName = testVolumeName + "-" + uuid.New().String()
-	oldPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumePending, "")
-	newPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	oldPv = getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, oldLabel, v1.VolumePending, "")
+	newPv = getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -366,7 +366,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PV, newPv.Name, testPVLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,7 +391,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, newPvc.Name, testPVCLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PVC, newPvc.Name, testPVCLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
@@ -413,7 +413,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, newPod.Name, ""); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, POD, newPod.Name, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -422,7 +422,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyDeleteOperation(queryResult, volumeID.Id, POD); err != nil {
+	if err = verifyDeleteOperation(queryResult, volumeInfo.VolumeID.Id, POD); err != nil {
 		t.Fatal(err)
 	}
 
@@ -432,7 +432,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyDeleteOperation(queryResult, volumeID.Id, PVC); err != nil {
+	if err = verifyDeleteOperation(queryResult, volumeInfo.VolumeID.Id, PVC); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +441,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyDeleteOperation(queryResult, volumeID.Id, PV); err != nil {
+	if err = verifyDeleteOperation(queryResult, volumeInfo.VolumeID.Id, PV); err != nil {
 		t.Fatal(err)
 	}
 
@@ -625,7 +625,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 	cnsCreationMap = make(map[string]bool)
 
-	volumeID, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
 		t.Errorf("failed to create volume. Error: %+v", err)
 		t.Fatal(err)
@@ -636,7 +636,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
-				Id: volumeID.Id,
+				Id: volumeInfo.VolumeID.Id,
 			},
 		},
 	}
@@ -647,8 +647,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volumeID.Id {
-		t.Fatalf("failed to find the newly created volume with ID: %s", volumeID)
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volumeInfo.VolumeID.Id {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volumeInfo.VolumeID.Id)
 	}
 	cnsDeletionMap = make(map[string]bool)
 	// PV does not exist in K8S, but volume exist in CNS cache
@@ -674,7 +674,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	pvLabel := make(map[string]string)
 	pvLabel[testPVLabelName] = testPVLabelValue
 	pvName := testVolumeName + "-" + uuid.New().String()
-	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
+	pv := getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +690,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// allocate pvc claimRef for PV spec
-	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
+	pv = getPersistentVolumeSpec(pvName, volumeInfo.VolumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -702,11 +702,11 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, testPVLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PV, pv.Name, testPVLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, pvc.Name, testPVCLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PVC, pvc.Name, testPVCLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
@@ -728,7 +728,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PV, pv.Name, newTestPVLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PV, pv.Name, newTestPVLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
@@ -747,7 +747,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, PVC, pvc.Name, newTestPVCLabelValue); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, PVC, pvc.Name, newTestPVCLabelValue); err != nil {
 		t.Fatal(err)
 	}
 
@@ -766,7 +766,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
 		t.Fatal(err)
 	}
-	if err = verifyUpdateOperation(queryResult, volumeID.Id, POD, pod.Name, ""); err != nil {
+	if err = verifyUpdateOperation(queryResult, volumeInfo.VolumeID.Id, POD, pod.Name, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -782,8 +782,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Cleanup in CNS to delete the volume
-	if err = volumeManager.DeleteVolume(ctx, volumeID.Id, true); err != nil {
-		t.Logf("failed to delete volume %v from CNS", volumeID.Id)
+	if err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, true); err != nil {
+		t.Logf("failed to delete volume %v from CNS", volumeInfo.VolumeID.Id)
 	}
 	t.Log("TestFullSyncWorkflows end")
 }
