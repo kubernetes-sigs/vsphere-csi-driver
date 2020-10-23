@@ -9,6 +9,12 @@ metadata:
   name: vsphere-csi-controller
   namespace: {{ .PVCSINamespace }}
 ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: vsphere-csi-node
+  namespace: {{ .PVCSINamespace }}
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -49,14 +55,20 @@ metadata:
   name: vsphere-csi-node-role
   namespace: {{ .PVCSINamespace }}
 rules:
-  - apiGroups:
-    - "policy"
-    resources:
-    - podsecuritypolicies
-    verbs:
-    - use
-    resourceNames:
-    - vmware-system-privileged
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["vmware-system-privileged"]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-role
+  namespace: {{ .PVCSINamespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -78,11 +90,25 @@ metadata:
   namespace: {{ .PVCSINamespace }}
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-node
     namespace: {{ .PVCSINamespace }}
 roleRef:
   kind: Role
   name: vsphere-csi-node-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-binding
+  namespace: {{ .PVCSINamespace }}
+subjects:
+  - kind: ServiceAccount
+    name: vsphere-csi-node
+    namespace: {{ .PVCSINamespace }}
+roleRef:
+  kind: ClusterRole
+  name: vsphere-csi-node-cluster-role
   apiGroup: rbac.authorization.k8s.io
 ---
 kind: Deployment
@@ -219,6 +245,7 @@ spec:
           args:
             - "--v=4"
             - "--timeout=300s"
+            - "--handle-volume-inuse-error=false"  # Set this to true if used in vSphere 7.0U1
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
             - "--kube-api-qps=100"
@@ -266,6 +293,7 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      serviceAccountName: vsphere-csi-node
       containers:
       - name: node-driver-registrar
         image: vmware.io/csi-node-driver-registrar:<image_tag>
@@ -308,6 +336,10 @@ spec:
           value: "GUEST_CLUSTER"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+        - name: CSI_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         securityContext:
           privileged: true
           capabilities:
@@ -321,6 +353,13 @@ spec:
           mountPropagation: "Bidirectional"
         - name: device-dir
           mountPath: /dev
+        - name: blocks-dir
+          mountPath: /sys/block
+        - name: sys-devices-dir
+          mountPath: /sys/devices
+        - name: pvcsi-config-volume
+          mountPath: /etc/cloud/pvcsi-config
+          readOnly: true
       - name: liveness-probe
         image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
         args:
@@ -345,6 +384,17 @@ spec:
       - name: device-dir
         hostPath:
           path: /dev
+      - name: blocks-dir
+        hostPath:
+          path: /sys/block
+          type: Directory
+      - name: sys-devices-dir
+        hostPath:
+          path: /sys/devices
+          type: Directory
+      - name: pvcsi-config-volume
+        configMap:
+          name: pvcsi-config
       tolerations:
         - effect: NoExecute
           operator: Exists
@@ -362,8 +412,21 @@ data:
     [FeatureStatesConfig]
     name = "csi-feature-states"
     namespace = "{{ .PVCSINamespace }}"
+    [InternalFeatureStatesConfig]
+    name = "internal-feature-states.csi.vsphere.vmware.com"
+    namespace = "{{ .PVCSINamespace }}"
 kind: ConfigMap
 metadata:
   name: pvcsi-config
+  namespace: {{ .PVCSINamespace }}
+---
+apiVersion: v1
+data:
+  "volume-extend": "true"
+  "volume-health": "true"
+  "online-volume-extend": "false"
+kind: ConfigMap
+metadata:
+  name: internal-feature-states.csi.vsphere.vmware.com
   namespace: {{ .PVCSINamespace }}
 ---

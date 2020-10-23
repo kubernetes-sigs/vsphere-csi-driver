@@ -52,18 +52,22 @@ func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context, req *c
 // validateVanillaControllerExpandVolumeRequest is the helper function to validate
 // ExpandVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateVanillaControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+func validateVanillaControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
+	isOnlineExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	nodeManager := node.GetManager(ctx)
-	nodes, err := nodeManager.GetAllNodes(ctx)
-	if err != nil {
-		msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
-		log.Error(msg)
-		return status.Error(codes.Internal, msg)
+	if !isOnlineExpansionEnabled {
+		nodeManager := node.GetManager(ctx)
+		nodes, err := nodeManager.GetAllNodes(ctx)
+		if err != nil {
+			msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
+			log.Error(msg)
+			return status.Error(codes.Internal, msg)
+		}
+		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
 	}
-	return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+	return nil
 }
