@@ -260,14 +260,14 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	}
 
 	// Get K8S storageclass name mapping the storagepolicy id
-	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId)
+	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId, request.Namespace)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s", volume.StoragePolicyId)
+		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s", volume.StoragePolicyId, request.Namespace)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s", volume.StoragePolicyId, storageClassName)
+	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s", volume.StoragePolicyId, storageClassName, request.Namespace)
 
 	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
 	accessMode := instance.Spec.AccessMode
