@@ -103,10 +103,10 @@ func (authManager *AuthManager) refreshDatastoreIgnoreMap() {
 }
 
 // ComputeDatastoreIgnoreMap refreshes DatastoreIgnoreMapForBlockVolumes periodically
-func ComputeDatastoreIgnoreMap(authManager *AuthManager) {
+func ComputeDatastoreIgnoreMap(authManager *AuthManager, authCheckInterval int) {
 	log := logger.GetLoggerWithNoContext()
 	log.Info("auth manager: ComputeDatastoreIgnoreMap enter")
-	ticker := time.NewTicker(time.Duration(DefaultIgnoreDsIntervalInMinutes) * time.Minute)
+	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for range ticker.C {
 		authManager.refreshDatastoreIgnoreMap()
 	}

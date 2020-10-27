@@ -181,7 +181,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 			return err
 		}
 		c.authMgr = authMgr
-		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager))
+		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
 
 	watcher, err := fsnotify.NewWatcher()
