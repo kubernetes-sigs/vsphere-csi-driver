@@ -180,9 +180,6 @@ const (
 
 	// SysReadPriv is the privilege to view an entity
 	SysReadPriv = "System.Read"
-
-	// DefaultIgnoreDsIntervalInMinutes is the default interval to compute DatastoreIgnoreMap
-	DefaultIgnoreDsIntervalInMinutes = 5
 )
 
 // Supported container orchestrators

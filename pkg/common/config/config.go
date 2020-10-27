@@ -66,6 +66,9 @@ const (
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 2 hours
 	DefaultVolumeMigrationCRCleanupIntervalInMin = 120
+
+	// DefaultCSIAuthCheckIntervalInMin is the default time interval that to refresh DatastoreIgnoreMap
+	DefaultCSIAuthCheckIntervalInMin = 5
 )
 
 // Errors
@@ -335,6 +338,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	}
 	if cfg.Global.VolumeMigrationCRCleanupIntervalInMin == 0 {
 		cfg.Global.VolumeMigrationCRCleanupIntervalInMin = DefaultVolumeMigrationCRCleanupIntervalInMin
+	}
+	if cfg.Global.CSIAuthCheckIntervalInMin == 0 {
+		cfg.Global.CSIAuthCheckIntervalInMin = DefaultCSIAuthCheckIntervalInMin
 	}
 	return nil
 }
