@@ -43,9 +43,10 @@ const operationModeWebHookServer = "WEBHOOK_SERVER"
 const operationModeMetaDataSync = "METADATA_SYNC"
 
 var (
-	enableLeaderElection = flag.Bool("leader-election", false, "Enable leader election.")
-	printVersion         = flag.Bool("version", false, "Print syncer version and exit")
-	operationMode        = flag.String("operation-mode", operationModeMetaDataSync, "specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
+	enableLeaderElection    = flag.Bool("leader-election", false, "Enable leader election.")
+	leaderElectionNamespace = flag.String("leader-election-namespace", "", "Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
+	printVersion            = flag.Bool("version", false, "Print syncer version and exit")
+	operationMode           = flag.String("operation-mode", operationModeMetaDataSync, "specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
 )
 
 // main for vsphere syncer
@@ -104,6 +105,10 @@ func main() {
 			}
 			lockName := "vsphere-syncer"
 			le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
+
+			if *leaderElectionNamespace != "" {
+				le.WithNamespace(*leaderElectionNamespace)
+			}
 
 			if err := le.Run(); err != nil {
 				log.Fatalf("Error initializing leader election: %v", err)
