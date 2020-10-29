@@ -89,7 +89,8 @@ func newResizeReconciler(
 	supervisorNamespace string,
 	resyncPeriod time.Duration,
 	informerFactory informers.SharedInformerFactory,
-	pvcRateLimitter workqueue.RateLimiter) *resizeReconciler {
+	pvcRateLimitter workqueue.RateLimiter,
+	stopCh <-chan struct{}) (*resizeReconciler, error) {
 	pvcInformer := informerFactory.Core().V1().PersistentVolumeClaims()
 	pvInformer := informerFactory.Core().V1().PersistentVolumes()
 	claimQueue := workqueue.NewNamedRateLimitingQueue(pvcRateLimitter, "resize-pvc")
@@ -104,12 +105,18 @@ func newResizeReconciler(
 		pvSynced:            pvInformer.Informer().HasSynced,
 		claimQueue:          claimQueue,
 	}
-
+	// TODO: Need to figure out how to handle the scenario that FileSystemResizePending is not removed
+	// from SV PVC  when syncer is down and FileSystemResizePending was removed from a TKG PVC.
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/591
 	pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: rc.updatePVC,
 	}, resyncPeriod)
 
-	return rc
+	informerFactory.Start(stopCh)
+	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {
+		return nil, fmt.Errorf("cannot sync pv/pvc caches")
+	}
+	return rc, nil
 
 }
 
@@ -153,11 +160,6 @@ func (rc *resizeReconciler) Run(ctx context.Context, workers int) {
 	defer log.Info("Resize reconciler: End")
 
 	stopCh := ctx.Done()
-
-	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {
-		log.Errorf("Cannot sync pv/pvc caches")
-		return
-	}
 
 	for i := 0; i < workers; i++ {
 		go wait.Until(func() { rc.syncPVCs(ctx) }, 0, stopCh)
