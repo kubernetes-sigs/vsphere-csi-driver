@@ -47,8 +47,8 @@ func ValidateCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeReque
 	if len(volCaps) == 0 {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not provided")
 	}
-	if !IsValidVolumeCapabilities(ctx, volCaps) {
-		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
+	if err := IsValidVolumeCapabilities(ctx, volCaps); err != nil {
+		return status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
 	}
 	return nil
 }
@@ -87,8 +87,8 @@ func ValidateControllerPublishVolumeRequest(ctx context.Context, req *csi.Contro
 		return status.Error(codes.InvalidArgument, "Volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
-	if !IsValidVolumeCapabilities(ctx, caps) {
-		return status.Error(codes.InvalidArgument, "Volume capability not supported")
+	if err := IsValidVolumeCapabilities(ctx, caps); err != nil {
+		return status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
 	}
 	return nil
 }
