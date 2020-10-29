@@ -124,6 +124,7 @@ spec:
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
+            - "--default-fstype=ext4"
             # needed only for topology aware setups
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
