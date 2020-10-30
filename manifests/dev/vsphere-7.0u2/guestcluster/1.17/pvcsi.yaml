@@ -138,7 +138,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: csi-attacher
-          image: vmware.io/csi-attacher/csi-attacher:<image_tag>
+          image: vmware.io/csi-attacher:<image_tag>
           args:
             - "--v=4"
             - "--timeout=300s"
