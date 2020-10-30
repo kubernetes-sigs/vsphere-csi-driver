@@ -472,7 +472,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(ctx, volCaps) {
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{

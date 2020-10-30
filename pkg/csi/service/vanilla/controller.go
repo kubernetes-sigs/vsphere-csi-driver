@@ -507,8 +507,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateVolume: called with args %+v", *req)
-
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+	volumeCapabilities := req.GetVolumeCapabilities()
+	if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+	}
+	if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 		vsan67u3Release, err := isVsan67u3Release(ctx, c)
 		if err != nil {
 			log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
@@ -812,7 +815,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(ctx, volCaps) {
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
