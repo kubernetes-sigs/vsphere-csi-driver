@@ -326,14 +326,14 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	}
 
 	svcPVC, err := rc.svcPVCLister.PersistentVolumeClaims(namespace).Get(name)
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Errorf("syncPVC: Get PVC %s/%s failed: %v", namespace, name, err)
-			return err
-		}
-		log.Infof("syncPVC: Supervisor Cluster PVC %s/%s is deleted, process any left over TKG PVCs", namespace, name)
-	} else {
+	switch {
+	case err == nil:
 		log.Infof("syncPVC: Found Supervisor Cluster PVC: %s/%s", svcPVC.Namespace, svcPVC.Name)
+	case k8serrors.IsNotFound(err):
+		log.Infof("syncPVC: Supervisor Cluster PVC %s/%s is deleted, process any left over TKG PVCs", namespace, name)
+	default:
+		log.Errorf("syncPVC: Get PVC %s/%s failed: %v", namespace, name, err)
+		return err
 	}
 
 	// The input PVC is a Supervisor Cluster PVC
