@@ -48,6 +48,7 @@ const (
 	spTypePrefix                = "cns.vmware.com/"
 	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
 	vsanDirectType              = spTypePrefix + "vsanD"
+	vsanSnaType                 = spTypePrefix + "vsan-sna"
 	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
 	diskDecommissionModeField   = "decommMode"
 )
@@ -298,8 +299,8 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
-	if !present || !strings.Contains(spTypes, vsanDirectType) {
-		log.Debug("storage class is not of type vsan direct, aborting placement")
+	if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
+		log.Debug("storage class is not of type vsan direct or vsan-sna, aborting placement")
 		return out, nil
 	}
 	// Validate accessibility requirements
@@ -308,7 +309,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	}
 	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
 	log.Debugf("Enter placementEngine %s", req)
-	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc)
+	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc, spTypes)
 	if err != nil {
 		log.Errorf("Failed to place this PVC on sp with error %s", err)
 		return out, err
