@@ -1907,3 +1907,57 @@ func checkHostStatus(ip string) error {
 	})
 	return waitErr
 }
+
+// waitForNamespaceToGetDeleted waits for a namespace to get deleted or until timeout occurs, whichever comes first.
+func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface, namespaceToDelete string, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for namespace %s to get deleted", timeout, namespaceToDelete)
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		namespace, err := c.CoreV1().Namespaces().Get(ctx, namespaceToDelete, metav1.GetOptions{})
+		if err == nil {
+			framework.Logf("Namespace %s found and status=%s (%v)", namespaceToDelete, namespace.Status, time.Since(start))
+			continue
+		}
+		if apierrors.IsNotFound(err) {
+			framework.Logf("namespace %s was removed", namespaceToDelete)
+			return nil
+		}
+		framework.Logf("Get namespace %s is failed, ignoring for %v: %v", namespaceToDelete, Poll, err)
+	}
+	return fmt.Errorf("Namespace %s still exists within %v", namespaceToDelete, timeout)
+}
+
+// waitForCNSRegisterVolumeToGetCreated waits for a cnsRegisterVolume to get created or until timeout occurs, whichever comes first.
+func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %s to get created", timeout, cnsRegisterVolume)
+
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		flag := cnsRegisterVolume.Status.Registered
+		if !flag {
+			framework.Logf("cnsRegisterVolume %s found and Registered status is  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get deleted or until timeout occurs, whichever comes first.
+func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for cnsRegisterVolume %s to get deleted", timeout, cnsRegisterVolume)
+
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
+		if flag {
+			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
+}
