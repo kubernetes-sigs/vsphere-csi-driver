@@ -19,7 +19,7 @@
 ARG GOLANG_IMAGE=golang:1.13
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:v1.0.2-10-ga6fc92a
+ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
@@ -47,6 +47,20 @@ RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ################################################################################
 FROM ${BASE_IMAGE}
 LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
+
+# install nfs-utils, util-linux and e2fsprogs
+# nfs-utils  : The nfs-utils package contains simple nfs client service.
+# util-linux : Utilities for handling file systems, consoles, partitions.
+# e2fsprogs  : The E2fsprogs package contains the utilities for handling the ext file system.
+
+RUN tdnf -y install \
+  nfs-utils \
+  util-linux \
+  e2fsprogs
+
+
+# Remove cached data
+RUN tdnf clean all
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 
