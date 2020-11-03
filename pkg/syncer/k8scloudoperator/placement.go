@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -57,6 +58,7 @@ const (
 	resourceName = "storagepools"
 	// storagePool type name for vsan-direct
 	vsanDirect = "vsanD"
+	vsanSna    = "vsan-sna"
 )
 
 // StoragePoolInfo is abstraction of a storage pool list
@@ -135,7 +137,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context) (map[s
 		ns := vol.PVC.Namespace
 		pvcName := vol.PVC.Name
 
-		assignedSp, err := getSPForPVCPlacement(ctx, &vol.PVC, vol.SizeInBytes, b.storagePoolList, b.sourceHostNames, b.namespaceToPVCsMap[ns])
+		assignedSp, err := getSPForPVCPlacement(ctx, &vol.PVC, vol.SizeInBytes, b.storagePoolList, b.sourceHostNames, b.namespaceToPVCsMap[ns], vsanDirectType)
 		if err != nil {
 			log.Errorf("Failed to assign SP to PVC %v. Error: %v", pvcName, err)
 			return nil, fmt.Errorf("some volumes could not be migrated due to lack of free capacity in accessible datastores or volume placement constraints")
@@ -297,7 +299,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePo
 	return volumesToSPMap, nil
 }
 
-func getSPForPVCPlacement(ctx context.Context, curPVC *v1.PersistentVolumeClaim, volSizeBytes int64, sps []unstructured.Unstructured, hostNames []string, pvcList []v1.PersistentVolumeClaim) (StoragePoolInfo, error) {
+func getSPForPVCPlacement(ctx context.Context, curPVC *v1.PersistentVolumeClaim, volSizeBytes int64, sps []unstructured.Unstructured, hostNames []string, pvcList []v1.PersistentVolumeClaim, spType string) (StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
 	assignedSP := StoragePoolInfo{}
 
@@ -321,7 +323,7 @@ func getSPForPVCPlacement(ctx context.Context, curPVC *v1.PersistentVolumeClaim,
 
 	sort.Sort(byCOMBINATION(spList))
 
-	spList = handleUsedStoragePools(ctx, curPVC, volSizeBytes, spList, pvcList)
+	spList = handleUsedStoragePools(ctx, curPVC, volSizeBytes, spList, pvcList, spType)
 
 	if len(spList) <= 0 {
 		log.Infof("Did not find any matching storage pools for %s", curPVC.Name)
@@ -334,7 +336,7 @@ func getSPForPVCPlacement(ctx context.Context, curPVC *v1.PersistentVolumeClaim,
 // PlacePVConStoragePool selects target storage pool to place the given PVC based on its profile and the topology information.
 // If the placement is successful, the PVC will be annotated with the selected storage pool and PlacePVConStoragePool nil that means no error
 // For unsuccessful placement, PlacePVConStoragePool returns error that cause the failure
-func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim) error {
+func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim, spType string) error {
 	log := logger.GetLogger(ctx)
 
 	//XXX Return if this is not a vsan direct placement
@@ -368,7 +370,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	assignedSP, err := getSPForPVCPlacement(ctx, curPVC, volSizeBytes, sps.Items, hostNames, pvcList.Items)
+	assignedSP, err := getSPForPVCPlacement(ctx, curPVC, volSizeBytes, sps.Items, hostNames, pvcList.Items, spType)
 	if err != nil {
 		log.Errorf("Failed to find any SP to place PVC %v. Error :%v", curPVC.Name, err)
 		return err
@@ -419,7 +421,7 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 	spList := []StoragePoolInfo{}
 
 	totalStoragePools := len(sps)
-	nonVsanDirect := 0
+	nonVsanDirectOrSna := 0
 	nonSCComp := 0
 	topology := 0
 	unhealthy := 0
@@ -429,15 +431,15 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 	for _, sp := range sps {
 		spName := sp.GetName()
 		spType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeLabelKey)
-		if !found || err != nil || spType != vsanDirect {
-			nonVsanDirect++
+		if !found || err != nil || (spType != vsanDirect && spType != vsanSna) {
+			nonVsanDirectOrSna++
 			continue
 		}
 
 		//sc compatible filter
 		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
 		if !found || err != nil {
-			nonVsanDirect++
+			nonSCComp++
 			continue
 		}
 
@@ -487,7 +489,7 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 
 	log.Infof("TotalPools:%d, Usable:%d. Pools removed because not local:%d, SC mis-match:%d, "+
 		"Unhealthy: %d, topology mis-match: %d, under disk decommission: %d, out of capacity: %d",
-		totalStoragePools, len(spList), nonVsanDirect, nonSCComp, unhealthy, topology, underDiskDecomm, notEnoughCapacity)
+		totalStoragePools, len(spList), nonVsanDirectOrSna, nonSCComp, unhealthy, topology, underDiskDecomm, notEnoughCapacity)
 	return spList, nil
 }
 
@@ -579,12 +581,16 @@ func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVByt
 
 // handleUsedStoragePools finds all storage pools that have been used by other PVCs on the same node and either removes them if
 // if they dont satisfy the anti-affinity rules and/or updates their usage based on any pending PVs against the sp.
-func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, volSizeBytes int64, spList []StoragePoolInfo, nsPVCList []v1.PersistentVolumeClaim) []StoragePoolInfo {
+func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, volSizeBytes int64, spList []StoragePoolInfo, nsPVCList []v1.PersistentVolumeClaim, spType string) []StoragePoolInfo {
 	log := logger.GetLogger(ctx)
 
 	usageUpdated := false
-	requiredAntiAffinityValue, required := pvc.Annotations[spPolicyAntiRequired]
-	preferredAntiAffinityValue, preferred := pvc.Annotations[spPolicyAntiPreferred]
+	var requiredAntiAffinityValue, preferredAntiAffinityValue string
+	var required, preferred bool
+	if strings.Contains(spType, vsanDirectType) {
+		requiredAntiAffinityValue, required = pvc.Annotations[spPolicyAntiRequired]
+		preferredAntiAffinityValue, preferred = pvc.Annotations[spPolicyAntiPreferred]
+	}
 
 	xAffinity := 0
 	xCapPending := 0

@@ -40,6 +40,11 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
+const (
+	vsanDirect = "vsanD"
+	vsanSna    = "vsan-sna"
+)
+
 var (
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
@@ -227,13 +232,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		storagePolicyID     string
 		affineToHost        string
 		storagePool         string
-		hostLocalNodeName   string
-		hostLocalMode       bool
 		topologyRequirement *csi.TopologyRequirement
 		accessibleNodes     []string // This will be used to populate volumeAccessTopology
 	)
 	// Fetch the accessibility requirements from the request
 	topologyRequirement = req.GetAccessibilityRequirements()
+	var selectedDatastoreURL string
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -248,7 +252,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
 			}
-			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(ctx, storagePool)
+			spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 			if err != nil {
 				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 				return nil, status.Errorf(codes.Internal, msg)
@@ -260,39 +264,31 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			accessibleNodes = append(accessibleNodes, overlappingNodes...)
 			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
-		} else if param == common.AttributeHostLocal {
-			hostLocalMode = true
-			if !isValidAccessibilityRequirement(topologyRequirement) {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
-			}
-			if hostLocalNodeName, err = getHostNameFromAccessibilityRequirements(topologyRequirement); err != nil {
-				return nil, err
-			}
-			accessibleNodes = append(accessibleNodes, hostLocalNodeName)
-			log.Infof("Hostlocal Accessible nodes for volume topology: %+v", accessibleNodes)
-		}
-	}
 
-	var selectedDatastoreURL string
-	if storagePool != "" {
-		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
-		if err != nil {
-			msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			if storagePoolType == vsanDirect {
+				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
+				if err != nil {
+					msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+				//Ignore affineToHost if received, as storagePool takes precedence for placement decision
+				affineToHost = ""
+			} else if storagePoolType == vsanSna {
+				// Query API server to get ESX Host Moid from the hostLocalNodeName
+				if len(accessibleNodes) != 1 {
+					return nil, status.Errorf(codes.Internal, "too many accessible nodes")
+				}
+				hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
+				if err != nil {
+					log.Error(err)
+					return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
+				}
+				affineToHost = hostMoid
+				log.Debugf("Setting the affineToHost value as %s", affineToHost)
+			}
 		}
-		log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
-		//Ignore affineToHost if received, as storagePool takes precedence for placement decision
-		affineToHost = ""
-	} else if hostLocalMode && hostLocalNodeName != "" {
-		// Query API server to get ESX Host Moid from the hostLocalNodeName
-		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
-		if err != nil {
-			log.Error(err)
-			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
-		}
-		affineToHost = hostMoid
-		log.Debugf("Setting the affineToHost value as %s", affineToHost)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
