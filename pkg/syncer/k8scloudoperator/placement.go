@@ -144,7 +144,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client
 			b.sourceHostNames, b.namespaceToPVCsMap[ns], vsanDirectType, false)
 		if err != nil {
 			log.Errorf("Failed to assign SP to PVC %v. Error: %v", pvcName, err)
-			return nil, fmt.Errorf("some volumes could not be migrated due to lack of free capacity in accessible datastores or volume placement constraints")
+			return nil, fmt.Errorf("PVC %v could not be migrated due to volume placement constraints or lack of free capacity in accessible datastores", pvcName)
 		}
 
 		// map the volume with SP with highest free space. Update free space in assigned SP for more accurate placement.
@@ -190,7 +190,8 @@ func isSPInList(name string, spList []StoragePoolInfo) bool {
 	return false
 }
 
-func getVolumesToMigrate(ctx context.Context, client kubernetes.Interface, sourceSPName string) ([]VolumeInfo, map[string][]v1.PersistentVolumeClaim, error) {
+// GetVolumesOnStoragePool returns volume information of all PVCs present on the given StoragePool
+func GetVolumesOnStoragePool(ctx context.Context, client kubernetes.Interface, StoragePoolName string) ([]VolumeInfo, map[string][]v1.PersistentVolumeClaim, error) {
 	log := logger.GetLogger(ctx)
 	volumeInfoList := []VolumeInfo{}
 	namespaceToPVCsMap := make(map[string][]v1.PersistentVolumeClaim)
@@ -205,7 +206,7 @@ func getVolumesToMigrate(ctx context.Context, client kubernetes.Interface, sourc
 		namespaceToPVCsMap[namespace] = append(namespaceToPVCsMap[namespace], pvc)
 
 		spName, found := pvc.Annotations[StoragePoolAnnotationKey]
-		if !found || spName != sourceSPName {
+		if !found || spName != StoragePoolName {
 			continue
 		}
 
@@ -284,7 +285,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePo
 		// if datastore is accessible from multiple host, ignore the error.
 	}
 
-	volumeInfoList, namespaceToPVCsMap, err := getVolumesToMigrate(ctx, client, storagePoolName)
+	volumeInfoList, namespaceToPVCsMap, err := GetVolumesOnStoragePool(ctx, client, storagePoolName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get the list of volumes to be migrated")
 	}
