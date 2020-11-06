@@ -51,7 +51,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.2
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -93,7 +93,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.2
           args:
             - "--leader-election"
           imagePullPolicy: "Always"

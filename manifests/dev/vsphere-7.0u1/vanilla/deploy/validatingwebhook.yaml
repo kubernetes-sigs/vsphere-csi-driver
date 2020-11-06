@@ -91,7 +91,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: vsphere-webhook
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:<syncer-image-tag-with-webhook-support>
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.2
           args:
             - "--operation-mode=WEBHOOK_SERVER"
           imagePullPolicy: "Always"
