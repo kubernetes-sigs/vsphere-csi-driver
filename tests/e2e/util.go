@@ -1315,7 +1315,7 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 }
 
 // Function to create CnsRegisterVolume spec, with given FCD ID and PVC name
-func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
+func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID string, vmdkPath string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
 	var (
 		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
 	)
@@ -1328,12 +1328,19 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 			Namespace:    namespace,
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
-			PvcName:  persistentVolumeClaimName,
-			VolumeID: fcdID,
+			PvcName: persistentVolumeClaimName,
 			AccessMode: v1.PersistentVolumeAccessMode(
 				accessMode,
 			),
 		},
+	}
+
+	if vmdkPath != "" {
+		cnsRegisterVolume.Spec.DiskURLPath = vmdkPath
+	}
+
+	if fcdID != "" {
+		cnsRegisterVolume.Spec.VolumeID = fcdID
 	}
 	return cnsRegisterVolume
 }

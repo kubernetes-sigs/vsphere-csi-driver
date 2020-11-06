@@ -114,6 +114,9 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	wcpServiceName                             = "wcp"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
+	envVmdkDiskURL                             = "DISK_URL_PATH"
+	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
+	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
 )
 
 // The following variables are required to know cluster type to run common e2e tests

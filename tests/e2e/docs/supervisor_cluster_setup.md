@@ -85,6 +85,8 @@ datacenters should be comma separated if deployed on multi-datacenters
     export SHARED_VSPHERE_DATASTORE_URL="<shared-vsphere-datastore-url>"
     # Set the NONSHARED_VSPHERE_DATASTORE_URL to the url fetched from the Vcenter as mentioned in the steps above
     export NONSHARED_VSPHERE_DATASTORE_URL="<non-shared-vsphere-datastore-url>"
+    # Set this variable to run static provisioning VMDK test cases.
+    export DISK_URL_PATH="https://<VC_IP>/folder/<vmName>/<vmName_1.vmdk>?dcPath=<DatacenterPath>&dsName=<dataStoreName>"
 
 ### To run full sync test, need do extra following steps
 
