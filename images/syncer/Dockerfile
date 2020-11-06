@@ -17,7 +17,7 @@
 ARG GOLANG_IMAGE=golang:1.13
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=photon:3.0
+ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
