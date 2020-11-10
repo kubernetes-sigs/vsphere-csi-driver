@@ -35,7 +35,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -52,7 +51,10 @@ func (paramSet parameterSet) Has(paramName string) bool {
 var (
 	server *http.Server
 	cfg    *config
-	k8s    commonco.COCommonInterface
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator in the admission handler package
+	COInitParams                 *interface{}
+	containerOrchestratorUtility commonco.COCommonInterface
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes like cert, key etc.
@@ -125,20 +127,19 @@ func StartWebhookServer(ctx context.Context) error {
 		}
 		log.Debugf("webhook config: %v", cfg)
 	}
-	if k8s == nil {
+	if containerOrchestratorUtility == nil {
 		clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
 		if err != nil {
 			log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
 			return err
 		}
-		k8s, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-			k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: cfg.InternalFeatureStatesConfig})
+		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *COInitParams)
 		if err != nil {
 			log.Errorf("failed to get k8s interface. err: %v", err)
 			return err
 		}
 	}
-	if k8s.IsFSSEnabled(ctx, common.CSIMigration) {
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 		if err != nil {
 			log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v", cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile, err)

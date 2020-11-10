@@ -319,22 +319,6 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		}
 	}
 
-	// Validate FeatureStateConfig used in Supervisor cluster
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
-		// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
-		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
-			DefaultSupervisorFSSConfigMapName, DefaultCSINamespace)
-		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
-		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
-	}
-	// Validate InternalFeatureStateConfig used in vanilla cluster
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla && cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
-		// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
-		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
-			DefaultInternalFSSConfigMapName, DefaultCSINamespaceVanillaK8s)
-		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
-		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespaceVanillaK8s
-	}
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
 	}
@@ -473,16 +457,6 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	// Set default GCPort if Port is still empty
 	if cfg.GC.Port == "" {
 		cfg.GC.Port = DefaultGCPort
-	}
-	// Set default fss configmap name if SV FSS configmap info is not available in GC Config
-	if cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
-		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
-		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespace
-	}
-
-	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
-		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
-		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 	}
 	return cfg, nil
 }
