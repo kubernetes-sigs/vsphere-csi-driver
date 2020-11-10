@@ -128,9 +128,23 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	if len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
+	// Initialize CO common utility
+	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
+	}
+	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
+		k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: config.InternalFeatureStatesConfig})
+	if err != nil {
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+		return err
+	}
+	isAuthCheckFSSEnabled := containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
+	// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if CSIAuthCheck FSS is not enabled
+	if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
 		// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
-		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
+		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc)
 		if err != nil {
 			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
 			log.Error(msg)
@@ -161,19 +175,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 
-	// Initialize CO common utility
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-		k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: config.InternalFeatureStatesConfig})
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
-		return err
-	}
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+	if isAuthCheckFSSEnabled {
 		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
 		authMgr, err := common.GetAuthorizationService(ctx, vc)
 		if err != nil {
@@ -181,7 +183,10 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 			return err
 		}
 		c.authMgr = authMgr
-		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
+			config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager),
+			config.Global.CSIAuthCheckIntervalInMin)
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -282,19 +287,19 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 	}
 }
 
-func (c *controller) filterIgoreDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
 	log := logger.GetLogger(ctx)
-	dsIgnoreMap := c.authMgr.GetDatastoreIgnoreMapForBlockVolumes(ctx)
-	log.Debugf("filterIgnoreDatastores: dsIgnoreMap %v sharedDatastores %v", dsIgnoreMap, sharedDatastores)
+	dsMap := c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
+	log.Debugf("filterDatastores: dsMap %v sharedDatastores %v", dsMap, sharedDatastores)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
 	for _, sharedDatastore := range sharedDatastores {
-		if _, existsInDsIgnoreMap := dsIgnoreMap[sharedDatastore.Info.Url]; existsInDsIgnoreMap {
-			log.Debugf("filter out datastore %v from create volume spec", sharedDatastore)
-		} else {
+		if _, existsInDsMap := dsMap[sharedDatastore.Info.Url]; existsInDsMap {
 			filteredDatastores = append(filteredDatastores, sharedDatastore)
+		} else {
+			log.Debugf("filter out datastore %v from create volume spec", sharedDatastore)
 		}
 	}
-	log.Debug("filterIgnoreDatastores: filteredDatastores %v", filteredDatastores)
+	log.Debugf("filterDatastores: filteredDatastores %v", filteredDatastores)
 	return filteredDatastores
 }
 
@@ -416,8 +421,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-		// filter datastores which in datastoreIgnoreMap from sharedDatastores
-		sharedDatastores = c.filterIgoreDatastores(ctx, sharedDatastores)
+		// filter datastores which in datastoreMap from sharedDatastores
+		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
 	}
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
@@ -515,13 +520,35 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		ScParams:   scParams,
 		VolumeType: common.FileVolumeType,
 	}
-
-	volumeID, err := common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
-	if err != nil {
-		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+	var volumeID string
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
+		log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+		var filteredDatastores []*cnsvsphere.DatastoreInfo
+		for _, datastore := range dsURLToInfoMap {
+			filteredDatastores = append(filteredDatastores, datastore)
+		}
+		if len(filteredDatastores) == 0 {
+			msg := "no datastores found to create file volume"
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+			c.manager, &createVolumeSpec, filteredDatastores)
+		if err != nil {
+			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	} else {
+		volumeID, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
+		if err != nil {
+			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 	}
+
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 
