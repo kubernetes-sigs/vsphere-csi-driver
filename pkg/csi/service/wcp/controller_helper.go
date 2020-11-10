@@ -45,10 +45,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 )
 
-// validateParam is a helper function used to validate the parameter name
-// received in the CreateVolume request for WCP CSI driver
+// validateCreateBlockReqParam is a helper function used to validate the parameter
+// name received in the CreateVolume request for block volumes on WCP CSI driver
 // Returns true if the parameter name is valid, false otherwise
-func validateParam(paramName, value string) bool {
+func validateCreateBlockReqParam(paramName, value string) bool {
 	return paramName == common.AttributeStoragePolicyID ||
 		paramName == common.AttributeFsType ||
 		paramName == common.AttributeAffineToHost ||
@@ -61,23 +61,31 @@ const (
 	spTypeKey    = spTypePrefix + "StoragePoolType"
 )
 
+// validateCreateFileReqParam is a helper function used to validate the parameter
+// name received in the CreateVolume request for file volumes on WCP CSI driver
+// Returns true if the parameter name is valid, false otherwise
+func validateCreateFileReqParam(paramName, value string) bool {
+	return paramName == common.AttributeStoragePolicyID ||
+		paramName == common.AttributeFsType
+}
+
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 // TODO: Need to remove AttributeHostLocal after external provisioner stops sending this parameter
 func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
+	isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
 	// Get create params
 	params := req.GetParameters()
 	for paramName, value := range params {
 		paramName = strings.ToLower(paramName)
-		if !validateParam(paramName, value) {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
+		if isBlockRequest && !validateCreateBlockReqParam(paramName, value) {
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for block volume.", paramName)
+			return status.Error(codes.InvalidArgument, msg)
+		} else if !isBlockRequest && !validateCreateFileReqParam(paramName, value) {
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for file volumes.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
-	}
-	// Fail file volume creation
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
 }

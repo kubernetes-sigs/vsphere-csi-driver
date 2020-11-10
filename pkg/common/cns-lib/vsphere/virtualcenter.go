@@ -265,8 +265,8 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	return nil
 }
 
-// listDatacenters returns all Datacenters.
-func (vc *VirtualCenter) listDatacenters(ctx context.Context) ([]*Datacenter, error) {
+// ListDatacenters returns all Datacenters.
+func (vc *VirtualCenter) ListDatacenters(ctx context.Context) ([]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(vc.Client.Client, false)
 	dcList, err := finder.DatacenterList(ctx, "*")
@@ -314,7 +314,7 @@ func (vc *VirtualCenter) GetDatacenters(ctx context.Context) ([]*Datacenter, err
 	if len(vc.Config.DatacenterPaths) != 0 {
 		return vc.getDatacenters(ctx, vc.Config.DatacenterPaths)
 	}
-	return vc.listDatacenters(ctx)
+	return vc.ListDatacenters(ctx)
 }
 
 // Disconnect disconnects the virtual center host connection if connected.
@@ -359,20 +359,21 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 	return hostObjList, nil
 }
 
-// GetVsanDatastores returns all the vsan datastore exists in the vc inventory
-func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore, error) {
+// GetVsanDatastores returns all the datastore URL to DatastoreInfo map for all the
+// vSAN datastores in the VC.
+func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) (map[string]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	if err := vc.Connect(ctx); err != nil {
 		log.Errorf("failed to connect to vCenter. err: %v", err)
 		return nil, err
 	}
-	datacenters, err := vc.GetDatacenters(ctx)
+	datacenters, err := vc.ListDatacenters(ctx)
 	if err != nil {
 		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 
-	var vsanDatastores []mo.Datastore
+	vsanDsURLInfoMap := make(map[string]*DatastoreInfo)
 	for _, dc := range datacenters {
 		finder := find.NewFinder(dc.Datacenter.Client(), false)
 		finder.SetDatacenter(dc.Datacenter)
@@ -387,7 +388,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 		}
 		var dsMoList []mo.Datastore
 		pc := property.DefaultCollector(dc.Client())
-		properties := []string{"summary"}
+		properties := []string{"summary", "info"}
 		err = pc.Retrieve(ctx, dsMorList, properties, &dsMoList)
 		if err != nil {
 			log.Errorf("failed to get Datastore managed objects from datastore objects."+
@@ -397,12 +398,14 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) ([]mo.Datastore,
 
 		for _, dsMo := range dsMoList {
 			if dsMo.Summary.Type == "vsan" {
-				vsanDatastores = append(vsanDatastores, dsMo)
+				vsanDsURLInfoMap[dsMo.Info.GetDatastoreInfo().Url] = &DatastoreInfo{
+					&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
+						dc},
+					dsMo.Info.GetDatastoreInfo()}
 			}
 		}
 	}
-
-	return vsanDatastores, nil
+	return vsanDsURLInfoMap, nil
 }
 
 // GetDatastoresByCluster return datastores inside the cluster using cluster moref.

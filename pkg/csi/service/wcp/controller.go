@@ -59,6 +59,7 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 type controller struct {
 	manager           *common.Manager
 	coCommonInterface commonco.COCommonInterface
+	authMgr           common.AuthorizationService
 }
 
 // New creates a CNS controller
@@ -123,6 +124,17 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	if err != nil {
 		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
+	}
+	if c.coCommonInterface.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
+		authMgr, err := common.GetAuthorizationService(ctx, vc)
+		if err != nil {
+			log.Errorf("failed to initialize authMgr. err=%v", err)
+			return err
+		}
+		c.authMgr = authMgr
+		// TODO: Invoke similar method for block volumes
+		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
 	go func() {
 		for {
@@ -207,20 +219,10 @@ func (c *controller) ReloadConfiguration() {
 	log.Info("Successfully reloaded configuration")
 }
 
-// CreateVolume is creating CNS Volume using volume request specified
-// in CreateVolumeRequest
-func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+// createBlockVolume creates a block volume based on the CreateVolumeRequest.
+func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("CreateVolume: called with args %+v", *req)
-	err := validateWCPCreateVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
-
 	// Volume Size - Default is 10 GiB
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
@@ -234,6 +236,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		storagePool         string
 		topologyRequirement *csi.TopologyRequirement
 		accessibleNodes     []string // This will be used to populate volumeAccessTopology
+		err                 error
 	)
 	// Fetch the accessibility requirements from the request
 	topologyRequirement = req.GetAccessibilityRequirements()
@@ -346,6 +349,100 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 
 	return resp, nil
+}
+
+// createFileVolume creates a file volume based on the CreateVolumeRequest.
+func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
+	// ignore TopologyRequirement for file volume provisioning
+	if req.GetAccessibilityRequirements() != nil {
+		log.Info("Ignoring TopologyRequirement for file volume")
+	}
+
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	var storagePolicyID string
+	for paramName := range req.Parameters {
+		param := strings.ToLower(paramName)
+		if param == common.AttributeStoragePolicyID {
+			storagePolicyID = req.Parameters[paramName]
+		}
+	}
+
+	var createVolumeSpec = common.CreateVolumeSpec{
+		CapacityMB:      volSizeMB,
+		Name:            req.Name,
+		StoragePolicyID: storagePolicyID,
+		ScParams:        &common.StorageClassParams{},
+		VolumeType:      common.FileVolumeType,
+	}
+
+	var volumeID string
+	var err error
+
+	dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
+	log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+	var filteredDatastores []*cnsvsphere.DatastoreInfo
+	for _, datastore := range dsURLToInfoMap {
+		filteredDatastores = append(filteredDatastores, datastore)
+	}
+	if len(filteredDatastores) == 0 {
+		msg := "no datastores found to create file volume"
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+		c.manager, &createVolumeSpec, filteredDatastores)
+	if err != nil {
+		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	attributes := make(map[string]string)
+	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      volumeID,
+			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
+			VolumeContext: attributes,
+		},
+	}
+	return resp, nil
+}
+
+// CreateVolume is creating CNS Volume using volume request specified
+// in CreateVolumeRequest
+func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateVolume: called with args %+v", *req)
+
+	// Validate create request
+	err := validateWCPCreateVolumeRequest(ctx, req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+		log.Error(msg)
+		return nil, err
+	}
+
+	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+		if !c.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) || !c.coCommonInterface.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+			msg := "File volume feature is disabled on the cluster"
+			log.Warn(msg)
+			return nil, status.Errorf(codes.Unimplemented, msg)
+		}
+		return c.createFileVolume(ctx, req)
+	}
+	return c.createBlockVolume(ctx, req)
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest

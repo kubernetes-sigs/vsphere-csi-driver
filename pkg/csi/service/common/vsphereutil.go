@@ -22,10 +22,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/property"
-	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
@@ -178,8 +175,98 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	return volumeID.Id, nil
 }
 
-// CreateFileVolumeUtil is the helper function to create CNS file volume.
-func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec) (string, error) {
+// CreateFileVolumeUtil is the helper function to create CNS file volume with datastores.
+func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
+	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo) (string, error) {
+	log := logger.GetLogger(ctx)
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
+		return "", err
+	}
+	if spec.ScParams.StoragePolicyName != "" {
+		// Get Storage Policy ID from Storage Policy Name
+		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
+		if err != nil {
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
+			return "", err
+		}
+	}
+	var datastoreMorefs []vim25types.ManagedObjectReference
+	if spec.ScParams.DatastoreURL == "" {
+		datastoreMorefs = getDatastoreMoRefs(datastores)
+	} else {
+		// If datastoreUrl is set in storage class, then check if part of input datastores.
+		// If true, create the file volume on the datastoreUrl set in storage class.
+		var isFound bool
+		for _, dsInfo := range datastores {
+			if spec.ScParams.DatastoreURL == dsInfo.Info.Url {
+				isFound = true
+				datastoreMorefs = append(datastoreMorefs, dsInfo.Reference())
+				break
+			}
+		}
+		if !isFound {
+			msg := fmt.Sprintf("CSI user doesn't have permission on the datastore: %s specified in storage class",
+				spec.ScParams.DatastoreURL)
+			log.Error(msg)
+			return "", errors.New(msg)
+		}
+	}
+
+	// Retrieve net permissions from CnsConfig of manager and convert to required format
+	netPerms := make([]vsanfstypes.VsanFileShareNetPermission, 0)
+	for _, netPerm := range manager.CnsConfig.NetPermissions {
+		netPerms = append(netPerms, vsanfstypes.VsanFileShareNetPermission{
+			Ips:         netPerm.Ips,
+			Permissions: netPerm.Permissions,
+			AllowRoot:   !netPerm.RootSquash,
+		})
+	}
+
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
+	containerClusterArray = append(containerClusterArray, containerCluster)
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       spec.Name,
+		VolumeType: spec.VolumeType,
+		Datastores: datastoreMorefs,
+		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
+			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+					CapacityInMb: spec.CapacityMB,
+				},
+			},
+		},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
+			SoftQuotaInMb: spec.CapacityMB,
+			Permission:    netPerms,
+		},
+	}
+	if spec.StoragePolicyID != "" {
+		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
+			ProfileId: spec.StoragePolicyID,
+		}
+		createSpec.Profile = append(createSpec.Profile, profileSpec)
+	}
+
+	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
+	volumeID, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	if err != nil {
+		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
+		return "", err
+	}
+	return volumeID.Id, nil
+}
+
+// CreateFileVolumeUtilOld is the helper function to create CNS file volume with datastores from
+// TargetvSANFileShareDatastoreURLs in vsphere conf.
+func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
+	manager *Manager, spec *CreateVolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -195,27 +282,27 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
-	var allVsanDatastores []mo.Datastore
 	if spec.ScParams.DatastoreURL == "" {
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
-			allVsanDatastores, err = vc.GetVsanDatastores(ctx)
+			// get all vSAN datastores from VC
+			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx)
 			if err != nil {
 				log.Errorf("failed to get vSAN datastores with error %+v", err)
 				return "", err
 			}
-			var vsanDatastoreUrls []string
-			for _, datastore := range allVsanDatastores {
-				vsanDatastoreUrls = append(vsanDatastoreUrls, datastore.Summary.Url)
+			var allvsanDatastoreUrls []string
+			for dsURL := range vsanDsURLToInfoMap {
+				allvsanDatastoreUrls = append(allvsanDatastoreUrls, dsURL)
 			}
-			fsEnabledMap, err := IsFileServiceEnabled(ctx, vsanDatastoreUrls, manager)
+			fsEnabledMap, err := IsFileServiceEnabled(ctx, allvsanDatastoreUrls, vc)
 			if err != nil {
 				log.Errorf("failed to get if file service is enabled on vsan datastores with error %+v", err)
 				return "", err
 			}
-			for _, vsanDatastore := range allVsanDatastores {
-				if val, ok := fsEnabledMap[vsanDatastore.Summary.Url]; ok {
+			for dsURL, dsInfo := range vsanDsURLToInfoMap {
+				if val, ok := fsEnabledMap[dsURL]; ok {
 					if val {
-						datastores = append(datastores, vsanDatastore.Reference())
+						datastores = append(datastores, dsInfo.Reference())
 					}
 				}
 			}
@@ -457,109 +544,6 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 
 	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
 	return vim25types.ManagedObjectReference{}, errors.New(msg)
-}
-
-// IsFileServiceEnabled checks if file service is enabled on the specified datastoreUrls.
-func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, manager *Manager) (map[string]bool, error) {
-	// Compute this map during controller init. Re use the map every other time.
-	log := logger.GetLogger(ctx)
-	vc, err := GetVCenter(ctx, manager)
-	if err != nil {
-		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		return nil, err
-	}
-	err = vc.ConnectVsan(ctx)
-	if err != nil {
-		log.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
-		return nil, err
-	}
-	// This gets the datastore to file service enabled map for all the vsan datastores.
-	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc)
-	if err != nil {
-		log.Errorf("failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
-		return nil, err
-	}
-	// Now create a map of datastores which are queried in the method.
-	dsToFSEnabledMapToReturn := make(map[string]bool)
-	for _, datastoreURL := range datastoreUrls {
-		if val, ok := dsToFileServiceEnabledMap[datastoreURL]; ok {
-			if !val {
-				msg := fmt.Sprintf("File service is not enabled on the datastore: %s", datastoreURL)
-				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreURL] = false
-			} else {
-				msg := fmt.Sprintf("File service is enabled on the datastore: %s", datastoreURL)
-				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreURL] = true
-			}
-		} else {
-			msg := fmt.Sprintf("Datastore URL %s is not present in datacenters specified in config.", datastoreURL)
-			log.Debugf(msg)
-			dsToFSEnabledMapToReturn[datastoreURL] = false
-		}
-	}
-	return dsToFSEnabledMapToReturn, nil
-}
-
-// Creates a map of vsan datastores to file service status (enabled/disabled).
-func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string]bool, error) {
-	log := logger.GetLogger(ctx)
-	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
-	datacenters, err := vc.GetDatacenters(ctx)
-	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
-		return nil, err
-	}
-
-	dsToFileServiceEnabledMap := make(map[string]bool)
-	for _, datacenter := range datacenters {
-		finder := find.NewFinder(datacenter.Datacenter.Client(), false)
-		finder.SetDatacenter(datacenter.Datacenter)
-		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
-		if err != nil {
-			if _, ok := err.(*find.NotFoundError); ok {
-				log.Debugf("No clusterComputeResource found in dc: %+v. error: %+v", datacenter, err)
-				continue
-			}
-			log.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
-			return nil, err
-		}
-
-		pc := property.DefaultCollector(datacenter.Client())
-		properties := []string{"info", "summary"}
-		// Get all the vsan datastores from the clusters and add it to map.
-		for _, cluster := range clusterComputeResource {
-			// Get the cluster config to know if file service is enabled on it or not.
-			config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
-			if err != nil {
-				log.Errorf("failed to get the vsan cluster config. error: %+v", err)
-				return nil, err
-			}
-
-			var dsList []vim25types.ManagedObjectReference
-			var dsMoList []mo.Datastore
-			datastores, err := cluster.Datastores(ctx)
-			if err != nil {
-				log.Errorf("Error occurred while getting datastores from clusters. error: %+v", err)
-				return nil, err
-			}
-			for _, datastore := range datastores {
-				dsList = append(dsList, datastore.Reference())
-			}
-			err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
-			if err != nil {
-				log.Errorf("failed to get Datastore managed objects from datastore objects."+
-					" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
-				return nil, err
-			}
-			for _, dsMo := range dsMoList {
-				if dsMo.Summary.Type == VsanDatastoreType {
-					dsToFileServiceEnabledMap[dsMo.Info.GetDatastoreInfo().Url] = config.FileServiceConfig.Enabled
-				}
-			}
-		}
-	}
-	return dsToFileServiceEnabledMap, nil
 }
 
 // isExpansionRequired verifies if the requested size to expand a volume is greater than the current size
