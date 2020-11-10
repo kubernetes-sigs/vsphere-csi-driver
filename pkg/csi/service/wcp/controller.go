@@ -35,7 +35,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -57,9 +56,8 @@ var (
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 type controller struct {
-	manager           *common.Manager
-	coCommonInterface commonco.COCommonInterface
-	authMgr           common.AuthorizationService
+	manager *common.Manager
+	authMgr common.AuthorizationService
 }
 
 // New creates a CNS controller
@@ -113,19 +111,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	// Initialize CO common utility
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-		k8sorchestrator.K8sSupervisorInitParams{SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig})
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
-		return err
-	}
-	if c.coCommonInterface.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
 		authMgr, err := common.GetAuthorizationService(ctx, vc)
 		if err != nil {
@@ -435,7 +421,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 
 	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		if !c.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) || !c.coCommonInterface.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 			msg := "File volume feature is disabled on the cluster"
 			log.Warn(msg)
 			return nil, status.Errorf(codes.Unimplemented, msg)
@@ -642,14 +628,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster"
 		log.Warn(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
-	isOnlineExpansionEnabled := c.coCommonInterface.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 	if err != nil {
 		log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)

@@ -91,6 +91,9 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: vmware/vsphere-csi:<vsphere_csi_ver>
+          args:
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
           lifecycle:
             preStop:
               exec:
@@ -116,6 +119,10 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -137,6 +144,8 @@ spec:
           image: vmware/syncer:<syncer_ver>
           args:
             - "--leader-election"
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
@@ -160,6 +169,10 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp

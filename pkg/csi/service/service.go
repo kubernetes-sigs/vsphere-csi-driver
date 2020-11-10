@@ -18,7 +18,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -31,7 +30,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
@@ -47,6 +45,9 @@ const (
 )
 
 var (
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator for the controller as well as node containers
+	COInitParams  interface{}
 	clusterFlavor = defaultClusterFlavor
 	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
@@ -110,9 +111,10 @@ func (s *service) BeforeServe(
 		cfg *cnsconfig.Config
 	)
 
-	cfg, err = common.GetConfig(ctx)
+	// Initialize CO utility in Nodes
+	commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
 	if err != nil {
-		log.Errorf("failed to read config. Error: %+v", err)
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 
@@ -120,30 +122,13 @@ func (s *service) BeforeServe(
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-		if err := s.cnscs.Init(cfg); err != nil {
-			log.Errorf("failed to init controller. Error: %+v", err)
+		cfg, err = common.GetConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to read config. Error: %+v", err)
 			return err
 		}
-	} else {
-		// Initialize CO utility in Nodes
-		var k8sInitParams interface{}
-		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-			k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
-				InternalFeatureStatesConfigInfo: cfg.InternalFeatureStatesConfig,
-			}
-		} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			k8sInitParams = k8sorchestrator.K8sGuestInitParams{
-				InternalFeatureStatesConfigInfo:   cfg.InternalFeatureStatesConfig,
-				SupervisorFeatureStatesConfigInfo: cfg.FeatureStatesConfig,
-			}
-		} else {
-			msg := fmt.Sprintf("unrecognized mode %q in cluster flavor %q", s.mode, clusterFlavor)
-			log.Error(msg)
-			return fmt.Errorf(msg)
-		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
-		if err != nil {
-			log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+		if err := s.cnscs.Init(cfg); err != nil {
+			log.Errorf("failed to init controller. Error: %+v", err)
 			return err
 		}
 	}

@@ -136,13 +136,6 @@ cat <<eof >"${tmpdir}"/webhook.config
 port = "8443"
 cert-file = "/etc/webhook/cert.pem"
 key-file = "/etc/webhook/key.pem"
-
-# InternalFeatureStatesConfig holds the details about internal feature states configmap.
-# Default feature states configmap name is set to "internal-feature-states.csi.vsphere.vmware.com"  and namespace is set to "kube-system"
-# Provide the configmap name and namespace details only when feature states configmap is not in the default namespace
-[InternalFeatureStatesConfig]
-name = "internal-feature-states.csi.vsphere.vmware.com"
-namespace = "${namespace}"
 eof
 
 
