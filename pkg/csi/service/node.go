@@ -26,13 +26,6 @@ import (
 	"strconv"
 	"strings"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8svol "k8s.io/kubernetes/pkg/volume"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csictx "github.com/rexray/gocsi/context"
@@ -41,9 +34,12 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/util/resizefs"
+	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
-
 	utilexec "k8s.io/utils/exec"
 	"k8s.io/utils/mount"
 
@@ -51,6 +47,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -59,8 +56,6 @@ const (
 	blockPrefix = "wwn-0x"
 	dmiDir      = "/sys/class/dmi"
 )
-
-var containerOrchestratorUtility commonco.COCommonInterface
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume
@@ -778,7 +773,7 @@ func (s *service) NodeExpandVolume(
 		Exec:      realExec,
 	}
 
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
 		// Fetch the current block size
 		currentBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
 		if err != nil {
