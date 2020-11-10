@@ -1935,14 +1935,14 @@ func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface, na
 
 // waitForCNSRegisterVolumeToGetCreated waits for a cnsRegisterVolume to get created or until timeout occurs, whichever comes first.
 func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for CnsRegisterVolume %s to get created", timeout, cnsRegisterVolume)
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %+v to get created", timeout, cnsRegisterVolume)
 
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		flag := cnsRegisterVolume.Status.Registered
 		if !flag {
-			framework.Logf("cnsRegisterVolume %s found and Registered status is  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			framework.Logf("cnsRegisterVolume %s found and Registered status is = %t", cnsRegisterVolumeName, flag)
 			continue
 		} else {
 			return nil
@@ -1954,13 +1954,13 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 
 // waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get deleted or until timeout occurs, whichever comes first.
 func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for cnsRegisterVolume %s to get deleted", timeout, cnsRegisterVolume)
+	framework.Logf("Waiting up to %v for cnsRegisterVolume %+v to get deleted", timeout, cnsRegisterVolume)
 
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
 		if flag {
-			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status = %t", cnsRegisterVolumeName, flag)
 			continue
 		}
 		return nil

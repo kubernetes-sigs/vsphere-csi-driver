@@ -812,7 +812,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 	*/
 
-	ginkgo.It("[csi-supervisor] Verify Volume health on Statefulset", func() {
+	ginkgo.It("[csi-supervisor] Verify Volume health on Statefulset in Supervisor", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -1073,7 +1073,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 	*/
 
-	ginkgo.It("[csi-guest] In Guest Cluster Verify Volume health on Statefulset", func() {
+	ginkgo.It("[csi-guest] Verify Volume health on a statefulset in Guest Cluster", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
