@@ -229,14 +229,24 @@ func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context, top
 	return nil, nil, nil
 }
 
-func (f *FakeAuthManager) GetDatastoreIgnoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
-	datastoreIgnoreMap := make(map[string]*cnsvsphere.DatastoreInfo)
-	fmt.Print("FakeAuthManager: GetDatastoreIgnoreMapForBlockVolumes")
+func (f *FakeAuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
+	datastoreMapForBlockVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
+	fmt.Print("FakeAuthManager: GetDatastoreMapForBlockVolumes")
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datastoreIgnoreMap, _ := common.GenerateDatastoreIgnoreMapForBlockVolumes(ctx, f.vcenter)
-		return datastoreIgnoreMap
+		datastoreMapForBlockVolumes, _ := common.GenerateDatastoreMapForBlockVolumes(ctx, f.vcenter)
+		return datastoreMapForBlockVolumes
 	}
-	return datastoreIgnoreMap
+	return datastoreMapForBlockVolumes
+}
+
+func (f *FakeAuthManager) GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
+	datastoreMapForFileVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
+	fmt.Print("FakeAuthManager: GetDatastoreMapForFileVolumes")
+	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
+		datastoreMapForFileVolumes, _ := common.GenerateDatastoreMapForFileVolumes(ctx, f.vcenter)
+		return datastoreMapForFileVolumes
+	}
+	return datastoreMapForFileVolumes
 }
 
 func getControllerTest(t *testing.T) *controllerTest {
