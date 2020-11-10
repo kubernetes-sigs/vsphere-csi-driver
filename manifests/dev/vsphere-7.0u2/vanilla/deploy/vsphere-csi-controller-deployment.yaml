@@ -55,6 +55,9 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.2
+          args:
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -69,6 +72,10 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -99,6 +106,8 @@ spec:
           image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.2
           args:
             - "--leader-election"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
@@ -111,6 +120,10 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume

@@ -30,7 +30,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
@@ -50,7 +49,7 @@ var (
 
 // InitStoragePoolService initializes the StoragePool service that updates
 // vSphere Datastore information into corresponding k8s StoragePool resources.
-func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigInfo) error {
+func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initializing Storage Pool Service")
 
@@ -107,10 +106,7 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		defer diskDecommEnablementTicker.Stop()
 		clusterFlavor := cnstypes.CnsClusterFlavorWorkload
 		for ; true; <-diskDecommEnablementTicker.C {
-			k8sInitParams := k8sorchestrator.K8sSupervisorInitParams{
-				SupervisorFeatureStatesConfigInfo: configInfo.Cfg.FeatureStatesConfig,
-			}
-			coCommonInterface, _ := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+			coCommonInterface, _ := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *coInitParams)
 			if !coCommonInterface.IsFSSEnabled(ctx, common.VSANDirectDiskDecommission) {
 				log.Infof("VSANDirectDiskDecommission feature is disabled on the cluster")
 			} else {

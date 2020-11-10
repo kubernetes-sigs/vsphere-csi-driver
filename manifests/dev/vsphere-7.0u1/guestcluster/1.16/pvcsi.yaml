@@ -128,6 +128,11 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: vmware.io/vsphere-csi:<image_tag>
+          args:
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           lifecycle:
             preStop:
               exec:
@@ -158,6 +163,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              value: {{ .PVCSINamespace }}
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -171,6 +178,10 @@ spec:
           image: vmware.io/syncer:<image_tag>
           args:
             - "--leader-election"
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
@@ -181,6 +192,8 @@ spec:
               value: "GUEST_CLUSTER"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: CSI_NAMESPACE
+              value: {{ .PVCSINamespace }}
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume
@@ -290,6 +303,11 @@ spec:
             mountPath: /registration
       - name: vsphere-csi-node
         image: vmware.io/vsphere-csi:<image_tag>
+        args:
+          - "--supervisor-fss-name=csi-feature-states"
+          - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+          - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+          - "--fss-namespace=$(CSI_NAMESPACE)"
         imagePullPolicy: "IfNotPresent"
         env:
         - name: NODE_NAME
@@ -306,6 +324,8 @@ spec:
           value: "GUEST_CLUSTER"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+        - name: CSI_NAMESPACE
+          value: {{ .PVCSINamespace }}
         securityContext:
           privileged: true
           capabilities:
