@@ -175,11 +175,14 @@ const (
 	// InTreePluginName is the name of vsphere cloud provider in kubernetes
 	InTreePluginName = "kubernetes.io/vsphere-volume"
 
-	// DsPriv is the privilege need to wirte a that datastore
+	// DsPriv is the privilege need to write on that datastore
 	DsPriv = "Datastore.FileManagement"
 
 	// SysReadPriv is the privilege to view an entity
 	SysReadPriv = "System.Read"
+
+	// HostConfigStoragePriv is the privilege for file volumes
+	HostConfigStoragePriv = "Host.Config.Storage"
 )
 
 // Supported container orchestrators
@@ -203,4 +206,6 @@ const (
 	CSIAuthCheck = "csi-auth-check"
 	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
 	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
+	// FileVolume is feature flag name for file volume support in WCP
+	FileVolume = "file-volume"
 )
