@@ -96,6 +96,7 @@ function build_images() {
       # A non-PR, non-release build. This is usually a build off of master
       CSI_IMAGE_NAME=${CSI_IMAGE_CI}
       SYNCER_IMAGE_NAME=${SYNCER_IMAGE_CI}
+      LATEST="latest"
       ;;
     pr)
       # A PR build
