@@ -18,7 +18,6 @@ package syncer
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -45,7 +44,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -58,6 +56,9 @@ var (
 	volumeMigrationService        migration.VolumeMigrationService
 	onceForVolumeHealthReconciler sync.Once
 	onceForVolumeResizeReconciler sync.Once
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator for the syncer container
+	COInitParams interface{}
 )
 
 // newInformer returns uninitialized metadataSyncInformer
@@ -127,27 +128,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Initialize the k8s orchestrator interface
-	var k8sInitParams interface{}
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
-			InternalFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
-		}
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		k8sInitParams = k8sorchestrator.K8sSupervisorInitParams{
-			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
-		}
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		k8sInitParams = k8sorchestrator.K8sGuestInitParams{
-			InternalFeatureStatesConfigInfo:   metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
-			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
-		}
-	} else {
-		mssg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
-		log.Error(mssg)
-		return errors.New(mssg)
-	}
-
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
 	if err != nil {
 		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err

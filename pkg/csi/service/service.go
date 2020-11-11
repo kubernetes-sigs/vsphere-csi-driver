@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
@@ -48,6 +49,9 @@ const (
 )
 
 var (
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator for the controller
+	COInitParams  interface{}
 	clusterFlavor = defaultClusterFlavor
 	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
@@ -110,8 +114,17 @@ func (s *service) BeforeServe(
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-		var cfg *cnsconfig.Config
-		var err error
+		var (
+			err error
+			cfg *cnsconfig.Config
+		)
+
+		// Initialize CO utility in Controller and Nodes
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
+		if err != nil {
+			log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+			return err
+		}
 
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
