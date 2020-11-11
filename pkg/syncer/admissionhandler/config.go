@@ -22,7 +22,6 @@ import (
 
 	"gopkg.in/gcfg.v1"
 
-	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -36,8 +35,6 @@ const (
 type config struct {
 	// WebHookConfig contains the detail about webhook - certfile, keyfile, port etc.
 	WebHookConfig webHookConfig
-	// InternalFeatureStatesConfig is the details about feature states configmap
-	InternalFeatureStatesConfig commonconfig.FeatureStatesConfigInfo
 }
 
 // webHookConfig holds webhook configuration using which webhook http server will be created

@@ -35,7 +35,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -52,8 +51,7 @@ var (
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 type controller struct {
-	manager           *common.Manager
-	coCommonInterface commonco.COCommonInterface
+	manager *common.Manager
 }
 
 // New creates a CNS controller
@@ -107,18 +105,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	// Initialize CO common utility
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-		k8sorchestrator.K8sSupervisorInitParams{SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig})
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
-		return err
-	}
 	go func() {
 		for {
 			log.Debugf("Waiting for event on fsnotify watcher")
@@ -548,7 +534,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster"
 		log.Warn(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)

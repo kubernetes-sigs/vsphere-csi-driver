@@ -43,7 +43,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -64,7 +63,6 @@ type controller struct {
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
-	coCommonInterface         commonco.COCommonInterface
 }
 
 // New creates a CNS controller
@@ -108,22 +106,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
-		return err
-	}
-
-	// Initialize CO common interface
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	k8sInitParams := k8sorchestrator.K8sGuestInitParams{
-		InternalFeatureStatesConfigInfo:   config.InternalFeatureStatesConfig,
-		SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig,
-	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. err=%v", err)
 		return err
 	}
 
@@ -551,7 +533,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster."
 		log.Warn(msg)
 		return nil, status.Error(codes.Unimplemented, msg)

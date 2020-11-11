@@ -27,6 +27,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
+// ContainerOrchestratorUtility represents the singleton instance of
+// container orchestrator interface
+var ContainerOrchestratorUtility COCommonInterface
+
 // COCommonInterface provides functionality to define
 // container orchestrator related implementation to read resources/objects
 type COCommonInterface interface {
