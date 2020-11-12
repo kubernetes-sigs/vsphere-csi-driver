@@ -59,13 +59,6 @@ rules:
     resources: ["podsecuritypolicies"]
     verbs: ["use"]
     resourceNames: ["vmware-system-privileged"]
----
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: vsphere-csi-node-cluster-role
-  namespace: {{ .PVCSINamespace }}
-rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
@@ -95,20 +88,6 @@ subjects:
 roleRef:
   kind: Role
   name: vsphere-csi-node-role
-  apiGroup: rbac.authorization.k8s.io
----
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: vsphere-csi-node-cluster-binding
-  namespace: {{ .PVCSINamespace }}
-subjects:
-  - kind: ServiceAccount
-    name: vsphere-csi-node
-    namespace: {{ .PVCSINamespace }}
-roleRef:
-  kind: ClusterRole
-  name: vsphere-csi-node-cluster-role
   apiGroup: rbac.authorization.k8s.io
 ---
 kind: Deployment
