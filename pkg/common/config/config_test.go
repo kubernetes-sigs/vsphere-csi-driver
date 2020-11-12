@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"testing"
 )
@@ -45,7 +46,7 @@ func init() {
 
 func TestValidateConfigWithNoNetPermissionParams(t *testing.T) {
 	cfg := &Config{VirtualCenter: idealVCConfig}
-
+	os.Setenv("CLUSTER_FLAVOR", "VANILLA")
 	expectedNetPermissions := map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
 	expectedConfig := &Config{
 		VirtualCenter:  idealVCConfig,
