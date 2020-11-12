@@ -47,6 +47,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
@@ -1967,4 +1968,114 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 	}
 
 	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// getK8sMasterIP gets k8s master ip in vanilla setup
+func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var k8sMasterIP string
+	for _, node := range nodes.Items {
+		if strings.Contains(node.Name, "master") {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeExternalIP {
+					k8sMasterIP = addr.Address
+				}
+			}
+		}
+	}
+	return k8sMasterIP
+}
+
+// toggleCSIMigrationFeatureGatesOnKubeControllerManager adds/removes CSIMigration and CSIMigrationvSphere feature gates to/from kube-controller-manager
+func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, client clientset.Interface, add bool) error {
+	var err error
+	sshCmd := ""
+	if !vanillaCluster {
+		return fmt.Errorf("'toggleCSIMigrationFeatureGatesToKubeControllerManager' is implemented for vanilla cluster alone")
+	}
+	if add {
+		sshCmd = "sed -i -e 's/CSIMigration=false,CSIMigrationvSphere=false/CSIMigration=true,CSIMigrationvSphere=true/g' " + kcmManifest
+	} else {
+		sshCmd = "sed -i '/CSIMigration/d' " + kcmManifest
+	}
+	grepCmd := "grep CSIMigration " + kcmManifest
+	k8sMasterIP := getK8sMasterIP(ctx, client)
+	framework.Logf("Invoking command %v on host %v", grepCmd, k8sMasterIP)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("ca$hc0w"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		fssh.LogResult(result)
+		return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s", grepCmd, k8sMasterIP, err)
+	}
+	if result.Code != 0 {
+		if add {
+			sshCmd = "gawk -i inplace '/--bind-addres/ { print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " + kcmManifest
+		} else {
+			return nil
+		}
+	}
+	framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
+	result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
+	}
+	// sleeping for two seconds so that the change made to manifest file is recognised
+	time.Sleep(2 * time.Second)
+	framework.Logf("Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout)
+	label := labels.SelectorFromSet(labels.Set(map[string]string{"component": "kube-controller-manager"}))
+	_, err = fpod.WaitForPodsWithLabelRunningReady(client, kubeSystemNamespace, label, 1, pollTimeout)
+	framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout)
+	return err
+}
+
+func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+	result := fssh.Result{Host: host, Cmd: cmd}
+	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+	if err != nil {
+		result.Stdout = ""
+		result.Stderr = ""
+		result.Code = 0
+		return result, err
+	}
+	defer sshClient.Close()
+	sshSession, err := sshClient.NewSession()
+	if err != nil {
+		result.Stdout = ""
+		result.Stderr = ""
+		result.Code = 0
+		return result, err
+	}
+	defer sshSession.Close()
+	// Run the command.
+	code := 0
+	var bytesStdout, bytesStderr bytes.Buffer
+	sshSession.Stdout, sshSession.Stderr = &bytesStdout, &bytesStderr
+	if err = sshSession.Run(cmd); err != nil {
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful but cmd failed on the host
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		} else {
+			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, err)
+		}
+	}
+	result.Stdout = bytesStdout.String()
+	result.Stderr = bytesStderr.String()
+	result.Code = code
+	return result, err
 }
