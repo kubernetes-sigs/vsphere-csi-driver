@@ -543,6 +543,18 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 	return pv
 }
 
+// invokeVCenterReboot invokes reboot command on the given vCenter host over SSH
+func invokeVCenterReboot(host string) error {
+	sshCmd := "reboot"
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
 // invokeVCenterServiceControl invokes the given command for the given service
 // via service-control on the given vCenter host over SSH.
 func invokeVCenterServiceControl(command, service, host string) error {
