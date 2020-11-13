@@ -228,7 +228,10 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 	}, nil
 }
 
-// getVsanHostCapacities queries each ESX for vSAN disk capacity information
+// getVsanHostCapacities queries each ESX for vSAN disk capacity information.
+// It tries to fetch as much host capacity information as possible, i.e. if there is an error fetching capacity for
+// a particular host, maybe due to it becoming unresponsive, or packet drop etc., it ignores the error and tries to fetch
+// capacity information for remaining hosts
 func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*cnsvsphere.VsanHostCapacity, error) {
 	log := logger.GetLogger(ctx)
 	out := make(map[string]*cnsvsphere.VsanHostCapacity)
@@ -252,13 +255,13 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 		capacity, err := host.GetHostVsanCapacity(ctx)
 		if err != nil {
 			log.Errorf("Failed to query vsan disks. Err: %+v", err)
-			return nil, err
+			continue
 		}
 		nodeName, exists := hostMoIDTok8sName[host.Reference().Value]
 		if !exists {
 			err := fmt.Errorf("failed to find node name for %s in this cluster", host.Reference().Value)
 			log.Error(err)
-			return nil, err
+			continue
 		}
 		log.Infof("Host %s has capacity %+v", nodeName, capacity)
 		out[nodeName] = capacity
@@ -363,18 +366,27 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	return nil
 }
 
+/**
+ * updateVsanSnaIntendedState for each host updates (creates if not exist) the vsan-sna StoragePool with vsan host's
+ * capacity, compatible storage classes etc. from standard vsan StoragePool state.
+ * @param  validStoragePoolNames: its an in-out param which captures the valid StoragePool. This is later used to delete
+ * extraneous StoragePool from kubernetes cluster whose corresponding datastore does not exist in vCenter cluster.
+ */
 func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState *intendedState,
 	validStoragePoolNames map[string]bool, scWatchCntlr *StorageClassWatch) error {
 	log := logger.GetLogger(ctx)
-	vsanHostCapacities, err := c.getVsanHostCapacities(ctx)
-	if err != nil {
-		log.Errorf("Error encountered fetching vSAN SNA Host capacities. Err: %v", err)
-		return err
-	}
 	vsanNodes := make(map[string]bool)
 	for _, vsanNode := range vsanState.nodes {
 		vsanNodes[vsanNode] = true
 	}
+	vsanHostCapacities, hostCapacityErr := c.getVsanHostCapacities(ctx)
+	if hostCapacityErr != nil {
+		// We are deferring return of hostCapacityErr, if any, after processing vsan sna capacities to prevent cases where error in
+		// getting capacity from one host would not only prevent us from updating capacities of other vsan SNA StoragePool but also
+		// could lead to deletion of other vsan SNA StoragePool as we did not mark these SP as valid in validStoragePoolNames variable.
+		log.Errorf("Error encountered fetching vSAN SNA Host capacities. Err: %v", hostCapacityErr)
+	}
+
 	for snaNode, vsanHostCapacity := range vsanHostCapacities {
 		if _, ok := vsanNodes[snaNode]; !ok {
 			log.Infof("Skipping vSAN SNA StoragePool for %s as it is not accessible", snaNode)
@@ -392,7 +404,7 @@ func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState
 			continue
 		}
 	}
-	return nil
+	return hostCapacityErr
 }
 
 func (c *SpController) deleteIntendedState(ctx context.Context, spName string) bool {
