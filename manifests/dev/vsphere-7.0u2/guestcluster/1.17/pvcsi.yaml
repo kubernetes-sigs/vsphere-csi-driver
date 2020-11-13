@@ -137,14 +137,10 @@ spec:
             - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
           imagePullPolicy: "IfNotPresent"
           env:
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              value: unix:///csi/csi.sock
             - name: CLUSTER_FLAVOR
               value: "GUEST_CLUSTER"
             - name: X_CSI_MODE
@@ -176,7 +172,7 @@ spec:
             - mountPath: /etc/cloud/pvcsi-config
               name: pvcsi-config-volume
               readOnly: true
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
           image: vmware.io/syncer:<image_tag>
@@ -212,9 +208,9 @@ spec:
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
           volumeMounts:
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: csi-provisioner
           image: vmware.io/csi-provisioner/csi-provisioner:<image_tag>
@@ -255,9 +251,7 @@ spec:
           configMap:
             name: pvcsi-config
         - name: socket-dir
-          hostPath:
-            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-            type: DirectoryOrCreate
+          emptyDir: {}
 ---
 apiVersion: storage.k8s.io/v1beta1
 kind: CSIDriver
