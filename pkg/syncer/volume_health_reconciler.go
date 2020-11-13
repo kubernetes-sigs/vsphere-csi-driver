@@ -157,6 +157,7 @@ func NewVolumeHealthReconciler(
 	svcPVCInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		AddFunc:    rc.svcAddPVC,
 		UpdateFunc: rc.svcUpdatePVC,
+		DeleteFunc: rc.svcAddPVC,
 	}, resyncPeriod)
 
 	tkgPVInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
@@ -325,20 +326,20 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	}
 
 	svcPVC, err := rc.svcPVCLister.PersistentVolumeClaims(namespace).Get(name)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			log.Infof("PVC %s/%s is deleted, no need to process it", namespace, name)
-			return nil
-		}
-		log.Errorf("Get PVC %s/%s failed: %v", namespace, name, err)
+	switch {
+	case err == nil:
+		log.Infof("syncPVC: Found Supervisor Cluster PVC: %s/%s", svcPVC.Namespace, svcPVC.Name)
+	case k8serrors.IsNotFound(err):
+		log.Infof("syncPVC: Supervisor Cluster PVC %s/%s is deleted, process any left over TKG PVCs", namespace, name)
+	default:
+		log.Errorf("syncPVC: Get PVC %s/%s failed: %v", namespace, name, err)
 		return err
 	}
-	log.Infof("syncPVC: Found Supervisor Cluster PVC: %s/%s", svcPVC.Namespace, svcPVC.Name)
 
 	// The input PVC is a Supervisor Cluster PVC
 	// Find list of Tanzu Kubernetes Grid PV's referencing this PVC
 	// Find corresponding Tanzu Kubernetes Grid PVCs and update them
-	tkgPVList, err := rc.findTKGPVforSupervisorPVC(ctx, svcPVC)
+	tkgPVList, err := rc.findTKGPVforSupervisorPVC(ctx, name, namespace)
 	if err != nil {
 		return err
 	}
@@ -365,13 +366,13 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 
 // find list of PV's in TKG that matches PVC in supervisor cluster
 // Returns list of pointers to PV's in TKG
-func (rc *volumeHealthReconciler) findTKGPVforSupervisorPVC(ctx context.Context, svcPVC *v1.PersistentVolumeClaim) ([]*v1.PersistentVolume, error) {
+func (rc *volumeHealthReconciler) findTKGPVforSupervisorPVC(ctx context.Context, pvcName, pvcNamespace string) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	// For the SV PVC for which this event was triggered, find the TKG PV's that reference this PVC.
 	var tkgPVList []*v1.PersistentVolume
-	log.Debugf("findTKGPVforSupervisorPVC enter: Supervisor Cluster PVC %s/%s", svcPVC.Namespace, svcPVC.Name)
+	log.Debugf("findTKGPVforSupervisorPVC enter: Supervisor Cluster PVC %s/%s", pvcNamespace, pvcName)
 
-	pvNames := rc.volumeHandleToPVs.get(svcPVC.Name)
+	pvNames := rc.volumeHandleToPVs.get(pvcName)
 	if len(pvNames) == 0 {
 		return nil, nil
 	}
@@ -394,8 +395,9 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 	// compare the volume health annotation on the PVC in Tanzu Kubernetes Grid with the annotation on PVC in the Supervisor Cluster.
 	// If annotation is different, update the volume health annotation on the PVC in Tanzu Kubernetes Grid based on the one in Supervisor Cluster.
 	// If same, do nothing
+	// If the SVC PVC was deleted but TKG PVC exists, change annotation to inaccessible
 	// If update fails, the caller will add PVC in Supervisor Cluster back to RateLimited queue to retry.
-	log.Debugf("updateTKGPVC enter: Supervisor Cluster PVC %s/%s, Tanzu Kubernetes Grid PV %s", svcPVC.Namespace, svcPVC.Name, tkgPV.Name)
+	log.Debugf("updateTKGPVC enter: Tanzu Kubernetes Grid PV %s", tkgPV.Name)
 	tkgPVCObj, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPV.Spec.ClaimRef.Namespace).Get(ctx, tkgPV.Spec.ClaimRef.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error get pvc %s/%s from api server: %v", tkgPV.Spec.ClaimRef.Namespace, tkgPV.Spec.ClaimRef.Name, err)
@@ -404,9 +406,15 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 
 	// Check if annotation is the same on PVC in Tanzu Kubernetes Grid and Supervisor Cluster and copy from Supervisor Cluster if different
 	var tkgAnnValue, svcAnnValue string
-	tkgAnnValue, tkgFound := tkgPVCObj.ObjectMeta.Annotations[annVolumeHealth]
-	svcAnnValue, svcFound := svcPVC.ObjectMeta.Annotations[annVolumeHealth]
-	if !tkgFound && svcFound || tkgFound && svcFound && tkgAnnValue != svcAnnValue {
+	var tkgAnnFound, svcAnnFound bool
+	tkgAnnValue, tkgAnnFound = tkgPVCObj.ObjectMeta.Annotations[annVolumeHealth]
+	if svcPVC != nil {
+		svcAnnValue, svcAnnFound = svcPVC.ObjectMeta.Annotations[annVolumeHealth]
+	} else {
+		svcAnnValue = volHealthStatusInAccessible
+	}
+
+	if !tkgAnnFound && svcAnnFound || tkgAnnFound && svcAnnFound && tkgAnnValue != svcAnnValue || svcPVC == nil {
 		log.Infof("updateTKGPVC: Detected volume health annotation change. Need to update Tanzu Kubernetes Grid PVC %s/%s. Existing TKG PVC annotation: %s. New annotation: %s", tkgPVCObj.Namespace, tkgPVCObj.Name, tkgAnnValue, svcAnnValue)
 		tkgPVCClone := tkgPVCObj.DeepCopy()
 		metav1.SetMetaDataAnnotation(&tkgPVCClone.ObjectMeta, annVolumeHealth, svcAnnValue)
