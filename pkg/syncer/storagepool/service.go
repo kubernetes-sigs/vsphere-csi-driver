@@ -23,7 +23,7 @@ import (
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -60,15 +61,13 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
-	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
-	if err != nil {
-		log.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
-		return err
-	}
-
 	// Create StoragePool CRD
 	crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, "storagepools", crdKind)
+	crdSingular := "storagepool"
+	crdPlural := "storagepools"
+	crdName := crdPlural + "." + spv1alpha1.SchemeGroupVersion.Group
+	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdName, crdSingular, crdPlural,
+		crdKind, spv1alpha1.SchemeGroupVersion.Group, spv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
 	if err != nil {
 		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
