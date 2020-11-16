@@ -38,6 +38,9 @@ type Config struct {
 		// InsecureFlag is enabled. Optional; if not configured, the system's CA
 		// certificates will be used.
 		CAFile string `gcfg:"ca-file"`
+		// Thumbprint specifies the certificate thumbprint to use
+		// This has no effect if InsecureFlag is enabled.
+		Thumbprint string `gcfg:"thumbprint"`
 		// Datacenter in which Node VMs are located.
 		Datacenters string `gcfg:"datacenters"`
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
