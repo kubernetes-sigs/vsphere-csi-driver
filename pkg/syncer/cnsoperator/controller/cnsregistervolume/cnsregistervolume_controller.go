@@ -183,7 +183,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
+	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)
