@@ -54,13 +54,14 @@ Here is an example vSphere configuration file for block volumes, with dummy valu
 $ cat /etc/kubernetes/csi-vsphere.conf
 [Global]
 cluster-id = "<cluster-id>"
+ca-file = <ca file path> # optional, use with insecure-flag set to false
+thumbprint = "<cert thumbprint>" # optional, use with insecure-flag set to false without providing ca-file
 
 [VirtualCenter "<IP or FQDN>"]
 insecure-flag = "<true or false>"
 user = "<username>"
 password = "<password>"
 port = "<port>"
-ca-file = <ca file path> # optional, use with insecure-flag set to false
 datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 ```
 
@@ -80,6 +81,8 @@ Where the entries have the following meaning:
 
 - `ca-file` - path to a CA certificate in PEM format. It is an optional parameter.
 
+- `Thumbprint` - the certificate thumbprint. It is an optional parameter and is ignored when you're using insecure setups or when you provide `ca-file`
+
 - `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacenter is enough but when datacenter is placed in the folder, path needs to be specified as `folder/datacenter-name`.
 Please note since comma is used as a delimiter, the datacenter name itself must not contain a comma.
 
@@ -91,6 +94,7 @@ For file volumes, there are some extra parameters added to the config to help sp
 $ cat /etc/kubernetes/csi-vsphere.conf
 [Global]
 cluster-id = "<cluster-id>"
+ca-file = <ca file path> # optional, use with insecure-flag set to false
 
 [NetPermissions "A"]
 ips = "*"
@@ -118,7 +122,6 @@ insecure-flag = "<true or false>"
 user = "<username>"
 password = "<password>"
 port = "<port>"
-ca-file = <ca file path> # optional, use with insecure-flag set to false
 datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 targetvSANFileShareDatastoreURLs = "ds:///vmfs/volumes/vsan:52635b9067079319-95a7473222c4c9cd/" # Optional
 ```

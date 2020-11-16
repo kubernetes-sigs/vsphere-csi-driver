@@ -133,9 +133,14 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	}
 	vcClientTimeout = cfg.Global.VCClientTimeout
 
+	vcCAFile := cfg.Global.CAFile
+	vcThumbprint := cfg.Global.Thumbprint
+
 	vcConfig := &VirtualCenterConfig{
 		Host:                             host,
 		Port:                             port,
+		CAFile:                           vcCAFile,
+		Thumbprint:                       vcThumbprint,
 		Username:                         cfg.VirtualCenter[host].User,
 		Password:                         cfg.VirtualCenter[host].Password,
 		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
