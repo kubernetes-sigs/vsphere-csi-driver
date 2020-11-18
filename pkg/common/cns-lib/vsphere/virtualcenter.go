@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	neturl "net/url"
@@ -205,8 +206,10 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	err := vc.connect(ctx, false)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
+		log.Infof("attempting to reconnect with requesting a new session")
+		return vc.connect(ctx, true)
 	}
-	return err
+	return nil
 }
 
 // connect creates a connection to the virtual center host.
@@ -228,11 +231,23 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		sessionMgr := session.NewManager(vc.Client.Client)
 		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
 		// Nil is returned if the session is not authenticated or timed out.
-		if userSession, err := sessionMgr.UserSession(ctx); err != nil {
+		var userSession *types.UserSession
+		if userSession, err = sessionMgr.UserSession(ctx); err != nil {
 			log.Errorf("failed to obtain user session with err: %v", err)
 			return err
-		} else if userSession != nil {
-			return nil
+		}
+		if userSession != nil {
+			activeSession, err := sessionMgr.SessionIsActive(ctx)
+			if err != nil {
+				log.Errorf("failed to check user session is active. err: %v", err)
+				return err
+			}
+			if !activeSession {
+				return errors.New("session is not active")
+			}
+		} else {
+			// if session is NotAuthenticated, sessionMgr.UserSession(ctx) returns nil userSession with nil error
+			return errors.New("session is not authenticated")
 		}
 	}
 	// If session has expired, create a new instance.
@@ -241,21 +256,21 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		return err
 	}
-	// Recreate PbmClient If created using timed out VC Client
+	// Recreate PbmClient with new VC Client
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
 	}
-	// Recreate CNSClient If created using timed out VC Client
+	// Recreate CNSClient with new VC Client
 	if vc.CnsClient != nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}
-	// Recreate VSAN client if created using timed out VC Client
+	// Recreate VSAN client with new VC Client
 	if vc.VsanClient != nil {
 		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create vsan client with err: %v", err)
