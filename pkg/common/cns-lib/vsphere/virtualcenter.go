@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"net"
 	neturl "net/url"
@@ -203,17 +202,15 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	// Set up the vc connection
-	err := vc.connect(ctx, false)
+	err := vc.connect(ctx)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
-		log.Infof("attempting to reconnect with requesting a new session")
-		return vc.connect(ctx, true)
 	}
-	return nil
+	return err
 }
 
 // connect creates a connection to the virtual center host.
-func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
+func (vc *VirtualCenter) connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
@@ -226,29 +223,34 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		}
 		return nil
 	}
+	requestNewSession := false
+	// If session hasn't expired, nothing to do.
+	sessionMgr := session.NewManager(vc.Client.Client)
+	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
+	// Nil is returned if the session is not authenticated or timed out.
+	var userSession *types.UserSession
+	if userSession, err = sessionMgr.UserSession(ctx); err != nil {
+		log.Errorf("failed to obtain user session with err: %v", err)
+		requestNewSession = true
+	}
+	if userSession != nil {
+		var isSessionActive bool
+		if isSessionActive, err = sessionMgr.SessionIsActive(ctx); err != nil {
+			log.Errorf("failed to check user session is active. err: %v", err)
+			requestNewSession = true
+		}
+		if !isSessionActive {
+			log.Infof("session is not active")
+			requestNewSession = true
+		}
+	} else {
+		// if session is NotAuthenticated, sessionMgr.UserSession(ctx) returns nil userSession with nil error
+		log.Errorf("session is not authenticated")
+		requestNewSession = true
+	}
+
 	if !requestNewSession {
-		// If session hasn't expired, nothing to do.
-		sessionMgr := session.NewManager(vc.Client.Client)
-		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
-		// Nil is returned if the session is not authenticated or timed out.
-		var userSession *types.UserSession
-		if userSession, err = sessionMgr.UserSession(ctx); err != nil {
-			log.Errorf("failed to obtain user session with err: %v", err)
-			return err
-		}
-		if userSession != nil {
-			activeSession, err := sessionMgr.SessionIsActive(ctx)
-			if err != nil {
-				log.Errorf("failed to check user session is active. err: %v", err)
-				return err
-			}
-			if !activeSession {
-				return errors.New("session is not active")
-			}
-		} else {
-			// if session is NotAuthenticated, sessionMgr.UserSession(ctx) returns nil userSession with nil error
-			return errors.New("session is not authenticated")
-		}
+		return nil
 	}
 	// If session has expired, create a new instance.
 	log.Warnf("Creating a new client session as the existing session isn't valid or not authenticated")
