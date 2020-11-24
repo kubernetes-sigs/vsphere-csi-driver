@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
-		pod, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -376,7 +376,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		ginkgo.By("Creating a new pod using the same volume")
-		pod, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))

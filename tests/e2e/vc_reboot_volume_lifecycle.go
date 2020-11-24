@@ -135,7 +135,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
