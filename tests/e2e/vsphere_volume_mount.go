@@ -147,7 +147,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	//Create Pod1 with pvc created above
 	ginkgo.By("Create Pod1 with pvc created above")
-	pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod1
@@ -190,7 +190,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	//Create Pod2 using the same pvc
 	ginkgo.By("Create Pod2 with pvc created above")
-	pod2, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod2
