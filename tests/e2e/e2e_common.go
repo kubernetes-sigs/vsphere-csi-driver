@@ -120,6 +120,7 @@ const (
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
 	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
+	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 )
 
 // The following variables are required to know cluster type to run common e2e tests
