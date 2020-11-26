@@ -1049,7 +1049,7 @@ func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, e
 //It takes client, namespace, pvc, pv as input
 func verifyPodCreation(f *framework.Framework, client clientset.Interface, namespace string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
 	ginkgo.By("Create pod and wait for this to be in running phase")
-	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1497,7 +1497,7 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 			Containers: []v1.Container{
 				{
 					Name:    "write-pod",
-					Image:   framework.BusyBoxImage,
+					Image:   busyBoxImageOnGcr,
 					Command: []string{"/bin/sh"},
 					Args:    []string{"-c", command},
 					SecurityContext: &v1.SecurityContext{
@@ -2090,4 +2090,25 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 	result.Stderr = bytesStderr.String()
 	result.Code = code
 	return result, err
+}
+
+// createPod with given claims based on node selector
+func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
 }

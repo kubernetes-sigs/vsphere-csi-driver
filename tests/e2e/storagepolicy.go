@@ -181,7 +181,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string
