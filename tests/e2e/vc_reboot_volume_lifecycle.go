@@ -79,12 +79,15 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[csi-supervisor] [csi-guest] verify volume operations on VC works fine after vc reboots", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] verify volume operations on VC works fine after vc reboots", func() {
 		storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters := make(map[string]string)
 
 		// decide which test setup is available to run
-		if supervisorCluster {
+		if vanillaCluster {
+                        ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+                        scParameters[scParamStoragePolicyName] = storagePolicyName
+                } else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
@@ -101,7 +104,10 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// decide which test setup is available to run
-		if guestCluster {
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 		} else {
@@ -147,6 +153,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if vanillaCluster {
+			vmUUID = getNodeUUID(client, nodeName)
 		} else {
 			vmUUID, err = getVMUUIDFromNodeName(nodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -181,9 +189,11 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, nodeName))
-			ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow CnsNodeVMAttachment controller to reconcile resource", waitTimeForCNSNodeVMAttachmentReconciler))
-			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+			if guestCluster {
+				ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow CnsNodeVMAttachment controller to reconcile resource", waitTimeForCNSNodeVMAttachmentReconciler))
+				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+				verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+			}
 		}
 	})
 })
