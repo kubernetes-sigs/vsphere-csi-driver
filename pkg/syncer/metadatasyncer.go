@@ -1110,6 +1110,9 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					log.Errorf("failed to get volume id for volume name: %q with err=%v", pv.Name, err)
 					continue
 				}
+			} else {
+				log.Debugf("Volume %q is not a valid vSphere volume for the pod %q", volume.PersistentVolumeClaim.ClaimName, pod.Name)
+				return
 			}
 		} else {
 			// Inline migrated volumes with no PVC
