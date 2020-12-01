@@ -88,7 +88,7 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string, a
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "sc-",
 		},
-		Provisioner:          e2evSphereCSIBlockDriverName,
+		Provisioner:          e2evSphereCSIDriverName,
 		VolumeBindingMode:    &bindingMode,
 		AllowVolumeExpansion: &allowVolumeExpansion,
 	}
@@ -505,7 +505,7 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 		NamePrefix: "vspherepv-",
 		PVSource: v1.PersistentVolumeSource{
 			CSI: &v1.CSIPersistentVolumeSource{
-				Driver:       e2evSphereCSIBlockDriverName,
+				Driver:       e2evSphereCSIDriverName,
 				VolumeHandle: fcdID,
 				ReadOnly:     false,
 				FSType:       "ext4",
@@ -538,7 +538,7 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 	}
 	// Annotation needed to delete a statically created pv
 	annotations := make(map[string]string)
-	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
 	pv.Annotations = annotations
 	return pv
 }
@@ -1584,7 +1584,7 @@ func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimP
 		NamePrefix: "vspherepv-",
 		PVSource: v1.PersistentVolumeSource{
 			CSI: &v1.CSIPersistentVolumeSource{
-				Driver:       e2evSphereCSIBlockDriverName,
+				Driver:       e2evSphereCSIDriverName,
 				VolumeHandle: volumeID,
 				FSType:       "nfs4",
 				ReadOnly:     true,
@@ -1594,7 +1594,7 @@ func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimP
 	}
 	// Annotation needed to delete a statically created pv
 	annotations := make(map[string]string)
-	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
 
 	pv = &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
@@ -1759,7 +1759,7 @@ func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolu
 		NamePrefix: "vspherepv-",
 		PVSource: v1.PersistentVolumeSource{
 			CSI: &v1.CSIPersistentVolumeSource{
-				Driver:       e2evSphereCSIBlockDriverName,
+				Driver:       e2evSphereCSIDriverName,
 				VolumeHandle: volumeHandle,
 				ReadOnly:     false,
 				FSType:       "ext4",
@@ -1792,7 +1792,7 @@ func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolu
 	}
 	// Annotation needed to delete a statically created pv
 	annotations := make(map[string]string)
-	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
 	pv.Annotations = annotations
 	return pv
 }
@@ -2111,4 +2111,18 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return pod, fmt.Errorf("pod Get API error: %v", err)
 	}
 	return pod, nil
+}
+
+// getPersistentVolumeSpecForFileShare returns the PersistentVolume spec
+func getPersistentVolumeSpecForFileShare(fileshareID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	pv := getPersistentVolumeSpec(fileshareID, persistentVolumeReclaimPolicy, labels)
+	pv.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
+	return pv
+}
+
+//getPersistentVolumeClaimSpecForFileShare return the PersistentVolumeClaim spec in the specified namespace
+func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[string]string, pvName string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	pvc := getPersistentVolumeClaimSpec(namespace, labels, pvName)
+	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
+	return pvc
 }
