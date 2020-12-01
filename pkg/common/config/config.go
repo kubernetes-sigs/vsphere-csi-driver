@@ -62,6 +62,12 @@ const (
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
 	DefaultCnsRegisterVolumesCleanupIntervalInMin = 720
+	// DefaultVolumeMigrationCRCleanupIntervalInMin is the default time
+	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
+	// Current default value is set to 2 hours
+	DefaultVolumeMigrationCRCleanupIntervalInMin = 120
+	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh DatastoreMap
+	DefaultCSIAuthCheckIntervalInMin = 5
 )
 
 // Errors
@@ -287,10 +293,16 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}
+	clusterFlavor, err := GetClusterFlavor(ctx)
+	if err != nil {
+		return err
+	}
 	if cfg.NetPermissions == nil {
 		// If no net permissions are given, assume default
 		log.Info("No Net Permissions given in Config. Using default permissions.")
-		cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
+		}
 	} else {
 		for key, netPerm := range cfg.NetPermissions {
 			if netPerm.Permissions == "" {
@@ -306,28 +318,15 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
-	clusterFlavor, err := GetClusterFlavor(ctx)
-	if err != nil {
-		return err
-	}
-	// Validate FeatureStateConfig used in Supervisor cluster
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
-		// Feature states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
-		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
-			DefaultSupervisorFSSConfigMapName, DefaultCSINamespace)
-		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
-		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
-	}
-	// Validate InternalFeatureStateConfig used in vanilla cluster
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla && cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
-		// If feature states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
-		log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s",
-			DefaultInternalFSSConfigMapName, DefaultCSINamespaceVanillaK8s)
-		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
-		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespaceVanillaK8s
-	}
+
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
+	}
+	if cfg.Global.VolumeMigrationCRCleanupIntervalInMin == 0 {
+		cfg.Global.VolumeMigrationCRCleanupIntervalInMin = DefaultVolumeMigrationCRCleanupIntervalInMin
+	}
+	if cfg.Global.CSIAuthCheckIntervalInMin == 0 {
+		cfg.Global.CSIAuthCheckIntervalInMin = DefaultCSIAuthCheckIntervalInMin
 	}
 	return nil
 }
@@ -458,16 +457,6 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	// Set default GCPort if Port is still empty
 	if cfg.GC.Port == "" {
 		cfg.GC.Port = DefaultGCPort
-	}
-	// Set default fss configmap name if SV FSS configmap info is not available in GC Config
-	if cfg.InternalFeatureStatesConfig.Name == "" && cfg.InternalFeatureStatesConfig.Namespace == "" {
-		cfg.InternalFeatureStatesConfig.Name = DefaultInternalFSSConfigMapName
-		cfg.InternalFeatureStatesConfig.Namespace = DefaultCSINamespace
-	}
-
-	if cfg.FeatureStatesConfig.Name == "" && cfg.FeatureStatesConfig.Namespace == "" {
-		cfg.FeatureStatesConfig.Name = DefaultSupervisorFSSConfigMapName
-		cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 	}
 	return cfg, nil
 }

@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 
 		//Create Pod1
 		ginkgo.By(fmt.Sprintf("create pod with pvc: %s", pvclaim.Name))
-		pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//cleanup for Pod1
@@ -327,7 +327,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 
 	//Create Pod1 with pvc created above
 	ginkgo.By("Create Pod1 with pvc created above")
-	pod1, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//cleanup for Pod1
@@ -385,7 +385,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	if secondPodForNonRootUser {
 		pod2, err = CreatePodByUserID(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "", userid)
 	} else {
-		pod2, err = fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod2, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

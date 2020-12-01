@@ -208,7 +208,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	}
 	// Get node VM by nodeUUID
 	var dc *vsphere.Datacenter
-	vcenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
+	vcenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 		instance.Status.Error = err.Error()

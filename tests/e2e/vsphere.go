@@ -21,6 +21,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -96,6 +97,22 @@ func (vs *vSphere) getAllDatacenters(ctx context.Context) ([]*object.Datacenter,
 	return finder.DatacenterList(ctx, "*")
 }
 
+// getDatacenter returns the DataCenter Object for the given datacenterPath
+func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*object.Datacenter, error) {
+	connect(ctx, vs)
+	finder := find.NewFinder(vs.Client.Client, false)
+	return finder.Datacenter(ctx, datacenterPath)
+}
+
+// getDatastoresMountedOnHost returns the datastore references of all the datastores mounted on the specified host
+func (vs *vSphere) getDatastoresMountedOnHost(ctx context.Context, host types.ManagedObjectReference) []types.ManagedObjectReference {
+	connect(ctx, vs)
+	var hostMo mo.HostSystem
+	err := vs.Client.RetrieveOne(ctx, host, []string{"datastore"}, &hostMo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return hostMo.Datastore
+}
+
 // getVMByUUID gets the VM object Reference from the given vmUUID
 func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Reference, error) {
 	connect(ctx, vs)
@@ -115,6 +132,16 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+}
+
+// getHostFromVMReference returns host object reference of the host on which the specified VM resides
+func (vs *vSphere) getHostFromVMReference(ctx context.Context, vm types.ManagedObjectReference) types.ManagedObjectReference {
+	connect(ctx, vs)
+	var vmMo mo.VirtualMachine
+	err := vs.Client.RetrieveOne(ctx, vm, []string{"summary.runtime.host"}, &vmMo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	host := *vmMo.Summary.Runtime.Host
+	return host
 }
 
 // getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout

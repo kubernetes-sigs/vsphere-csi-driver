@@ -35,9 +35,13 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+)
+
+const (
+	vsanDirect = "vsanD"
+	vsanSna    = "vsan-sna"
 )
 
 var (
@@ -52,8 +56,8 @@ var (
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 type controller struct {
-	manager           *common.Manager
-	coCommonInterface commonco.COCommonInterface
+	manager *common.Manager
+	authMgr common.AuthorizationService
 }
 
 // New creates a CNS controller
@@ -107,17 +111,16 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	// Initialize CO common utility
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-		k8sorchestrator.K8sSupervisorInitParams{SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig})
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
-		return err
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
+		authMgr, err := common.GetAuthorizationService(ctx, vc)
+		if err != nil {
+			log.Errorf("failed to initialize authMgr. err=%v", err)
+			return err
+		}
+		c.authMgr = authMgr
+		// TODO: Invoke similar method for block volumes
+		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
 	go func() {
 		for {
@@ -202,20 +205,10 @@ func (c *controller) ReloadConfiguration() {
 	log.Info("Successfully reloaded configuration")
 }
 
-// CreateVolume is creating CNS Volume using volume request specified
-// in CreateVolumeRequest
-func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+// createBlockVolume creates a block volume based on the CreateVolumeRequest.
+func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("CreateVolume: called with args %+v", *req)
-	err := validateWCPCreateVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
-
 	// Volume Size - Default is 10 GiB
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
@@ -227,13 +220,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		storagePolicyID     string
 		affineToHost        string
 		storagePool         string
-		hostLocalNodeName   string
-		hostLocalMode       bool
 		topologyRequirement *csi.TopologyRequirement
 		accessibleNodes     []string // This will be used to populate volumeAccessTopology
+		err                 error
 	)
 	// Fetch the accessibility requirements from the request
 	topologyRequirement = req.GetAccessibilityRequirements()
+	var selectedDatastoreURL string
 	// Support case insensitive parameters
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -248,7 +241,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if !isValidAccessibilityRequirement(topologyRequirement) {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
 			}
-			spAccessibleNodes, err := getAccessibleNodesFromStoragePool(ctx, storagePool)
+			spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 			if err != nil {
 				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
 				return nil, status.Errorf(codes.Internal, msg)
@@ -260,39 +253,31 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			accessibleNodes = append(accessibleNodes, overlappingNodes...)
 			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
-		} else if param == common.AttributeHostLocal {
-			hostLocalMode = true
-			if !isValidAccessibilityRequirement(topologyRequirement) {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
-			}
-			if hostLocalNodeName, err = getHostNameFromAccessibilityRequirements(topologyRequirement); err != nil {
-				return nil, err
-			}
-			accessibleNodes = append(accessibleNodes, hostLocalNodeName)
-			log.Infof("Hostlocal Accessible nodes for volume topology: %+v", accessibleNodes)
-		}
-	}
 
-	var selectedDatastoreURL string
-	if storagePool != "" {
-		selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
-		if err != nil {
-			msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			if storagePoolType == vsanDirect {
+				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
+				if err != nil {
+					msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+				//Ignore affineToHost if received, as storagePool takes precedence for placement decision
+				affineToHost = ""
+			} else if storagePoolType == vsanSna {
+				// Query API server to get ESX Host Moid from the hostLocalNodeName
+				if len(accessibleNodes) != 1 {
+					return nil, status.Errorf(codes.Internal, "too many accessible nodes")
+				}
+				hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
+				if err != nil {
+					log.Error(err)
+					return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
+				}
+				affineToHost = hostMoid
+				log.Debugf("Setting the affineToHost value as %s", affineToHost)
+			}
 		}
-		log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
-		//Ignore affineToHost if received, as storagePool takes precedence for placement decision
-		affineToHost = ""
-	} else if hostLocalMode && hostLocalNodeName != "" {
-		// Query API server to get ESX Host Moid from the hostLocalNodeName
-		hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, hostLocalNodeName)
-		if err != nil {
-			log.Error(err)
-			return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
-		}
-		affineToHost = hostMoid
-		log.Debugf("Setting the affineToHost value as %s", affineToHost)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
@@ -350,6 +335,100 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 
 	return resp, nil
+}
+
+// createFileVolume creates a file volume based on the CreateVolumeRequest.
+func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
+	// ignore TopologyRequirement for file volume provisioning
+	if req.GetAccessibilityRequirements() != nil {
+		log.Info("Ignoring TopologyRequirement for file volume")
+	}
+
+	// Volume Size - Default is 10 GiB
+	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+	}
+	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+	var storagePolicyID string
+	for paramName := range req.Parameters {
+		param := strings.ToLower(paramName)
+		if param == common.AttributeStoragePolicyID {
+			storagePolicyID = req.Parameters[paramName]
+		}
+	}
+
+	var createVolumeSpec = common.CreateVolumeSpec{
+		CapacityMB:      volSizeMB,
+		Name:            req.Name,
+		StoragePolicyID: storagePolicyID,
+		ScParams:        &common.StorageClassParams{},
+		VolumeType:      common.FileVolumeType,
+	}
+
+	var volumeID string
+	var err error
+
+	dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
+	log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+	var filteredDatastores []*cnsvsphere.DatastoreInfo
+	for _, datastore := range dsURLToInfoMap {
+		filteredDatastores = append(filteredDatastores, datastore)
+	}
+	if len(filteredDatastores) == 0 {
+		msg := "no datastores found to create file volume"
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+		c.manager, &createVolumeSpec, filteredDatastores)
+	if err != nil {
+		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	attributes := make(map[string]string)
+	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      volumeID,
+			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
+			VolumeContext: attributes,
+		},
+	}
+	return resp, nil
+}
+
+// CreateVolume is creating CNS Volume using volume request specified
+// in CreateVolumeRequest
+func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("CreateVolume: called with args %+v", *req)
+
+	// Validate create request
+	err := validateWCPCreateVolumeRequest(ctx, req)
+	if err != nil {
+		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+		log.Error(msg)
+		return nil, err
+	}
+
+	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+			msg := "File volume feature is disabled on the cluster"
+			log.Warn(msg)
+			return nil, status.Errorf(codes.Unimplemented, msg)
+		}
+		return c.createFileVolume(ctx, req)
+	}
+	return c.createBlockVolume(ctx, req)
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
@@ -473,7 +552,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(ctx, volCaps) {
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -549,14 +628,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster"
 		log.Warn(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
-	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager)
+	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 	if err != nil {
 		log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		return nil, err

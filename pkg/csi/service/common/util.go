@@ -134,7 +134,7 @@ func IsVolumeReadOnly(capability *csi.VolumeCapability) bool {
 }
 
 // validateVolumeCapabilities validates the access mode in given volume capabilities in validAccessModes.
-func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessModes []csi.VolumeCapability_AccessMode) bool {
+func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessModes []csi.VolumeCapability_AccessMode, volumeType string) error {
 	// Validate if all capabilities of the volume
 	// are supported.
 	for _, volCap := range volCaps {
@@ -146,23 +146,23 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability, validAccessMode
 			}
 		}
 		if !found {
-			return false
+			return fmt.Errorf("%s access mode is not supported for %q volumes", csi.VolumeCapability_AccessMode_Mode_name[int32(volCap.AccessMode.GetMode())], volumeType)
 		}
 		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
 			if volCap.GetMount() != nil && (volCap.GetMount().FsType == NfsV4FsType || volCap.GetMount().FsType == NfsFsType) {
-				return false
+				return fmt.Errorf("NFS fstype not supported for ReadWriteOnce volume creation")
 			}
 		}
 	}
-	return true
+	return nil
 }
 
 // IsValidVolumeCapabilities helps validate the given volume capabilities based on volume type.
-func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapability) bool {
+func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 	if IsFileVolumeRequest(ctx, volCaps) {
-		return validateVolumeCapabilities(volCaps, FileVolumeCaps)
+		return validateVolumeCapabilities(volCaps, FileVolumeCaps, FileVolumeType)
 	}
-	return validateVolumeCapabilities(volCaps, BlockVolumeCaps)
+	return validateVolumeCapabilities(volCaps, BlockVolumeCaps, BlockVolumeType)
 }
 
 // IsFileVolumeMount loops through the list of mount points and

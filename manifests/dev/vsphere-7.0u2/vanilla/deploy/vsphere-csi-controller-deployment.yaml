@@ -42,6 +42,7 @@ spec:
           args:
             - "--v=4"
             - "--timeout=300s"
+            - "--handle-volume-inuse-error=false"  # Set this to true if used in vSphere 7.0U1
             - "--csi-address=$(ADDRESS)"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
@@ -53,7 +54,10 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.1
+          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          args:
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -68,6 +72,10 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -95,9 +103,11 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.1
+          image: gcr.io/cloud-provider-vsphere/csi/ci/syncer:latest
           args:
             - "--leader-election"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
@@ -110,6 +120,10 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -123,6 +137,7 @@ spec:
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--leader-election"
+            - "--default-fstype=ext4"
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
@@ -143,6 +158,7 @@ apiVersion: v1
 data:
   "csi-migration": "false"
   "csi-auth-check": "false"
+  "online-volume-extend": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

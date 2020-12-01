@@ -43,11 +43,13 @@ import (
 	"github.com/zekroTJA/timedmap"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
@@ -229,14 +231,24 @@ func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context, top
 	return nil, nil, nil
 }
 
-func (f *FakeAuthManager) GetDatastoreIgnoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
-	datastoreIgnoreMap := make(map[string]*cnsvsphere.DatastoreInfo)
-	fmt.Print("FakeAuthManager: GetDatastoreIgnoreMapForBlockVolumes")
+func (f *FakeAuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
+	datastoreMapForBlockVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
+	fmt.Print("FakeAuthManager: GetDatastoreMapForBlockVolumes")
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datastoreIgnoreMap, _ := common.GenerateDatastoreIgnoreMapForBlockVolumes(ctx, f.vcenter)
-		return datastoreIgnoreMap
+		datastoreMapForBlockVolumes, _ := common.GenerateDatastoreMapForBlockVolumes(ctx, f.vcenter)
+		return datastoreMapForBlockVolumes
 	}
-	return datastoreIgnoreMap
+	return datastoreMapForBlockVolumes
+}
+
+func (f *FakeAuthManager) GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
+	datastoreMapForFileVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
+	fmt.Print("FakeAuthManager: GetDatastoreMapForFileVolumes")
+	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
+		datastoreMapForFileVolumes, _ := common.GenerateDatastoreMapForFileVolumes(ctx, f.vcenter)
+		return datastoreMapForFileVolumes
+	}
+	return datastoreMapForFileVolumes
 }
 
 func getControllerTest(t *testing.T) *controllerTest {
@@ -298,7 +310,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 				vcenter: vcenter,
 			},
 		}
-		containerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 		if err != nil {
 			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}

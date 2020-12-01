@@ -183,7 +183,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo)
+	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)
@@ -201,11 +201,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	vol, err := r.volumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		volumeID = instance.Spec.VolumeID
-	} else {
-		volumeID = vol.Id
-		log.Infof("Created CNS volume with volumeID: %s", volumeID)
+		msg := "failed to create CNS volume"
+		log.Errorf(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	volumeID = vol.Id
+	log.Infof("Created CNS volume with volumeID: %s", volumeID)
+
 	pvName = staticPvNamePrefix + volumeID
 	// Query volume
 	log.Infof("Querying volume: %s for CnsRegisterVolume request with name: %q on namespace: %q",
@@ -256,14 +260,14 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	}
 
 	// Get K8S storageclass name mapping the storagepolicy id
-	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId)
+	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId, request.Namespace)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s", volume.StoragePolicyId)
+		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s", volume.StoragePolicyId, request.Namespace)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s", volume.StoragePolicyId, storageClassName)
+	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s", volume.StoragePolicyId, storageClassName, request.Namespace)
 
 	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
 	accessMode := instance.Spec.AccessMode

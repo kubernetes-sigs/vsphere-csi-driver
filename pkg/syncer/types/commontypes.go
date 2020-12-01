@@ -33,12 +33,12 @@ type ConfigInfo struct {
 }
 
 var (
-	// VirtualCenter object for syncer
-	vcenter *cnsvsphere.VirtualCenter
+	// VirtualCenter instance for syncer
+	vCenterInstance *cnsvsphere.VirtualCenter
 	// Ensure vcenter is a singleton
-	onceForVirtualCenter sync.Once
-	// vcerror message from GetVirtualCenterInstance
-	vcerror error
+	vCenterInitialized bool
+	// vCenterInstanceLock is used for handling race conditions while initializing a vCenter instance
+	vCenterInstanceLock = &sync.RWMutex{}
 )
 
 // InitConfigInfo initializes the ConfigInfo struct
@@ -57,32 +57,49 @@ func InitConfigInfo(ctx context.Context) (*ConfigInfo, error) {
 
 // GetVirtualCenterInstance returns the vcenter object singleton.
 // It is thread safe.
-func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo) (*cnsvsphere.VirtualCenter, error) {
-	onceForVirtualCenter.Do(func() {
-		log := logger.GetLogger(ctx)
+// Takes in a boolean paramater reloadConfig.
+// If reloadConfig is true, the vcenter object is instantiated again and the old object becomes eligible for garbage collection.
+// If reloadConfig is false and instance was already initialized, the previous instance is returned.
+func GetVirtualCenterInstance(ctx context.Context, configTypes *ConfigInfo, reloadConfig bool) (*cnsvsphere.VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
+	vCenterInstanceLock.Lock()
+	defer vCenterInstanceLock.Unlock()
+
+	if !vCenterInitialized || reloadConfig {
+		log.Infof("Initializing new vCenterInstance.")
+
 		var vcconfig *cnsvsphere.VirtualCenterConfig
-		vcconfig, vcerror := cnsvsphere.GetVirtualCenterConfig(ctx, configTypes.Cfg)
-		if vcerror != nil {
-			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", vcerror)
-			return
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configTypes.Cfg)
+		if err != nil {
+			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", err)
+			return nil, err
 		}
 
 		// Initialize the virtual center manager
 		virtualcentermanager := cnsvsphere.GetVirtualCenterManager(ctx)
 
-		// Register virtual center manager
-		vcenter, vcerror = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
-		if vcerror != nil {
-			log.Errorf("failed to register VirtualCenter . Err: %+v", vcerror)
-			return
+		//Unregister all VCs from virtual center manager
+		if err = virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
+			log.Errorf("failed to unregister vcenter with virtualCenterManager.")
+			return nil, err
+		}
+
+		// Register with virtual center manager
+		vCenterInstance, err = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
+		if err != nil {
+			log.Errorf("failed to register VirtualCenter . Err: %+v", err)
+			return nil, err
 		}
 
 		// Connect to VC
-		vcerror = vcenter.Connect(ctx)
-		if vcerror != nil {
-			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, vcerror)
-			return
+		err = vCenterInstance.Connect(ctx)
+		if err != nil {
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
+			return nil, err
 		}
-	})
-	return vcenter, vcerror
+
+		vCenterInitialized = true
+		log.Info("vCenterInstance initialized")
+	}
+	return vCenterInstance, nil
 }

@@ -43,7 +43,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -64,7 +63,6 @@ type controller struct {
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
-	coCommonInterface         commonco.COCommonInterface
 }
 
 // New creates a CNS controller
@@ -108,22 +106,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
-		return err
-	}
-
-	// Initialize CO common interface
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	k8sInitParams := k8sorchestrator.K8sGuestInitParams{
-		InternalFeatureStatesConfigInfo:   config.InternalFeatureStatesConfig,
-		SupervisorFeatureStatesConfigInfo: config.FeatureStatesConfig,
-	}
-	c.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. err=%v", err)
 		return err
 	}
 
@@ -551,7 +533,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	*csi.ControllerExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if !c.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 		msg := "ExpandVolume feature is disabled on the cluster."
 		log.Warn(msg)
 		return nil, status.Error(codes.Unimplemented, msg)
@@ -566,57 +548,83 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volumeID := req.GetVolumeId()
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
-	vmList := &vmoperatortypes.VirtualMachineList{}
-	err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
-	if err != nil {
-		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
-	}
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
+		vmList := &vmoperatortypes.VirtualMachineList{}
+		err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
+		if err != nil {
+			msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
 
-	for _, vmInstance := range vmList.Items {
-		for _, vmVolume := range vmInstance.Status.Volumes {
-			if vmVolume.Name == volumeID && vmVolume.Attached {
-				msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
-				log.Error(msg)
-				return nil, status.Error(codes.FailedPrecondition, msg)
+		for _, vmInstance := range vmList.Items {
+			for _, vmVolume := range vmInstance.Status.Volumes {
+				if vmVolume.Name == volumeID && vmVolume.Attached {
+					msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
+					log.Error(msg)
+					return nil, status.Error(codes.FailedPrecondition, msg)
+				}
 			}
 		}
 	}
 
 	// Retrieve Supervisor PVC
-	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
+	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
 	if err != nil {
 		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
 		log.Error(msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
-	newQty := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
-	curQty := pvc.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
-	if (&curQty).Cmp(*newQty) == -1 {
-		// Update requested storage in PVC spec
-		pvcClone := pvc.DeepCopy()
-		pvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *newQty
-		// Make a call to SV ControllerExpandVolume
-		log.Debugf("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, newQty.String())
-		pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, pvcClone, metav1.UpdateOptions{})
+	waitForSvPvcCondition := true
+	gcPvcRequestSize := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
+	svPvcRequestSize := svPVC.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
+	// Check if GC PVC request size is greater than SV PVC request size
+	switch (gcPvcRequestSize).Cmp(svPvcRequestSize) {
+	case 1:
+		// Update requested storage in SV PVC spec
+		svPvcClone := svPVC.DeepCopy()
+		svPvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
+
+		// Make an update call to SV API server
+		log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
+		svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPvcClone, metav1.UpdateOptions{})
 		if err != nil {
 			msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
-	} else {
-		log.Debugf("Skipping resize call for supervisor PVC %s in namespace %s", volumeID, c.supervisorNamespace)
+	case 0:
+		// GC PVC request size is equal to SV PVC request size
+		log.Infof("Skipping resize call for supervisor PVC %s in namespace %s as it is already at the requested size", volumeID, c.supervisorNamespace)
+
+		// SV PVC is already in FileSystemResizePending condition indicates that SV PV has already been expanded to required size
+		if checkPVCCondition(ctx, svPVC, corev1.PersistentVolumeClaimFileSystemResizePending) {
+			waitForSvPvcCondition = false
+		} else {
+			// SV PVC is not in FileSystemResizePending condition and GC PVC request size is equal to SV PVC capacity
+			// indicates that SV PVC is already at required size
+			if (gcPvcRequestSize).Cmp(svPVC.Status.Capacity[corev1.ResourceName(corev1.ResourceStorage)]) == 0 {
+				waitForSvPvcCondition = false
+			}
+		}
+	default:
+		// GC PVC request size is lesser than SV PVC request size
+		msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s which is greater than the requested size of %s",
+			volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
+		log.Error(msg)
+		return nil, status.Error(codes.InvalidArgument, msg)
 	}
 
-	// Wait for Supervisor PVC to change status to FilesystemResizePending
-	err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, pvc,
-		corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
-	if err != nil {
-		msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+	if waitForSvPvcCondition {
+		// Wait for Supervisor PVC to change status to FilesystemResizePending
+		err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, svPVC,
+			corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
+		if err != nil {
+			msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
 	}
 
 	nodeExpansionRequired := true
@@ -640,7 +648,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(ctx, volCaps) {
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{

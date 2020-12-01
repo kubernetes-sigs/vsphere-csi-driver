@@ -98,16 +98,16 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		log.Errorf("FullSync: failed to queryAllVolume with err %+v", err)
 		return
 	}
-	// get map of "pv to EntityMetadata" in CNS and "pv to EntityMetadata" in kubernetes
-	pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, err := fullSyncGetEntityMetadata(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap, pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
+	// get map of "volume to EntityMetadata" in CNS and "volume to EntityMetadata" in kubernetes
+	volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, err := fullSyncGetEntityMetadata(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap, pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncGetEntityMetadata failed with err %+v", err)
 		return
 	}
-	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(pvToCnsEntityMetadataMap), spew.Sdump(pvToK8sEntityMetadataMap))
+	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(volumeToCnsEntityMetadataMap), spew.Sdump(volumeToK8sEntityMetadataMap))
 	// Get specs for create and update volume calls
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
-	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, k8sPVs, pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
+	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, k8sPVs, volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
 	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: failed to get list of volumes to be deleted with err %+v", err)
@@ -307,12 +307,12 @@ func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCM
 	return metadataList
 }
 
-// fullSyncGetEntityMetadata builds and return map of pv to EntityMetadata in CNS (pvToCnsEntityMetadataMap) and
-// map of pv to EntityMetadata in kubernetes (pvToK8sEntityMetadataMap)
+// fullSyncGetEntityMetadata builds and return map of volume to EntityMetadata in CNS (volumeToCnsEntityMetadataMap)
+// and map of volume to EntityMetadata in kubernetes (volumeToK8sEntityMetadataMap)
 func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsVolume, pvToPVCMap pvcMap, pvcToPodMap podMap, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) (map[string][]cnstypes.BaseCnsEntityMetadata, map[string][]cnstypes.BaseCnsEntityMetadata, error) {
 	log := logger.GetLogger(ctx)
-	pvToCnsEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
-	pvToK8sEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
+	volumeToCnsEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
+	volumeToK8sEntityMetadataMap := make(map[string][]cnstypes.BaseCnsEntityMetadata)
 	cnsVolumeMap := make(map[string]bool)
 
 	for _, vol := range cnsVolumeList {
@@ -336,7 +336,11 @@ func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolum
 			// Do nothing for other cases
 			continue
 		}
-		pvToK8sEntityMetadataMap[volumeHandle] = k8sMetadata
+		if metadata, ok := volumeToK8sEntityMetadataMap[volumeHandle]; ok {
+			volumeToK8sEntityMetadataMap[volumeHandle] = append(k8sMetadata, metadata...)
+		} else {
+			volumeToK8sEntityMetadataMap[volumeHandle] = k8sMetadata
+		}
 		if cnsVolumeMap[volumeHandle] {
 			// PV exist in both K8S and CNS cache, add to queryVolumeIds list to check if metadata has been
 			// changed or not
@@ -347,7 +351,7 @@ func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolum
 	// volumes in the queryFilter.VolumeIds should be one which is present in both k8s and in CNS.
 	if len(queryVolumeIds) == 0 {
 		log.Warn("could not find any volume which is present in both k8s and in CNS")
-		return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil
+		return volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, nil
 	}
 	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds, metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.volumeManager)
 	if err != nil {
@@ -364,15 +368,15 @@ func fullSyncGetEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolum
 					cnsMetadata = append(cnsMetadata, metadata)
 				}
 			}
-			pvToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
+			volumeToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
 		}
 	}
-	return pvToCnsEntityMetadataMap, pvToK8sEntityMetadataMap, nil
+	return volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, nil
 }
 
 // fullSyncGetVolumeSpecs return list of CnsVolumeCreateSpec for volumes which needs to be created in CNS and a list of
 // CnsVolumeMetadataUpdateSpec for volumes which needs to be updated in CNS.
-func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, pvToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, containerCluster cnstypes.CnsContainerCluster, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) ([]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
+func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, volumeToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, volumeToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata, containerCluster cnstypes.CnsContainerCluster, metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) ([]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
 	log := logger.GetLogger(ctx)
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
@@ -391,8 +395,8 @@ func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, 
 		} else {
 			volumeHandle = pv.Spec.CSI.VolumeHandle
 		}
-		pvToCnsEntityMetadata, presentInCNS := pvToCnsEntityMetadataMap[volumeHandle]
-		pvToK8sEntityMetadata, presentInK8S := pvToK8sEntityMetadataMap[volumeHandle]
+		volumeToCnsEntityMetadata, presentInCNS := volumeToCnsEntityMetadataMap[volumeHandle]
+		volumeToK8sEntityMetadata, presentInK8S := volumeToK8sEntityMetadataMap[volumeHandle]
 
 		if !presentInK8S {
 			log.Infof("FullSync: Skipping volume: %s with VolumeId %q. Volume is not present in the k8s", pv.Name, volumeHandle)
@@ -409,7 +413,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, 
 			}
 		} else {
 			// volume exist in K8S and CNS, Check if update is required.
-			if isUpdateRequired(ctx, pvToK8sEntityMetadata, pvToCnsEntityMetadata) {
+			if isUpdateRequired(ctx, volumeToK8sEntityMetadata, volumeToCnsEntityMetadata) {
 				log.Infof("FullSync: update is required for volume: %q", volumeHandle)
 				operationType = "updateVolume"
 			} else {
@@ -430,7 +434,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, 
 				Metadata: cnstypes.CnsVolumeMetadata{
 					ContainerCluster:      containerCluster,
 					ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
-					EntityMetadata:        pvToK8sEntityMetadataMap[volumeHandle],
+					EntityMetadata:        volumeToK8sEntityMetadataMap[volumeHandle],
 				},
 			}
 			if volumeType == common.BlockVolumeType {
@@ -457,11 +461,11 @@ func fullSyncGetVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, 
 					ContainerCluster:      containerCluster,
 					ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
 					// Update metadata in CNS with the new metadata present in K8S
-					EntityMetadata: pvToK8sEntityMetadataMap[volumeHandle],
+					EntityMetadata: volumeToK8sEntityMetadataMap[volumeHandle],
 				},
 			}
 			// Delete metadata in CNS which is not present in K8S
-			for _, oldMetadata := range pvToCnsEntityMetadataMap[volumeHandle] {
+			for _, oldMetadata := range volumeToCnsEntityMetadataMap[volumeHandle] {
 				oldEntityName := oldMetadata.(*cnstypes.CnsKubernetesEntityMetadata).EntityName
 				oldEntityNameSpace := oldMetadata.(*cnstypes.CnsKubernetesEntityMetadata).Namespace
 				oldEntityType := oldMetadata.(*cnstypes.CnsKubernetesEntityMetadata).EntityType

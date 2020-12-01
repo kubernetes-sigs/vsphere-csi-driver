@@ -17,14 +17,24 @@ limitations under the License.
 package kubernetes
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"k8s.io/client-go/informers"
+	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/sample-controller/pkg/signals"
+)
+
+const (
+	// resyncPeriodConfigMapInformer is the time interval between each resync operation for the configmap informer
+	// Note: Whenever there is a update on the configmap, we do get a callback to the handler immediately.
+	// However if for some reason update was missed, we need to set a resync interval for resync check operations that happens as part of NewFilteredConfigMapInformer()
+	// Since we do not anticipate frequent changes to the configmaps, the resync interval is set to 30 minutes.
+	resyncPeriodConfigMapInformer = 30 * time.Minute
 )
 
 var (
@@ -90,9 +100,9 @@ func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(
 }
 
 // AddConfigMapListener hooks up add, update, delete callbacks
-func (im *InformerManager) AddConfigMapListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddConfigMapListener(ctx context.Context, client clientset.Interface, namespace string, add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.configMapInformer == nil {
-		im.configMapInformer = im.informerFactory.Core().V1().ConfigMaps().Informer()
+		im.configMapInformer = v1.NewFilteredConfigMapInformer(client, namespace, resyncPeriodConfigMapInformer, cache.Indexers{}, nil)
 	}
 	im.configMapSynced = im.configMapInformer.HasSynced
 
@@ -101,6 +111,9 @@ func (im *InformerManager) AddConfigMapListener(add func(obj interface{}), updat
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	stopCh := make(chan struct{})
+	//Since NewFilteredConfigMapInformer is not part of the informer factory, we need to invoke the Run() explicitly to start the shared informer
+	go im.configMapInformer.Run(stopCh)
 }
 
 // AddPodListener hooks up add, update, delete callbacks

@@ -20,20 +20,27 @@ import (
 	"context"
 	"reflect"
 	"sync"
+	"time"
 
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // Service holds the controllers needed to manage StoragePools
 type Service struct {
-	spController *SpController
-	scWatchCntlr *StorageClassWatch
-	clusterID    string
+	spController   *SpController
+	scWatchCntlr   *StorageClassWatch
+	migrationCntlr *migrationController
+	clusterID      string
 }
 
 var (
@@ -43,7 +50,7 @@ var (
 
 // InitStoragePoolService initializes the StoragePool service that updates
 // vSphere Datastore information into corresponding k8s StoragePool resources.
-func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigInfo) error {
+func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initializing Storage Pool Service")
 
@@ -54,22 +61,20 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
-	apiextensionsClientSet, err := apiextensionsclient.NewForConfig(cfg)
-	if err != nil {
-		log.Errorf("Failed to create Kubernetes client using config. Err: %+v", err)
-		return err
-	}
-
 	// Create StoragePool CRD
 	crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
-	err = createCustomResourceDefinition(ctx, apiextensionsClientSet, "storagepools", crdKind)
+	crdSingular := "storagepool"
+	crdPlural := "storagepools"
+	crdName := crdPlural + "." + spv1alpha1.SchemeGroupVersion.Group
+	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdName, crdSingular, crdPlural,
+		crdKind, spv1alpha1.SchemeGroupVersion.Group, spv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
 	if err != nil {
 		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
 
 	// Get VC connection
-	vc, err := commontypes.GetVirtualCenterInstance(ctx, configInfo)
+	vc, err := commontypes.GetVirtualCenterInstance(ctx, configInfo, false)
 	if err != nil {
 		log.Errorf("Failed to get vCenter from ConfigInfo. Err: %+v", err)
 		return err
@@ -94,11 +99,32 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
+	migrationController := initMigrationController(vc, configInfo.Cfg.Global.ClusterID)
+	go func() {
+		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
+		defer diskDecommEnablementTicker.Stop()
+		clusterFlavor := cnstypes.CnsClusterFlavorWorkload
+		for ; true; <-diskDecommEnablementTicker.C {
+			coCommonInterface, _ := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *coInitParams)
+			if !coCommonInterface.IsFSSEnabled(ctx, common.VSANDirectDiskDecommission) {
+				log.Infof("VSANDirectDiskDecommission feature is disabled on the cluster")
+			} else {
+				_, err := initDiskDecommController(ctx, migrationController)
+				if err != nil {
+					log.Warnf("Error while initializing disk decommission controller. Error: %+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+					continue
+				}
+				break
+			}
+		}
+	}()
+
 	// Create the default Service
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
 	defaultStoragePoolService.spController = spController
 	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
+	defaultStoragePoolService.migrationCntlr = migrationController
 	defaultStoragePoolService.clusterID = configInfo.Cfg.Global.ClusterID
 
 	startPropertyCollectorListener(ctx)
@@ -141,6 +167,7 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 
 	defaultStoragePoolService.spController.vc = vc
 	defaultStoragePoolService.scWatchCntlr.vc = vc
+	defaultStoragePoolService.migrationCntlr.vc = vc
 	// PC listener will automatically reestablish its session with VC
 	log.Debugf("Successfully reset VC connection in StoragePool service")
 }

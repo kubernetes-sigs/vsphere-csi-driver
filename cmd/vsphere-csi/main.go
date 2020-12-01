@@ -20,16 +20,26 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/rexray/gocsi"
 
+	csiconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/provider"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
-var printVersion = flag.Bool("version", false, "Print driver version and exit")
+var (
+	printVersion = flag.Bool("version", false, "Print driver version and exit")
+
+	supervisorFSSName      = flag.String("supervisor-fss-name", "", "Name of the feature state switch configmap in supervisor cluster")
+	supervisorFSSNamespace = flag.String("supervisor-fss-namespace", "", "Namespace of the feature state switch configmap in supervisor cluster")
+	internalFSSName        = flag.String("fss-name", "", "Name of the feature state switch configmap")
+	internalFSSNamespace   = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
+)
 
 // main is ignored when this package is built as a go plug-in.
 func main() {
@@ -38,8 +48,18 @@ func main() {
 		fmt.Printf("%s\n", service.Version)
 		return
 	}
-	log := logger.GetLoggerWithNoContext()
+	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+	logger.SetLoggerLevel(logType)
+	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", service.Version)
+
+	// Set CO Init params
+	clusterFlavor, err := csiconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+	}
+	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
+		*internalFSSName, *internalFSSNamespace)
 
 	gocsi.Run(
 		context.Background(),

@@ -37,6 +37,7 @@ const (
 	defaultFullSyncIntervalInMin               = "30"
 	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
+	defaultVCRebootWaitTime                    = 180
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	diskSize                                   = "2Gi"
 	diskSizeInMb                               = int64(2048)
@@ -48,6 +49,7 @@ const (
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
 	envNonSharedStorageClassDatastoreURL       = "NONSHARED_VSPHERE_DATASTORE_URL"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
+	envVCRebootWaitTime                        = "VC_REBOOT_WAIT_TIME"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
@@ -73,6 +75,7 @@ const (
 	invalidFSType                              = "ext10"
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
+	kcmManifest                                = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
 	kubeAPIPath                                = "/etc/kubernetes/manifests/"
 	kubeAPIfile                                = "kube-apiserver.yaml"
 	kubeAPIRecoveryTime                        = 1 * time.Minute
@@ -82,7 +85,7 @@ const (
 	podContainerCreatingState                  = "ContainerCreating"
 	poll                                       = 2 * time.Second
 	pollTimeout                                = 5 * time.Minute
-	pollTimeoutShort                           = 1 * time.Minute / 2
+	pollTimeoutShort                           = 1 * time.Minute
 	psodTime                                   = "120"
 	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
 	quotaName                                  = "cns-test-quota"
@@ -114,6 +117,10 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	wcpServiceName                             = "wcp"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
+	envVmdkDiskURL                             = "DISK_URL_PATH"
+	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
+	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
+	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 )
 
 // The following variables are required to know cluster type to run common e2e tests
@@ -122,6 +129,18 @@ var (
 	vanillaCluster    bool
 	supervisorCluster bool
 	guestCluster      bool
+)
+
+// For VCP to CSI migration tests
+var (
+	envSharedDatastoreName          = "SHARED_VSPHERE_DATASTORE_NAME"
+	vcpProvisionerName              = "kubernetes.io/vsphere-volume"
+	vcpScParamDatastoreName         = "datastore"
+	vcpScParamPolicyName            = "storagePolicyName"
+	migratedToAnnotation            = "pv.kubernetes.io/migrated-to"
+	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
+	nodeMapper                      = &NodeMapper{}
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable

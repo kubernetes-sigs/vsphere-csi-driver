@@ -47,6 +47,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
@@ -540,6 +541,18 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIBlockDriverName
 	pv.Annotations = annotations
 	return pv
+}
+
+// invokeVCenterReboot invokes reboot command on the given vCenter host over SSH
+func invokeVCenterReboot(host string) error {
+	sshCmd := "reboot"
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
@@ -1036,7 +1049,7 @@ func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, e
 //It takes client, namespace, pvc, pv as input
 func verifyPodCreation(f *framework.Framework, client clientset.Interface, namespace string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
 	ginkgo.By("Create pod and wait for this to be in running phase")
-	pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1315,7 +1328,7 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 }
 
 // Function to create CnsRegisterVolume spec, with given FCD ID and PVC name
-func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
+func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID string, vmdkPath string, persistentVolumeClaimName string, accessMode v1.PersistentVolumeAccessMode) *cnsregistervolumev1alpha1.CnsRegisterVolume {
 	var (
 		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
 	)
@@ -1328,12 +1341,19 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 			Namespace:    namespace,
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
-			PvcName:  persistentVolumeClaimName,
-			VolumeID: fcdID,
+			PvcName: persistentVolumeClaimName,
 			AccessMode: v1.PersistentVolumeAccessMode(
 				accessMode,
 			),
 		},
+	}
+
+	if vmdkPath != "" {
+		cnsRegisterVolume.Spec.DiskURLPath = vmdkPath
+	}
+
+	if fcdID != "" {
+		cnsRegisterVolume.Spec.VolumeID = fcdID
 	}
 	return cnsRegisterVolume
 }
@@ -1477,7 +1497,7 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 			Containers: []v1.Container{
 				{
 					Name:    "write-pod",
-					Image:   framework.BusyBoxImage,
+					Image:   busyBoxImageOnGcr,
 					Command: []string{"/bin/sh"},
 					Args:    []string{"-c", command},
 					SecurityContext: &v1.SecurityContext{
@@ -1912,4 +1932,189 @@ func checkHostStatus(ip string) error {
 		return true, nil
 	})
 	return waitErr
+}
+
+// waitForNamespaceToGetDeleted waits for a namespace to get deleted or until timeout occurs, whichever comes first.
+func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface, namespaceToDelete string, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for namespace %s to get deleted", timeout, namespaceToDelete)
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		namespace, err := c.CoreV1().Namespaces().Get(ctx, namespaceToDelete, metav1.GetOptions{})
+		if err == nil {
+			framework.Logf("Namespace %s found and status=%s (%v)", namespaceToDelete, namespace.Status, time.Since(start))
+			continue
+		}
+		if apierrors.IsNotFound(err) {
+			framework.Logf("namespace %s was removed", namespaceToDelete)
+			return nil
+		}
+		framework.Logf("Get namespace %s is failed, ignoring for %v: %v", namespaceToDelete, Poll, err)
+	}
+	return fmt.Errorf("Namespace %s still exists within %v", namespaceToDelete, timeout)
+}
+
+// waitForCNSRegisterVolumeToGetCreated waits for a cnsRegisterVolume to get created or until timeout occurs, whichever comes first.
+func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %s to get created", timeout, cnsRegisterVolume)
+
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		flag := cnsRegisterVolume.Status.Registered
+		if !flag {
+			framework.Logf("cnsRegisterVolume %s found and Registered status is  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get deleted or until timeout occurs, whichever comes first.
+func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.Config, namespace string, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for cnsRegisterVolume %s to get deleted", timeout, cnsRegisterVolume)
+
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
+		if flag {
+			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// getK8sMasterIP gets k8s master ip in vanilla setup
+func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var k8sMasterIP string
+	for _, node := range nodes.Items {
+		if strings.Contains(node.Name, "master") {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeExternalIP {
+					k8sMasterIP = addr.Address
+				}
+			}
+		}
+	}
+	return k8sMasterIP
+}
+
+// toggleCSIMigrationFeatureGatesOnKubeControllerManager adds/removes CSIMigration and CSIMigrationvSphere feature gates to/from kube-controller-manager
+func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, client clientset.Interface, add bool) error {
+	var err error
+	sshCmd := ""
+	if !vanillaCluster {
+		return fmt.Errorf("'toggleCSIMigrationFeatureGatesToKubeControllerManager' is implemented for vanilla cluster alone")
+	}
+	if add {
+		sshCmd = "sed -i -e 's/CSIMigration=false,CSIMigrationvSphere=false/CSIMigration=true,CSIMigrationvSphere=true/g' " + kcmManifest
+	} else {
+		sshCmd = "sed -i '/CSIMigration/d' " + kcmManifest
+	}
+	grepCmd := "grep CSIMigration " + kcmManifest
+	k8sMasterIP := getK8sMasterIP(ctx, client)
+	framework.Logf("Invoking command %v on host %v", grepCmd, k8sMasterIP)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("ca$hc0w"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		fssh.LogResult(result)
+		return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s", grepCmd, k8sMasterIP, err)
+	}
+	if result.Code != 0 {
+		if add {
+			sshCmd = "gawk -i inplace '/--bind-addres/ { print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " + kcmManifest
+		} else {
+			return nil
+		}
+	}
+	framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
+	result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
+	}
+	// sleeping for two seconds so that the change made to manifest file is recognised
+	time.Sleep(2 * time.Second)
+	framework.Logf("Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout)
+	label := labels.SelectorFromSet(labels.Set(map[string]string{"component": "kube-controller-manager"}))
+	_, err = fpod.WaitForPodsWithLabelRunningReady(client, kubeSystemNamespace, label, 1, pollTimeout)
+	framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout)
+	return err
+}
+
+func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+	result := fssh.Result{Host: host, Cmd: cmd}
+	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+	if err != nil {
+		result.Stdout = ""
+		result.Stderr = ""
+		result.Code = 0
+		return result, err
+	}
+	defer sshClient.Close()
+	sshSession, err := sshClient.NewSession()
+	if err != nil {
+		result.Stdout = ""
+		result.Stderr = ""
+		result.Code = 0
+		return result, err
+	}
+	defer sshSession.Close()
+	// Run the command.
+	code := 0
+	var bytesStdout, bytesStderr bytes.Buffer
+	sshSession.Stdout, sshSession.Stderr = &bytesStdout, &bytesStderr
+	if err = sshSession.Run(cmd); err != nil {
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful but cmd failed on the host
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		} else {
+			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, err)
+		}
+	}
+	result.Stdout = bytesStdout.String()
+	result.Stderr = bytesStderr.String()
+	result.Code = code
+	return result, err
+}
+
+// createPod with given claims based on node selector
+func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
 }

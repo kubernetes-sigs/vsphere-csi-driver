@@ -26,7 +26,6 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/vim25/types"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,7 +38,6 @@ import (
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -47,10 +45,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 )
 
-// validateParam is a helper function used to validate the parameter name
-// received in the CreateVolume request for WCP CSI driver
+// validateCreateBlockReqParam is a helper function used to validate the parameter
+// name received in the CreateVolume request for block volumes on WCP CSI driver
 // Returns true if the parameter name is valid, false otherwise
-func validateParam(paramName, value string) bool {
+func validateCreateBlockReqParam(paramName, value string) bool {
 	return paramName == common.AttributeStoragePolicyID ||
 		paramName == common.AttributeFsType ||
 		paramName == common.AttributeAffineToHost ||
@@ -58,22 +56,36 @@ func validateParam(paramName, value string) bool {
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
 }
 
+const (
+	spTypePrefix = "cns.vmware.com/"
+	spTypeKey    = spTypePrefix + "StoragePoolType"
+)
+
+// validateCreateFileReqParam is a helper function used to validate the parameter
+// name received in the CreateVolume request for file volumes on WCP CSI driver
+// Returns true if the parameter name is valid, false otherwise
+func validateCreateFileReqParam(paramName, value string) bool {
+	return paramName == common.AttributeStoragePolicyID ||
+		paramName == common.AttributeFsType
+}
+
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
+// TODO: Need to remove AttributeHostLocal after external provisioner stops sending this parameter
 func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
+	isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
 	// Get create params
 	params := req.GetParameters()
 	for paramName, value := range params {
 		paramName = strings.ToLower(paramName)
-		if !validateParam(paramName, value) {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter.", paramName)
+		if isBlockRequest && !validateCreateBlockReqParam(paramName, value) {
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for block volume.", paramName)
+			return status.Error(codes.InvalidArgument, msg)
+		} else if !isBlockRequest && !validateCreateFileReqParam(paramName, value) {
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for file volumes.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
-	}
-	// Fail file volume creation
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
 }
@@ -100,67 +112,71 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 // validateWCPControllerExpandVolumeRequest is the helper function to validate
 // ExpandVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest, manager *common.Manager) error {
+func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
+	manager *common.Manager, isOnlineExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	var nodes []*cnsvsphere.VirtualMachine
+	if !isOnlineExpansionEnabled {
+		var nodes []*vsphere.VirtualMachine
 
-	// TODO: Currently we only check if disk is attached to TKG nodes
-	// We need to check if the disk is attached to a PodVM as well.
+		// TODO: Currently we only check if disk is attached to TKG nodes
+		// We need to check if the disk is attached to a PodVM as well.
 
-	// Get datacenter object from config
-	vc, err := common.GetVCenter(ctx, manager)
-	if err != nil {
-		msg := fmt.Sprintf("failed to get vcenter object with error: %+v", err)
-		log.Errorf(msg)
-		return status.Errorf(codes.Internal, msg)
-	}
-	dc := &cnsvsphere.Datacenter{
-		Datacenter: object.NewDatacenter(vc.Client.Client,
-			vimtypes.ManagedObjectReference{
-				Type:  "Datacenter",
-				Value: vc.Config.DatacenterPaths[0],
-			}),
-		VirtualCenterHost: vc.Config.Host,
-	}
-
-	// Create client to list virtualmachine instances from the supervisor cluster API server
-	cfg, err := config.GetConfig()
-	if err != nil {
-		msg := fmt.Sprintf("failed to get config with error: %+v", err)
-		log.Error(msg)
-		return status.Errorf(codes.Internal, msg)
-	}
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
-	if err != nil {
-		msg := fmt.Sprintf("failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
-		log.Error(msg)
-		return status.Errorf(codes.Internal, msg)
-	}
-	vmList := &vmoperatorv1alpha1.VirtualMachineList{}
-	err = vmOperatorClient.List(ctx, vmList)
-	if err != nil {
-		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-		log.Error(msg)
-		return status.Errorf(codes.Internal, msg)
-	}
-
-	// Get BIOS UUID from virtualmachine instances to create VirtualMachine object
-	for _, vmInstance := range vmList.Items {
-		biosUUID := vmInstance.Status.BiosUUID
-		vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
+		// Get datacenter object from config
+		vc, err := common.GetVCenter(ctx, manager)
 		if err != nil {
-			msg := fmt.Sprintf("failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+			msg := fmt.Sprintf("failed to get vcenter object with error: %+v", err)
+			log.Errorf(msg)
+			return status.Errorf(codes.Internal, msg)
+		}
+		dc := &vsphere.Datacenter{
+			Datacenter: object.NewDatacenter(vc.Client.Client,
+				vimtypes.ManagedObjectReference{
+					Type:  "Datacenter",
+					Value: vc.Config.DatacenterPaths[0],
+				}),
+			VirtualCenterHost: vc.Config.Host,
+		}
+
+		// Create client to list virtualmachine instances from the supervisor cluster API server
+		cfg, err := config.GetConfig()
+		if err != nil {
+			msg := fmt.Sprintf("failed to get config with error: %+v", err)
 			log.Error(msg)
 			return status.Errorf(codes.Internal, msg)
 		}
-		nodes = append(nodes, vm)
-	}
+		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
+		}
+		vmList := &vmoperatorv1alpha1.VirtualMachineList{}
+		err = vmOperatorClient.List(ctx, vmList)
+		if err != nil {
+			msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
+		}
 
-	return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+		// Get BIOS UUID from virtualmachine instances to create VirtualMachine object
+		for _, vmInstance := range vmList.Items {
+			biosUUID := vmInstance.Status.BiosUUID
+			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+				log.Error(msg)
+				return status.Errorf(codes.Internal, msg)
+			}
+			nodes = append(nodes, vm)
+		}
+
+		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+	}
+	return nil
 }
 
 // getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
@@ -176,6 +192,33 @@ func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn,
 		return nil, err
 	}
 	return conn, nil
+}
+
+// GetsvMotionPlanFromK8sCloudOperatorService gets storage vMotion plan from K8sCloudOperator gRPC service
+func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context, storagePoolName string, maintenanceMode string) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	conn, err := getK8sCloudOperatorClientConnection(ctx)
+	if err != nil {
+		log.Errorf("Failed to establish the connection to k8s cloud operator service when getting svMotion plan for SP: %s. Error: %+v", storagePoolName, err)
+		return nil, err
+	}
+	defer conn.Close()
+	// Create a client stub for k8s cloud operator gRPC service
+	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
+
+	res, err := client.GetStorageVMotionPlan(ctx,
+		&k8scloudoperator.StorageVMotionRequest{
+			StoragePoolName: storagePoolName,
+			MaintenanceMode: maintenanceMode,
+		})
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get storage vMotion plan from the k8s cloud operator service. Error: %+v", err)
+		log.Error(msg)
+		return nil, err
+	}
+
+	log.Infof("Got storage vMotion plan: %v from K8sCloudOperator gRPC service", res.SvMotionPlan)
+	return res.SvMotionPlan, nil
 }
 
 // getVMUUIDFromK8sCloudOperatorService gets the vmuuid from K8sCloudOperator gRPC service
@@ -287,7 +330,7 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	var vm *vsphere.VirtualMachine
 	dc = &vsphere.Datacenter{
 		Datacenter: object.NewDatacenter(vc.Client.Client,
-			types.ManagedObjectReference{
+			vimtypes.ManagedObjectReference{
 				Type:  "Datacenter",
 				Value: datacenter,
 			}),
@@ -330,34 +373,40 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	return datastoreURL, nil
 }
 
-// getAccessibleNodesFromStoragePool returns the accessibleNodes pertaining to the given StoragePool
-func getAccessibleNodesFromStoragePool(ctx context.Context, spName string) ([]string, error) {
+// getStoragePoolInfo returns the accessibleNodes and the storage-pool-type pertaining to the given StoragePool
+func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, error) {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return nil, "", fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
 	}
 
 	// create a new StoragePool client
 	spClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
+		return nil, "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName
 	sp, err := spClient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
+		return nil, "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
 	// extract the accessibleNodes field
 	accessibleNodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
-		return nil, fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
+		return nil, "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
 	}
 
-	return accessibleNodes, nil
+	// Get the storage pool type
+	poolType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeKey)
+	if !found || err != nil {
+		return nil, "", fmt.Errorf("failed to find pool type in StoragePool %s", spName)
+	}
+
+	return accessibleNodes, poolType, nil
 }
 
 // isValidAccessibilityRequirements validates if the given accessibility requirement has the necessary elements in it
@@ -366,22 +415,6 @@ func isValidAccessibilityRequirement(topologyRequirement *csi.TopologyRequiremen
 		return false
 	}
 	return true
-}
-
-// getHostNameFromAccessibilityRequirements fetches the host node name from the given topology requirement
-func getHostNameFromAccessibilityRequirements(topologyRequirement *csi.TopologyRequirement) (string, error) {
-	var hostName string
-	for _, topology := range topologyRequirement.GetPreferred() {
-		if topology == nil {
-			return "", status.Errorf(codes.NotFound, "invalid accessibility requirement")
-		}
-		value, ok := topology.Segments[v1.LabelHostname]
-		if !ok {
-			return "", status.Errorf(codes.NotFound, "hostname not found in the accessibility requirements")
-		}
-		hostName = value
-	}
-	return hostName, nil
 }
 
 // getOverlappingNodes returns the list of nodes that is present both in the accessibleNodes of the storagePool and the

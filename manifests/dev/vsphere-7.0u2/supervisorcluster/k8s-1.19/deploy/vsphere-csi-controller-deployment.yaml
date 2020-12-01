@@ -42,7 +42,7 @@ spec:
             - "--enable-hostlocal-placement=true"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
@@ -52,7 +52,7 @@ spec:
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
-              mountPath: /var/lib/csi/sockets/pluginproxy/
+              mountPath: /csi
         - name: csi-attacher
           image: vmware/csi-attacher/csi-attacher:v1.1.1
           args:
@@ -63,7 +63,7 @@ spec:
             - "--leader-election-type=leases"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
@@ -71,13 +71,14 @@ spec:
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
-              mountPath: /var/lib/csi/sockets/pluginproxy/
+              mountPath: /csi
         - name: csi-resizer
           image: vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.0.0
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
             - --timeout=300s
+            - --handle-volume-inuse-error=false  # Set this to true if used in vSphere 7.0U1
             - --csi-address=$(ADDRESS)
             - --leader-election
           env:
@@ -91,13 +92,12 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: vmware/vsphere-csi:<vsphere_csi_ver>
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
+          args:
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
           env:
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              value: unix:///csi/csi.sock
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
             - name: X_CSI_MODE
@@ -116,12 +116,16 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
               readOnly: true
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: liveness-probe
           image: vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
@@ -129,14 +133,16 @@ spec:
             - "--csi-address=$(ADDRESS)"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
           volumeMounts:
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
           image: vmware/syncer:<syncer_ver>
           args:
             - "--leader-election"
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
@@ -160,6 +166,10 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -170,14 +180,14 @@ spec:
           secret:
             secretName: vsphere-config-secret
         - name: socket-dir
-          hostPath:
-            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-            type: DirectoryOrCreate
+          emptyDir: {}
 ---
 apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
+  "online-volume-extend": "false"
+  "file-volume": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

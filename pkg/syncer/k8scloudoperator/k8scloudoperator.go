@@ -37,7 +37,6 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -49,7 +48,9 @@ const (
 	spTypePrefix                = "cns.vmware.com/"
 	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
 	vsanDirectType              = spTypePrefix + "vsanD"
+	vsanSnaType                 = spTypePrefix + "vsan-sna"
 	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
+	diskDecommissionModeField   = "decommMode"
 )
 
 type k8sCloudOperator struct {
@@ -287,7 +288,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 
-	scName, err := syncer.GetSCNameFromPVC(pvc)
+	scName, err := GetSCNameFromPVC(pvc)
 	if err != nil {
 		log.Errorf("Fail to get Storage class name from PVC with +v", err)
 		return out, err
@@ -297,18 +298,15 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	if err != nil {
 		return out, err
 	}
+
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
-	if !present || !strings.Contains(spTypes, vsanDirectType) {
-		log.Debug("storage class is not of type vsan direct, aborting placement")
+	if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
+		log.Debug("storage class is not of type vsan direct or vsan-sna, aborting placement")
 		return out, nil
 	}
-	// Validate accessibility requirements
-	if req.AccessibilityRequirements == nil {
-		return out, fmt.Errorf("invalid accessibility requirements input provided")
-	}
-	log.Infof("Get info of topology from input %s", req.AccessibilityRequirements)
+
 	log.Debugf("Enter placementEngine %s", req)
-	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc)
+	err = PlacePVConStoragePool(ctx, k8sCloudOperator.k8sClient, req.AccessibilityRequirements, pvc, spTypes)
 	if err != nil {
 		log.Errorf("Failed to place this PVC on sp with error %s", err)
 		return out, err
@@ -317,4 +315,26 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	log.Debugf("End placementEngine")
 	out.PlaceSuccess = true
 	return out, err
+}
+
+// GetStorageVMotionPlan provide the implementation for the GetHostAnnotation interface method
+// It creates a storage vMotion plan as a map where keys are PVs residing in the specified vSAN Direct Datastore
+// and values are other vSAN Direct Datastores into which the PV should be migrated.
+func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Context, req *StorageVMotionRequest) (*StorageVMotionResponse, error) {
+	log := logger.GetLogger(ctx)
+	out := &StorageVMotionResponse{
+		SvMotionPlan: nil,
+	}
+	if req == nil || req.StoragePoolName == "" {
+		log.Errorf("no right inputs given to GetStorageVMotionPlan")
+		return out, fmt.Errorf("malformed request provided to GetStorageVMotionPlan")
+	}
+	log.Debugf("received GetStorageVMotionPlan for StoragePool %v and maintenance mode %v", req.StoragePoolName, req.MaintenanceMode)
+	svMotionPlan, err := GetSVMotionPlan(ctx, k8sCloudOperator.k8sClient, req.StoragePoolName, req.MaintenanceMode)
+	if err != nil {
+		log.Errorf("Failed to get SvMotion plan. Error: %v", err)
+		return out, err
+	}
+	out.SvMotionPlan = svMotionPlan
+	return out, nil
 }

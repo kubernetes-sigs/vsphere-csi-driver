@@ -45,7 +45,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -56,8 +55,10 @@ import (
 var (
 	// volumeMigrationService holds the pointer to VolumeMigration instance
 	volumeMigrationService        migration.VolumeMigrationService
-	onceForVolumeHealthReconciler sync.Once
 	onceForVolumeResizeReconciler sync.Once
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator for the syncer container
+	COInitParams interface{}
 )
 
 // newInformer returns uninitialized metadataSyncInformer
@@ -127,27 +128,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Initialize the k8s orchestrator interface
-	var k8sInitParams interface{}
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		k8sInitParams = k8sorchestrator.K8sVanillaInitParams{
-			InternalFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
-		}
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		k8sInitParams = k8sorchestrator.K8sSupervisorInitParams{
-			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
-		}
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		k8sInitParams = k8sorchestrator.K8sGuestInitParams{
-			InternalFeatureStatesConfigInfo:   metadataSyncer.configInfo.Cfg.InternalFeatureStatesConfig,
-			SupervisorFeatureStatesConfigInfo: metadataSyncer.configInfo.Cfg.FeatureStatesConfig,
-		}
-	} else {
-		mssg := fmt.Sprintf("unrecognized cluster flavor %q", clusterFlavor)
-		log.Error(mssg)
-		return errors.New(mssg)
-	}
-
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, k8sInitParams)
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
 	if err != nil {
 		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
@@ -172,7 +153,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	} else {
 		// Initialize volume manager with vcenter credentials
 		// if metadata syncer is being intialized for Vanilla or Supervisor clusters
-		vCenter, err := types.GetVirtualCenterInstance(ctx, configInfo)
+		vCenter, err := types.GetVirtualCenterInstance(ctx, configInfo, false)
 		if err != nil {
 			return err
 		}
@@ -202,8 +183,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
 					log.Infof("Reloading Configuration")
-					ReloadConfiguration(ctx, metadataSyncer)
-					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					if err := ReloadConfiguration(ctx, metadataSyncer); err != nil {
+						log.Errorf("failed to reload configuration from: %q. Current configuration unchanged.", cfgPath)
+					} else {
+						log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					}
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -301,7 +285,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}()
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		volumeHealthEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeHealthEnablementTicker.Stop()
 		// Trigger volume health reconciler
 		go func() {
@@ -311,7 +295,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("VolumeHealth feature is disabled on the cluster")
 				} else {
 					if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break
@@ -319,7 +303,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}()
 
-		volumeResizeEnablementTicker := time.NewTicker(defaultFeatureEnablementCheckInterval)
+		volumeResizeEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeResizeEnablementTicker.Stop()
 		// Trigger resize reconciler
 		go func() {
@@ -329,7 +313,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("ExpandVolume feature is disabled on the cluster")
 				} else {
 					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(defaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break
@@ -355,63 +339,68 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 }
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's cached configs
-func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx)
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("failed to read config. Error: %+v", err)
-		return
+		msg := fmt.Sprintf("failed to read config. Error: %+v", err)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
 		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
-			log.Errorf("failed to create cns operator client. Err: %v", err)
-			return
+			msg := fmt.Sprintf("failed to create cns operator client. Err: %v", err)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 
 		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
-			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
-			return
+			msg := fmt.Sprintf("failed to create supervisorClient. Error: %+v", err)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 	} else {
 		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 		if err != nil {
-			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
-			return
+			msg := fmt.Sprintf("failed to get VirtualCenterConfig. err=%v", err)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host ||
 				metadataSyncer.configInfo.Cfg.Global.User != newVCConfig.Username ||
 				metadataSyncer.configInfo.Cfg.Global.Password != newVCConfig.Password {
-				vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
-				log.Debugf("Unregistering virtual center: %q from virtualCenterManager", metadataSyncer.configInfo.Cfg.Global.VCenterIP)
-				err = vcManager.UnregisterAllVirtualCenters(ctx)
-				if err != nil {
-					log.Errorf("failed to unregister vcenter with virtualCenterManager.")
-					return
+
+				// Verify if new configuration has valid credentials by connecting to vCenter.
+				// Proceed only if the connection succeeds, else return error.
+				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+				if err = newVC.Connect(ctx); err != nil {
+					msg := fmt.Sprintf("failed to connect to VirtualCenter host: %s using new credentials, Err: %+v", newVCConfig.Host, err)
+					log.Error(msg)
+					return errors.New(msg)
 				}
-				log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
-				vcenter, err = vcManager.RegisterVirtualCenter(ctx, newVCConfig)
+
+				// Reset virtual center singleton instance by passing reload flag as true
+				log.Info("Obtaining new vCenterInstance using new credentials")
+				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg}, true)
 				if err != nil {
-					log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
-					return
-				}
-				// connect to vCenter using new config to ensure new configuration has
-				// valid credentials
-				err := vcenter.Connect(ctx)
-				if err != nil {
-					log.Errorf("Failed to connect to VirtualCenter with new config. err=%v", err)
-					return
+					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
+					log.Error(msg)
+					return errors.New(msg)
 				}
 			} else {
-				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg})
+				// If it's not a VC host or VC credentials update, same singleton instance can be used
+				// and it's Config field can be updated
+				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg}, false)
 				if err != nil {
-					log.Errorf("failed to get VirtualCenter. err=%v", err)
-					return
+					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
+					log.Error(msg)
+					return errors.New(msg)
 				}
 				vcenter.Config = newVCConfig
 			}
@@ -426,6 +415,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
+	return nil
 }
 
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated
@@ -1178,19 +1168,19 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 		return err
 	}
 	log.Infof("supervisorNamespace %s", supervisorNamespace)
-	onceForVolumeHealthReconciler.Do(func() {
-		log.Infof("initVolumeHealthReconciler is triggered")
-		tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
-		svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
-
-		rc := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
-			workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
-			supervisorNamespace,
-		)
-		tkgInformerFactory.Start(wait.NeverStop)
-		svcInformerFactory.Start(wait.NeverStop)
-		rc.Run(ctx, volumeHealthWorkers)
-	})
+	log.Infof("initVolumeHealthReconciler is triggered")
+	tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
+	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	rc, err := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
+		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
+		supervisorNamespace, stopCh,
+	)
+	if err != nil {
+		return err
+	}
+	rc.Run(ctx, volumeHealthWorkers)
 	return nil
 }
 

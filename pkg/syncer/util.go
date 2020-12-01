@@ -2,7 +2,6 @@ package syncer
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/client-go/tools/cache"
 
@@ -10,17 +9,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-)
-
-const (
-	// PVC annotation key to specify storage class from which PV should be provisioned
-	scNameAnnotationKey = "volume.beta.kubernetes.io/storage-class"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released state
@@ -231,19 +226,6 @@ func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) boo
 	return false
 }
 
-// GetSCNameFromPVC gets name of the storage class from provided PVC
-func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
-	scName := pvc.Spec.StorageClassName
-	if scName == nil || *scName == "" {
-		scNameFromAnnotation := pvc.Annotations[scNameAnnotationKey]
-		if scNameFromAnnotation == "" {
-			return "", fmt.Errorf("storage class name not specified in PVC")
-		}
-		scName = &scNameFromAnnotation
-	}
-	return *scName, nil
-}
-
 // IsMultiAttachAllowed helps check accessModes on the PV and return true if volume can be attached to
 // multiple nodes.
 func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
@@ -269,7 +251,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 		return nil
 	}
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg, true)
 	if err != nil {
 		log.Errorf("failed to get migration service. Err: %v", err)
 		return err

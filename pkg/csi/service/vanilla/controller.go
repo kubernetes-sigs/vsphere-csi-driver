@@ -40,7 +40,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -64,10 +63,6 @@ type controller struct {
 // If volume is present in this map, then detach volume operation can be skipped.
 // TODO: Remove this when https://github.com/kubernetes/kubernetes/issues/84226 is fixed
 var deletedVolumes *timedmap.TimedMap
-
-// containerOrchestratorUtility is used for fetching CO specific utilities
-// For example: feature states are stored as a configmap resource in k8s
-var containerOrchestratorUtility commonco.COCommonInterface
 
 // volumeMigrationService holds the pointer to VolumeMigration instance
 var volumeMigrationService migration.VolumeMigrationService
@@ -128,9 +123,11 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 
-	if len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
+	isAuthCheckFSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
+	// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if CSIAuthCheck FSS is not enabled
+	if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
 		// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
-		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, c.manager)
+		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc)
 		if err != nil {
 			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
 			log.Error(msg)
@@ -161,19 +158,7 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 
-	// Initialize CO common utility
-	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-		return err
-	}
-	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor,
-		k8sorchestrator.K8sVanillaInitParams{InternalFeatureStatesConfigInfo: config.InternalFeatureStatesConfig})
-	if err != nil {
-		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
-		return err
-	}
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+	if isAuthCheckFSSEnabled {
 		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
 		authMgr, err := common.GetAuthorizationService(ctx, vc)
 		if err != nil {
@@ -181,7 +166,10 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 			return err
 		}
 		c.authMgr = authMgr
-		go common.ComputeDatastoreIgnoreMap(authMgr.(*common.AuthManager))
+		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
+			config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager),
+			config.Global.CSIAuthCheckIntervalInMin)
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -221,9 +209,9 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 	}
 	// deletedVolumes timedmap with clean up interval of 1 minute to remove expired entries
 	deletedVolumes = timedmap.New(1 * time.Minute)
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
-		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config)
+		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
 		if err != nil {
 			log.Errorf("failed to get migration service. Err: %v", err)
 			return err
@@ -282,19 +270,19 @@ func (c *controller) ReloadConfiguration(ctx context.Context) {
 	}
 }
 
-func (c *controller) filterIgoreDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
 	log := logger.GetLogger(ctx)
-	dsIgnoreMap := c.authMgr.GetDatastoreIgnoreMapForBlockVolumes(ctx)
-	log.Debugf("filterIgnoreDatastores: dsIgnoreMap %v sharedDatastores %v", dsIgnoreMap, sharedDatastores)
+	dsMap := c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
+	log.Debugf("filterDatastores: dsMap %v sharedDatastores %v", dsMap, sharedDatastores)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
 	for _, sharedDatastore := range sharedDatastores {
-		if _, existsInDsIgnoreMap := dsIgnoreMap[sharedDatastore.Info.Url]; existsInDsIgnoreMap {
-			log.Debugf("filter out datastore %v from create volume spec", sharedDatastore)
-		} else {
+		if _, existsInDsMap := dsMap[sharedDatastore.Info.Url]; existsInDsMap {
 			filteredDatastores = append(filteredDatastores, sharedDatastore)
+		} else {
+			log.Debugf("filter out datastore %v from create volume spec", sharedDatastore)
 		}
 	}
-	log.Debug("filterIgnoreDatastores: filteredDatastores %v", filteredDatastores)
+	log.Debugf("filterDatastores: filteredDatastores %v", filteredDatastores)
 	return filteredDatastores
 }
 
@@ -310,7 +298,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
 	// Fetching the feature state for csi-migration before parsing storage class params
-	csiMigrationFeatureState := containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
 		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
@@ -415,9 +403,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-		// filter datastores which in datastoreIgnoreMap from sharedDatastores
-		sharedDatastores = c.filterIgoreDatastores(ctx, sharedDatastores)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		// filter datastores which in datastoreMap from sharedDatastores
+		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
 	}
 	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
@@ -501,7 +489,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
 	// Fetching the feature state for csi-migration before parsing storage class params
-	csiMigrationFeatureState := containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
 		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
@@ -515,13 +503,35 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		ScParams:   scParams,
 		VolumeType: common.FileVolumeType,
 	}
-
-	volumeID, err := common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
-	if err != nil {
-		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+	var volumeID string
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+		dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
+		log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+		var filteredDatastores []*cnsvsphere.DatastoreInfo
+		for _, datastore := range dsURLToInfoMap {
+			filteredDatastores = append(filteredDatastores, datastore)
+		}
+		if len(filteredDatastores) == 0 {
+			msg := "no datastores found to create file volume"
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+			c.manager, &createVolumeSpec, filteredDatastores)
+		if err != nil {
+			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	} else {
+		volumeID, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
+		if err != nil {
+			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 	}
+
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 
@@ -542,8 +552,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateVolume: called with args %+v", *req)
-
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+	volumeCapabilities := req.GetVolumeCapabilities()
+	if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+	}
+	if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 		vsan67u3Release, err := isVsan67u3Release(ctx, c)
 		if err != nil {
 			log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
@@ -573,7 +586,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	var volumePath string
 	if strings.Contains(req.VolumeId, ".vmdk") {
 		// in-tree volume support
-		if !containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 			// Migration feature switch is disabled
 			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			log.Error(msg)
@@ -667,7 +680,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Block Volume
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			// in-tree volume support
-			if !containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled
 				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 				log.Error(msg)
@@ -749,7 +762,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 	} else {
 		// in-tree volume support
-		if !containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 			// Migration feature switch is disabled
 			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			log.Error(msg)
@@ -804,7 +817,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log.Error(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
-	err := validateVanillaControllerExpandVolumeRequest(ctx, req)
+	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+	err := validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled)
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
@@ -847,7 +861,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if common.IsValidVolumeCapabilities(ctx, volCaps) {
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -896,7 +910,7 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	}
 	// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig)
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get migration service. Err: %v", err)
 		log.Error(msg)

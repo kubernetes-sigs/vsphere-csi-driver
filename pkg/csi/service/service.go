@@ -22,21 +22,18 @@ import (
 	"os"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
-
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
 	csictx "github.com/rexray/gocsi/context"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -48,6 +45,9 @@ const (
 )
 
 var (
+	// COInitParams stores the input params required for initiating the
+	// CO agnostic orchestrator for the controller as well as node containers
+	COInitParams  interface{}
 	clusterFlavor = defaultClusterFlavor
 	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
@@ -106,13 +106,22 @@ func (s *service) BeforeServe(
 		log.Infof("configured: %q with clusterFlavor: %q and mode: %q", csitypes.Name, clusterFlavor, s.mode)
 	}()
 
+	var (
+		err error
+		cfg *cnsconfig.Config
+	)
+
+	// Initialize CO utility in Nodes
+	commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
+	if err != nil {
+		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+		return err
+	}
+
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	if !strings.EqualFold(s.mode, "node") {
 		// Controller service is needed
-		var cfg *cnsconfig.Config
-		var err error
-
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("failed to read config. Error: %+v", err)

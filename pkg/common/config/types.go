@@ -43,11 +43,17 @@ type Config struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// VolumeMigrationCRCleanupIntervalInMin specifies the interval after which
+		// stale CnsVSphereVolumeMigration CRs will be cleaned up.
+		VolumeMigrationCRCleanupIntervalInMin int `gcfg:"volumemigration-cr-cleanup-intervalinmin"`
 		// VCClientTimeout specifies a time limit in minutes for requests made by client
 		// If not set, default will be 5 minutes
 		VCClientTimeout int `gcfg:"vc-client-timeout"`
 		// Cluster Distribution Name
 		ClusterDistribution string `gcfg:"cluster-distribution"`
+
+		//CSIAuthCheckIntervalInMin specifies the interval that the auth check for datastores will be trigger
+		CSIAuthCheckIntervalInMin int `gcfg:"csi-auth-check-intervalinmin"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
@@ -65,18 +71,12 @@ type Config struct {
 		Zone   string `gcfg:"zone"`
 		Region string `gcfg:"region"`
 	}
-	// FeatureStatesConfig contains feature states configmap info specific to supervisor cluster
-	FeatureStatesConfig FeatureStatesConfigInfo
-
-	// InternalFeatureStatesConfig contains feature states configmap info specific to pvCSI and vanilla drivers
-	// NOTE: Do not edit this. Only to be used for dev and testing purposes.
-	InternalFeatureStatesConfig FeatureStatesConfigInfo
 }
 
-// FeatureStatesConfigInfo is the details about feature states configmap
+// FeatureStatesConfigInfo contains the details about feature states configmap
 type FeatureStatesConfigInfo struct {
-	Name      string `gcfg:"name"`
-	Namespace string `gcfg:"namespace"`
+	Name      string
+	Namespace string
 }
 
 // NetPermissionConfig consists of information used to restrict the

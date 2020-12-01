@@ -112,10 +112,10 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClusterFlavor cnstypes.CnsClusterFlavor, params interface{}) error {
 	log := logger.GetLogger(ctx)
 	var (
-		fssConfigMap *v1.ConfigMap
-		err          error
+		fssConfigMap               *v1.ConfigMap
+		err                        error
+		configMapNamespaceToListen string
 	)
-
 	// Store configmap info in global variables to access later
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
@@ -126,6 +126,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 		}
 		k8sOrchestratorInstance.supervisorFSS.configMapName = svInitParams.SupervisorFeatureStatesConfigInfo.Name
 		k8sOrchestratorInstance.supervisorFSS.configMapNamespace = svInitParams.SupervisorFeatureStatesConfigInfo.Namespace
+		configMapNamespaceToListen = k8sOrchestratorInstance.supervisorFSS.configMapNamespace
 	}
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		k8sOrchestratorInstance.internalFSS.featureStates = make(map[string]string)
@@ -136,6 +137,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 		}
 		k8sOrchestratorInstance.internalFSS.configMapName = vanillaInitParams.InternalFeatureStatesConfigInfo.Name
 		k8sOrchestratorInstance.internalFSS.configMapNamespace = vanillaInitParams.InternalFeatureStatesConfigInfo.Namespace
+		configMapNamespaceToListen = k8sOrchestratorInstance.internalFSS.configMapNamespace
 	}
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
@@ -149,6 +151,10 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 		k8sOrchestratorInstance.internalFSS.configMapNamespace = guestInitParams.InternalFeatureStatesConfigInfo.Namespace
 		k8sOrchestratorInstance.supervisorFSS.configMapName = guestInitParams.SupervisorFeatureStatesConfigInfo.Name
 		k8sOrchestratorInstance.supervisorFSS.configMapNamespace = guestInitParams.SupervisorFeatureStatesConfigInfo.Namespace
+		// As of now, TKGS is having both supervisor FSS and internal FSS in the same namespace.
+		// If the configmap's namespaces change in future, we may need listeners on different namespaces
+		// Until then, we will initialize configMapNamespaceToListen to internalFSS.configMapNamespace
+		configMapNamespaceToListen = k8sOrchestratorInstance.internalFSS.configMapNamespace
 	}
 
 	// Initialize supervisor FSS map values
@@ -189,7 +195,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 
 	// Set up kubernetes resource listeners for k8s orchestrator
 	k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
-	k8sOrchestratorInstance.informerManager.AddConfigMapListener(
+	k8sOrchestratorInstance.informerManager.AddConfigMapListener(ctx, k8sClient, configMapNamespaceToListen,
 		// Add
 		func(obj interface{}) {
 			configMapAdded(obj)

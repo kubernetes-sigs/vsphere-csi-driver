@@ -15,6 +15,8 @@ In order to utilize this feature in your vSphere environment, you need to make s
 
 - Establish a dedicated file share network connecting all the kubernetes nodes and make sure this network is routable to the vSAN File Share network.  Refer to [Network Access of vSAN File Share](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.storage.doc/GUID-EFC00FFF-E720-44F1-B229-4C13687E6B85.html) to understand the setup better.
 
+- Configure the kubernetes nodes with the same DNS server as the one used to configure the file services in the vSAN cluster configuration. This will help the nodes resolve the access points it gets from the File service and mount the file share as a volume while creating a pod. Refer to [vSAN - Configure File Service](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-CA9CF043-9434-454E-86E7-DCA9AD9B0C09.html) for more details.
+
 - Configure the kubernetes secret named `vsphere-config-secret` to specify network permissions and placement of volumes for your vSAN file shares in your vSphere environment. This step is completely optional. Refer to the [CSI vSphere driver installation](../driver-deployment/installation.md) instructions on `vSphere configuration file for file volumes` to learn more. If not specified, it is upto the CSI driver to use its discretion to place the file share volumes in any of your vSAN datastores with File services enabled. In such a scenario, the file volumes backed by vSAN file shares using the NFSv4 protocol will assume default network permissions i.e Read-Write privilege and root access to all the IP ranges.
 
 Before you start using file services in your environment keep in mind that if you have file shares being shared across more than one clusters in your vCenter, deleting a PVC with reclaim policy set to `Delete` in any one cluster may delete the underlying file share causing the volume to be unavailable for the rest of the clusters.
@@ -179,3 +181,5 @@ spec:
 ```
 
 The `labels` key-value pair `static-pv-label-key: static-pv-label-value` used in PV `metadata` and PVC `selector` aid in matching the PVC to the PV during static provisioning. Also, remember to retain the `file:` prefix of the vSAN file share while filling up the `volumeHandle` field in PV spec.
+
+**NOTE:** For File volumes, CNS supports multiple PV's referring to the same file-share volume.

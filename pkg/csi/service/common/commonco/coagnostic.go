@@ -18,7 +18,7 @@ package commonco
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
@@ -26,6 +26,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
+
+// ContainerOrchestratorUtility represents the singleton instance of
+// container orchestrator interface
+var ContainerOrchestratorUtility COCommonInterface
 
 // COCommonInterface provides functionality to define
 // container orchestrator related implementation to read resources/objects
@@ -48,6 +52,6 @@ func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int
 		return k8sOrchestratorInstance, nil
 	default:
 		// If type is invalid, return an error
-		return nil, errors.New("invalid orchestrator type")
+		return nil, fmt.Errorf("invalid orchestrator type")
 	}
 }

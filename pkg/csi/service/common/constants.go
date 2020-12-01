@@ -16,6 +16,8 @@ limitations under the License.
 
 package common
 
+import "time"
+
 const (
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
@@ -173,14 +175,14 @@ const (
 	// InTreePluginName is the name of vsphere cloud provider in kubernetes
 	InTreePluginName = "kubernetes.io/vsphere-volume"
 
-	// DsPriv is the privilege need to wirte a that datastore
+	// DsPriv is the privilege need to write on that datastore
 	DsPriv = "Datastore.FileManagement"
 
 	// SysReadPriv is the privilege to view an entity
 	SysReadPriv = "System.Read"
 
-	// DefaultIgnoreDsIntervalInMinutes is the default interval to compute DatastoreIgnoreMap
-	DefaultIgnoreDsIntervalInMinutes = 5
+	// HostConfigStoragePriv is the privilege for file volumes
+	HostConfigStoragePriv = "Host.Config.Storage"
 )
 
 // Supported container orchestrators
@@ -188,14 +190,22 @@ const (
 	Kubernetes = iota // Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s
 )
 
-// Feature state flag names
+// Constants related to Feature state
 const (
+	// default interval to check if the feature is enabled or not
+	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
 	// VolumeHealth is the feature flag name for volume health
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion
 	VolumeExtend = "volume-extend"
+	// OnlineVolumeExtend guards the feature for online volume expansion
+	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check
 	CSIAuthCheck = "csi-auth-check"
+	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
+	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
+	// FileVolume is feature flag name for file volume support in WCP
+	FileVolume = "file-volume"
 )
