@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -2081,12 +2081,14 @@ func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
 		if strings.Contains(node.Name, "master") {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
-				if addr.Type == v1.NodeExternalIP {
+				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
 					k8sMasterIP = addr.Address
+					break
 				}
 			}
 		}
 	}
+	gomega.Expect(k8sMasterIP).NotTo(gomega.BeNil(), "Unable to find k8s control plane IP")
 	return k8sMasterIP
 }
 
@@ -2104,7 +2106,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, 
 	}
 	grepCmd := "grep CSIMigration " + kcmManifest
 	k8sMasterIP := getK8sMasterIP(ctx, client)
-	framework.Logf("Invoking command %v on host %v", grepCmd, k8sMasterIP)
+	framework.Logf("Invoking command '%v' on host %v", grepCmd, k8sMasterIP)
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{

@@ -65,6 +65,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
 
     # For VCP to CSI migration tests following are needed as well
     export SHARED_VSPHERE_DATASTORE_NAME="vsanDatastore"
+    export ESX_TEST_HOST_IP="<esx_host_ip>"  # for static provisioning tests
 
     # SHARED_VSPHERE_DATASTORE_NAME and SHARED_VSPHERE_DATASTORE_URL should correspond to same shared datastore
    
@@ -79,6 +80,12 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     2.ssh root@<vc-ip-address> mkdir -p .ssh
     3.cat ~/.ssh/id_rsa.pub | ssh root@<vc-ip-address> 'cat >> .ssh/authorized_keys'
     4.ssh root@<vc-ip-address> "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
+
+#### Setting SSH keys for ESX with your local machine to run VCP to CSI migration static provisioning tests
+
+    1.ssh-keygen -t rsa (ignore if you already have public key in the local env)
+    2.cat ~/.ssh/id_rsa.pub | ssh root@<esx-ip-address> 'cat >> /etc/ssh/keys-root/authorized_keys'
+    3.ssh root@<esx-ip-address> "chmod 640 /etc/ssh/keys-root/authorized_keys"
 
 ## Requirements
 

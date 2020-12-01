@@ -197,7 +197,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		vcpSc, err = createVcpStorageClass(client, scParams, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpScs = append(vcpScs, vcpSc)
-		delete(scParams, vcpScParamPolicyName)
+		scParams[vcpScParamFstype] = ext3FSType
+		vcpSc, err = createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
 
 		ginkgo.By("Creating VCP PVCs before migration")
 		for _, sc := range vcpScs {
@@ -231,14 +234,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		ginkgo.By("Verify annotations on PV/PVCs created after migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
 
-		time.Sleep(30 * time.Second)
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created before and after migration")
 		for _, pvc := range append(vcpPvcsPreMig, vcpPvcsPostMig...) {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			log.Info("Processing PVC: " + pvc.Name)
-			found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
-			gomega.Expect(found).To(gomega.BeTrue())
+			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -749,7 +751,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 	if pod != nil {
 		verifyPodEntry = true
 	}
-	framework.Logf("Found CNS volume for id %v\n"+spew.Sdump(cnsVolume), volumeID)
+	framework.Logf("Found CNS volume with id %v\n"+spew.Sdump(cnsVolume), volumeID)
 	gomega.Expect(cnsVolume.Metadata).NotTo(gomega.BeNil())
 	for _, entity := range cnsVolume.Metadata.EntityMetadata {
 		entityMetadata := entity.(*cnstypes.CnsKubernetesEntityMetadata)
@@ -780,7 +782,8 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 						break
 					}
 				} else {
-					if !(reflect.DeepEqual(entityMetadata.Labels, pvc.Labels)) {
+					labels := getLabelMap(entityMetadata.Labels)
+					if !(reflect.DeepEqual(labels, pvc.Labels)) {
 						framework.Logf("Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v", pvc.Labels, entityMetadata.Labels, volumeID)
 						pvcEntryFound = false
 						break
@@ -809,7 +812,8 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 						break
 					}
 				} else {
-					if !(reflect.DeepEqual(entityMetadata.Labels, pv.Labels)) {
+					labels := getLabelMap(entityMetadata.Labels)
+					if !(reflect.DeepEqual(labels, pv.Labels)) {
 						framework.Logf("Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v", entityMetadata.Labels, pv.Labels, volumeID)
 						pvEntryFound = false
 						break
@@ -850,7 +854,8 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 						break
 					}
 				} else {
-					if !(reflect.DeepEqual(entityMetadata.Labels, pv.Labels)) {
+					labels := getLabelMap(entityMetadata.Labels)
+					if !(reflect.DeepEqual(labels, pv.Labels)) {
 						framework.Logf("Labels on pod '%v' are not matching with labels in pod metadata '%v' for volume id %v", pod.Labels, entityMetadata.Labels, volumeID)
 						podEntryFound = false
 						break
@@ -864,14 +869,24 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 			}
 		}
 	}
+	framework.Logf("pvEntryFound:%v, verifyPvEntry:%v, pvcEntryFound:%v, verifyPvcEntry:%v, podEntryFound:%v, verifyPodEntry:%v", pvEntryFound, verifyPvEntry, pvcEntryFound, verifyPvcEntry, podEntryFound, verifyPodEntry)
 	return pvEntryFound == verifyPvEntry && pvcEntryFound == verifyPvcEntry && podEntryFound == verifyPodEntry
 }
 
 // waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
 func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) error {
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
 		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)
 		return matches, nil
 	})
 	return waitErr
+}
+
+// getLabelMap converts labels in []types.KeyValue from CNS to map[string]string type as in k8s
+func getLabelMap(keyVals []types.KeyValue) map[string]string {
+	labels := make(map[string]string)
+	for _, keyval := range keyVals {
+		labels[keyval.Key] = keyval.Value
+	}
+	return labels
 }
