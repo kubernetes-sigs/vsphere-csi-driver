@@ -557,11 +557,11 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 				isStorageProvisionerMatching = true
 				continue
 			}
-			if k == migratedToAnnotation && v == e2evSphereCSIBlockDriverName {
+			if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
 				isMigratedToCsi = true
 			}
 		} else {
-			if k == pvcAnnotationStorageProvisioner && v == e2evSphereCSIBlockDriverName {
+			if k == pvcAnnotationStorageProvisioner && v == e2evSphereCSIDriverName {
 				isStorageProvisionerMatching = true
 				continue
 			}
@@ -597,11 +597,11 @@ func pvHasMigAnnotations(ctx context.Context, c clientset.Interface, pvName stri
 				isProvisionedByMatching = true
 				continue
 			}
-			if k == migratedToAnnotation && v == e2evSphereCSIBlockDriverName {
+			if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
 				isMigratedToCsi = true
 			}
 		} else {
-			if k == pvAnnotationProvisionedBy && v == e2evSphereCSIBlockDriverName {
+			if k == pvAnnotationProvisionedBy && v == e2evSphereCSIDriverName {
 				isProvisionedByMatching = true
 				continue
 			}

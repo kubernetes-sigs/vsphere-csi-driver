@@ -43,7 +43,7 @@ const (
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
-	e2evSphereCSIBlockDriverName               = "csi.vsphere.vmware.com"
+	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
@@ -66,6 +66,7 @@ const (
 	ext3FSType                                 = "ext3"
 	ext4FSType                                 = "ext4"
 	fcdName                                    = "BasicStaticFCD"
+	fileSizeInMb                               = int64(2048)
 	healthGreen                                = "green"
 	healthRed                                  = "red"
 	healthStatusAccessible                     = "accessible"
