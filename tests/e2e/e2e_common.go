@@ -89,6 +89,7 @@ const (
 	kubeAPIfile                                = "kube-apiserver.yaml"
 	kubeAPIRecoveryTime                        = 1 * time.Minute
 	kubeSystemNamespace                        = "kube-system"
+	kubeletConfigYaml                          = "/var/lib/kubelet/config.yaml"
 	nfs4FSType                                 = "nfs4"
 	objOrItemNotFoundErr                       = "The object or item referred to could not be found"
 	passorwdFilePath                           = "/etc/vmware/wcp/.storageUser"
@@ -152,6 +153,7 @@ var (
 	vcpScParamPolicyName            = "storagePolicyName"
 	vcpScParamFstype                = "fstype"
 	migratedToAnnotation            = "pv.kubernetes.io/migrated-to"
+	migratedPluginAnnotation        = "storage.alpha.kubernetes.io/migrated-plugins"
 	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
 	nodeMapper                      = &NodeMapper{}

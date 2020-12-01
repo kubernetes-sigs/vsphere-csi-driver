@@ -35,6 +35,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
@@ -53,6 +54,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvsPostMig              []*v1.PersistentVolume
 		err                        error
 		kcmMigEnabled              bool
+		kubectlMigEnabled          bool
 		isSPSserviceStopped        bool
 		isVsanHealthServiceStopped bool
 		labelKey                   string
@@ -60,6 +62,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
+		podsToDelete               []*v1.Pod
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -123,6 +126,29 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
+
+		for _, pod := range podsToDelete {
+			ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
+			volhandles := []string{}
+			for _, vol := range pod.Spec.Volumes {
+				pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
+				volhandles = append(volhandles, pv.Spec.CSI.VolumeHandle)
+
+			}
+			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, volHandle := range volhandles {
+				ginkgo.By("Verify volume is detached from the node")
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod.Spec.NodeName))
+			}
+		}
+
+		if kubectlMigEnabled {
+			ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
+			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
 		}
 
 		crds := []*v1alpha1.CnsVSphereVolumeMigration{}
@@ -483,6 +509,107 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPostMig)
 	})
 
+	/*
+		Verify Pod Name updates on CNS
+		Steps:
+
+		1.	Create SC1 VCP SC
+		2.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
+		3.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		4.	Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		5.	Verify cnsvspherevolumemigrations crd is created for the migrated volume
+		6.	Create PVC2 using SC1 and wait for binding with PV (say PV2)
+		7.	Verify cnsvspherevolumemigrations crd is created for PVC2 and PV2
+		8.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		9.	Create pod1 using PVC1 and PVC2
+		10.	Verify pod name in CNS entries for PVC1 and PVC2
+		11.	Delete pod1 and wait for PVC1 and PVC2 to detach
+		12.	Verify pod name is removed in CNS entries for PVC1 and PVC2
+		13.	Delete PVC1 and PVC2
+		14.	wait and verify CNS volumes are deleted
+		15.	Verify underlying vmdks are also deleted for PV1 and PV2
+		16.	Verify cnsvspherevolumemigrations crds are removed for PVC1, PVC2, PV1 and PV2
+		17.	Delete SC1
+		18.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Disable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		19.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+	*/
+	ginkgo.It("Verify Pod Name updates on CNS", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating VCP PVC pvc1 before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
+
+		ginkgo.By("Creating VCP PVC pvc2 post migration")
+		pvc2, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc2)
+
+		ginkgo.By("Waiting for all claims created post migration to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify annotations on PV/PVCs created post migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration along with their respective CnsVSphereVolumeMigration CRDs")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPostMig)
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		kubectlMigEnabled = true
+
+		ginkgo.By("Create pod1 using PVC1 and PVC2")
+		pod := createPodWithMultipleVolsVerifyVolMounts(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc1, pvc2})
+		podsToDelete = append(podsToDelete, pod)
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc1, pvc2})
+
+		ginkgo.By("Delete pod")
+		deletePodAndWaitForVolsToDetach(ctx, client, namespace, pod)
+		podsToDelete = nil
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc1, pvc2})
+
+		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		kubectlMigEnabled = false
+
+	})
+
 })
 
 //waitForCnsVSphereVolumeMigrationCrd waits for CnsVSphereVolumeMigration crd to be created for the given volume path
@@ -581,10 +708,74 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, pod := range pods.Items {
 		for _, volume := range pod.Spec.Volumes {
-			if volume.PersistentVolumeClaim.ClaimName == pvcName {
+			if volume.VolumeSource.PersistentVolumeClaim == nil && volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
 				return &pod
 			}
 		}
 	}
 	return nil
+}
+
+//createPodWithMultipleVolsVerifyVolMounts this method creates POD and verifies VolumeMount
+func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client clientset.Interface, namespace string, pvclaims []*v1.PersistentVolumeClaim) *v1.Pod {
+	// Create a POD to use this PVC, and verify volume has been attached
+	ginkgo.By("Creating pod to attach PV to the node")
+	pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var exists bool
+	var vmUUID string
+
+	if vanillaCluster {
+		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+	} else if guestCluster {
+		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+	}
+
+	for _, pvc := range pvclaims {
+		volHandle := getVolHandle4VcpPvc(ctx, client, namespace, pvc)
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s, VMUUID : %s", volHandle, pod.Spec.NodeName, vmUUID))
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
+
+		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	return pod
+}
+
+//getVolHandle4VcpPvc return CNS volume handle for the given PVC
+func getVolHandle4VcpPvc(ctx context.Context, client clientset.Interface, namespace string, pvc *v1.PersistentVolumeClaim) string {
+	vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
+	found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
+	gomega.Expect(found).To(gomega.BeTrue())
+	return crd.Spec.VolumeID
+}
+
+//deletePodAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
+func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Interface, namespace string, pod *v1.Pod) {
+	ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
+	volhandles := []string{}
+	for _, vol := range pod.Spec.Volumes {
+		pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
+		volhandles = append(volhandles, pv.Spec.CSI.VolumeHandle)
+
+	}
+	err := fpod.DeletePodWithWait(client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, volHandle := range volhandles {
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod.Spec.NodeName))
+	}
 }
