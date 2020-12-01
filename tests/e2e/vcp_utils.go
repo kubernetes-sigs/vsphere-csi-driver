@@ -28,6 +28,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 // getVcpVSphereStorageClassSpec to get VCP storage class spec
@@ -95,4 +96,36 @@ func getvSphereVolumePathFromClaim(ctx context.Context, client clientset.Interfa
 // this gives the VM UUID which can be used to find Node VM from vCenter
 func getUUIDFromProviderID(providerID string) string {
 	return strings.TrimPrefix(providerID, providerPrefix)
+}
+
+// getVcpPersistentVolumeSpec function to create vsphere volume spec with given VMDK volume path, Reclaim Policy and labels
+func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string) *v1.PersistentVolume {
+	annotations := make(map[string]string)
+	annotations[pvAnnotationProvisionedBy] = vcpProvisionerName
+	pv := fpv.MakePersistentVolume(fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			VsphereVolume: &v1.VsphereVirtualDiskVolumeSource{
+				VolumePath: volumePath,
+				FSType:     "ext4",
+			},
+		},
+		ReclaimPolicy: persistentVolumeReclaimPolicy,
+		Capacity:      "2Gi",
+		AccessModes: []v1.PersistentVolumeAccessMode{
+			v1.ReadWriteOnce,
+		},
+		Labels: labels,
+	})
+	pv.Annotations = annotations
+	return pv
+}
+
+// getVcpPersistentVolumeClaimSpec function to get vsphere persistent volume spec with given selector labels.
+func getVcpPersistentVolumeClaimSpec(namespace string, size string, storageclass *storagev1.StorageClass, pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	pvc := getPersistentVolumeClaimSpecWithStorageClass(namespace, size, storageclass, pvclaimlabels, accessMode)
+	annotations := make(map[string]string)
+	annotations[pvcAnnotationStorageProvisioner] = vcpProvisionerName
+	pvc.Annotations = annotations
+	return pvc
 }
