@@ -103,16 +103,28 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 		log.Errorf("Error getting Persistent Volume for PVC %s in volume %s with err: %v", pvc.Name, volume.Name, err)
 		return false, nil, nil
 	}
-
-	// Verify if pv is vsphere csi volume
-	if (pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name) && (metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume == nil) {
-		log.Debugf("Pod %s does not have a valid vSphereVolume. Ignoring the pod update", pod.Name)
-		return false, nil, nil
-	}
-	//Verify if pv is vsphere volume and migration flag is disabled
-	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-		log.Warnf("%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s", common.CSIMigration, pv.Name, pod.Name)
-		return false, nil, nil
+	if pv.Spec.CSI == nil {
+		// Verify volume is a in-tree VCP volume
+		if pv.Spec.VsphereVolume != nil {
+			// Check if migration feature switch is enabled
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
+				if !isValidvSphereVolume(ctx, pv.ObjectMeta) {
+					log.Debugf("Pod %s in namespace %s has a valid vSphereVolume but the volume is not migrated", pod.Name, pod.Namespace)
+					return false, nil, nil
+				}
+			} else {
+				log.Debugf("%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s in namespace %s", common.CSIMigration, pv.Name, pod.Name, pod.Namespace)
+				return false, nil, nil
+			}
+		} else {
+			log.Debugf("Volume %q is not a valid vSphere volume", pv.Name)
+			return false, nil, nil
+		}
+	} else {
+		if pv.Spec.CSI.Driver != csitypes.Name {
+			log.Debugf("Pod %s in namespace %s has a volume %s which is not provisioned by vSphere CSI driver", pod.Name, pod.Namespace, pv.Name)
+			return false, nil, nil
+		}
 	}
 	return true, pv, pvc
 }
