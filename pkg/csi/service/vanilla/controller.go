@@ -30,7 +30,6 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
-	"github.com/zekroTJA/timedmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -58,11 +57,6 @@ type controller struct {
 	nodeMgr NodeManagerInterface
 	authMgr common.AuthorizationService
 }
-
-// timedmap of deleted volumes. This map used to resolve race between detach and delete volume
-// If volume is present in this map, then detach volume operation can be skipped.
-// TODO: Remove this when https://github.com/kubernetes/kubernetes/issues/84226 is fixed
-var deletedVolumes *timedmap.TimedMap
 
 // volumeMigrationService holds the pointer to VolumeMigration instance
 var volumeMigrationService migration.VolumeMigrationService
@@ -207,8 +201,6 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
-	// deletedVolumes timedmap with clean up interval of 1 minute to remove expired entries
-	deletedVolumes = timedmap.New(1 * time.Minute)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
 		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
@@ -621,9 +613,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
-		deletedVolumes.Set(volumePath, true, 5*time.Minute)
-	} else {
-		deletedVolumes.Set(req.VolumeId, true, 5*time.Minute)
 	}
 	return &csi.DeleteVolumeResponse{}, nil
 }
@@ -734,11 +723,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
-	}
-	// Check for the race condition where DeleteVolume is called before ControllerUnpublishVolume
-	if deletedVolumes.Contains(req.VolumeId) {
-		log.Infof("Skipping ControllerUnpublish for deleted volume %q", req.VolumeId)
-		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 	if !strings.Contains(req.VolumeId, ".vmdk") {
 		// check if volume is block or file, skip detach for file volume
