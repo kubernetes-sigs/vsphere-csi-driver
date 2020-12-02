@@ -25,7 +25,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
@@ -40,7 +39,6 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-	"github.com/zekroTJA/timedmap"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -320,7 +318,6 @@ func getControllerTest(t *testing.T) *controllerTest {
 			vcenter:    vcenter,
 		}
 	})
-	deletedVolumes = timedmap.New(1 * time.Minute)
 	return controllerTestInstance
 }
 
