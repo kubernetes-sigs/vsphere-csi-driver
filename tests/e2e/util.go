@@ -2103,12 +2103,12 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	// Waiting for pod to be running
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
 	// get fresh pod info
 	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("pod Get API error: %v", err)
+		return pod, fmt.Errorf("pod Get API error: %v", err)
 	}
 	return pod, nil
 }
