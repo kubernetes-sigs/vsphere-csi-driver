@@ -285,7 +285,7 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 		}
 		drainMode, _, _ := unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
 
-		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM {
+		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM {
 			var patch map[string]interface{}
 			if newStatus == drainFailStatus {
 				log.Infof("Errorstring: %v", errorString)
