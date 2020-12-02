@@ -105,7 +105,7 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 
 	// get datastore properties like capacity, freeSpace, dsURL, dsType, accessible, inMM, containerID
 	dsProps := getDatastoreProperties(ctx, ds)
-	if dsProps.capacity == nil || dsProps.freeSpace == nil {
+	if dsProps == nil || dsProps.capacity == nil || dsProps.freeSpace == nil {
 		err := fmt.Errorf("error fetching datastore properties for %v", ds.Reference().Value)
 		log.Error(err)
 		return nil, err
