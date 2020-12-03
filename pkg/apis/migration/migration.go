@@ -364,7 +364,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		}
 		log.Debugf("retrieved all datacenters %v from vCenter", datacenterPaths)
 	}
-	var volumeID *cnstypes.CnsVolumeId
+	var volumeInfo *cnsvolume.CnsVolumeInfo
 	var storagePolicyID string
 	if volumeSpec.StoragePolicyName != "" {
 		log.Debugf("Obtaining storage policy ID for storage policy name: %q", volumeSpec.StoragePolicyName)
@@ -401,21 +401,21 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskUrlPath: backingDiskURLPath}
 		log.Infof("Registering volume: %q using backingDiskURLPath :%q", volumeSpec.VolumePath, backingDiskURLPath)
 		log.Debugf("vSphere CSI driver registering volume %q with create spec %+v", volumeSpec.VolumePath, spew.Sdump(createSpec))
-		volumeID, err = (*volumeMigration.volumeManager).CreateVolume(ctx, createSpec)
+		volumeInfo, err = (*volumeMigration.volumeManager).CreateVolume(ctx, createSpec)
 		if err != nil {
 			log.Warnf("failed to register volume %q with createSpec: %v. error: %+v", volumeSpec.VolumePath, createSpec, err)
 		} else {
 			break
 		}
 	}
-	if volumeID != nil {
-		log.Infof("Successfully registered volume %q as container volume with ID: %q", volumeSpec.VolumePath, volumeID.Id)
+	if volumeInfo != nil {
+		log.Infof("Successfully registered volume %q as container volume with ID: %q", volumeSpec.VolumePath, volumeInfo.VolumeID.Id)
 	} else {
 		msg := fmt.Sprintf("registration failed for volumeSpec: %v", volumeSpec)
 		log.Error(msg)
 		return "", errors.New(msg)
 	}
-	return volumeID.Id, nil
+	return volumeInfo.VolumeID.Id, nil
 }
 
 // cleanupStaleCRDInstances helps in cleaning up stale volume migration CRD instances

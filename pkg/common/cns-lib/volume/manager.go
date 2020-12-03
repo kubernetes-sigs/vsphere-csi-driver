@@ -29,6 +29,8 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -50,7 +52,7 @@ const (
 // Manager provides functionality to manage volumes.
 type Manager interface {
 	// CreateVolume creates a new volume given its spec.
-	CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*cnstypes.CnsVolumeId, error)
+	CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error)
 	// AttachVolume attaches a volume to a virtual machine given the spec.
 	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) (string, error)
 	// DetachVolume detaches a volume from the virtual machine given the spec.
@@ -71,6 +73,12 @@ type Manager interface {
 	ExpandVolume(ctx context.Context, volumeID string, size int64) error
 	// ResetManager helps set new manager instance and VC configuration
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
+}
+
+// CnsVolumeInfo hold information related to volume created by CNS
+type CnsVolumeInfo struct {
+	DatastoreURL string
+	VolumeID     cnstypes.CnsVolumeId
 }
 
 var (
@@ -150,7 +158,7 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 }
 
 // CreateVolume creates a new volume given its spec.
-func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*cnstypes.CnsVolumeId, error) {
+func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	err := validateManager(ctx, m)
 	if err != nil {
@@ -231,8 +239,9 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		fault, ok := volumeOperationRes.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
 		if ok {
 			log.Infof("CreateVolume: Volume is already registered with CNS. VolumeName: %q, volumeID: %q, opId: %q", spec.Name, fault.VolumeId.Id, taskInfo.ActivationId)
-			return &cnstypes.CnsVolumeId{
-				Id: fault.VolumeId.Id,
+			return &CnsVolumeInfo{
+				DatastoreURL: "",
+				VolumeID:     fault.VolumeId,
 			}, nil
 		}
 		// Remove the taskInfo object associated with the volume name when the current task fails.
@@ -248,6 +257,28 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		log.Error(msg)
 		return nil, errors.New(msg)
 	}
+	var datastoreURL string
+	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
+	if volumeCreateResult.PlacementResults != nil {
+		var datastoreMoRef vim25types.ManagedObjectReference
+		for _, placementResult := range volumeCreateResult.PlacementResults {
+			// For the datastore which the volume is provisioned, placementFaults will not be set
+			if len(placementResult.PlacementFaults) == 0 {
+				datastoreMoRef = placementResult.Datastore
+				break
+			}
+		}
+		var dsMo mo.Datastore
+		pc := property.DefaultCollector(m.virtualCenter.Client.Client)
+		err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
+		if err != nil {
+			msg := fmt.Sprintf("failed to retrieve datastore summary property: %v", err)
+			log.Error(msg)
+			return nil, errors.New(msg)
+		}
+		datastoreURL = dsMo.Summary.Url
+	}
+
 	blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	// Remove this task from volumeTaskMap in case successful static volume provisioning
 	// as it doesn't result in orphaned volumes
@@ -261,8 +292,10 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		}
 	}
 	log.Infof("CreateVolume: Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q", volNameFromInputSpec, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
-	return &cnstypes.CnsVolumeId{
-		Id: volumeOperationRes.VolumeId.Id,
+	log.Debugf("CreateVolume volumeId %q is placed on datastore %q", volumeOperationRes.VolumeId.Id, datastoreURL)
+	return &CnsVolumeInfo{
+		DatastoreURL: datastoreURL,
+		VolumeID:     volumeOperationRes.VolumeId,
 	}, nil
 }
 
