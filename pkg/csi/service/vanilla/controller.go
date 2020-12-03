@@ -399,7 +399,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// filter datastores which in datastoreMap from sharedDatastores
 		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
 	}
-	volumeID, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
 		log.Error(msg)
@@ -415,9 +415,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, err
 		}
 		// Return InitialVolumeFilepath in the response for TranslateCSIPVToInTree
-		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeID)
+		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeInfo.VolumeID.Id)
 		if err != nil {
-			msg := fmt.Sprintf("failed to get volume path for volume id: %q. Error: %+v", volumeID, err)
+			msg := fmt.Sprintf("failed to get volume path for volume id: %q. Error: %+v", volumeInfo.VolumeID.Id, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
@@ -426,33 +426,45 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:      volumeID,
+			VolumeId:      volumeInfo.VolumeID.Id,
 			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			VolumeContext: attributes,
 		},
 	}
 
-	// Call QueryVolume API and get the datastoreURL of the Provisioned Volume
+	// Retrieve the datastoreURL of the Provisioned Volume
+	// If CNS CreateVolume API does not return datastoreURL, retrieve this by calling QueryVolume
+	// otherwise, retrieve this from PlacementResults from the response of CreateVolume API
 	var volumeAccessibleTopology = make(map[string]string)
+	var datastoreAccessibleTopology = make([]map[string]string, 0)
+	var datastoreURL string
 	if len(datastoreTopologyMap) > 0 {
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: volumeIds,
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
-		if err != nil {
-			log.Errorf("QueryVolume failed for volumeID: %s", volumeID)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		if len(queryResult.Volumes) > 0 {
-			// Find datastore topology from the retrieved datastoreURL
-			datastoreAccessibleTopology := datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
-			log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeID, queryResult.Volumes[0].DatastoreUrl)
-			if len(datastoreAccessibleTopology) > 0 {
-				rand.Seed(time.Now().Unix())
-				volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-				log.Debugf("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, queryResult.Volumes[0].DatastoreUrl)
+		if volumeInfo.DatastoreURL == "" {
+			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: volumeIds,
 			}
+			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				log.Errorf("QueryVolume failed for volumeID: %s", volumeInfo.VolumeID.Id)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			if len(queryResult.Volumes) > 0 {
+				// Find datastore topology from the retrieved datastoreURL
+				datastoreAccessibleTopology = datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
+				datastoreURL = queryResult.Volumes[0].DatastoreUrl
+				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
+			}
+		} else {
+			// retrieve datastoreURL from placementResults
+			datastoreAccessibleTopology = datastoreTopologyMap[volumeInfo.DatastoreURL]
+			datastoreURL = volumeInfo.DatastoreURL
+			log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
+		}
+		if len(datastoreAccessibleTopology) > 0 {
+			rand.Seed(time.Now().Unix())
+			volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
+			log.Debugf("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, datastoreURL)
 		}
 	}
 	if len(volumeAccessibleTopology) != 0 {
