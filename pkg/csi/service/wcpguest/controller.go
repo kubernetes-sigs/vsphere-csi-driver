@@ -237,7 +237,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	attributes := make(map[string]string)
-	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+		attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+	} else {
+		attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+	}
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      supervisorPVCName,

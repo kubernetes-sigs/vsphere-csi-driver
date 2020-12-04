@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -73,8 +74,8 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 		msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
 		return status.Error(codes.InvalidArgument, msg)
 	}
-	// Fail file volume creation
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+	// Fail file volume creation if file volume feature gate is disabled
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
