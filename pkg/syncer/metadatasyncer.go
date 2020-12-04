@@ -1121,7 +1121,13 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					continue
 				}
 			} else {
-				log.Warnf("CSI migration feature state is disabled")
+				// For vSphere volumes we need to log the message that CSI migration feature state is disabled
+				if volume.VsphereVolume != nil {
+					log.Debug("CSI migration feature state is disabled")
+					continue
+				}
+				// For non vSphere volumes, do nothing and move to next volume iteration
+				log.Debugf("Ignoring the update for inline volume %q for the pod %q", volume.Name, pod.Name)
 				continue
 			}
 		}
