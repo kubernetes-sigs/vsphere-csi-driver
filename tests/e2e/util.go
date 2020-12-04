@@ -825,7 +825,7 @@ func checkEventsforError(client clientset.Interface, namespace string, listOptio
 	eventList, _ := client.CoreV1().Events(namespace).List(ctx, listOptions)
 	isFailureFound := false
 	for _, item := range eventList.Items {
-		ginkgo.By(fmt.Sprintf("EventList item: %q \n", item.Message))
+		framework.Logf("EventList item: %q", item.Message)
 		if strings.Contains(item.Message, expectedErrorMsg) {
 			isFailureFound = true
 			break
