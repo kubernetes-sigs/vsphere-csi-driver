@@ -401,6 +401,7 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "online-volume-extend": "false"
+  "file-volume": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
