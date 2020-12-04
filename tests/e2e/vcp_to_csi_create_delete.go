@@ -49,16 +49,18 @@ import (
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests", func() {
 	f := framework.NewDefaultFramework("csi-vcp-mig-create-del")
 	var (
-		client         clientset.Interface
-		namespace      string
-		nodeList       *v1.NodeList
-		vcpScs         []*storagev1.StorageClass
-		vcpPvcsPreMig  []*v1.PersistentVolumeClaim
-		vcpPvsPreMig   []*v1.PersistentVolume
-		vcpPvcsPostMig []*v1.PersistentVolumeClaim
-		vcpPvsPostMig  []*v1.PersistentVolume
-		err            error
-		kcmMigEnabled  bool
+		client                     clientset.Interface
+		namespace                  string
+		nodeList                   *v1.NodeList
+		vcpScs                     []*storagev1.StorageClass
+		vcpPvcsPreMig              []*v1.PersistentVolumeClaim
+		vcpPvsPreMig               []*v1.PersistentVolume
+		vcpPvcsPostMig             []*v1.PersistentVolumeClaim
+		vcpPvsPostMig              []*v1.PersistentVolume
+		err                        error
+		kcmMigEnabled              bool
+		isSPSserviceStopped        bool
+		isVsanHealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -86,10 +88,29 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		if kcmMigEnabled {
 			pvcsToDelete = append(vcpPvcsPreMig, vcpPvcsPostMig...)
 		} else {
-			pvcsToDelete = append(vcpPvcsPreMig, nil)
+			pvcsToDelete = append(pvcsToDelete, vcpPvcsPreMig...)
 		}
-		vcpPvcsPreMig = nil
-		vcpPvcsPostMig = nil
+		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
+		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		if isVsanHealthServiceStopped {
+			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+			err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
+
+		if isSPSserviceStopped {
+			ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
+			err = invokeVCenterServiceControl("start", "sps", vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
+
 		for _, pvc := range pvcsToDelete {
 			vPath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			_, crd := getCnsVSphereVolumeMigrationCrd(ctx, vPath)
@@ -109,18 +130,20 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}
 
 		// TODO: add code for PV/fcd/vmdk cleanup in case of PVs with reclaim policy Retain
+		vcpPvsPreMig = []*v1.PersistentVolume{}
+		vcpPvsPostMig = []*v1.PersistentVolume{}
 
 		if kcmMigEnabled {
 			err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if vcpScs != nil {
-			for _, vcpSc := range vcpScs {
-				err := client.StorageV1().StorageClasses().Delete(ctx, vcpSc.Name, *metav1.NewDeleteOptions(0))
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-			vcpScs = nil
+		var scsToDelete []*storagev1.StorageClass
+		scsToDelete = append(scsToDelete, vcpScs...)
+		vcpScs = []*storagev1.StorageClass{}
+		for _, vcpSc := range scsToDelete {
+			err := client.StorageV1().StorageClasses().Delete(ctx, vcpSc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 
@@ -159,7 +182,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		10.	Delete the SC created in step 1
 		11.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
 	*/
-	ginkgo.It("Create in-tree volumes using VCP SC with parameters supported by CSI before and after migration", func() {
+	ginkgo.It("Create volumes using VCP SC with parameters supported by CSI before and after migration", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		log := logger.GetLogger(ctx)
@@ -216,9 +239,269 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			log.Info("Processing PVC: " + pvc.Name)
 			found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(found).To(gomega.BeTrue())
-			verifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
+
+	/*
+	   migrate in-tree volumes with SC parameters not supported by CSI
+	   Steps:
+	   1. Create a VCP SC with parameters not supported by CSI
+	   2. Create 5 PVCs using SC created in step 1
+	   3. Enable feature gates on kube-controller-manager (& restart)
+	   4. Verify all the PVCs and PVs provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+	   5. Verify cnsvspherevolumemigrations crds are created for migrated volumes
+	   6. Verify CNS entries for the PV/PVCs
+	   7. Delete the PVCs created in step 2
+	   8. Verify cnsvspherevolumemigrations crds are deleted
+	   9. Verify the CNS volumes(vmdks) are also removed.
+	   10. Delete the SC created in step 1
+	   11. Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+
+	   create PVCs from CSI using VCP SC with SC parameters not supported by CSI
+	   Steps:
+	   1.  Create a VCP SC and with parameters not supported by CSI
+	   2.  Enable feature gates on kube-controller-manager (& restart)
+	   3.  Create PVC1 using SC created in step 1
+	   4.  Verify PVC1 is stuck in pending state and verify the error in the events
+	   5.  Delete the PVC1
+	   6.  Delete the SC created in step 1
+	   7.  Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+
+	*/
+	ginkgo.It("Create volumes using VCP SC with parameters not supported by CSI before and after migration", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		log := logger.GetLogger(ctx)
+		ginkgo.By("Creating VCP SCs")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		scParams["hostfailurestotolerate"] = "1"
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating VCP PVCs before migration")
+		for _, sc := range vcpScs {
+			pvc, err := createPVC(client, namespace, nil, "", sc, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vcpPvcsPreMig = append(vcpPvcsPreMig, pvc)
+		}
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Creating VCP PVCs after migration")
+		pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(30 * time.Second)
+		ginkgo.By("Checking for error in events related to pvc " + pvc.Name)
+		expectedErrorMsg := "InvalidArgument"
+		// error looks like this:
+		//     failed to provision volume with StorageClass "vcp-unsup-sc": rpc error: code = InvalidArgument desc = Parsing storage class parameters failed with error: vSphere CSI driver does not support creating volume using in-tree vSphere volume plugin parameter key:hostfailurestotolerate-migrationparam, value:1
+		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue())
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created before migration")
+		for _, pvc := range vcpPvcsPreMig {
+			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, namespace, pvc.Name)
+			log.Info("Processing PVC: " + pvc.Name)
+			found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
+			gomega.Expect(found).To(gomega.BeTrue())
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	})
+
+	/*
+		create a PV from CSI using VCP SC with SC parameters supported by CSI when SPS service is down
+		1. Create a VCP SC with parameters supported by CSI
+		2. Enable feature gates on kube-controller-manager (& restart)
+		3. Bring down SPS service
+		4. Create 5 PVCs using SC created in step 1
+		5. verify PVC is in pending state for a while (say 2mins)
+		6. Bring up SPS service
+		7. Wait and verify all the 5 PVCs are bound
+		8. Verify that PVCs and PVs have the following annotation -  "pv. kubernetes. io/provisioned-by: csi. vsphere. vmware. com"
+		9. Verify cnsvspherevolumemigrations crds are created
+		10. Verify CNS entries for the PV/PVCs
+		11. Delete the PVCs created in step 4
+		12. Verify cnsvspherevolumemigrations crds are removed
+		13. Verify the CNS volumes(fcds) are also removed.
+		14. Delete the SC created in step 1
+		15. Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+
+		Verify volume entry is deleted from CNS when PV is deleted from K8s (when CNS was down)
+		1. Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		2. Create SC1 VCP SC
+		3. Create PVC1 using SC1 and binding with PV (say PV1)
+		4. Wait for PVC to be in Bound phase
+		5. Verify CNS entries for PVC1 and PV1
+		6. Stop vsan-health on VC
+		7. Delete PVC1
+		8. Start vsan-health on VC
+		9. Verify PVC1, PV1 and underlying vmdk are deleted
+		10. Verify CNS entries are removed for PVC1 and PV1
+		11. Delete SC1
+		12. Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+
+		Verify volume entry is created in CNS when PV is created in K8s (when CNS was down)
+		1. Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		2. Create SC1 VCP SC
+		3. Bring down vsan health service
+		4. Create PVC1 using SC1
+		5. Bring up vsan health service
+		6. Check PVC1 is be bound to a PV (say PV1)
+		7. Verify CNS entries for PVC1 and PV1
+		8. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
+		9. Delete the PVC1
+		10. Verify PV1 and underlying vmdk are deleted
+		11. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
+		12. Delete the SC1
+		13. Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+	*/
+	ginkgo.It("Create/delete volumes using VCP SC via CSI when SPS/CNS service is down", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		log := logger.GetLogger(ctx)
+		ginkgo.By("Creating VCP SCs")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Creating PVC2...")
+		pvc2, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc2)
+
+		ginkgo.By("Waiting for all claims to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv2 := vcpPvsPostMig[0]
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for PVC2")
+		var vpath string
+		var crd *migrationv1alpha1.CnsVSphereVolumeMigration
+
+		vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc2.Name)
+		log.Info("Processing PVC: " + pvc2.Name)
+		var found bool
+		found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
+		gomega.Expect(found).To(gomega.BeTrue())
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc2, pv2, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
+		isSPSserviceStopped = true
+		err = invokeVCenterServiceControl("stop", "sps", vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+
+		ginkgo.By("Creating PVC1...")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc1)
+
+		ginkgo.By("Sleeping for a min and verifying PVC1 is still in pending state")
+		time.Sleep(1 * time.Minute)
+
+		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvc1.Status.Phase == v1.ClaimPending).To(gomega.BeTrue())
+
+		ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
+		err = invokeVCenterServiceControl("start", "sps", vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isSPSserviceStopped = false
+
+		ginkgo.By("Waiting for all claims to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		isVsanHealthServiceStopped = true
+		err = invokeVCenterServiceControl("stop", vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+
+		ginkgo.By("Creating PVC3...")
+		pvc3, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc3)
+
+		ginkgo.By("Deleting PVC2...")
+		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc2.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Sleeping for a min and verifying PVC3 is still in pending state")
+		time.Sleep(1 * time.Minute)
+
+		pvc3, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc3.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvc3.Status.Phase == v1.ClaimPending).To(gomega.BeTrue())
+
+		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+		err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanHealthServiceStopped = false
+
+		vcpPvcsPostMig = append([]*v1.PersistentVolumeClaim{}, pvc1, pvc3)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(crd.Spec.VolumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Waiting for vmdk %v to be deleted", vpath)
+		err = waitForVmdkDeletion(ctx, vpath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Waiting for CnsVSphereVolumeMigration crds %v to be deleted", crd.Spec.VolumeID)
+		err = waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx, crd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify annotations on PV/PVCs")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
+		for _, pvc := range vcpPvcsPostMig {
+			vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
+			log.Info("Processing PVC: " + pvc.Name)
+			pv := getPvFromClaim(client, namespace, pvc.Name)
+			var found bool
+			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
+			gomega.Expect(found).To(gomega.BeTrue())
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	})
+
 })
 
 // waitForMigAnnotationsPvcPvLists waits for the list PVs and PVCs to have migration related annotatations
@@ -419,6 +702,9 @@ func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, err
 		if types.IsFileNotFound(err) {
 			return false, nil
 		}
+		if strings.Contains(err.Error(), "A specified parameter was not correct: searchSpec") {
+			return false, nil
+		}
 		return false, err
 	}
 	return true, nil
@@ -443,7 +729,7 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context, crd *mi
 }
 
 // verifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
-func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) {
+func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) bool {
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(cnsQueryResult.Volumes).NotTo(gomega.BeEmpty(), "CNS volume query yielded no results for volume id: "+volumeID)
@@ -470,28 +756,64 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePVC) {
 			if verifyPvcEntry {
 				pvcEntryFound = true
-				gomega.Expect(entityMetadata.EntityName == pvc.Name).To(gomega.BeTrue(), fmt.Sprintf("PVC name '%v' does not match PVC name in metadata '%v', for volume id %v", pvc.Name, entityMetadata.EntityName, volumeID))
+				if entityMetadata.EntityName != pvc.Name {
+					framework.Logf("PVC name '%v' does not match PVC name in metadata '%v', for volume id %v", pvc.Name, entityMetadata.EntityName, volumeID)
+					pvcEntryFound = false
+					break
+				}
 				if verifyPvEntry {
-					gomega.Expect(entityMetadata.ReferredEntity).NotTo(gomega.BeNil())
-					gomega.Expect(entityMetadata.ReferredEntity[0].EntityName == pv.Name).To(gomega.BeTrue(), fmt.Sprintf("PV name '%v' in referred entity does not match PV name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pv.Name, volumeID))
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("Missing ReferredEntity in PVC entry for volume id %v", volumeID)
+						pvcEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != pv.Name {
+						framework.Logf("PV name '%v' in referred entity does not match PV name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pv.Name, volumeID)
+						pvcEntryFound = false
+						break
+					}
 				}
 				if pvc.Labels == nil {
-					gomega.Expect(entityMetadata.Labels).To(gomega.BeNil())
+					if entityMetadata.Labels != nil {
+						framework.Logf("PVC labels '%v' does not match PVC labels in metadata '%v', for volume id %v", pvc.Labels, entityMetadata.Labels, volumeID)
+						pvcEntryFound = false
+						break
+					}
 				} else {
-					gomega.Expect(reflect.DeepEqual(entityMetadata.Labels, pvc.Labels)).To(gomega.BeTrue(), fmt.Sprintf("Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v", entityMetadata.Labels, pvc.Labels, volumeID))
+					if !(reflect.DeepEqual(entityMetadata.Labels, pvc.Labels)) {
+						framework.Logf("Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v", pvc.Labels, entityMetadata.Labels, volumeID)
+						pvcEntryFound = false
+						break
+					}
 				}
-				gomega.Expect(entityMetadata.Namespace == pvc.Namespace).To(gomega.BeTrue(), fmt.Sprintf("PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v", pvc.Namespace, entityMetadata.Namespace, volumeID))
+				if entityMetadata.Namespace != pvc.Namespace {
+					framework.Logf("PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v", pvc.Namespace, entityMetadata.Namespace, volumeID)
+					pvcEntryFound = false
+					break
+				}
 			}
 			continue
 		}
 		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePV) {
 			if verifyPvEntry {
 				pvEntryFound = true
-				gomega.Expect(entityMetadata.EntityName == pv.Name).To(gomega.BeTrue(), fmt.Sprintf("PV name '%v' does not match PV name in metadata '%v', for volume id %v", pv.Name, entityMetadata.EntityName, volumeID))
+				if entityMetadata.EntityName != pv.Name {
+					framework.Logf("PV name '%v' does not match PV name in metadata '%v', for volume id %v", pv.Name, entityMetadata.EntityName, volumeID)
+					pvEntryFound = false
+					break
+				}
 				if pv.Labels == nil {
-					gomega.Expect(entityMetadata.Labels).To(gomega.BeNil())
+					if entityMetadata.Labels != nil {
+						framework.Logf("PV labels '%v' does not match PV labels in metadata '%v', for volume id %v", pv.Labels, entityMetadata.Labels, volumeID)
+						pvEntryFound = false
+						break
+					}
 				} else {
-					gomega.Expect(reflect.DeepEqual(entityMetadata.Labels, pv.Labels)).To(gomega.BeTrue(), fmt.Sprintf("Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v", entityMetadata.Labels, pv.Labels, volumeID))
+					if !(reflect.DeepEqual(entityMetadata.Labels, pv.Labels)) {
+						framework.Logf("Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v", entityMetadata.Labels, pv.Labels, volumeID)
+						pvEntryFound = false
+						break
+					}
 				}
 			}
 			continue
@@ -499,22 +821,57 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePOD) {
 			if verifyPodEntry {
 				podEntryFound = true
-				gomega.Expect(entityMetadata.EntityName == pod.Name).To(gomega.BeTrue(), fmt.Sprintf("POD name '%v' does not match POD name in metadata '%v', for volume id %v", pod.Name, entityMetadata.EntityName, volumeID))
+				if entityMetadata.EntityName != pod.Name {
+					framework.Logf("POD name '%v' does not match POD name in metadata '%v', for volume id %v", pod.Name, entityMetadata.EntityName, volumeID)
+					podEntryFound = false
+					break
+				}
 				if verifyPvcEntry {
-					gomega.Expect(entityMetadata.ReferredEntity).NotTo(gomega.BeNil())
-					gomega.Expect(entityMetadata.ReferredEntity[0].EntityName == pvc.Name).To(gomega.BeTrue(), fmt.Sprintf("PVC name '%v' in referred entity does not match PVC name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pvc.Name, volumeID))
-					gomega.Expect(entityMetadata.ReferredEntity[0].Namespace == pvc.Namespace).To(gomega.BeTrue(), fmt.Sprintf("PVC namespace '%v' does not match PVC namespace in POD metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID))
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("Missing ReferredEntity in pod entry for volume id %v", volumeID)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != pvc.Name {
+						framework.Logf("PVC name '%v' in referred entity does not match PVC name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pvc.Name, volumeID)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
+						framework.Logf("PVC namespace '%v' does not match PVC namespace in POD metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+						podEntryFound = false
+						break
+					}
 				}
 				if pod.Labels == nil {
-					gomega.Expect(entityMetadata.Labels).To(gomega.BeNil())
+					if entityMetadata.Labels != nil {
+						framework.Logf("Pod labels '%v' does not match pod labels in metadata '%v', for volume id %v", pod.Labels, entityMetadata.Labels, volumeID)
+						podEntryFound = false
+						break
+					}
 				} else {
-					gomega.Expect(reflect.DeepEqual(entityMetadata.Labels, pod.Labels)).To(gomega.BeTrue(), fmt.Sprintf("Labels on pod '%v' are not matching with labels in pod metadata '%v' for volume id %v", entityMetadata.Labels, pod.Labels, volumeID))
+					if !(reflect.DeepEqual(entityMetadata.Labels, pv.Labels)) {
+						framework.Logf("Labels on pod '%v' are not matching with labels in pod metadata '%v' for volume id %v", pod.Labels, entityMetadata.Labels, volumeID)
+						podEntryFound = false
+						break
+					}
 				}
-				gomega.Expect(entityMetadata.Namespace == pod.Namespace).To(gomega.BeTrue(), fmt.Sprintf("POD namespace '%v' does not match POD namespace in metadata '%v', for volume id %v", pod.Namespace, entityMetadata.Namespace, volumeID))
+				if entityMetadata.Namespace != pod.Namespace {
+					framework.Logf("Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v", pod.Namespace, entityMetadata.Namespace, volumeID)
+					podEntryFound = false
+					break
+				}
 			}
 		}
 	}
-	gomega.Expect(pvEntryFound == verifyPvEntry).To(gomega.BeTrue())
-	gomega.Expect(pvcEntryFound == verifyPvcEntry).To(gomega.BeTrue())
-	gomega.Expect(podEntryFound == verifyPodEntry).To(gomega.BeTrue())
+	return pvEntryFound == verifyPvEntry && pvcEntryFound == verifyPvcEntry && podEntryFound == verifyPodEntry
+}
+
+// waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
+func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)
+		return matches, nil
+	})
+	return waitErr
 }
