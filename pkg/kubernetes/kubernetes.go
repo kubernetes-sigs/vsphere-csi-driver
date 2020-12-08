@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
@@ -55,12 +56,19 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	cnsfilevolumeclientv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internal/cnsoperator/cnsfilevolumeclient/v1alpha1"
 )
 
 const (
 	timeout      = 60 * time.Second
 	pollTime     = 5 * time.Second
 	manifestPath = "/config"
+)
+
+var (
+	dynamicInformerInitialized = false
+	dynamicInformerInitLock    = &sync.Mutex{}
+	dynamicInformerFactory     dynamicinformer.DynamicSharedInformerFactory
 )
 
 // GetKubeConfig helps retrieve Kubernetes Config
@@ -164,6 +172,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			return nil, err
 		}
 		err = migrationv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
+		err = cnsfilevolumeclientv1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
@@ -328,7 +341,6 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName st
 		log.Errorf("Failed to read the CRD spec from manifest file: %s with err: %+v", fileName, err)
 		return err
 	}
-
 	return createCustomResourceDefinition(ctx, manifestcrd)
 
 }
@@ -443,26 +455,28 @@ func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1b
 
 // GetDynamicInformer returns informer for specified CRD group, version and name
 // return error if failure observed
-func GetDynamicInformer(ctx context.Context, crdGroup string, crdVersion string, crdName string, namespace string) (informers.GenericInformer, error) {
+func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName string) (informers.GenericInformer, error) {
 	log := logger.GetLogger(ctx)
-	// Get a config to talk to the apiserver
-	cfg, err := GetKubeConfig(ctx)
-	if err != nil {
-		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
-		return nil, err
+	dynamicInformerInitLock.Lock()
+	defer dynamicInformerInitLock.Unlock()
+
+	if !dynamicInformerInitialized {
+		// Get a config to talk to the apiserver
+		cfg, err := GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+			return nil, err
+		}
+		// Grab a dynamic interface to create informers from
+		dc, err := dynamic.NewForConfig(cfg)
+		if err != nil {
+			log.Errorf("could not generate dynamic client for config. err :%v", err)
+			return nil, err
+		}
+		dynamicInformerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, metav1.NamespaceAll, nil)
+		dynamicInformerInitialized = true
 	}
-	// Grab a dynamic interface to create informers from
-	dc, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		log.Errorf("could not generate dynamic client for config. err :%v", err)
-		return nil, err
-	}
-	var informerFactory dynamicinformer.DynamicSharedInformerFactory
+	// Return informer from shared dynamic informer factory for input resource
 	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
-	if namespace != "" {
-		informerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, namespace, nil)
-	} else {
-		informerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, metav1.NamespaceAll, nil)
-	}
-	return informerFactory.ForResource(gvr), nil
+	return dynamicInformerFactory.ForResource(gvr), nil
 }
