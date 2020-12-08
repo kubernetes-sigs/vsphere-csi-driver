@@ -179,6 +179,30 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 }
 
+// NewCnsFileAccessConfigWatcher creates a new ListWatch for VirtualMachines given rest client config
+func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
+	var err error
+	log := logger.GetLogger(ctx)
+
+	scheme := runtime.NewScheme()
+	err = cnsoperatorv1alpha1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("failed to add to scheme with err: %+v", err)
+	}
+	gvk := schema.GroupVersionKind{
+		Group:   cnsoperatorv1alpha1.SchemeGroupVersion.Group,
+		Version: cnsoperatorv1alpha1.SchemeGroupVersion.Version,
+		Kind:    cnsfileaccessconfigKind,
+	}
+
+	client, err := apiutils.RESTClientForGVK(gvk, config, serializer.NewCodecFactory(scheme))
+	if err != nil {
+		log.Errorf("failed to create RESTClient with err: %+v", err)
+		return nil, err
+	}
+	return cache.NewListWatchFromClient(client, cnsfileaccessconfigKind, namespace, fields.Everything()), nil
+}
+
 // NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given rest client config
 func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
 	var err error
