@@ -1217,7 +1217,7 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 			Containers: []v1.Container{
 				{
 					Name:    "write-pod",
-					Image:   framework.BusyBoxImage,
+					Image:   busyBoxImageOnGcr,
 					Command: []string{"/bin/sh"},
 					Args:    []string{"-c", command},
 					SecurityContext: &v1.SecurityContext{
@@ -1350,4 +1350,25 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 		framework.Failf("Failed to delete stateful pod %v for StatefulSet %v/%v: %v", name, ss.Namespace, ss.Name, err)
 	}
 
+}
+
+// createPod with given claims based on node selector
+func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
 }

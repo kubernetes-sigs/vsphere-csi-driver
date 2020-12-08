@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating a pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating a pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))

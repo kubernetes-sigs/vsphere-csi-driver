@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := fpod.CreatePod(client, namespace, nil, pvclaims, false, "")
+		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -547,7 +547,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
@@ -731,7 +731,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := fpod.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
