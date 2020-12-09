@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/uuid"
 	"github.com/vmware/govmomi/simulator"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -196,8 +197,9 @@ func runMetadataSyncerTest(t *testing.T) {
 	newLabel[testPVLabelName] = testPVLabelValue
 
 	// Test pvUpdate workflow for dynamic provisioning of Volume
-	oldPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
-	newPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	oldPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	newPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -216,15 +218,17 @@ func runMetadataSyncerTest(t *testing.T) {
 	}
 
 	// Statically create PV on K8S, with VolumeHandle of recently deleted Volume
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	pvName = testVolumeName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvUpdate workflow on VC for static provisioning of Volume
 	// pvUpdate should create the volume on vc for static provisioning
-	oldPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumePending, "")
-	newPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName = testVolumeName + "-" + uuid.New().String()
+	oldPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumePending, "")
+	newPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -240,14 +244,15 @@ func runMetadataSyncerTest(t *testing.T) {
 	namespace := testNamespace
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(namespace, nil, pv.Name)
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, nil, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvcUpdate workflow on VC
-	oldPvc := getPersistentVolumeClaimSpec(testNamespace, nil, pv.Name)
-	newPvc := getPersistentVolumeClaimSpec(testNamespace, newPVCLabel, pv.Name)
+	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, nil, pv.Name)
+	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name)
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
@@ -380,7 +385,9 @@ func runFullSyncTest(t *testing.T) {
 	// Create PV in K8S with VolumeHandle of recently deleted Volume
 	pvLabel := make(map[string]string)
 	pvLabel[testPVLabelName] = testPVLabelValue
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
@@ -388,13 +395,14 @@ func runFullSyncTest(t *testing.T) {
 	// Create PVC in K8S to bound to recently created PV
 	pvcLabel := make(map[string]string)
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(testNamespace, pvcLabel, pv.Name)
+	pvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, pvcLabel, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// allocate pvc claimRef for PV spec
-	pv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
+	pvName = testVolumeName + "-" + uuid.New().String()
+	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +581,7 @@ func getCnsCreateSpec(t *testing.T) (cnstypes.CnsVolumeCreateSpec, error) {
 }
 
 // getPersistentVolumeSpec creates PV volume spec with given Volume Handle, Reclaim Policy, Labels and Phase
-func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
+func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
 	var pv *v1.PersistentVolume
 	var claimRef *v1.ObjectReference
 	if claimRefName != "" {
@@ -583,7 +591,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 	}
 	pv = &v1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: testVolumeName,
+			Name: volumeName,
 		},
 		Spec: v1.PersistentVolumeSpec{
 			Capacity: v1.ResourceList{
@@ -613,14 +621,14 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 }
 
 // getPersistentVolumeClaimSpec gets vsphere persistent volume spec with given selector labels.
-func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
+func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
 	var (
 		pvc *v1.PersistentVolumeClaim
 	)
 	sc := ""
 	pvc = &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      testPVCName,
+			Name:      pvcName,
 			Namespace: namespace,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{

@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -237,7 +238,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
+		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
@@ -340,7 +341,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	reqCreate := &csi.CreateVolumeRequest{
-		Name: testVolumeName,
+		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
