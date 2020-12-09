@@ -112,7 +112,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	pv := persistentvolumes[0]
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)

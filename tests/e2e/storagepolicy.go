@@ -115,7 +115,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 	ok, err := e2eVSphere.VerifySpbmPolicyOfVolume(pv.Spec.CSI.VolumeHandle, scParameters[scParamStoragePolicyName])
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(ok).To(gomega.BeTrue(), fmt.Sprintf("storage policy verification failed"))
+	gomega.Expect(ok).To(gomega.BeTrue(), "storage policy verification failed")
 
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
@@ -124,7 +124,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	ginkgo.By("Verify volume is attached to the node")
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Deleting the pod")
 	framework.DeletePodWithWait(f, client, pod)

@@ -606,7 +606,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 	if labels != nil {
 		pv.Labels = labels
 	}
-	if &phase != nil {
+	if phase != "" {
 		pv.Status.Phase = phase
 	}
 	return pv

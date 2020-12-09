@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] statefulset", func() {
 					gomega.Expect(contains(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
 					isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Disk is not attached"))
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
 					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())

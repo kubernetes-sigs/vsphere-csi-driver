@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("[csi-topology-block-e2e] Basic-Topology-Aware-Provision
 		ginkgo.By("Verify volume is attached to the node")
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify Pod is scheduled on a node belonging to same topology as the PV it is attached to")
 		err = verifyPodLocation(pod, nodeList, pvZone, pvRegion)

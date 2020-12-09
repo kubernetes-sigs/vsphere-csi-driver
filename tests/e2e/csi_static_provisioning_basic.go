@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Verify the volume attached to the node: %s", pod.Spec.NodeName))
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached"))
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("[csi-block-e2e] Basic Static Provisioning", func() {
 		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not detached from the node"))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
 		ginkgo.By("Deleting the PV Claim")
 		framework.ExpectNoError(framework.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC ", pvc.Name)

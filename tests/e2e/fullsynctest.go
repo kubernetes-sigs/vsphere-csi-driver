@@ -175,7 +175,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 	})
 
 	ginkgo.It("Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify labels creation"))
+		ginkgo.By("Invoking test to verify labels creation")
 		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.StorageV1().StorageClasses().Delete(sc.Name, nil)
@@ -232,7 +232,7 @@ var _ bool = ginkgo.Describe("[csi-block-e2e] full-sync-test", func() {
 	})
 
 	ginkgo.It("Verify CNS volume is deleted after full sync when pv entry is delete", func() {
-		ginkgo.By(fmt.Sprintf("Invoking test to verify CNS volume creation"))
+		ginkgo.By("Invoking test to verify CNS volume creation")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "")
