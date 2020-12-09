@@ -301,7 +301,7 @@ lint:
 	hack/check-lint.sh
 
 golangci-lint:
-	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v1.28.3 golangci-lint run -v  --timeout=1200s
+	hack/check-golangci-lint.sh
 
 mdlint:
 	hack/check-mdlint.sh
