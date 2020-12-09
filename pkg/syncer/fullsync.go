@@ -17,6 +17,7 @@ limitations under the License.
 package syncer
 
 import (
+	"reflect"
 	"sync"
 
 	"github.com/davecgh/go-spew/spew"
@@ -244,7 +245,8 @@ func buildVolumeMap(pvList []*v1.PersistentVolume, cnsVolumeList []cnstypes.CnsV
 
 			queryResult, err := volumes.GetManager(metadataSyncer.vcenter).QueryVolume(queryFilter)
 			if err == nil && queryResult != nil && len(queryResult.Volumes) > 0 {
-				if &queryResult.Volumes[0].Metadata != nil {
+				isEmpty := reflect.DeepEqual(queryResult.Volumes[0].Metadata, cnstypes.CnsVolumeMetadata{})
+				if !isEmpty {
 					cnsMetadata := queryResult.Volumes[0].Metadata.EntityMetadata
 					metadataList := buildCnsUpdateMetadataList(pv, pvToPVCMap, pvcToPodMap)
 					k8sPVMap[pv.Spec.CSI.VolumeHandle] = getCnsUpdateOperationType(metadataList, cnsMetadata, pv.Name)
