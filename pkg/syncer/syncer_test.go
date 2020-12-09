@@ -94,7 +94,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Init VC configuration
 	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(config)
 	if err != nil {
-		t.Errorf("Failed to get virtualCenter. err=%v", err)
+		t.Errorf("Failed to get virtualCenter. err =%v", err)
 		t.Fatal(err)
 	}
 
