@@ -43,6 +43,7 @@ import (
 
 const (
 	testVolumeName       = "test-pv"
+	testVolumeName1      = "test-pv-1"
 	testPVCName          = "test-pvc"
 	testPodName          = "test-pod"
 	testClusterName      = "test-cluster"
@@ -165,10 +166,42 @@ func runMetadataSyncerTest(t *testing.T) {
 	t.Log("Begin MetadataSyncer Test")
 
 	// Dynamically create a test volume
-	createSpec, err := getCnsCreateSpec(t)
-	if err != nil {
-		t.Fatal(err)
+	var sharedDatastore string
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		sharedDatastore = v
+	} else {
+		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
 	}
+	dc, err = virtualCenter.GetDatacenters(ctx)
+	if err != nil || len(dc) == 0 {
+		t.Fatalf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
+	}
+
+	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
+	if err != nil {
+		t.Fatalf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
+	}
+	dsList = append(dsList, datastoreObj.Reference())
+	createSpec := cnstypes.CnsVolumeCreateSpec{
+		DynamicData: vimtypes.DynamicData{},
+		Name:        testVolumeName,
+		VolumeType:  testVolumeType,
+		Datastores:  dsList,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			DynamicData: vimtypes.DynamicData{},
+			ContainerCluster: cnstypes.CnsContainerCluster{
+				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
+				ClusterId:   config.Global.ClusterID,
+				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
+			},
+		},
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: gbInMb,
+			},
+		},
+	}
+
 	volumeID, err := volumeManager.CreateVolume(&createSpec)
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +369,42 @@ func runFullSyncTest(t *testing.T) {
 	t.Log("Begin FullSync test")
 
 	// Create spec for new volume
-	createSpec, err := getCnsCreateSpec(t)
+	// Dynamically create a test volume
+	var sharedDatastore string
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		sharedDatastore = v
+	} else {
+		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
+	}
+	dc, err = virtualCenter.GetDatacenters(ctx)
+	if err != nil || len(dc) == 0 {
+		t.Fatalf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
+	}
+
+	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
+	if err != nil {
+		t.Fatalf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
+	}
+	dsList = append(dsList, datastoreObj.Reference())
+	createSpec := cnstypes.CnsVolumeCreateSpec{
+		DynamicData: vimtypes.DynamicData{},
+		Name:        testVolumeName1,
+		VolumeType:  testVolumeType,
+		Datastores:  dsList,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			DynamicData: vimtypes.DynamicData{},
+			ContainerCluster: cnstypes.CnsContainerCluster{
+				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
+				ClusterId:   config.Global.ClusterID,
+				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
+			},
+		},
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: gbInMb,
+			},
+		},
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +469,6 @@ func runFullSyncTest(t *testing.T) {
 	}
 
 	// allocate pvc claimRef for PV spec
-	pvName = testVolumeName + "-" + uuid.New().String()
 	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
@@ -537,47 +604,6 @@ func verifyUpdateOperation(queryResult *cnstypes.CnsQueryResult, volumeID string
 		}
 	}
 	return fmt.Errorf("update operation failed for volume Id: %s for resource type %s with queryResult: %v", volumeID, resourceType, spew.Sdump(queryResult))
-}
-
-// getCnsCreateSpec returns the spec for a create call to cns
-func getCnsCreateSpec(t *testing.T) (cnstypes.CnsVolumeCreateSpec, error) {
-	var sharedDatastore string
-	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-		sharedDatastore = v
-	} else {
-		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
-	}
-	dc, err = virtualCenter.GetDatacenters(ctx)
-	if err != nil || len(dc) == 0 {
-		t.Errorf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
-		return cnstypes.CnsVolumeCreateSpec{}, err
-	}
-
-	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
-	if err != nil {
-		t.Errorf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
-		return cnstypes.CnsVolumeCreateSpec{}, err
-	}
-	dsList = append(dsList, datastoreObj.Reference())
-	return cnstypes.CnsVolumeCreateSpec{
-		DynamicData: vimtypes.DynamicData{},
-		Name:        testVolumeName,
-		VolumeType:  testVolumeType,
-		Datastores:  dsList,
-		Metadata: cnstypes.CnsVolumeMetadata{
-			DynamicData: vimtypes.DynamicData{},
-			ContainerCluster: cnstypes.CnsContainerCluster{
-				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-				ClusterId:   config.Global.ClusterID,
-				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
-			},
-		},
-		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
-				CapacityInMb: gbInMb,
-			},
-		},
-	}, nil
 }
 
 // getPersistentVolumeSpec creates PV volume spec with given Volume Handle, Reclaim Policy, Labels and Phase
