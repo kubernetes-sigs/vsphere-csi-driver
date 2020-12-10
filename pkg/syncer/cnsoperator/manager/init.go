@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -34,6 +35,7 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
@@ -47,11 +49,12 @@ var (
 )
 
 type cnsOperator struct {
-	configInfo *types.ConfigInfo
+	configInfo        *types.ConfigInfo
+	coCommonInterface commonco.COCommonInterface
 }
 
 // InitCnsOperator initializes the Cns Operator
-func InitCnsOperator(configInfo *types.ConfigInfo) error {
+func InitCnsOperator(configInfo *types.ConfigInfo, coInitParams *interface{}) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -72,6 +75,14 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 		return err
 	}
+
+	// Initialize the k8s orchestrator interface
+	cnsOperator.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, coInitParams)
+	if err != nil {
+		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
+		return err
+	}
+
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 	// Create CnsNodeVmAttachment CRD
 	crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
@@ -99,6 +110,15 @@ func InitCnsOperator(configInfo *types.ConfigInfo) error {
 	if err != nil {
 		log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsRegisterVolumePlural, err)
 		return err
+	}
+
+	if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
+		// Create CnsFileAccessConfig CRD from manifest if file volume feature is enabled
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfileaccessconfig_crd.yaml")
+		if err != nil {
+			log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsFileAccessConfigPlural, err)
+			return err
+		}
 	}
 
 	// Create a new operator to provide shared dependencies and start components
