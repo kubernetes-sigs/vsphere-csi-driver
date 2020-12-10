@@ -12,7 +12,7 @@ require (
 	github.com/elazarl/goproxy/ext v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-logr/zapr v0.1.1 // indirect
-	github.com/go-openapi/spec v0.19.8
+	github.com/go-openapi/spec v0.19.8 // indirect
 	github.com/go-openapi/swag v0.19.9 // indirect
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.5.0 // indirect
@@ -54,7 +54,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.18.5
 	k8s.io/apimachinery v0.18.5
 	k8s.io/client-go v0.18.5
-	k8s.io/kube-openapi v0.0.0-20200410145947-61e04a5be9a6
+	k8s.io/kube-openapi v0.0.0-20200410145947-61e04a5be9a6 // indirect
 	k8s.io/kubernetes v1.18.5
 	k8s.io/sample-controller v0.18.5
 	k8s.io/utils v0.0.0-20200619165400-6e3d28b6ed19
