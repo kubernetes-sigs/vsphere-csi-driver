@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/uuid"
 	"github.com/vmware/govmomi/simulator"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -42,6 +43,7 @@ import (
 
 const (
 	testVolumeName       = "test-pv"
+	testVolumeName1      = "test-pv-1"
 	testPVCName          = "test-pvc"
 	testPodName          = "test-pod"
 	testClusterName      = "test-cluster"
@@ -164,10 +166,42 @@ func runMetadataSyncerTest(t *testing.T) {
 	t.Log("Begin MetadataSyncer Test")
 
 	// Dynamically create a test volume
-	createSpec, err := getCnsCreateSpec(t)
-	if err != nil {
-		t.Fatal(err)
+	var sharedDatastore string
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		sharedDatastore = v
+	} else {
+		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
 	}
+	dc, err = virtualCenter.GetDatacenters(ctx)
+	if err != nil || len(dc) == 0 {
+		t.Fatalf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
+	}
+
+	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
+	if err != nil {
+		t.Fatalf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
+	}
+	dsList = append(dsList, datastoreObj.Reference())
+	createSpec := cnstypes.CnsVolumeCreateSpec{
+		DynamicData: vimtypes.DynamicData{},
+		Name:        testVolumeName,
+		VolumeType:  testVolumeType,
+		Datastores:  dsList,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			DynamicData: vimtypes.DynamicData{},
+			ContainerCluster: cnstypes.CnsContainerCluster{
+				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
+				ClusterId:   config.Global.ClusterID,
+				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
+			},
+		},
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: gbInMb,
+			},
+		},
+	}
+
 	volumeID, err := volumeManager.CreateVolume(&createSpec)
 	if err != nil {
 		t.Fatal(err)
@@ -196,8 +230,9 @@ func runMetadataSyncerTest(t *testing.T) {
 	newLabel[testPVLabelName] = testPVLabelValue
 
 	// Test pvUpdate workflow for dynamic provisioning of Volume
-	oldPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
-	newPv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	oldPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	newPv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -216,15 +251,17 @@ func runMetadataSyncerTest(t *testing.T) {
 	}
 
 	// Statically create PV on K8S, with VolumeHandle of recently deleted Volume
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
+	pvName = testVolumeName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvUpdate workflow on VC for static provisioning of Volume
 	// pvUpdate should create the volume on vc for static provisioning
-	oldPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumePending, "")
-	newPv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
+	pvName = testVolumeName + "-" + uuid.New().String()
+	oldPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, nil, v1.VolumePending, "")
+	newPv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, newLabel, v1.VolumeAvailable, "")
 
 	pvUpdated(oldPv, newPv, metadataSyncer)
 
@@ -240,14 +277,15 @@ func runMetadataSyncerTest(t *testing.T) {
 	namespace := testNamespace
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(namespace, nil, pv.Name)
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, nil, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test pvcUpdate workflow on VC
-	oldPvc := getPersistentVolumeClaimSpec(testNamespace, nil, pv.Name)
-	newPvc := getPersistentVolumeClaimSpec(testNamespace, newPVCLabel, pv.Name)
+	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, nil, pv.Name)
+	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name)
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata
@@ -331,7 +369,42 @@ func runFullSyncTest(t *testing.T) {
 	t.Log("Begin FullSync test")
 
 	// Create spec for new volume
-	createSpec, err := getCnsCreateSpec(t)
+	// Dynamically create a test volume
+	var sharedDatastore string
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		sharedDatastore = v
+	} else {
+		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
+	}
+	dc, err = virtualCenter.GetDatacenters(ctx)
+	if err != nil || len(dc) == 0 {
+		t.Fatalf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
+	}
+
+	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
+	if err != nil {
+		t.Fatalf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
+	}
+	dsList = append(dsList, datastoreObj.Reference())
+	createSpec := cnstypes.CnsVolumeCreateSpec{
+		DynamicData: vimtypes.DynamicData{},
+		Name:        testVolumeName1,
+		VolumeType:  testVolumeType,
+		Datastores:  dsList,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			DynamicData: vimtypes.DynamicData{},
+			ContainerCluster: cnstypes.CnsContainerCluster{
+				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
+				ClusterId:   config.Global.ClusterID,
+				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
+			},
+		},
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: gbInMb,
+			},
+		},
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +453,9 @@ func runFullSyncTest(t *testing.T) {
 	// Create PV in K8S with VolumeHandle of recently deleted Volume
 	pvLabel := make(map[string]string)
 	pvLabel[testPVLabelName] = testPVLabelValue
-	pv := getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
+	pvName := testVolumeName + "-" + uuid.New().String()
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pv := getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeAvailable, "")
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
 		t.Fatal(err)
 	}
@@ -388,13 +463,13 @@ func runFullSyncTest(t *testing.T) {
 	// Create PVC in K8S to bound to recently created PV
 	pvcLabel := make(map[string]string)
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
-	pvc := getPersistentVolumeClaimSpec(testNamespace, pvcLabel, pv.Name)
+	pvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, pvcLabel, pv.Name)
 	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
 		t.Fatal(err)
 	}
 
 	// allocate pvc claimRef for PV spec
-	pv = getPersistentVolumeSpec(volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
+	pv = getPersistentVolumeSpec(pvName, volumeID.Id, v1.PersistentVolumeReclaimRetain, pvLabel, v1.VolumeBound, pvc.Name)
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(pv); err != nil {
 		t.Fatal(err)
 	}
@@ -531,49 +606,8 @@ func verifyUpdateOperation(queryResult *cnstypes.CnsQueryResult, volumeID string
 	return fmt.Errorf("update operation failed for volume Id: %s for resource type %s with queryResult: %v", volumeID, resourceType, spew.Sdump(queryResult))
 }
 
-// getCnsCreateSpec returns the spec for a create call to cns
-func getCnsCreateSpec(t *testing.T) (cnstypes.CnsVolumeCreateSpec, error) {
-	var sharedDatastore string
-	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-		sharedDatastore = v
-	} else {
-		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
-	}
-	dc, err = virtualCenter.GetDatacenters(ctx)
-	if err != nil || len(dc) == 0 {
-		t.Errorf("Failed to get datacenter for the path: %s. Error: %v", cnsVCenterConfig.DatacenterPaths[0], err)
-		return cnstypes.CnsVolumeCreateSpec{}, err
-	}
-
-	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
-	if err != nil {
-		t.Errorf("Failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
-		return cnstypes.CnsVolumeCreateSpec{}, err
-	}
-	dsList = append(dsList, datastoreObj.Reference())
-	return cnstypes.CnsVolumeCreateSpec{
-		DynamicData: vimtypes.DynamicData{},
-		Name:        testVolumeName,
-		VolumeType:  testVolumeType,
-		Datastores:  dsList,
-		Metadata: cnstypes.CnsVolumeMetadata{
-			DynamicData: vimtypes.DynamicData{},
-			ContainerCluster: cnstypes.CnsContainerCluster{
-				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-				ClusterId:   config.Global.ClusterID,
-				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
-			},
-		},
-		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
-				CapacityInMb: gbInMb,
-			},
-		},
-	}, nil
-}
-
 // getPersistentVolumeSpec creates PV volume spec with given Volume Handle, Reclaim Policy, Labels and Phase
-func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
+func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
 	var pv *v1.PersistentVolume
 	var claimRef *v1.ObjectReference
 	if claimRefName != "" {
@@ -583,7 +617,7 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 	}
 	pv = &v1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: testVolumeName,
+			Name: volumeName,
 		},
 		Spec: v1.PersistentVolumeSpec{
 			Capacity: v1.ResourceList{
@@ -613,14 +647,14 @@ func getPersistentVolumeSpec(volumeHandle string, persistentVolumeReclaimPolicy 
 }
 
 // getPersistentVolumeClaimSpec gets vsphere persistent volume spec with given selector labels.
-func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
+func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
 	var (
 		pvc *v1.PersistentVolumeClaim
 	)
 	sc := ""
 	pvc = &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      testPVCName,
+			Name:      pvcName,
 			Namespace: namespace,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{

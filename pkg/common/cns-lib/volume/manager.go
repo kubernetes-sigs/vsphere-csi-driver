@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
@@ -49,12 +50,29 @@ type Manager interface {
 	QueryAllVolume(queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 }
 
+const (
+	// defaultTaskCleanupIntervalInMinutes is default interval for cleaning up expired create volume tasks
+	// TODO: This timeout will be configurable in future releases
+	defaultTaskCleanupIntervalInMinutes = 1
+
+	// defaultOpsExpirationTimeInHours is expiration time for create volume operations
+	// TODO: This timeout will be configurable in future releases
+	defaultOpsExpirationTimeInHours = 1
+)
+
 var (
 	// managerInstance is a Manager singleton.
 	managerInstance *volumeManager
 	// onceForManager is used for initializing the Manager singleton.
 	onceForManager sync.Once
+	volumeTaskMap  = make(map[string]createVolumeTaskDetails)
 )
+
+// createVolumeTaskDetails contains taskInfo object and expiration time
+type createVolumeTaskDetails struct {
+	taskinfo       *vimtypes.TaskInfo
+	expirationTime time.Time
+}
 
 // GetManager returns the Manager singleton.
 func GetManager(vc *cnsvsphere.VirtualCenter) Manager {
@@ -71,6 +89,24 @@ func GetManager(vc *cnsvsphere.VirtualCenter) Manager {
 // DefaultManager provides functionality to manage volumes.
 type volumeManager struct {
 	virtualCenter *cnsvsphere.VirtualCenter
+}
+
+// ClearTaskInfoObjects is a go routine which runs in the background to clean up expired taskInfo objects from volumeTaskMap
+func ClearTaskInfoObjects() {
+	// At a frequency of every 1 minute, check if there are expired taskInfo objects and delete them from the volumeTaskMap
+	ticker := time.NewTicker(time.Duration(defaultTaskCleanupIntervalInMinutes) * time.Minute)
+	for range ticker.C {
+		for k, v := range volumeTaskMap {
+			// Get the time difference between current time and the expiration time from the volumeTaskMap
+			diff := v.expirationTime.Sub(time.Now())
+			// Checking if the expiration time has elapsed
+			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
+				// If one of the parameters in the time object is negative, it means the entry has to be deleted
+				klog.V(4).Infof("ClearTaskInfoObjects : Found an expired taskInfo object : %+v for the VolumeName: %q. Deleting the object entry from volumeTaskMap", volumeTaskMap[k].taskinfo, k)
+				delete(volumeTaskMap, k)
+			}
+		}
+	}
 }
 
 // CreateVolume creates a new volume given its spec.
@@ -101,17 +137,26 @@ func (m *volumeManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnsty
 	// Construct the CNS VolumeCreateSpec list
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
 	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
+	var taskInfo *vimtypes.TaskInfo
 	// Call the CNS CreateVolume
-	task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
-	if err != nil {
-		klog.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-		return nil, err
-	}
-	// Get the taskInfo
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	if err != nil {
-		klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-		return nil, err
+	taskDetailsInMap, ok := volumeTaskMap[spec.Name]
+	if ok {
+		taskInfo = taskDetailsInMap.taskinfo
+		klog.V(2).Infof("CreateVolume task still pending for VolumeName: %q, with taskInfo: %+v", spec.Name, taskInfo)
+	} else {
+		task, err := m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
+		if err != nil {
+			klog.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		// Get the taskInfo
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		if err != nil {
+			klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
+		volumeTaskMap[spec.Name] = createVolumeTaskDetails{taskInfo, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
 	}
 	klog.V(2).Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
 	// Get the taskResult
@@ -129,6 +174,9 @@ func (m *volumeManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnsty
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
+		// Remove the taskInfo object associated with the volume name when the current task fails.
+		//  This is needed to ensure the sub-sequent create volume call from the external provisioner invokes Create Volume
+		delete(volumeTaskMap, spec.Name)
 		klog.Errorf("failed to create cns volume. createSpec: %q, fault: %q, opId: %q", spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		return nil, errors.New(volumeOperationRes.Fault.LocalizedMessage)
 	}
