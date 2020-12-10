@@ -144,7 +144,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				}
 			}()
 			go func() {
-				if err := manager.InitCnsOperator(configInfo); err != nil {
+				if err := manager.InitCnsOperator(configInfo, coInitParams); err != nil {
 					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
 					os.Exit(1)
 				}

@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -49,6 +50,8 @@ var (
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
 	// CnsRegisterVolumePlural is plural of CnsRegisterVolume
 	CnsRegisterVolumePlural = "cnsregistervolumes"
+	// CnsFileAccessConfigPlural is plural of CnsFileAccessConfig
+	CnsFileAccessConfigPlural = "cnsfileaccessconfigs"
 )
 
 var (
@@ -71,6 +74,12 @@ func Resource(resource string) schema.GroupResource {
 
 // Adds the list of known types to the given scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{},
+		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{},
+	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&cnsregistervolumev1alpha1.CnsRegisterVolume{},
