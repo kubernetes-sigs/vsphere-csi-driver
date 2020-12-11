@@ -28,13 +28,16 @@ import (
 	"github.com/vmware/govmomi/units"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/labels"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/klog"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 var (
@@ -53,8 +56,11 @@ type nodeManager interface {
 }
 
 type controller struct {
-	manager *common.Manager
-	nodeMgr nodeManager
+	manager            *common.Manager
+	nodeMgr            nodeManager
+	k8sInformerManager *k8s.InformerManager
+	pvLister           corelisters.PersistentVolumeLister
+	vaLister           storagelistersv1.VolumeAttachmentLister
 }
 
 // New creates a CNS controller
@@ -97,6 +103,17 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
+	// Create the kubernetes client from config
+	k8sclient, err := k8s.NewClient()
+	if err != nil {
+		klog.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return err
+	}
+	// Set up kubernetes resource listeners for CSI controller
+	c.k8sInformerManager = k8s.NewInformer(k8sclient)
+	c.pvLister = c.k8sInformerManager.GetPVLister()
+	c.vaLister = c.k8sInformerManager.GetVALister()
+	c.k8sInformerManager.Listen()
 	c.nodeMgr = &Nodes{}
 	err = c.nodeMgr.Initialize()
 	if err != nil {
@@ -252,6 +269,44 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	if err != nil {
 		return nil, err
 	}
+	// Get the list of persistent volumes from k8s
+	pvList, err := c.pvLister.List(labels.Everything())
+	if err != nil {
+		msg := fmt.Sprintf("DeleteVolume: Error getting PersistentVolumes from API server with err: %v", err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	var pvFound bool
+	var pvName string
+	// Find the PV name for the delete volume request
+	for _, pv := range pvList {
+		if pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle == req.VolumeId {
+			pvFound = true
+			pvName = pv.Name
+			klog.V(5).Infof("DeleteVolume: PersistentVolume %q found for the volume: %q", pvName, req.VolumeId)
+			break
+		}
+	}
+	if !pvFound {
+		msg := fmt.Sprintf("Unable to find the PersistentVolume from API server for the volume: %q:", req.VolumeId)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	vaList, err := c.vaLister.List(labels.Everything())
+	if err != nil {
+		msg := fmt.Sprintf("DeleteVolume: Error getting VolumeAttachments from API server with err: %v", err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	// After finding the PV name, check if the PV is found in any of the volume attachments from k8s
+	for _, va := range vaList {
+		if va.Spec.Source.PersistentVolumeName != nil && *va.Spec.Source.PersistentVolumeName == pvName {
+			msg := fmt.Sprintf("DeleteVolume: PersistentVolume %q is still attached to node %q", pvName, va.Spec.NodeName)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to delete volume: %q. Error: %+v", req.VolumeId, err)

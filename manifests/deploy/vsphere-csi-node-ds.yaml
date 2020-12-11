@@ -22,7 +22,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com-reg.sock"]
+                command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -31,7 +31,7 @@ spec:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
+              value: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
           securityContext:
             privileged: true
           volumeMounts:
@@ -40,7 +40,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.2
           imagePullPolicy: "Always"
           env:
             - name: NODE_NAME
@@ -53,8 +53,9 @@ spec:
               value: "node"
             - name: X_CSI_SPEC_REQ_VALIDATION
               value: "false"
-            - name: VSPHERE_CSI_CONFIG
-              value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
+            # needed only for topology aware setups
+            #- name: VSPHERE_CSI_CONFIG
+            #  value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
           args:
             - "--v=4"
           securityContext:
@@ -63,9 +64,10 @@ spec:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
           volumeMounts:
-            - name: vsphere-config-volume
-              mountPath: /etc/cloud
-              readOnly: true
+            # needed only for topology aware setups
+            #- name: vsphere-config-volume
+            #  mountPath: /etc/cloud
+            #  readOnly: true
             - name: plugin-dir
               mountPath: /csi
             - name: pods-mount-dir
@@ -90,24 +92,22 @@ spec:
         - name: liveness-probe
           image: quay.io/k8scsi/livenessprobe:v1.1.0
           args:
-            - "--csi-address=$(ADDRESS)"
-          env:
-            - name: ADDRESS
-              value: /csi/csi.sock
+          - --csi-address=/csi/csi.sock
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
       volumes:
-        - name: vsphere-config-volume
-          secret:
-            secretName: vsphere-config-secret
+        # needed only for topology aware setups
+        #- name: vsphere-config-volume
+        #  secret:
+        #    secretName: vsphere-config-secret
         - name: registration-dir
           hostPath:
             path: /var/lib/kubelet/plugins_registry
-            type: DirectoryOrCreate
+            type: Directory
         - name: plugin-dir
           hostPath:
-            path: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com
+            path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/
             type: DirectoryOrCreate
         - name: pods-mount-dir
           hostPath:
@@ -116,3 +116,8 @@ spec:
         - name: device-dir
           hostPath:
             path: /dev
+      tolerations:
+        - effect: NoExecute
+          operator: Exists
+        - effect: NoSchedule
+          operator: Exists

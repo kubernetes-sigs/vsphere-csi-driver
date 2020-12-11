@@ -39,7 +39,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.2
           lifecycle:
             preStop:
               exec:
@@ -49,7 +49,7 @@ spec:
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              value: unix:///csi/csi.sock
             - name: X_CSI_MODE
               value: "controller"
             - name: VSPHERE_CSI_CONFIG
@@ -58,7 +58,7 @@ spec:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
           ports:
             - name: healthz
@@ -78,12 +78,12 @@ spec:
             - "--csi-address=$(ADDRESS)"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
           volumeMounts:
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.2
           args:
             - "--v=2"
           imagePullPolicy: "Always"
@@ -102,8 +102,9 @@ spec:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=true"
-            - "--strict-topology"
+            # needed only for topology aware setup
+            #- "--feature-gates=Topology=true"
+            #- "--strict-topology"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -115,9 +116,7 @@ spec:
           secret:
             secretName: vsphere-config-secret
         - name: socket-dir
-          hostPath:
-            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-            type: DirectoryOrCreate
+          emptyDir: {}
 ---
 apiVersion: storage.k8s.io/v1beta1
 kind: CSIDriver

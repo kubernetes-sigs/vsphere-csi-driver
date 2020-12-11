@@ -34,9 +34,13 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/klog"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -48,6 +52,13 @@ import (
 const (
 	testVolumeName  = "test-volume"
 	testClusterName = "test-cluster"
+	testPVName      = "test-pv"
+	testPVCName     = "test-pvc"
+	testNamespace   = "default"
+)
+
+var (
+	k8sclient clientset.Interface
 )
 
 type FakeNodeManager struct {
@@ -184,14 +195,13 @@ func getControllerTest(t *testing.T) *controllerTest {
 			sharedDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
 		}
 
-		var k8sClient clientset.Interface
 		if k8senv := os.Getenv("KUBECONFIG"); k8senv != "" {
-			k8sClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			k8sclient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
 			if err != nil {
 				t.Fatal(err)
 			}
 		} else {
-			k8sClient = testclient.NewSimpleClientset()
+			k8sclient = testclient.NewSimpleClientset()
 		}
 
 		c := &controller{
@@ -199,7 +209,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			nodeMgr: &FakeNodeManager{
 				client:             vcenter.Client.Client,
 				sharedDatastoreURL: sharedDatastoreURL,
-				k8sClient:          k8sClient,
+				k8sClient:          k8sclient,
 			},
 		}
 		controllerTestInstance = &controllerTest{
@@ -207,6 +217,10 @@ func getControllerTest(t *testing.T) *controllerTest {
 			config:     config,
 			vcenter:    vcenter,
 		}
+		controllerTestInstance.controller.k8sInformerManager = k8s.NewInformer(k8sclient)
+		controllerTestInstance.controller.pvLister = controllerTestInstance.controller.k8sInformerManager.GetPVLister()
+		controllerTestInstance.controller.vaLister = controllerTestInstance.controller.k8sInformerManager.GetVALister()
+		controllerTestInstance.controller.k8sInformerManager.Listen()
 	})
 	return controllerTestInstance
 }
@@ -251,7 +265,19 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-	// Varify the volume has been create with corresponding storage policy ID
+
+	// Create objects in k8s
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pvName := testPVName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, nil, pvName)
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
+		t.Fatal(err)
+	}
+	pv := getPersistentVolumeSpec(pvName, volID, v1.PersistentVolumeReclaimDelete, nil, v1.VolumeBound, "")
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
+		t.Fatal(err)
+	}
+	// Verify the volume has been create with corresponding storage policy ID
 	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
 	if err != nil {
 		t.Fatal(err)
@@ -355,6 +381,16 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
+	pvcName := testPVCName + "-" + uuid.New().String()
+	pvName := testPVName + "-" + uuid.New().String()
+	pvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, nil, pvName)
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(pvc); err != nil {
+		t.Fatal(err)
+	}
+	pv := getPersistentVolumeSpec(pvName, volID, v1.PersistentVolumeReclaimDelete, nil, v1.VolumeBound, "")
+	if pv, err = k8sclient.CoreV1().PersistentVolumes().Create(pv); err != nil {
+		t.Fatal(err)
+	}
 	// Varify the volume has been created
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
@@ -422,6 +458,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Log("ControllerUnpublishVolume succeed")
 
 	// Delete
@@ -442,4 +479,79 @@ func TestCompleteControllerFlow(t *testing.T) {
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
+}
+
+// getPersistentVolumeSpec creates PV volume spec with given Volume Handle, Reclaim Policy, Labels and Phase
+func getPersistentVolumeSpec(volumeName string, volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, phase v1.PersistentVolumePhase, claimRefName string) *v1.PersistentVolume {
+	var pv *v1.PersistentVolume
+	var claimRef *v1.ObjectReference
+	if claimRefName != "" {
+		claimRef = &v1.ObjectReference{
+			Name: claimRefName,
+		}
+	}
+	pv = &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: volumeName,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+			},
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       "csi.vsphere.vmware.com",
+					VolumeHandle: volumeHandle,
+				},
+			},
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			ClaimRef:                      claimRef,
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	if &phase != nil {
+		pv.Status.Phase = phase
+	}
+	return pv
+}
+
+// getPersistentVolumeClaimSpec gets vsphere persistent volume spec with given selector labels.
+func getPersistentVolumeClaimSpec(pvcName string, namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
+	var (
+		pvc *v1.PersistentVolumeClaim
+	)
+	sc := ""
+	pvc = &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &sc,
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: "Bound",
+		},
+	}
+	if labels != nil {
+		pvc.Labels = labels
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
 }

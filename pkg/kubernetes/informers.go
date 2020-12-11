@@ -17,13 +17,20 @@ limitations under the License.
 package kubernetes
 
 import (
+	"sync"
 	"time"
 
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/sample-controller/pkg/signals"
+)
+
+var (
+	onceForInformerManager  sync.Once
+	informerManagerInstance *InformerManager
 )
 
 func noResyncPeriodFunc() time.Duration {
@@ -32,11 +39,14 @@ func noResyncPeriodFunc() time.Duration {
 
 // NewInformer creates a new K8S client based on a service account
 func NewInformer(client clientset.Interface) *InformerManager {
-	return &InformerManager{
-		client:          client,
-		stopCh:          signals.SetupSignalHandler(),
-		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-	}
+	onceForInformerManager.Do(func() {
+		informerManagerInstance = &InformerManager{
+			client:          client,
+			stopCh:          signals.SetupSignalHandler(),
+			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+		}
+	})
+	return informerManagerInstance
 }
 
 // AddNodeListener hooks up add, update, delete callbacks
@@ -94,6 +104,11 @@ func (im *InformerManager) AddPodListener(add func(obj interface{}), update func
 // GetPVLister returns Persistent Volume Lister for the calling informer manager
 func (im *InformerManager) GetPVLister() corelisters.PersistentVolumeLister {
 	return im.informerFactory.Core().V1().PersistentVolumes().Lister()
+}
+
+// GetVALister returns VolumeAttachment Lister for the calling informer manager
+func (im *InformerManager) GetVALister() storagelistersv1.VolumeAttachmentLister {
+	return im.informerFactory.Storage().V1().VolumeAttachments().Lister()
 }
 
 // GetPVCLister returns PVC Lister for the calling informer manager
