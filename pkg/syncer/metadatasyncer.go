@@ -361,30 +361,22 @@ func pvDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 		klog.Warningf("PVDeleted: unrecognized object %+v", obj)
 		return
 	}
-	klog.V(4).Infof("PVDeleted: Deleting PV: %+v", pv)
 
 	// Verify if pv is a vsphere csi volume
 	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != service.Name {
 		klog.V(3).Infof("PVDeleted: Not a Vsphere CSI Volume: %+v", pv)
 		return
 	}
-	var deleteDisk bool
-	if pv.Spec.ClaimRef != nil && (pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased) && pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
-		klog.V(3).Infof("PVDeleted: Volume deletion will be handled by Controller")
+
+	if pv.Spec.ClaimRef != nil && (pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete) {
+		klog.V(3).Infof("PVDeleted: Volume deletion will be handled by Controller for the PV %v", pv)
 		return
 	}
-
-	if pv.Spec.ClaimRef == nil || (pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete) {
-		klog.V(4).Infof("PVDeleted: Setting DeleteDisk to false")
-		deleteDisk = false
-	} else {
-		// We set delete disk=true for the case where PV status is failed after deletion of pvc
-		// In this case, metadatasyncer will remove the volume
-		klog.V(4).Infof("PVDeleted: Setting DeleteDisk to true")
-		deleteDisk = true
-	}
+	// For all other cases where ClaimRef is nil or Reclaim Policy is Retain/Recycle
+	klog.V(4).Infof("PVDeleted: Deleting PV: %+v", pv)
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
+	deleteDisk := false
 	klog.V(4).Infof("PVDeleted: vSphere provisioner deleting volume %v with delete disk %v", pv, deleteDisk)
 	if err := volumes.GetManager(metadataSyncer.vcenter).DeleteVolume(pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
 		klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
