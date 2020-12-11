@@ -9,6 +9,12 @@ metadata:
   name: vsphere-csi-controller
   namespace: {{ .PVCSINamespace }}
 ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: vsphere-csi-node
+  namespace: {{ .PVCSINamespace }}
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -43,14 +49,13 @@ metadata:
   name: vsphere-csi-node-role
   namespace: {{ .PVCSINamespace }}
 rules:
-  - apiGroups:
-    - "policy"
-    resources:
-    - podsecuritypolicies
-    verbs:
-    - use
-    resourceNames:
-    - vmware-system-privileged
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["vmware-system-privileged"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -72,7 +77,7 @@ metadata:
   namespace: {{ .PVCSINamespace }}
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-node
     namespace: {{ .PVCSINamespace }}
 roleRef:
   kind: Role
@@ -122,6 +127,11 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: vmware.io/vsphere-csi:<image_tag>
+          args:
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           lifecycle:
             preStop:
               exec:
@@ -150,6 +160,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: CSI_NAMESPACE
+              value: {{ .PVCSINamespace }}
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -163,6 +175,10 @@ spec:
           image: vmware.io/syncer:<image_tag>
           args:
             - "--leader-election"
+            - "--supervisor-fss-name=csi-feature-states"
+            - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
@@ -173,6 +189,8 @@ spec:
               value: "GUEST_CLUSTER"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: CSI_NAMESPACE
+              value: {{ .PVCSINamespace }}
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume
@@ -243,6 +261,7 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      serviceAccountName: vsphere-csi-node
       containers:
       - name: node-driver-registrar
         image: vmware.io/csi-node-driver-registrar:<image_tag>
@@ -269,6 +288,11 @@ spec:
             mountPath: /registration
       - name: vsphere-csi-node
         image: vmware.io/vsphere-csi:<image_tag>
+        args:
+          - "--supervisor-fss-name=csi-feature-states"
+          - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
+          - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+          - "--fss-namespace=$(CSI_NAMESPACE)"
         imagePullPolicy: "IfNotPresent"
         env:
         - name: NODE_NAME
@@ -285,6 +309,8 @@ spec:
           value: "GUEST_CLUSTER"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+        - name: CSI_NAMESPACE
+          value: {{ .PVCSINamespace }}
         securityContext:
           privileged: true
           capabilities:
