@@ -90,6 +90,9 @@ const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier
 	AttributeFirstClassDiskUUID = "diskUUID"
 
+	// AttributeFakeAttached is the flag that indicates if a volume is fake attached
+	AttributeFakeAttached = "fake-attach"
+
 	// BlockVolumeType is the VolumeType for CNS Volume
 	BlockVolumeType = "BLOCK"
 
@@ -183,6 +186,22 @@ const (
 
 	// HostConfigStoragePriv is the privilege for file volumes
 	HostConfigStoragePriv = "Host.Config.Storage"
+
+	// AnnVolumeHealth is the key for HealthStatus annotation on volume claim
+	AnnVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+
+	// AnnFakeAttached is the key for fake attach annotation on volume claim
+	AnnFakeAttached = "csi.vmware.com/fake-attached"
+
+	// VolHealthStatusAccessible is volume health status for accessible volume
+	VolHealthStatusAccessible = "accessible"
+
+	// VolHealthStatusInaccessible is volume health status for inaccessible volume
+	VolHealthStatusInaccessible = "inaccessible"
+
+	// AnnIgnoreInaccessiblePV is annotation key on volume claim to indicate
+	// if inaccessible PV can be fake attached
+	AnnIgnoreInaccessiblePV = "pv.attach.kubernetes.io/ignore-if-inaccessible"
 )
 
 // Supported container orchestrators
@@ -208,4 +227,6 @@ const (
 	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
 	// FileVolume is feature flag name for file volume support in WCP
 	FileVolume = "file-volume"
+	// FakeAttach is the feature flag for fake attach support in WCP
+	FakeAttach = "fake-attach"
 )

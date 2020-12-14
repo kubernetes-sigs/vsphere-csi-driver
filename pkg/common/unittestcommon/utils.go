@@ -22,11 +22,14 @@ import (
 	"strconv"
 	"sync"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
 var mapVolumePathToID map[string]map[string]string
@@ -60,6 +63,33 @@ func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName stri
 		return featureState
 	}
 	return false
+}
+
+// IsFakeAttachAllowed checks if the passed volume can be fake attached and mark it as fake attached.
+func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error) {
+	// TODO - This can be implemented if we add WCP controller tests for attach volume
+	log := logger.GetLogger(ctx)
+	msg := "IsFakeAttachAllowed for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return false, status.Error(codes.Unimplemented, msg)
+}
+
+// MarkFakeAttached marks the volume as fake attached.
+func (c *FakeK8SOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string) error {
+	// TODO - This can be implemented if we add WCP controller tests for attach volume
+	log := logger.GetLogger(ctx)
+	msg := "MarkFakeAttached for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return status.Error(codes.Unimplemented, msg)
+}
+
+// ClearFakeAttached checks if the volume was fake attached, and unmark it as not fake attached.
+func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string) error {
+	// TODO - This can be implemented if we add WCP controller tests for attach volume
+	log := logger.GetLogger(ctx)
+	msg := "ClearFakeAttached for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return status.Error(codes.Unimplemented, msg)
 }
 
 // GetFakeVolumeMigrationService returns the mocked VolumeMigrationService

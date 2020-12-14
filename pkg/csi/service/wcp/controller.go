@@ -513,6 +513,41 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	// Attach the volume to the node
 	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
 	if err != nil {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+			log.Infof("Volume attachment failed. Checking if it can be fake attached")
+			var capabilities []*csi.VolumeCapability
+			capabilities = append(capabilities, req.VolumeCapability)
+			if !common.IsFileVolumeRequest(ctx, capabilities) { //Block volume
+				allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx, req.VolumeId, c.manager.VolumeManager)
+				if err != nil {
+					msg := fmt.Sprintf("failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+
+				if allowed {
+					// Mark the volume as fake attached before returning response
+					err := commonco.ContainerOrchestratorUtility.MarkFakeAttached(ctx, req.VolumeId)
+					if err != nil {
+						msg := fmt.Sprintf("failed to mark volume: %s as fake attached. Error: %+v", req.VolumeId, err)
+						log.Error(msg)
+						return nil, status.Errorf(codes.Internal, msg)
+					}
+
+					publishInfo := make(map[string]string)
+					publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+					publishInfo[common.AttributeFakeAttached] = "true"
+
+					resp := &csi.ControllerPublishVolumeResponse{
+						PublishContext: publishInfo,
+					}
+					log.Infof("Volume %s has been fake attached", req.VolumeId)
+					return resp, nil
+				}
+			}
+
+			log.Infof("Volume %s is not eligible to be fake attached", req.VolumeId)
+		}
 		msg := fmt.Sprintf("failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -540,6 +575,15 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
 		return nil, err
+	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+		// Check if the volume was fake attached and unmark it as not fake attached
+		if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
+			msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
+			log.Error(msg)
+			return nil, err
+		}
 	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
