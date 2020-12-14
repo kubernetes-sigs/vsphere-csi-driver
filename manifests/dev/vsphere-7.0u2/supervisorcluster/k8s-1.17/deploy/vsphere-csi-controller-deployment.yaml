@@ -185,6 +185,7 @@ apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
+  "online-volume-extend": "false"
   "file-volume": "false"
 kind: ConfigMap
 metadata:
