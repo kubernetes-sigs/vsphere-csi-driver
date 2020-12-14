@@ -196,13 +196,29 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 			log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
 		}
-		var taskDetails createVolumeTaskDetails
-		// Store the task details and task object expiration time in volumeTaskMap
-		taskDetails.Lock()
-		taskDetails.task = task
-		taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
-		volumeTaskMap[volNameFromInputSpec] = &taskDetails
-		taskDetails.Unlock()
+		var isStaticallyProvisionedBlockVolume bool
+		var isStaticallyProvisionedFileVolume bool
+		if spec.VolumeType == string(cnstypes.CnsVolumeTypeBlock) {
+			blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+			if ok && (blockBackingDetails.BackingDiskId != "" || blockBackingDetails.BackingDiskUrlPath != "") {
+				isStaticallyProvisionedBlockVolume = true
+			}
+		}
+		if spec.VolumeType == string(cnstypes.CnsVolumeTypeFile) {
+			fileBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+			if ok && fileBackingDetails.BackingFileId != "" {
+				isStaticallyProvisionedFileVolume = true
+			}
+		}
+		// Add the task details to volumeTaskMap only for dynamically provisioned volumes.
+		// For static volume provisioning we need not store the taskDetails as it doesn't result in orphaned volumes
+		if !isStaticallyProvisionedBlockVolume && !isStaticallyProvisionedFileVolume {
+			var taskDetails createVolumeTaskDetails
+			// Store the task details and task object expiration time in volumeTaskMap
+			taskDetails.task = task
+			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
+			volumeTaskMap[volNameFromInputSpec] = &taskDetails
+		}
 	}
 	// Get the taskInfo
 	taskInfo, err = cns.GetTaskInfo(ctx, task)
