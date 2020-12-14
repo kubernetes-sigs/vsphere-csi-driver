@@ -59,12 +59,6 @@ const (
 	volumeHealthRetryIntervalMax = 5 * time.Minute
 	// default number of threads concurrently running for volume health reconciler
 	volumeHealthWorkers = 10
-
-	// description of volume health status for accessible volume
-	volHealthStatusAccessible = "accessible"
-
-	// description of volume health status for inaccessible volume
-	volHealthStatusInAccessible = "inaccessible"
 )
 
 var (
