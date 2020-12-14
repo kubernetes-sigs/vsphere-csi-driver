@@ -155,8 +155,13 @@ func (m *volumeManager) CreateVolume(spec *cnstypes.CnsVolumeCreateSpec) (*cnsty
 			klog.Errorf("Failed to get taskInfo for CreateVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
 		}
-		// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
-		volumeTaskMap[spec.Name] = createVolumeTaskDetails{taskInfo, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
+		blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+		// There is no need to add task details into volumeTaskMap for static volume provisioning
+		// as it does not result in orphaned volumes. This is handled by checking if BackingDiskId is present in CreateVolume Spec
+		if ok && blockBackingDetails.BackingDiskId == "" {
+			// Store the taskInfo details and taskInfo object expiration time in volumeTaskMap
+			volumeTaskMap[spec.Name] = createVolumeTaskDetails{taskInfo, time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))}
+		}
 	}
 	klog.V(2).Infof("CreateVolume: VolumeName: %q, opId: %q", spec.Name, taskInfo.ActivationId)
 	// Get the taskResult
