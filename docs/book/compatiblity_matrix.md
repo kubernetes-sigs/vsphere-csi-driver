@@ -11,4 +11,7 @@ Refer to [upgrade support matrix](upgrade_support_matrix.md) to learn about upgr
 
 Refer to [feature matrix](supported_features_matrix.md) to learn about features added to the vSphere CSI 2.0 driver.
 
-Note: vSphere CSI driver is not supported on Windows based vCenter.
+Note:
+
+* vSphere CSI driver is not supported on Windows based vCenter.
+* vSphere CSI driver is not supported on vSAN stretch cluster.
