@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	internal "sigs.k8s.io/vsphere-csi-driver/pkg/internal/cnsoperator/cnsfilevolumeclient/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -117,6 +118,12 @@ func InitCnsOperator(configInfo *types.ConfigInfo, coInitParams *interface{}) er
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfileaccessconfig_crd.yaml")
 		if err != nil {
 			log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsFileAccessConfigPlural, err)
+			return err
+		}
+		// Create FileVolumeClients CRD from manifest if file volume feature is enabled
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfilevolumeclient_crd.yaml")
+		if err != nil {
+			log.Errorf("Failed to create %q CRD. Err: %+v", internal.CnsFileVolumeClientPlural, err)
 			return err
 		}
 	}
