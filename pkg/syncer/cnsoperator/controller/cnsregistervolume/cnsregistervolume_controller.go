@@ -222,8 +222,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		log.Errorf("Failed to query CNS volume: %s with error: %+v", volumeID, err)
-		setInstanceError(ctx, r, instance, "Unable to find the volume in CNS")
+		msg := fmt.Sprintf("Failed to query CNS volume: %s with error: %+v", volumeID, err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
