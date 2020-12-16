@@ -55,9 +55,9 @@ spec:
           type: object
           description: CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
           properties:
-            success:
+            registered:
               description: Indicates the volume is successfully imported.
-              type: bool
+              type: boolean
             error:
               description: The last error encountered during import operation, if any.
               type: string
