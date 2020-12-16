@@ -15,8 +15,6 @@ spec:
     plural: cnsfilevolumeclients
     singular: cnsfilevolumeclient
   scope: Namespaced
-  subresources:
-    status: {}
   validation:
     openAPIV3Schema:
       description: CnsFileVolumeClient is the Schema for the cnsfilevolumeclients
