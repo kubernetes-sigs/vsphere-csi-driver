@@ -10,8 +10,6 @@ spec:
     plural: cnsfileaccessconfigs
     singular: cnsfileaccessconfig
   scope: Namespaced
-  subresources:
-    status: {}
   validation:
     openAPIV3Schema:
       description: CnsFileAccessConfig is the Schema for the cnsfileaccessconfig API
