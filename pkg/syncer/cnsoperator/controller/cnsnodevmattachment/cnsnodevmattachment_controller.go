@@ -33,7 +33,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,6 +51,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/util"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -241,7 +241,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
+		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
 		if err != nil {
 			msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment request with name: %q on namespace: %q. Error: %+v",
 				instance.Spec.VolumeName, request.Name, request.Namespace, err)
@@ -444,29 +444,6 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 		err = errors.New("Unable get vCenter datacenters from vsphere config")
 	}
 	return vcdcMap, err
-}
-
-// getVolumeID gets the volume ID from the PV that is bound to PVC by pvcName
-func getVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
-	log := logger.GetLogger(ctx)
-	// Get PVC by pvcName from namespace
-	pvc := &v1.PersistentVolumeClaim{}
-	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
-	if err != nil {
-		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
-			pvcName, namespace, err)
-		return "", err
-	}
-
-	// Get PV by name
-	pv := &v1.PersistentVolume{}
-	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
-	if err != nil {
-		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
-			pvc.Spec.VolumeName, pvcName, err)
-		return "", err
-	}
-	return pv.Spec.CSI.VolumeHandle, nil
 }
 
 func updateCnsNodeVMAttachment(ctx context.Context, client client.Client, instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
