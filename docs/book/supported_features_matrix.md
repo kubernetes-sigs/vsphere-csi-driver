@@ -20,6 +20,7 @@ _Notes_:
 
 * vSphere CSI driver is not supported on Windows based vCenter.
 * vSphere CSI driver is not supported on vSAN stretch cluster.
+* Feature to migrate in-tree vSphere volumes to CSI is released as **beta** with [v2.1.0](https://github.com/kubernetes-sigs/vsphere-csi-driver/releases/tag/v2.1.0). This feature requires vSphere 7.0u1.
 * vSphere CSI driver and Cloud Native Storage in vSphere does not currently support Storage DRS feature in vSphere.
 * Native K8s is any distribution that uses vanilla upstream Kubernetes binaries and pods (e.g. VMware TKG, TKGI, etc)
 * If the CSI version `2.0` driver is installed on K8s running on vSphere 6.7U3, the older CSI `1.0` driver features continue to work but the new CSI `2.0` features are not supported.
