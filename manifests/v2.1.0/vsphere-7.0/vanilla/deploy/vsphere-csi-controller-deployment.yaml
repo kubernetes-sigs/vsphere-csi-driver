@@ -39,8 +39,21 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+        - name: csi-resizer
+          image: quay.io/k8scsi/csi-resizer:v0.5.0
+          args:
+            - "--v=4"
+            - "--csiTimeout=300s"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0-rc.4
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.0
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -80,7 +93,7 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0-rc.4
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.0
           args:
             - "--leader-election"
           imagePullPolicy: "Always"
