@@ -8,7 +8,7 @@
 
 ## Introduction <a id="introduction"></a>
 
-**Note:** vSphere CSI Driver images for this feature is not yet released. When images will be available for public consumption we will update this document.
+**Note:** Feature to migrate in-tree vSphere volumes to CSI is released as **beta** with [v2.1.0](https://github.com/kubernetes-sigs/vsphere-csi-driver/releases/tag/v2.1.0).
 
 vSphere CSI driver and CNS bring in a lot of features that are not available in the in-tree vSphere volume plugin.
 
@@ -79,7 +79,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 
 1. Upgrade vSphere to 7.0u1.
 2. Upgrade kubernetes to 1.19 release.
-3. Install vSphere CSI Driver. Use deployment manifests and RBAC files published at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.1.0/vsphere-7.0u1/vanilla
+3. Install vSphere CSI Driver (version v2.1.0). Use deployment manifests and RBAC files published at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla
    - Make sure to enable csi-migration feature gate in the deployment yaml file.
 
            apiVersion: v1
@@ -112,7 +112,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
    - Installation steps:
      1. Create Private key, Certificate Signing Request and webhook secret containing Kubernetes signed Certificate and Private Key. Script is available to preform this task and it is located at `vsphere-csi-driver/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/` on the repository.
 
-            $ cd vsphere-csi-driver/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/generate-signed-webhook-certs.sh
             $ ./generate-signed-webhook-certs.sh 
               creating certs in tmpdir /var/folders/vy/_6dvxx7j5db9sq9n38qjymwr002gzv/T/tmp.mclIK6Jn 
               Generating RSA private key, 2048 bit long modulus
@@ -129,7 +129,8 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 
      2. Create ValidatingWebhookConfiguration, WebHook Deployment Pod, Service Accounts, Cluster Role,  Role Bindings, Service to bind with webhook pod.
 
-            $ cd vsphere-csi-driver/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/validatingwebhook.yaml
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/create-validation-webhook.sh
             $ ./create-validation-webhook.sh
             service/vsphere-webhook-svc created
             validatingwebhookconfiguration.admissionregistration.k8s.io/validation.csi.vsphere.vmware.com created
