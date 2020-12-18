@@ -403,8 +403,9 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	if len(sps.Items) == 0 { //there is no available storage pools
-		stampPVCWithError(ctx, client, curPVC, genericErr)
+	if len(sps.Items) == 0 {
+		//there is no available storage pools
+		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		return fmt.Errorf("fail to find any storage pool")
 	}
 
@@ -429,7 +430,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	assignedSP, err := getSPForPVCPlacement(ctx, client, curPVC, volSizeBytes, sps.Items, hostNames, pvcList.Items, spType, true)
 	if err != nil {
 		log.Errorf("Failed to find any SP to place PVC %v. Error :%v", curPVC.Name, err)
-		stampPVCWithError(ctx, client, curPVC, genericErr)
+		// we have already stamped PVC with corresponding error.
 		return err
 	}
 
@@ -712,6 +713,9 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 	log := logger.GetLogger(ctx)
 
 	if spName == "" {
+		return nil
+	}
+	if curValue := curPVC.Annotations[StoragePoolAnnotationKey]; curValue == spName {
 		return nil
 	}
 
