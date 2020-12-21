@@ -105,7 +105,11 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		defer diskDecommEnablementTicker.Stop()
 		clusterFlavor := cnstypes.CnsClusterFlavorWorkload
 		for ; true; <-diskDecommEnablementTicker.C {
-			coCommonInterface, _ := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *coInitParams)
+			coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *coInitParams)
+			if err != nil {
+				log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+				continue
+			}
 			if !coCommonInterface.IsFSSEnabled(ctx, common.VSANDirectDiskDecommission) {
 				log.Infof("VSANDirectDiskDecommission feature is disabled on the cluster")
 			} else {
