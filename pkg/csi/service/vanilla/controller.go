@@ -39,6 +39,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
+	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -884,6 +885,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		volumeType = prometheus.PrometheusBlockVolumeType
 		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		if err != nil {
+			// ControllerUnpublishVolume should succeed when the corresponding vm is already deleted.
+			if err == cnsnode.ErrNodeNotFound {
+				log.Info("ControllerUnpublishVolume: Returning success since the node vm is not found")
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
 			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
