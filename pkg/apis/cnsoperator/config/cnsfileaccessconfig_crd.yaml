@@ -47,7 +47,7 @@ spec:
           properties:
             done:
               description: Done indicates whether the ACL has been configured on file volume.
-              type: bool
+              type: boolean
             accessPoints:
               description: Access points per protocol supported by the volume.
               additionalProperties:
