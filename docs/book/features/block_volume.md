@@ -248,8 +248,6 @@ and a `PersistentVolumeClaim`.
 Because the PV and the storage device already exists, there is no need to specify a storage class name in the PVC spec.
 There are many ways to create static PV and PVC binding. Example: Label matching, Volume Size matching etc
 
-Static Volume Provisioning is supported only in Vanilla Kubernetes clusters but not in Supervisor clusters
-
 **NOTE:** For Block volumes, vSphere Cloud Native Storage (CNS) only allows one PV in the Kubernetes cluster to refer to a storage disk. Creating multiple PV's using the same Block Volume Handle is not supported.
 
 ### Use Cases of Static Provisioning<a id="static_volume_provisioning_use_case"></a>
@@ -280,6 +278,8 @@ the same zone.
 
 This section describes the step by step instructions to provision a PersistentVolume statically on a `Vanilla Kubernetes`
 cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com` in the PV annotation.
+
+**Note:** You shouldn't specify the key `storage.kubernetes.io/csiProvisionerIdentity` in `csi.volumeAttributes` in PV spec(it indicates dynamically provisioned PVs).
 
 - Define a PVC and a PV as shown below
 
