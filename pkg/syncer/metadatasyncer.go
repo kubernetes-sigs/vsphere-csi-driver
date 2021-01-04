@@ -885,7 +885,15 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	} else {
 		volumeHandle = newPv.Spec.CSI.VolumeHandle
 	}
-	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && newPv.Spec.StorageClassName == "" {
+
+	// TODO: Revisit the logic for static PV update once we have a specific return code from CNS
+	// for UpdateVolumeMetadata if the volume is not registered as CNS volume.
+	// The issue is being tracked here: https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/579
+
+	// Dynamically provisioned PVs have a volume attribute called 'storage.kubernetes.io/csiProvisionerIdentity'
+	// in their CSI spec, which is set by external-provisioner.
+	_, dynamic := newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
+	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && !dynamic {
 		// Static PV is Created
 		var volumeType string
 		if IsMultiAttachAllowed(oldPv) {
