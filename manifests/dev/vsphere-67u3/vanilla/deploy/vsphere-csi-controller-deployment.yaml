@@ -20,10 +20,19 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
-        - operator: "Exists"
+        - key: node-role.kubernetes.io/master
+          operator: Exists
           effect: NoSchedule
-        - operator: "Exists"
-          effect: NoExecute
+        # uncomment below toleration if you need an aggressive pod eviction in case when
+        # node becomes not-ready or unreachable. Default is 300 seconds if not specified.
+        #- key: node.kubernetes.io/not-ready
+        #  operator: Exists
+        #  effect: NoExecute
+        #  tolerationSeconds: 30
+        #- key: node.kubernetes.io/unreachable
+        #  operator: Exists
+        #  effect: NoExecute
+        #  tolerationSeconds: 30
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
