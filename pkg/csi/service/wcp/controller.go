@@ -232,10 +232,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		param := strings.ToLower(paramName)
 		if param == common.AttributeStoragePolicyID {
 			storagePolicyID = req.Parameters[paramName]
-		} else if param == common.AttributeAffineToHost {
-			affineToHost = req.Parameters[common.AttributeAffineToHost]
-			// XXX: We don't set the accessibleNodes here as we expect the partners to specify the node selector in pod
-			// spec while creating it. This mode of placement will be deprecated soon as we progress towards storagePool
 		} else if param == common.AttributeStoragePool {
 			storagePool = req.Parameters[paramName]
 			if !isValidAccessibilityRequirement(topologyRequirement) {
@@ -262,8 +258,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					return nil, status.Errorf(codes.Internal, msg)
 				}
 				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
-				//Ignore affineToHost if received, as storagePool takes precedence for placement decision
-				affineToHost = ""
 			} else if storagePoolType == vsanSna {
 				// Query API server to get ESX Host Moid from the hostLocalNodeName
 				if len(accessibleNodes) != 1 {

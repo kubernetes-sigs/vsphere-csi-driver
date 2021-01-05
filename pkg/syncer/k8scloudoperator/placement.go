@@ -61,6 +61,7 @@ const (
 	invalidParamsErr = "FAILED_PLACEMENT-InvalidParams"
 	genericErr       = "FAILED_PLACEMENT-Generic"
 	notEnoughResErr  = "FAILED_PLACEMENT-NotEnoughResources"
+	invalidConfigErr = "FAILED_PLACEMENT-InvalidConfiguration"
 	vsanSna          = "vsan-sna"
 )
 
@@ -408,7 +409,14 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return fmt.Errorf("fail to find any storage pool")
 	}
 
-	hostNames := getHostCandidates(ctx, tops)
+	hostNames, err := getHostCandidates(ctx, curPVC, tops)
+	if err != nil {
+		log.Errorf("Fail to get Host candidates with %+v", err)
+		stampPVCWithError(ctx, client, curPVC, invalidConfigErr)
+		return err
+	}
+	log.Infof("filtered host candidates: %v", hostNames)
+
 	capacity := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 	volSizeBytes := capacity.Value()
 
@@ -752,8 +760,8 @@ func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
 	return *scName, nil
 }
 
-// getHostCandidates get all candidate hosts from topology requirements
-func getHostCandidates(ctx context.Context, topologyRequirement *csi.TopologyRequirement) []string {
+// getHostNamesFromTopology get all candidate hosts from topology requirements
+func getHostNamesFromTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement) []string {
 	log := logger.GetLogger(ctx)
 
 	hostNames := []string{}
@@ -775,4 +783,30 @@ func getHostCandidates(ctx context.Context, topologyRequirement *csi.TopologyReq
 		hostNames = append(hostNames, value)
 	}
 	return hostNames
+}
+
+// getHostCandidates returns the hostnames where the placement can be done. Returns error if there is a misconfiguration
+func getHostCandidates(ctx context.Context, curPVC *v1.PersistentVolumeClaim, tops *csi.TopologyRequirement) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	candidateHostsFromTopology := getHostNamesFromTopology(ctx, tops)
+
+	if affineToHostName, present := curPVC.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; present {
+		log.Infof("Got affinity parameter host name: %s", affineToHostName)
+		// Abort placement if the affineToHostName is not present in the topology requirement
+		if !isHostPresentInTopology(affineToHostName, candidateHostsFromTopology) {
+			return nil, fmt.Errorf("invalid configuration - the PVC nodeAffinity annotation conflicts with Pod topology requirement")
+		}
+		return []string{affineToHostName}, nil
+	}
+	return candidateHostsFromTopology, nil
+}
+
+// isHostPresentInTopology checks if the affinityHost present in the list of hostnames specified in the topology requirement
+func isHostPresentInTopology(affinityHost string, topologyHosts []string) bool {
+	for _, host := range topologyHosts {
+		if strings.EqualFold(affinityHost, host) {
+			return true
+		}
+	}
+	return false
 }
