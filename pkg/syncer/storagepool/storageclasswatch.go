@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 
 	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -244,7 +245,7 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
 
 	sc := w.policyToScMap[profile.ID]
 	w.isHostLocalMap[sc.Name] = isHostLocalProfile(profile)
-	log.Infof("sc", sc.Name, "is hostLocal:", w.isHostLocalMap[sc.Name])
+	log.Infof("sc %s is hostLocal: %t", sc.Name, w.isHostLocalMap[sc.Name])
 	profileBytes, err := json.Marshal(profile)
 	if err != nil {
 		log.Errorf("Failed to marshal policy: %s", err)
@@ -291,18 +292,93 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context
 		log.Debugf("No storage policies to fetch")
 		return nil
 	}
-	profiles, err := w.vc.PbmRetrieveContent(ctx, w.policyIds)
+
+	profiles, err := w.fetchPolicies(ctx)
 	if err != nil {
-		log.Errorf("Failed to retrieve policy content. err: %v", err)
+		log.Errorf("fetchPolicies failed. err: %v", err)
 		return err
 	}
 	for _, profile := range profiles {
-		err = w.addStorageClassPolicyAnnotation(ctx, profile)
+		err := w.addStorageClassPolicyAnnotation(ctx, profile)
 		if err != nil {
 			log.Errorf("addStorageClassPolicyAnnotation failed. err: %v", err)
 		}
 	}
 	return nil
+}
+
+// fetchPolicies for known valid policyIDs from SPBM. The PbmRetrieveContent() is a batch API that returns the profile
+// contents for given profileIds. If any of the input profile IDs are invalid, then it returns an empty list of profiles
+// and an error that lists all the invalid profile IDs. In such a case, this function removes invalid profileIds from
+// the input and makes a second call to PbmRetrieveContent() with just the valid ones.
+func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.SpbmPolicyContent, error) {
+	log := logger.GetLogger(ctx)
+	var profiles []cnsvsphere.SpbmPolicyContent
+	var err error
+	policyIds := w.policyIds
+	for i := 0; i < 2; i++ {
+		profiles, err = w.vc.PbmRetrieveContent(ctx, policyIds)
+		if err != nil {
+			// ignore non-existent stale profileIDs and continue with those that were fetched
+			isInvalidProfileErr, invalidProfiles := isInvalidProfileErr(ctx, err)
+			if !isInvalidProfileErr {
+				log.Errorf("Failed to retrieve policy contents for invalid profiles: %v", invalidProfiles)
+				return nil, err
+			}
+			if len(invalidProfiles) == 0 {
+				log.Errorf("Did not get the invalid profile IDs in error from SPBM. err: %v", err)
+				break
+			}
+			// remove the invalid profiles from policyIds and fetch valid profiles once again
+			log.Infof("Removing invalid profileIds %v from cache: %v", invalidProfiles, w.policyIds)
+			invalidProfileMap := make(map[string]bool, len(invalidProfiles))
+			for _, p := range invalidProfiles {
+				invalidProfileMap[p] = true
+			}
+			validProfileIds := make([]string, 0)
+			for _, p := range w.policyIds {
+				if !invalidProfileMap[p] {
+					validProfileIds = append(validProfileIds, p)
+				}
+			}
+			policyIds = validProfileIds
+		} else {
+			log.Debugf("Successfully retrieved content of policies %v", policyIds)
+			break
+		}
+	}
+	return profiles, err
+}
+
+// isInvalidProfileErr returns whether the given error is an InvalidArgument for the profileId returned by SPBM. If yes,
+// this function also returns the list of profileIds that are invalid.
+func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
+	log := logger.GetLogger(ctx)
+	if !soap.IsSoapFault(err) {
+		return false, nil
+	}
+	soapFault := soap.ToSoapFault(err)
+	vimFault, isInvalidArgumentErr := soapFault.VimFault().(vimtypes.InvalidArgument)
+	if isInvalidArgumentErr && vimFault.InvalidProperty == "profileId" {
+		// parse the profile IDs from the error message
+		log.Errorf("Invalid profile error: %+v", soapFault.String)
+		if strings.HasPrefix(soapFault.String, "Profile not found. Id:") {
+			profiles := strings.TrimPrefix(soapFault.String, "Profile not found. Id:")
+			split := strings.Split(profiles, ",")
+			profilesSlice := make([]string, 0)
+			for i := range split {
+				s := strings.TrimSpace(split[i])
+				if s != "" {
+					profilesSlice = append(profilesSlice, s)
+				}
+			}
+			log.Debugf("isInvalidProfileErr %v", profilesSlice)
+			return true, profilesSlice
+		}
+		// if the error returned from SPBM does not have profileIDs, just return nil here
+		return true, nil
+	}
+	return false, nil
 }
 
 // Query SPBM to get the list of policies that the given list of datastores
@@ -326,15 +402,12 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 	for _, policyID := range w.policyIds {
 		compat, err := w.vc.PbmCheckCompatibility(ctx, datastoreMorList, policyID)
 		if err != nil {
-			if soap.IsSoapFault(err) {
-				soapFault := soap.ToSoapFault(err)
-				vimFault, isInvalidArgumentErr := soapFault.VimFault().(vimtypes.InvalidArgument)
-				if isInvalidArgumentErr && vimFault.InvalidProperty == "profileId" {
-					// stale policyIDs can be skipped safely
-					log.Infof("Skipping non-existent policy %s that failed in check PBM compatibility %v with error %v",
-						policyID, datastoreMorList, soapFault.String)
-					continue
-				}
+			isInvalidProfileErr, _ := isInvalidProfileErr(ctx, err)
+			if isInvalidProfileErr {
+				// stale policyIDs can be skipped safely
+				log.Infof("Skipping non-existent policy %s that failed in check PBM compatibility %v with error %v",
+					policyID, datastoreMorList, err)
+				continue
 			}
 			return datastoreToPoliciesMap, err
 		}
