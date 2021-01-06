@@ -99,6 +99,21 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 		return err
 	}
 
+	// Trigger NodeAnnotationListener in StoragePool
+	go func() {
+		// Create the kubernetes client from config
+		k8sClient, err := k8s.NewClient(ctx)
+		if err != nil {
+			log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+			return
+		}
+		k8sInformerManager := k8s.NewInformer(k8sClient)
+		err = InitNodeAnnotationListener(ctx, k8sInformerManager, scWatchCntlr, spController)
+		if err != nil {
+			log.Errorf("InitNodeAnnotationListener failed. err: %v", err)
+		}
+	}()
+
 	migrationController := initMigrationController(vc, configInfo.Cfg.Global.ClusterID)
 	go func() {
 		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
@@ -135,11 +150,6 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 
 	log.Infof("Done initializing Storage Pool Service")
 	return nil
-}
-
-// GetStoragePoolService returns the single instance of Service
-func GetStoragePoolService() *Service {
-	return defaultStoragePoolService
 }
 
 // GetScWatch returns the active StorageClassWatch initialized in this service
