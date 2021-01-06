@@ -1365,7 +1365,7 @@ func getDevFromMount(target string) (*Device, error) {
 		if m.Path == target {
 			// something is mounted to target, get underlying disk
 			d := m.Device
-			if m.Device == "udev" {
+			if m.Device == "udev" || m.Device == "devtmpfs" {
 				d = m.Source
 			}
 			dev, err := getDevice(d)
