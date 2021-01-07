@@ -28,11 +28,9 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/vim25/soap"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog"
 
-	vimtypes "github.com/vmware/govmomi/vim25/types"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -370,43 +368,17 @@ func pvDeleted(obj interface{}, metadataSyncer *MetadataSyncInformer) {
 		klog.V(3).Infof("PVDeleted: Not a Vsphere CSI Volume: %+v", pv)
 		return
 	}
+	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased && pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
+		klog.V(3).Infof("PVDeleted: Volume deletion will be handled by Controller")
+		return
+	}
 
 	volumeOperationsLock.Lock()
 	defer volumeOperationsLock.Unlock()
-	if pv.Spec.ClaimRef == nil && pv.Status.Phase != v1.VolumeBound {
-		// Check if PV is not bound to any persistence volume claim, it means we need to de-register the volume
-		// This is needed because the delete volume call will not be invoked in the CSI controller
-		klog.V(4).Infof("PVDeleted: Deleting volume %v with delete disk %v", pv, false)
-		if err := volumes.GetManager(metadataSyncer.vcenter).DeleteVolume(pv.Spec.CSI.VolumeHandle, false); err != nil {
-			klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
-			return
-		}
-	} else {
-		// For all other cases we need to remove the PV metadata for the deleted PV
-		klog.V(4).Infof("PVDeleted: Removing pv metadata for pv: %v", pv.Name)
-		var metadataList []cnstypes.BaseCnsEntityMetadata
-		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePV), pv.Namespace)
-		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
-
-		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
-			VolumeId: cnstypes.CnsVolumeId{
-				Id: pv.Spec.CSI.VolumeHandle,
-			},
-			Metadata: cnstypes.CnsVolumeMetadata{
-				ContainerCluster: cnsvsphere.GetContainerCluster(metadataSyncer.cfg.Global.ClusterID, metadataSyncer.cfg.VirtualCenter[metadataSyncer.vcenter.Config.Host].User),
-				EntityMetadata:   metadataList,
-			},
-		}
-		if err := volumes.GetManager(metadataSyncer.vcenter).UpdateVolumeMetadata(updateSpec); err != nil {
-			if soap.IsSoapFault(err) {
-				soapFault := soap.ToSoapFault(err)
-				if _, ok := soapFault.VimFault().(vimtypes.NotFound); ok {
-					klog.V(2).Infof("VolumeID: %q, not found for PV: %q. Volume could be already deleted by CSI controller", pv.Spec.CSI.VolumeHandle, pv.Name)
-					return
-				}
-			}
-			klog.Errorf("PVDeleted: UpdateVolumeMetadata failed with err %v", err)
-		}
+	klog.V(4).Infof("PVDeleted: vSphere provisioner deleting volume %v", pv)
+	if err := volumes.GetManager(metadataSyncer.vcenter).DeleteVolume(pv.Spec.CSI.VolumeHandle, false); err != nil {
+		klog.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
+		return
 	}
 }
 
