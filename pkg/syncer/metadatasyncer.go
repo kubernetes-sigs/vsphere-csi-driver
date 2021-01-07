@@ -970,8 +970,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 // csiPVDeleted deletes volume metadata on VC when volume has been deleted on Vanills k8s and supervisor cluster
 func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	var deleteDisk bool
-	if pv.Spec.ClaimRef != nil && (pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased) && pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
+	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased && pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVDeleted: Volume deletion will be handled by Controller")
 		return
 	}
@@ -1043,26 +1042,16 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		} else {
 			volumeHandle = pv.Spec.CSI.VolumeHandle
 		}
-		if pv.Spec.ClaimRef == nil || pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimDelete {
-			log.Debugf("PVDeleted: Setting DeleteDisk to false")
-			deleteDisk = false
-		} else {
-			// We set delete disk=true for the case where PV status is failed after deletion of pvc
-			// In this case, metadatasyncer will remove the volume
-			log.Debugf("PVDeleted: Setting DeleteDisk to true")
-			deleteDisk = true
-		}
-		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v with delete disk %v", pv, deleteDisk)
 
-		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, deleteDisk); err != nil {
+		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
+
+		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, false); err != nil {
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
 			// Delete the cnsvspherevolumemigration crd instance when PV is deleted
 			err = volumeMigrationService.DeleteVolumeInfo(ctx, volumeHandle)
 			if err != nil {
-				// TODO: Need to add a cleanup routine for deleting stale volume migration CRs
-				// Mentioned in issue: https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/441
 				log.Errorf("PVDeleted: failed to delete volumeInfo CR for volume: %q. Error: %+v", volumeHandle, err)
 				return
 			}
