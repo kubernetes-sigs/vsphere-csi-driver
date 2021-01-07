@@ -24,6 +24,8 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+
+	vimmethods "github.com/vmware/govmomi/vim25/methods"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
@@ -640,7 +642,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimtypes.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
 		This:    VsanQueryObjectIdentitiesInstance,
-		Cluster: cluster,
+		Cluster: &cluster,
 	}
 
 	res, err := vsanmethods.VsanQueryObjectIdentities(ctx, c.serviceClient, &req)
@@ -648,7 +650,7 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimt
 	if err != nil {
 		return nil, err
 	}
-	return &res.Returnval, nil
+	return res.Returnval, nil
 }
 
 //QueryVsanObjects takes vsan uuid as input and returns the vSANObj related information like lsom_objects and disk_objects
@@ -683,11 +685,11 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 			Value: value,
 		}
 	)
-	req := vsantypes.QueryVsanObjects{
+	req := vimtypes.QueryVsanObjects{
 		This:  QueryVsanObjectsInstance,
 		Uuids: uuids,
 	}
-	res, err := vsanmethods.QueryVsanObjects(ctx, c.serviceClient, &req)
+	res, err := vimmethods.QueryVsanObjects(ctx, c.serviceClient, &req)
 	if err != nil {
 		framework.Logf("QueryVsanObjects Failed with err %v", err)
 		return "", err
