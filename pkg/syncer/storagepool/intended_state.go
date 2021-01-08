@@ -37,6 +37,9 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
+var findAccessibleNodesInCluster = findAccessibleNodes
+var getDSProperties = getDatastoreProperties
+
 const (
 	changeThresholdB = 1 * 1024 * 1024 * 1024
 )
@@ -104,14 +107,14 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	spName := makeStoragePoolName(ds.Info.Name)
 
 	// get datastore properties like capacity, freeSpace, dsURL, dsType, accessible, inMM, containerID
-	dsProps := getDatastoreProperties(ctx, ds)
+	dsProps := getDSProperties(ctx, ds)
 	if dsProps == nil || dsProps.capacity == nil || dsProps.freeSpace == nil {
 		err := fmt.Errorf("error fetching datastore properties for %v", ds.Reference().Value)
 		log.Error(err)
 		return nil, err
 	}
 
-	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vcClient.Client)
+	nodesMap, err := findAccessibleNodesInCluster(ctx, ds.Datastore.Datastore, clusterID, vc.Client.Client)
 	if err != nil {
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err

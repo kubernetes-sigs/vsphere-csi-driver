@@ -29,7 +29,9 @@ require (
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.1.0 // indirect
+	github.com/prometheus/common v0.6.0
 	github.com/rexray/gocsi v1.2.1
+	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3

@@ -32,6 +32,8 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
+var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
+
 var (
 	// reconcileAllMutex should be acquired to run ReconcileAllStoragePools so that only one thread runs at a time.
 	reconcileAllMutex sync.Mutex
@@ -210,7 +212,7 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 		return err
 	}
 	// Get datastores from VC
-	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc, spCtl.clusterID)
+	sharedDatastores, vsanDirectDatastores, err := getCandidateDatastores(ctx, &vc, spCtl.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return err
