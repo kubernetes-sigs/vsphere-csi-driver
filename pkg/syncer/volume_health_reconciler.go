@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
@@ -411,7 +412,7 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context, svcPVC *v1.P
 	if svcPVC != nil {
 		svcAnnValue, svcAnnFound = svcPVC.ObjectMeta.Annotations[annVolumeHealth]
 	} else {
-		svcAnnValue = volHealthStatusInAccessible
+		svcAnnValue = common.VolHealthStatusInaccessible
 	}
 
 	if !tkgAnnFound && svcAnnFound || tkgAnnFound && svcAnnFound && tkgAnnValue != svcAnnValue || svcPVC == nil {

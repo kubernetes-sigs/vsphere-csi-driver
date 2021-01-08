@@ -183,6 +183,7 @@ data:
   "volume-health": "true"
   "online-volume-extend": "false"
   "file-volume": "false"
+  "fake-attach": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

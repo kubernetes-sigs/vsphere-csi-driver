@@ -31,6 +31,7 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
 
@@ -322,4 +323,20 @@ func GetK8sCloudOperatorServicePort(ctx context.Context) int {
 		}
 	}
 	return k8sCloudOperatorServicePort
+}
+
+// ConvertVolumeHealthStatus convert the volume health status into accessible/inaccessible status
+func ConvertVolumeHealthStatus(volHealthStatus string) (string, error) {
+	switch volHealthStatus {
+	case string(pbmtypes.PbmHealthStatusForEntityRed):
+		return VolHealthStatusInaccessible, nil
+	case string(pbmtypes.PbmHealthStatusForEntityGreen):
+		return VolHealthStatusAccessible, nil
+	case string(pbmtypes.PbmHealthStatusForEntityYellow):
+		return VolHealthStatusAccessible, nil
+	case string(pbmtypes.PbmHealthStatusForEntityUnknown):
+		return string(pbmtypes.PbmHealthStatusForEntityUnknown), nil
+	default:
+		return "", fmt.Errorf("cannot convert invalid volume health status %s", volHealthStatus)
+	}
 }

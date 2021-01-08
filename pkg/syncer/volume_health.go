@@ -18,7 +18,6 @@ package syncer
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -27,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -85,7 +85,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 
 			// only update PVC health annotation if the HealthStatus of volume is not "unknown"
 			if vol.HealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-				volHealthStatus, err := convertVolumeHealthStatus(vol.HealthStatus)
+				volHealthStatus, err := common.ConvertVolumeHealthStatus(vol.HealthStatus)
 				if err != nil {
 					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", vol.HealthStatus, vol.VolumeId.Id)
 				}
@@ -132,20 +132,4 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		}
 	}
 	log.Infof("GetVolumeHealthStatus: end")
-}
-
-// convertVolumeHealthStatus convert the volume health status into accessible/inaccessible status
-func convertVolumeHealthStatus(volHealthStatus string) (string, error) {
-	switch volHealthStatus {
-	case string(pbmtypes.PbmHealthStatusForEntityRed):
-		return volHealthStatusInAccessible, nil
-	case string(pbmtypes.PbmHealthStatusForEntityGreen):
-		return volHealthStatusAccessible, nil
-	case string(pbmtypes.PbmHealthStatusForEntityYellow):
-		return volHealthStatusAccessible, nil
-	case string(pbmtypes.PbmHealthStatusForEntityUnknown):
-		return string(pbmtypes.PbmHealthStatusForEntityUnknown), nil
-	default:
-		return "", fmt.Errorf("cannot convert invalid volume health status %s", volHealthStatus)
-	}
 }
