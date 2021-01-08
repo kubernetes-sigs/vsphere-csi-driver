@@ -129,11 +129,8 @@ func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []str
 		})
 	}
 	profiles, err := vc.PbmClient.RetrieveContent(ctx, pbmPolicyIds)
-	if err != nil {
-		return nil, err
-	}
 
-	return simplifyProfileStructs(ctx, profiles), nil
+	return simplifyProfileStructs(ctx, profiles), err
 }
 
 func simplifyProfileStructs(ctx context.Context, profiles []pbmtypes.BasePbmProfile) []SpbmPolicyContent {
