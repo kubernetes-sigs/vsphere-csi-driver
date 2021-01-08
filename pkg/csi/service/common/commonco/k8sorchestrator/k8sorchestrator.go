@@ -24,11 +24,15 @@ import (
 	"sync/atomic"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -45,12 +49,43 @@ type FSSConfigMapInfo struct {
 	configMapNamespace string
 }
 
+// Map of volume handles to the pvc it is bound to.
+// Key is the volume handle ID and value is the namespaced name of the pvc.
+// The methods to add, remove and get entries from the map in a threadsafe manner are defined.
+type volumeIDToPvcMap struct {
+	*sync.RWMutex
+	items map[string]string
+}
+
+// Adds an entry to volumeIDToPvcMap in a thread safe manner.
+func (m *volumeIDToPvcMap) add(volumeHandle, pvcName string) {
+	m.Lock()
+	defer m.Unlock()
+	m.items[volumeHandle] = pvcName
+}
+
+// Removes a volume handle from volumeIDToPvcMap in a thread safe manner.
+func (m *volumeIDToPvcMap) remove(volumeHandle string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.items, volumeHandle)
+}
+
+// Returns the namespaced pvc name corresponding to volumeHandle.
+func (m *volumeIDToPvcMap) get(volumeHandle string) string {
+	m.RLock()
+	defer m.RUnlock()
+	return m.items[volumeHandle]
+}
+
 // K8sOrchestrator defines set of properties specific to K8s
 type K8sOrchestrator struct {
-	supervisorFSS   FSSConfigMapInfo
-	internalFSS     FSSConfigMapInfo
-	informerManager *k8s.InformerManager
-	clusterFlavor   cnstypes.CnsClusterFlavor
+	supervisorFSS    FSSConfigMapInfo
+	internalFSS      FSSConfigMapInfo
+	informerManager  *k8s.InformerManager
+	clusterFlavor    cnstypes.CnsClusterFlavor
+	volumeIDToPvcMap *volumeIDToPvcMap
+	k8sClient        clientset.Interface
 }
 
 // K8sGuestInitParams lists the set of parameters required to run the init for K8sOrchestrator in Guest cluster
@@ -95,12 +130,20 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 			k8sOrchestratorInstance = &K8sOrchestrator{}
 			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
+			k8sOrchestratorInstance.k8sClient = k8sClient
+			k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
 				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
 				return nil, coInstanceErr
 			}
 
+			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+				k8sOrchestratorInstance.IsFSSEnabled(ctx, common.FakeAttach) {
+
+				initVolumeHandleToPvcMap(ctx)
+			}
+			k8sOrchestratorInstance.informerManager.Listen()
 			atomic.StoreUint32(&k8sOrchestratorInstanceInitialized, 1)
 			log.Info("k8sOrchestratorInstance initialized")
 		}
@@ -194,7 +237,6 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 	}
 
 	// Set up kubernetes resource listeners for k8s orchestrator
-	k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
 	k8sOrchestratorInstance.informerManager.AddConfigMapListener(ctx, k8sClient, configMapNamespaceToListen,
 		// Add
 		func(obj interface{}) {
@@ -206,7 +248,6 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 		func(obj interface{}) {
 			configMapDeleted(obj)
 		})
-	k8sOrchestratorInstance.informerManager.Listen()
 	return nil
 }
 
@@ -282,6 +323,127 @@ func configMapDeleted(obj interface{}) {
 	}
 }
 
+// initVolumeHandleToPvcMap performs all the operations required to initialize the volume id to PVC name map.
+// It also watches for PV update & delete operations, and updates the map accordingly.
+func initVolumeHandleToPvcMap(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Initializing volume ID to PVC name map")
+	k8sOrchestratorInstance.volumeIDToPvcMap = &volumeIDToPvcMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
+	}
+
+	// Set up kubernetes resource listener to listen events on PersistentVolumes and PersistentVolumeClaims
+	k8sOrchestratorInstance.informerManager.AddPVListener(
+		func(obj interface{}) { // Add
+			pvAdded(obj)
+		},
+		func(oldObj interface{}, newObj interface{}) { // Update
+			pvUpdated(oldObj, newObj)
+		},
+		func(obj interface{}) { // Delete
+			pvDeleted(obj)
+		})
+
+	k8sOrchestratorInstance.informerManager.AddPVCListener(
+		func(obj interface{}) { // Add
+			pvcAdded(obj)
+		},
+		nil, // Update
+		nil, // Delete
+	)
+}
+
+// Since informerManager's sharedInformerFactory is started with no resync period, it never syncs the
+// existing cluster objects to its Store when it's started.
+// pvcAdded provides no additional handling but it ensures that existing PVCs in the cluster
+// gets added to sharedInformerFactory's Store before it's started. Then using informerManager's
+// PVCLister should find the existing PVCs as well.
+func pvcAdded(obj interface{}) {}
+
+// pvAdded adds a volume to the volumeIDToPvcMap if it's already in Bound phase.
+// This ensures that all existing PVs in the cluster are added to the map, even across container restarts.
+func pvAdded(obj interface{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	pv, ok := obj.(*v1.PersistentVolume)
+	if pv == nil || !ok {
+		log.Warnf("pvAdded: unrecognized object %+v", obj)
+		return
+	}
+
+	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name &&
+		pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound &&
+		!isFileVolume(pv) { //we should not be caching file volumes to the map
+
+		//Add volume handle to PVC mapping
+		objKey := pv.Spec.CSI.VolumeHandle
+		objVal := pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name
+
+		k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
+		log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
+	}
+}
+
+// pvUpdated updates the volumeIDToPvcMap when a PV goes to Bound phase
+func pvUpdated(oldObj, newObj interface{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	// Get old and new PV objects
+	oldPv, ok := oldObj.(*v1.PersistentVolume)
+	if oldPv == nil || !ok {
+		log.Warnf("PVUpdated: unrecognized old object %+v", oldObj)
+		return
+	}
+
+	newPv, ok := newObj.(*v1.PersistentVolume)
+	if newPv == nil || !ok {
+		log.Warnf("PVUpdated: unrecognized new object %+v", newObj)
+		return
+	}
+
+	// PV goes into Bound phase
+	if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
+		if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&
+			newPv.Spec.ClaimRef != nil && !isFileVolume(newPv) {
+
+			log.Debugf("pvUpdated: PV %s went to Bound phase", newPv.Name)
+			//Add volume handle to PVC mapping
+			objKey := newPv.Spec.CSI.VolumeHandle
+			objVal := newPv.Spec.ClaimRef.Namespace + "/" + newPv.Spec.ClaimRef.Name
+
+			k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
+			log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
+		}
+	}
+}
+
+// pvDeleted deletes an entry from volumeIDToPvcMap when a PV gets deleted
+func pvDeleted(obj interface{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	pv, ok := obj.(*v1.PersistentVolume)
+	if pv == nil || !ok {
+		log.Warnf("PVDeleted: unrecognized object %+v", obj)
+		return
+	}
+	log.Debugf("PV: %s deleted. Removing entry from volumeIDToPvcMap", pv.Name)
+
+	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+		k8sOrchestratorInstance.volumeIDToPvcMap.remove(pv.Spec.CSI.VolumeHandle)
+		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToPvcMap", pv.Spec.CSI.VolumeHandle)
+	}
+}
+
 // IsFSSEnabled utilises the cluster flavor to check their corresponding FSS maps and returns
 // if the feature state switch is enabled for the given feature indicated by featureName
 func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) bool {
@@ -352,4 +514,87 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	}
 	log.Debugf("cluster flavor %q not recognised. Defaulting to false", c.clusterFlavor)
 	return false
+}
+
+// IsFakeAttachAllowed checks if the volume is eligible to be fake attached and returns a bool value
+func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error) {
+	log := logger.GetLogger(ctx)
+	//Check pvc annotations
+	pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
+	if err != nil {
+		log.Errorf("IsFakeAttachAllowed: failed to get pvc annotations for volume ID %s while checking eligibility for fake attach", volumeID)
+		return false, err
+	}
+
+	if val, found := pvcAnn[common.AnnIgnoreInaccessiblePV]; found && val == "yes" {
+		log.Debugf("Found %s annotation on pvc set to yes for volume: %s. Checking volume health on CNS volume.", common.AnnIgnoreInaccessiblePV, volumeID)
+		//Check if volume is inaccessible
+		vol, err := common.QueryVolumeByID(ctx, volumeManager, volumeID)
+		if err != nil {
+			log.Errorf("failed to query CNS for volume ID %s while checking eligibility for fake attach", volumeID)
+			return false, err
+		}
+
+		if vol.HealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
+			volHealthStatus, err := common.ConvertVolumeHealthStatus(vol.HealthStatus)
+			if err != nil {
+				log.Errorf("invalid health status: %s for volume: %s", vol.HealthStatus, vol.VolumeId.Id)
+				return false, err
+			}
+			log.Debugf("CNS volume health is: %s", volHealthStatus)
+
+			// If volume is inaccessible, it can be fake attached.
+			if volHealthStatus == common.VolHealthStatusInaccessible {
+				log.Infof("Volume: %s is eligible to be fake attached", volumeID)
+				return true, nil
+			}
+		}
+		// For all other cases, return false
+		return false, nil
+	}
+	// Annotation is not found or not set to true, return false
+	log.Debugf("Annotation %s not found or not set to true on pvc for volume %s", common.AnnIgnoreInaccessiblePV, volumeID)
+	return false, nil
+}
+
+// MarkFakeAttached updates the pvc corresponding to volume to have a fake attach annotation.
+func (c *K8sOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	annotations := make(map[string]string)
+	annotations[common.AnnVolumeHealth] = common.VolHealthStatusInaccessible
+	annotations[common.AnnFakeAttached] = "yes"
+
+	// Update annotations.
+	// Along with updating fake attach annotation on pvc, also update the volume health on pvc
+	// as inaccessible, as that's one of the conditions for volume to be fake attached.
+	if err := c.updatePVCAnnotations(ctx, volumeID, annotations); err != nil {
+		log.Errorf("failed to mark fake attach annotation on the pvc for volume %s. Error:%+v", volumeID, err)
+		return err
+	}
+
+	return nil
+}
+
+// ClearFakeAttached checks if pvc corresponding to the volume has fake annotations,
+// and unmark it as not fake attached.
+func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	//Check pvc annotations
+	pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
+	if err != nil {
+		log.Errorf("ClearFakeAttached: failed to get pvc annotations for volume ID %s while checking if it was fake attached")
+		return err
+	}
+	val, found := pvcAnn[common.AnnFakeAttached]
+	if found && val == "yes" {
+		log.Debugf("Volume: %s was fake attached", volumeID)
+		//Clear the fake attach annotation
+		annotations := make(map[string]string)
+		annotations[common.AnnFakeAttached] = ""
+		if err := c.updatePVCAnnotations(ctx, volumeID, annotations); err != nil {
+			log.Errorf("failed to clear fake attach annotation on the pvc for volume %s. Error:%+v", volumeID, err)
+			return err
+		}
+	}
+	return nil
 }
