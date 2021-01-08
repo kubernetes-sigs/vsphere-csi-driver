@@ -90,6 +90,9 @@ type VirtualCenterConfig struct {
 	// Insecure is enabled. Optional; if not configured, the system's CA
 	// certificates will be used.
 	CAFile string
+	// Thumbprint specifies the certificate thumbprint to use
+	// This has no effect if InsecureFlag is enabled.
+	Thumbprint string
 	// RoundTripperCount is the SOAP round tripper count. (retries = RoundTripperCount - 1)
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
@@ -122,6 +125,9 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 			log.Errorf("failed to load CA file: %v", err)
 			return nil, err
 		}
+	} else if len(vc.Config.Thumbprint) > 0 && !vc.Config.Insecure {
+		soapClient.SetThumbprint(url.Host, vc.Config.Thumbprint)
+		log.Debugf("using thumbprint %s for url %s ", vc.Config.Thumbprint, url.Host)
 	}
 	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
 	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
