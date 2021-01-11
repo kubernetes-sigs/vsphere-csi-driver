@@ -18,12 +18,27 @@ package util
 
 import (
 	"context"
+	"fmt"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
+
+var virtualNetworkGVR = schema.GroupVersionResource{
+	Group:    "vmware.com",
+	Version:  "v1alpha1",
+	Resource: "virtualnetworks",
+}
+
+const snatIPAnnotation = "ncp/snat_ip"
 
 // GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName
 func GetVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
@@ -49,4 +64,49 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 		return "", err
 	}
 	return pv.Spec.CSI.VolumeHandle, nil
+}
+
+// GetTKGVMIP finds the external facing IP address of a TKG VM object from a
+// given Supervisor Namespace based on the networking configuration (NSX-T or VDS)
+func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.Interface, vmNamespace, vmName string, nsxConfiguration bool) (string, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
+	virtualMachineInstance := &vmoperatortypes.VirtualMachine{}
+	vmKey := types.NamespacedName{
+		Namespace: vmNamespace,
+		Name:      vmName,
+	}
+	err := vmOperatorClient.Get(ctx, vmKey, virtualMachineInstance)
+	if err != nil {
+		log.Errorf("failed to get virtualmachine %s/%s with error: %v", vmNamespace, vmName, err)
+		return "", err
+	}
+
+	var networkName string
+	for _, networkInterface := range virtualMachineInstance.Spec.NetworkInterfaces {
+		// The assumption is that a TKG VM will have only a single network interface.
+		// This logic needs to be revisited when multiple network interface support
+		// is added.
+		networkName = networkInterface.NetworkName
+	}
+	log.Debugf("VirtualMachine %s/%s is configured with network %s", vmNamespace, vmName, networkName)
+
+	var ip string
+	var exists bool
+	if nsxConfiguration {
+		virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx, networkName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v", vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
+		ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
+		if !exists {
+			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
+		}
+	} else {
+		// TODO: Add support to determine external IP address of a TKG VM in VDS based Pacific
+		return "", fmt.Errorf("cannot determine external IP address of VDS based network configration")
+	}
+	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
+	return ip, nil
 }
