@@ -59,6 +59,8 @@ const (
 	volumeHealthRetryIntervalMax = 5 * time.Minute
 	// default number of threads concurrently running for volume health reconciler
 	volumeHealthWorkers = 10
+	// key for dynamically provisioned PV in volume attributes of PV spec
+	attribCSIProvisionerID = "storage.kubernetes.io/csiProvisionerIdentity"
 )
 
 var (
