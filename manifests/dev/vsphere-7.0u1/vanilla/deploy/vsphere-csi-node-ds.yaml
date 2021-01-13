@@ -20,7 +20,7 @@ spec:
       dnsPolicy: "Default"
       containers:
       - name: node-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v2.0.1
+        image: quay.io/k8scsi/csi-node-driver-registrar:v2.1.0
         args:
         - "--v=5"
         - "--csi-address=$(ADDRESS)"
@@ -104,7 +104,7 @@ spec:
           initialDelaySeconds: 10
           timeoutSeconds: 5
       - name: liveness-probe
-        image: quay.io/k8scsi/livenessprobe:v2.1.0
+        image: quay.io/k8scsi/livenessprobe:v2.2.0
         args:
           - "--v=4"
           - "--csi-address=/csi/csi.sock"

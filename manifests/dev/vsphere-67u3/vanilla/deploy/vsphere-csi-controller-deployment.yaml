@@ -36,7 +36,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v2.2.0
+          image: quay.io/k8scsi/csi-attacher:v3.1.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -86,7 +86,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: quay.io/k8scsi/livenessprobe:v2.0.0
+          image: quay.io/k8scsi/livenessprobe:v2.2.0
           args:
             - "--csi-address=$(ADDRESS)"
           env:
@@ -118,16 +118,16 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v1.6.0
+          image: quay.io/k8scsi/csi-provisioner:v2.1.0
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+            - "--default-fstype=ext4"
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
-            - "--enable-leader-election"
-            - "--leader-election-type=leases"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
