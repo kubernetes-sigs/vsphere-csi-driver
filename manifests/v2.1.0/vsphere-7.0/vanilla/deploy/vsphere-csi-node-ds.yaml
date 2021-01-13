@@ -20,7 +20,7 @@ spec:
       dnsPolicy: "Default"
       containers:
       - name: node-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
+        image: quay.io/k8scsi/csi-node-driver-registrar:v2.0.1
         lifecycle:
           preStop:
             exec:
@@ -94,7 +94,7 @@ spec:
           periodSeconds: 5
           failureThreshold: 3
       - name: liveness-probe
-        image: quay.io/k8scsi/livenessprobe:v2.0.0
+        image: quay.io/k8scsi/livenessprobe:v2.1.0
         args:
         - --csi-address=/csi/csi.sock
         volumeMounts:
