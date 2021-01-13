@@ -43,7 +43,7 @@ spec:
           image: quay.io/k8scsi/csi-resizer:v1.0.0
           args:
             - "--v=4"
-            - "--csiTimeout=300s"
+            - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
           env:
@@ -114,11 +114,10 @@ spec:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
-            - "--enable-leader-election"
-            - "--leader-election-type=leases"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
