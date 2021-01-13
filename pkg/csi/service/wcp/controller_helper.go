@@ -51,7 +51,6 @@ import (
 func validateCreateBlockReqParam(paramName, value string) bool {
 	return paramName == common.AttributeStoragePolicyID ||
 		paramName == common.AttributeFsType ||
-		paramName == common.AttributeAffineToHost ||
 		paramName == common.AttributeStoragePool ||
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
 }

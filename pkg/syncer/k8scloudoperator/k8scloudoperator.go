@@ -29,6 +29,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -47,6 +48,7 @@ const (
 	defaultPodPollIntervalInSec = 2
 	spTypePrefix                = "cns.vmware.com/"
 	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
+	nodeAffinityAnnotationKey   = "failure-domain.beta.vmware.com/node" // PVC annotation key to specify the node to which PV should be affinitized.
 	vsanDirectType              = spTypePrefix + "vsanD"
 	vsanSnaType                 = spTypePrefix + "vsan-sna"
 	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
@@ -303,6 +305,15 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
 		log.Debug("storage class is not of type vsan direct or vsan-sna, aborting placement")
 		return out, nil
+	}
+
+	// Abort placement if the storage class has Immediate volume binding and nodeAffinity PVC annotation is not specified
+	if *sc.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
+		if _, ok := pvc.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; !ok {
+			log.Debugf("Aborting placement for PVC[%s] as neither volume binding of the storage class is [%s] "+
+				"nor nodeAffinity PVC annotation is specified", pvc.Name, storagev1.VolumeBindingWaitForFirstConsumer)
+			return out, nil
+		}
 	}
 
 	log.Debugf("Enter placementEngine %s", req)

@@ -58,10 +58,6 @@ const (
 	// For Example: FsType: "ext4"
 	AttributeFsType = "fstype"
 
-	// AttributeAffineToHost represents the ESX host moid to which this PV should be affinitized
-	// For Example: AffineToHost: "host-25"
-	AttributeAffineToHost = "affinetohost"
-
 	// AttributeStoragePool represents name of the StoragePool on which to place the PVC
 	// For example: StoragePool: "storagepool-vsandatastore"
 	AttributeStoragePool = "storagepool"
