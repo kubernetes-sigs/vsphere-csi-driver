@@ -1347,6 +1347,17 @@ func getDevFromMount(target string) (*Device, error) {
 	// Type:devtmpfs
 	// Opts:[rw relatime]}
 
+	// example for RAW block device on devtmpfs
+	// Host Information:
+	//   OS: Red Hat Enterprise Linux CoreOS release 4.5
+	//   Platform: OpenShift 4.5.7
+	//
+	// Device:devtmpfs
+	// Path:/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/pvc-4e248bb9-f82a-4001-a031-74fc03c9f630/108db26e-3946-469a-9a9c-dd9d6a600956
+	// Source:/dev/sdb
+	// Type:devtmpfs
+	// Opts:[rw nosuid]}
+
 	// example for Mounted block device
 	// Device:/dev/sdb
 	// Path:/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount
@@ -1365,7 +1376,7 @@ func getDevFromMount(target string) (*Device, error) {
 		if m.Path == target {
 			// something is mounted to target, get underlying disk
 			d := m.Device
-			if m.Device == "udev" {
+			if m.Device == "udev" || m.Device == "devtmpfs" {
 				d = m.Source
 			}
 			dev, err := getDevice(d)
