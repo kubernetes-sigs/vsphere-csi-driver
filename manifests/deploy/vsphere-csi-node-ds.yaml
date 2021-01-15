@@ -40,7 +40,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.3-rc.3
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.3
           imagePullPolicy: "Always"
           env:
             - name: NODE_NAME
