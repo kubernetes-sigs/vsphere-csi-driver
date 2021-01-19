@@ -37,9 +37,11 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
@@ -59,7 +61,9 @@ var (
 
 type controller struct {
 	supervisorClient          clientset.Interface
+	restClientConfig          *rest.Config
 	vmOperatorClient          client.Client
+	cnsOperatorClient         client.Client
 	vmWatcher                 *cache.ListWatch
 	supervisorNamespace       string
 	tanzukubernetesClusterUID string
@@ -85,18 +89,26 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		return err
 	}
 	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
-	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
-	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
+	c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
+	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 	if err != nil {
 		log.Errorf("failed to create supervisorClient. Error: %+v", err)
 		return err
 	}
-	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+
+	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 		return err
 	}
-	c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
+
+	c.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("failed to create cnsOperatorClient. Error: %+v", err)
+		return err
+	}
+
+	c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 	if err != nil {
 		log.Errorf("failed to create vmWatcher. Error: %+v", err)
 		return err
@@ -157,24 +169,29 @@ func (c *controller) ReloadConfiguration() {
 		return
 	}
 	if cfg != nil {
-		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
-		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
+		c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 		if err != nil {
 			log.Errorf("failed to create supervisorClient. Error: %+v", err)
 			return
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
-		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return
 		}
-		c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, restClientConfig, c.supervisorNamespace)
+		c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
 			log.Errorf("failed to create vmWatcher. Error: %+v", err)
 			return
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
+		c.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			log.Errorf("failed to create cnsOperatorClient. Error: %+v", err)
+			return
+		}
 	}
 }
 
@@ -288,6 +305,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerPublishVolume: called with args %+v", *req)
+	// Check whether the request is for a block or file volume
+	isFileVolumeRequest := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})
+
 	err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
 	if err != nil {
 		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
@@ -295,18 +315,34 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
+	// File volumes support
+	if isFileVolumeRequest {
+		// Check the feature state for file volume support
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+			// Feature is disabled on the cluster
+			return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+		}
+		return controllerPublishForFileVolume(ctx, req, c)
+	}
+	// Block volumes support
+	return controllerPublishForBlockVolume(ctx, req, c)
+}
+
+// controllerPublishForBlockVolume is a helper mthod for handling ControllerPublishVolume request for Block volumes
+func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest, c *controller) (
+	*csi.ControllerPublishVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
 	}
-	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+	var err error
+	if err = c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 		msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
-
 	// Check if volume is already present in the virtualMachine.Spec.Volumes
 	var isVolumePresentInSpec, isVolumeAttached bool
 	var diskUUID string
@@ -339,7 +375,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				},
 			}
 			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
-			err = c.vmOperatorClient.Update(ctx, virtualMachine)
+			err := c.vmOperatorClient.Update(ctx, virtualMachine)
 			if err == nil || time.Now().After(timeout) {
 				break
 			}
@@ -417,6 +453,136 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		PublishContext: publishInfo,
 	}
 	log.Infof("ControllerPublishVolume: Volume attached successfully %q", req.VolumeId)
+	return resp, nil
+}
+
+// controllerPublishForFileVolume is a helper mthod for handling ControllerPublishVolume request for File volumes
+func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest, c *controller) (
+	*csi.ControllerPublishVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
+	// Build the CnsFileAccessConfig instance name and namespace
+	cnsFileAccessConfigInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
+	cnsFileAccessConfigInstanceKey := types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      cnsFileAccessConfigInstanceName,
+	}
+	// Check whether the CnsFileAccessConfig instance exist in the supervisor cluster
+	if err := c.cnsOperatorClient.Get(ctx, cnsFileAccessConfigInstanceKey, cnsFileAccessConfigInstance); err != nil {
+		if !errors.IsNotFound(err) {
+			// Get() on the CnsFileAccessConfig instance failed with different error
+			msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		// Create the CnsFileAccessConfig instance since it is not found
+		cnsFileAccessConfigInstance = &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cnsFileAccessConfigInstanceName,
+				Namespace: c.supervisorNamespace},
+			Spec: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigSpec{
+				VMName:  req.NodeId,
+				PvcName: req.VolumeId,
+			},
+		}
+		log.Debugf("Creating CnsFileAccessConfig instance: %+v", cnsFileAccessConfigInstance)
+		log.Infof("Creating CnsFileAccessConfig instance with name: %q", cnsFileAccessConfigInstance.Name)
+		if err := c.cnsOperatorClient.Create(ctx, cnsFileAccessConfigInstance); err != nil {
+			msg := fmt.Sprintf("failed to create cnsFileAccessConfig: %q/%q. Error: %v", c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+	}
+	log.Debugf("Found CnsFileAccessConfig: %q/%q", c.supervisorNamespace, cnsFileAccessConfigInstance.Name)
+	if cnsFileAccessConfigInstance.DeletionTimestamp != nil {
+		// When deletionTimestamp is set, CnsOperator is in the process of removing access for this IP.
+		// When that operation is successful, the instance will be deleted. In a subsequent retry, a new instance will be created.
+		msg := fmt.Sprintf("cnsFileAccessConfigInstance %q/%q is getting deleted. A new instance will be created in the subsequent ControllerPublishVolume request", c.supervisorNamespace, cnsFileAccessConfigInstance.Name)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	publishInfo := make(map[string]string)
+	// Verify if the CnsFileAccessConfig instance has status with done set to true and error is empty
+	if cnsFileAccessConfigInstance.Status.Done && cnsFileAccessConfigInstance.Status.Error == "" {
+		for key, value := range cnsFileAccessConfigInstance.Status.AccessPoints {
+			if key == common.Nfsv4AccessPointKey {
+				publishInfo[common.Nfsv4AccessPoint] = value
+				break
+			}
+		}
+		publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
+		resp := &csi.ControllerPublishVolumeResponse{
+			PublishContext: publishInfo,
+		}
+		log.Infof("ControllerPublishVolume: Volume %q attached successfully on the node: %q", req.VolumeId, req.NodeId)
+		return resp, nil
+	}
+	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
+	if err != nil {
+		msg := fmt.Sprintf("failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	// Attacher timeout, default is set to 4 minutes
+	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
+	// Adding watch on the CnsFileAccessConfig instance to register for updates
+	watchCnsFileAccessConfig, err := cnsFileAccessConfigWatcher.Watch(metav1.ListOptions{
+		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": cnsFileAccessConfigInstance.Name}).String(),
+		ResourceVersion: cnsFileAccessConfigInstance.ResourceVersion,
+		TimeoutSeconds:  &timeoutSeconds,
+	})
+	if err != nil {
+		msg := fmt.Sprintf("failed to watch cnsfileaccessconfig %q with Error: %v", cnsFileAccessConfigInstance.Name, err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	defer watchCnsFileAccessConfig.Stop()
+	var cnsFileAccessConfigInstanceErr string
+	// Watch all update events made on CnsFileAccessConfig instance until accessPoints is set
+	for {
+		log.Debugf("Waiting for update on cnsfileaccessconfigs: %q", cnsFileAccessConfigInstance.Name)
+		event := <-watchCnsFileAccessConfig.ResultChan()
+		cnsfileaccessconfig, ok := event.Object.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig)
+		if !ok {
+			msg := fmt.Sprintf("Watch on cnsfileaccessconfig instance %q timed out. Last seen error on the instance=%q", cnsFileAccessConfigInstance.Name, cnsFileAccessConfigInstanceErr)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		if cnsfileaccessconfig.Name != cnsFileAccessConfigInstanceName {
+			log.Debugf("Observed cnsFileAccessConfig instance name: %q, expecting cnsFileAccessConfig instance name: %q. Continuing...", cnsfileaccessconfig.Name, cnsFileAccessConfigInstanceName)
+			continue
+		}
+		// Check if SV PVC Name match with VolumeId from the request
+		if cnsfileaccessconfig.Spec.PvcName != req.VolumeId {
+			log.Debugf("Observed SV PVC Name: %q, expecting SV PVC Name: %q. Continuing...", cnsfileaccessconfig.Spec.PvcName, req.VolumeId)
+			continue
+		}
+		// Check if VM name in the cnsfileaccessconfig instance match with NodeId from the request
+		if cnsfileaccessconfig.Spec.VMName != req.NodeId {
+			log.Debugf("Observed vm name: %q, expecting vm name: %q. Continuing...", cnsfileaccessconfig.Spec.VMName, req.NodeId)
+			continue
+		}
+		log.Debugf("Observed an update on cnsfileaccessconfig: %+v", cnsfileaccessconfig)
+		if cnsfileaccessconfig.Status.Done && cnsfileaccessconfig.Status.Error == "" && cnsfileaccessconfig.DeletionTimestamp == nil {
+			// Check if the updated instance has the AccessPoints
+			for key, value := range cnsfileaccessconfig.Status.AccessPoints {
+				if key == common.Nfsv4AccessPointKey {
+					publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
+					publishInfo[common.Nfsv4AccessPoint] = value
+					break
+				}
+			}
+			if _, ok := publishInfo[common.Nfsv4AccessPoint]; ok {
+				log.Debugf("Found Nfsv4AccessPoint in publishInfo. publishInfo=%+v", publishInfo)
+				break
+			}
+		}
+		cnsFileAccessConfigInstanceErr = cnsfileaccessconfig.Status.Error
+	}
+	resp := &csi.ControllerPublishVolumeResponse{
+		PublishContext: publishInfo,
+	}
+	log.Infof("ControllerPublishVolume: Volume %q attached successfully on the node: %q", req.VolumeId, req.NodeId)
 	return resp, nil
 }
 
@@ -525,7 +691,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				break
 			}
 		}
-
 	}
 	log.Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
 	return &csi.ControllerUnpublishVolumeResponse{}, nil

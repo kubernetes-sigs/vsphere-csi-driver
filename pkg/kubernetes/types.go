@@ -37,6 +37,8 @@ const (
 	minClientBurst = 5
 	// Kind for virtualmachine resources
 	virtualMachineKind = "virtualmachines"
+	// Kind for cnsfileaccessconfig resources
+	cnsfileaccessconfigKind = "cnsfileaccessconfigs"
 )
 
 // InformerManager is a service that notifies subscribers about changes
