@@ -1,0 +1,21 @@
+{
+  "title": "vSphere CSI Driver",
+  "description": "vSphere CSI Driver",
+  "plugins":[
+    "scrollablecode",
+    "jsbin",
+    "anchors",
+    "-mathjax"
+  ],
+  "links": {
+    "sharing": {
+      "google": false,
+      "facebook": false,
+      "twitter": false,
+      "all": false
+    },
+    "sidebar": {
+      "GitHub": "https://github.com/kubernetes-sigs/vsphere-csi-driver.git"
+    }
+  }
+}

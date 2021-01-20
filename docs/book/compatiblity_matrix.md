@@ -1,17 +1,20 @@
 # Compatibility Matrix for vSphere CSI Driver
 
-The following table describes compatibility of the vSphere CSI driver releases with vSphere releases.
+- vSphere CSI driver is released with specific version of CSI sidecar containers which has the minimum kubernetes version requirement.
 
-| vSphere/ESXi  Version    | vSphere CSI v1.0.1 | vSphere CSI v1.0.2                                         | vSphere CSI v2.0.0                                           |
-| :----------------------- | ------------------ | :--------------------------------------------------------- | ------------------------------------------------------------ |
-| vSphere 6.7U3/ESXi 6.7U3 | Compatible         | Compatible                                                 | CSI 1.0 driver features continue to work on vSphere 6.7U3. New CSI 2.0 features are not supported. |
-| vSphere 7.0/ESXi 7.0     | Not Compatible     | CSI 1.0.2 driver features continue to work on vSphere 7.0. | Compatible with new vSphere 7.0 features.                    |
+| vSphere CSI Driver | Minimum Kubernetes Version |
+|--------------------|----------------------------|
+| v1.0.2             | v1.14.0                    |
+| v1.0.2             | v1.14.0                    |
+| v1.0.3             | v1.14.0                    |
+| v2.0.0             | v1.16.0                    |
+| v2.0.1             | v1.17.0                    |
+| v2.1.0             | v1.17.0                    |
 
-Refer to [upgrade support matrix](upgrade_support_matrix.md) to learn about upgrade support.
+- vSphere CSI driver is compatible with vSphere 67u3, vSphere 7.0 and 7.0u1.
+  - vSphere CSI Driver is backward and forward compatible to vSphere releases
+  - For bug fixes and performance improvements, user can deploy the latest vSphere CSI driver without upgrading vSphere.
+  - Features added in the newer vSphere releases does not work on the older vSphere CSI driver. Refer to [feature matrix](supported_features_matrix.md) to learn about what features added in each release of vSphere and CSI driver.
 
-Refer to [feature matrix](supported_features_matrix.md) to learn about features added to the vSphere CSI 2.0 driver.
-
-Note:
-
-* vSphere CSI driver is not supported on Windows based vCenter.
-* vSphere CSI driver is not supported on vSAN stretch cluster.
+- vSphere CSI driver is not supported on Windows based vCenter.
+- vSphere CSI driver is not supported on vSAN stretch cluster.
