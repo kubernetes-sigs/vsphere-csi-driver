@@ -344,7 +344,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	})
 
 	/*
-		Verify online volume expansion does nor support shrinking volume
+		Verify online volume expansion does not support shrinking volume
 
 		1. Create StorageClass with allowVolumeExpansion set to true.
 		2. Create PVC which uses the StorageClass created in step 1.
@@ -467,11 +467,12 @@ func increaseVolumeMultipleTimes(f *framework.Framework, client clientset.Interf
 	framework.Logf("PVC name : " + pvclaim.Name)
 	pv := getPvFromClaim(client, namespace, pvclaim.Name)
 	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
-	waitForPvResize(pv, client, pvcSize, totalResizeWaitPeriod)
+	err := waitForPvResize(pv, client, pvcSize, totalResizeWaitPeriod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Checking for conditions on pvc")
 	framework.Logf("PVC Name :", pvclaim.Name)
-	pvclaim, err := waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, totalResizeWaitPeriod)
+	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -510,6 +511,7 @@ func verifyPVCSizeAfterResize(f *framework.Framework, client clientset.Interface
 	defer cancel()
 
 	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("Verifying PVC size requested in volume expansion is honored")
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	size := currentPvcSize.DeepCopy()
