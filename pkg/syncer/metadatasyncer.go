@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -54,8 +53,7 @@ import (
 
 var (
 	// volumeMigrationService holds the pointer to VolumeMigration instance
-	volumeMigrationService        migration.VolumeMigrationService
-	onceForVolumeResizeReconciler sync.Once
+	volumeMigrationService migration.VolumeMigrationService
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator for the syncer container
 	COInitParams interface{}
@@ -1179,15 +1177,20 @@ func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, su
 		log.Errorf("resize: could not get supervisor namespace in which Tanzu Kubernetes Grid was deployed. Resize reconciler is not running for err: %v", err)
 		return err
 	}
-	onceForVolumeResizeReconciler.Do(func() {
-		log.Infof("initResizeReconciler is triggered")
-		informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Infof("initResizeReconciler is triggered")
+	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
+	informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
 
-		rc := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
-			workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
-		)
-		informerFactory.Start(wait.NeverStop)
-		rc.Run(ctx, resizeWorkers)
-	})
+	rc, err := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
+		workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
+		stopCh,
+	)
+	if err != nil {
+		return err
+	}
+	rc.Run(ctx, resizeWorkers)
 	return nil
 }
