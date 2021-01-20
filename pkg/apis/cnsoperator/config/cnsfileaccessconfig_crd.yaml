@@ -39,7 +39,7 @@ spec:
               type: string
               pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
           required:
-          - volumeName
+          - pvcName
           type: object
         status:
           type: object
