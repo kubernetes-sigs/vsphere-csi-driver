@@ -2126,3 +2126,32 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
 	return pvc
 }
+
+// waitForPVCToComplete waits for PVC to complete PVC resize. It waits till the Condetion "FileSystemResizePending" is gone from the PVC condetion status
+func waitForPVCToCompleteResizing(client clientset.Interface, namespace string, pvcName string, poll time.Duration, timeout time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var pvclaim *v1.PersistentVolumeClaim
+	var err error
+
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("error while fetching pvc '%v' after controller resize: %v", pvcName, err)
+		}
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+		inProgressConditions := pvclaim.Status.Conditions
+		if len(inProgressConditions) > 0 {
+			expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status conditions", pvcName))
+			if inProgressConditions[0].Type == v1.PersistentVolumeClaimFileSystemResizePending {
+				framework.Logf("PVC '%v' resize is in progress", pvcName)
+			}
+			continue
+		} else if len(inProgressConditions) == 0 {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("Timed out waiting for PVC to completing resize")
+
+}
