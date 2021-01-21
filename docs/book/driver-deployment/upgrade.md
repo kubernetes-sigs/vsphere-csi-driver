@@ -3,6 +3,8 @@
 
 **Note: To upgrade "vSphere with Tanzu" follow vSphere documentation. Following instructions are applicable to native vanilla Kubernetes Cluster deployed on vSphere.**
 
+Before upgrading driver, please make sure to keep roles and privileges up to date as mentioned in the [roles and privileges requirement](https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html#roles_and_privileges).
+
 Each release of vSphere CSI driver has a different set of RBAC rules and deployment YAML files depending on the version of the vCenter on which Kubernetes Cluster is deployed.
 
 To upgrade from one release to another release of vSphere CSI driver, we recommend to completely delete the driver using the original YAML files, you have used to deploy the driver and then use new YAML files to re-install the vSphere CSI driver.
