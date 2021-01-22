@@ -5,6 +5,8 @@
 - [Deploy workloads using topology with immediate volume binding mode](#deploy_workload_using_topology_immediate)
 - [Deploy workloads using topology with WaitForFirstConsumer volume binding mode](#deploy_workload_using_topology_WaitForFirstConsumer)
 
+**Note:** Volume Topology and Availability Zone feature is **beta** in vSphere CSI Driver.
+
 Prerequisite : Enable topology in the Kubernetes Cluster. Follow steps mentioned in [Deployment with Topology](../driver-deployment/deploying_csi_with_zones.md).
 
 ## Deploy workloads using topology with `immediate` volume binding mode <a id="deploy_workload_using_topology"></a>
