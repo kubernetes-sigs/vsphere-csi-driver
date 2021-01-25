@@ -427,7 +427,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	   3. Wait for PV to be provisioned.
 	   4. Wait for PVC's status to become Bound and note down the size
 	   5. Create a POD using the above created PVC
-	   6. Trigger online expansion on Same PVC multiple times, with 3Gi , 5Gi and 8Gi
+	   6. Trigger online expansion on Same PVC multiple times, with 3Gi and 8Gi
 	   7. verify the PVC status will change to "FilesystemResizePending". Wait till the status is removed
 	   8. Verify the resized PVC by doing CNS query, size of the volume should be 8Gi
 	   9. Make sure data is intact on the PV mounted on the pod
@@ -468,11 +468,16 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Increase PVC size and verify Volume resize")
-		ginkgo.By("Expanding current pvc")
+		ginkgo.By("Expanding current pvc with 3Gi")
 		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		newSize := currentPvcSize.DeepCopy()
 		newSize.Add(resource.MustParse("3Gi"))
-		newSize.Add(resource.MustParse("5Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		framework.ExpectNoError(err, "While updating pvc for more size")
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		ginkgo.By("Expanding current pvc with 8Gi")
 		newSize.Add(resource.MustParse("8Gi"))
 		expectedSize := int64(8192)
 		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
