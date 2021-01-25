@@ -2183,3 +2183,21 @@ func getDefaultDatastore(ctx context.Context) *object.Datastore {
 	gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
 	return defaultDatastore
 }
+
+//invokeVsanHealthService this method starts/stops VSAN health service based on the operation that we pass in the parameter
+func invokeVsanHealthService(operation string, vcAddress string) {
+	ginkgo.By(fmt.Sprintf("%s Starting vsan-health on the vCenter host", operation))
+	err := invokeVCenterServiceControl(operation, vsanhealthServiceName, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to %s", vsanHealthServiceWaitTime, operation))
+	time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+}
+
+//invokeSPSService this method starts/stops SPS service based on the operation that we pass in the parameter
+func invokeSPSService(operation string, vcAddress string) {
+	ginkgo.By(fmt.Sprintf("%s SPS on the vCenter host", operation))
+	err := invokeVCenterServiceControl(operation, spsServiceName, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow SPS to %s", sleepTimeOut, operation))
+	time.Sleep(time.Duration(sleepTimeOut) * time.Second)
+}

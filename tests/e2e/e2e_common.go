@@ -53,6 +53,9 @@ const (
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
+	envSharedVVOLDatastoreURL                  = "SHARED_VVOL_DATASTORE_URL"
+	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
+	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
@@ -177,4 +180,13 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	default:
 		vanillaCluster = true
 	}
+}
+
+// isValueSet check whether the environment variable is set or not
+func isValueSet(varName string) bool {
+	varValue := os.Getenv(varName)
+	if varValue == "" {
+		return false
+	}
+	return true
 }
