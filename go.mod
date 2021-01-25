@@ -30,18 +30,19 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.1.0 // indirect
 	github.com/rexray/gocsi v1.2.1
+	github.com/spf13/cobra v1.1.1
+	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
 	github.com/vmware/govmomi v0.23.2-0.20201031083551-1cfa19267614
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/net v0.0.0-20200822124328-c89045814202
+	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
+	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
-	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
-	golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae // indirect
-	golang.org/x/tools v0.0.0-20201013053347-2db1cd791039 // indirect
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
+	golang.org/x/tools v0.1.0 // indirect
 	google.golang.org/appengine v1.6.6 // indirect
 	google.golang.org/grpc v1.26.0
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
@@ -49,7 +50,7 @@ require (
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200605160147-a5ece683394c // indirect
-	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
+	honnef.co/go/tools v0.1.1 // indirect
 	k8s.io/api v0.18.5
 	k8s.io/apiextensions-apiserver v0.18.5
 	k8s.io/apimachinery v0.18.5
