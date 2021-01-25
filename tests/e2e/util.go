@@ -2127,7 +2127,7 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 	return pvc
 }
 
-// waitForPVCToComplete waits for PVC to complete PVC resize. It waits till the Condetion "FileSystemResizePending" is gone from the PVC condetion status
+// waitForPVCToComplete waits for PVC to complete PVC resize. It waits till the condition "FileSystemResizePending" is gone from the PVC condetion status
 func waitForPVCToCompleteResizing(client clientset.Interface, namespace string, pvcName string, poll time.Duration, timeout time.Duration) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2154,4 +2154,32 @@ func waitForPVCToCompleteResizing(client clientset.Interface, namespace string, 
 
 	return fmt.Errorf("Timed out waiting for PVC to completing resize")
 
+}
+
+//getDefaultDatastore returns default datastore
+func getDefaultDatastore(ctx context.Context) *object.Datastore {
+	var defaultDatastore *object.Datastore
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	datacenters := []string{}
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+	for _, dc := range datacenters {
+		defaultDatacenter, err := finder.Datacenter(ctx, dc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		finder.SetDatacenter(defaultDatacenter)
+		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+		if err == nil {
+			break
+		}
+	}
+	gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
+	return defaultDatastore
 }
