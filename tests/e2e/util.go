@@ -1674,22 +1674,21 @@ func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterCompu
 			if strings.Contains(cluster.Name(), computeCluster) {
 				hosts, err = cluster.Hosts(ctx)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				framework.Logf("host information %v", hosts)
 			}
 		}
 	}
-	gomega.Expect(err).NotTo(gomega.BeNil())
+	gomega.Expect(hosts).NotTo(gomega.BeNil())
 	return hosts
 }
 
-//checkAllHostStatuswithwait will check and wait till the host is reachable
-func checkAllHostStatusWithWait(ctx context.Context, vs *vSphere) {
+//waitForAllHostsToBeUp will check and wait till the host is reachable
+func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
 	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
 	hosts = getHosts(ctx, clusterComputeResource)
 	framework.Logf("host information %v", hosts)
 	for index := range hosts {
 		ip := findIP(hosts[index].String())
-		err := checkHostStatus(ip)
+		err := waitForHostToBeUp(ip)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -1962,7 +1961,7 @@ func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvc
 
 //pvcHealthAnnotationWatcher polls the health status of pvc and returns error if any
 func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
-	framework.Logf("Looking Health Annotation for pvclaim %v", pvclaim.Name)
+	framework.Logf("Waiting for health annotation for pvclaim %v", pvclaim.Name)
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)
 		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
@@ -1978,9 +1977,9 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 	return waitErr
 }
 
-//checkHostStatus will check the status of hosts and also wait for pollTimeout minutes
+//waitForHostToBeUp will check the status of hosts and also wait for pollTimeout minutes
 //To make sure host is reachable
-func checkHostStatus(ip string) error {
+func waitForHostToBeUp(ip string) error {
 	framework.Logf("checking host status of %v", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	timeout := 1 * time.Second

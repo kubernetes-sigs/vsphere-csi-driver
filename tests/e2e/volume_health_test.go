@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		isVsanhealthServiceStopped = false
-		checkAllHostStatusWithWait(ctx, &e2eVSphere)
+		waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 		if pvc != nil {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(pollTimeoutShort)
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 		if pvclaim != nil {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(pollTimeoutShort)
@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
-		checkAllHostStatusWithWait(ctx, &e2eVSphere)
+		waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
 
 	/*
@@ -1463,7 +1463,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -1614,7 +1614,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -1752,7 +1752,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -1892,11 +1892,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			for describe := range svPVC.Annotations {
 				gomega.Expect(svPVC.Annotations[describe]).ShouldNot(gomega.BeEquivalentTo(volumeHealthAnnotation))
 			}
-			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-				svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-			svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+			svcClient, svNamespace := getSvcClientAndNamespace()
 			pv = getPvFromClaim(svcClient, svNamespace, svPVCName)
 			framework.Logf("PV name in SVC for PVC in GC %v", pv.Name)
 		}
@@ -1913,7 +1909,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -2025,17 +2021,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		volumeID = getVolumeIDFromSupervisorCluster(svPVCName)
 		framework.Logf("volume ID from SVC %v", volumeID)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		svcClient, svNamespace := getSvcClientAndNamespace()
 		svcPV := getPvFromClaim(svcClient, svNamespace, svPVCName)
 		framework.Logf("PV name in SVC for PVC in GC %v", svcPV.Name)
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -2059,11 +2051,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var gcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
 			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
-		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senvsv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -2275,7 +2262,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
@@ -2427,7 +2414,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := checkHostStatus(hostIP)
+			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
