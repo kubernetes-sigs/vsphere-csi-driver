@@ -1656,18 +1656,19 @@ func findIP(input string) string {
 }
 
 //getHosts returns list of hosts and it takes clusterComputeResource as input
+//This method is used by WCP and GC tests
 func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource) []*object.HostSystem {
 	var err error
-	computeCluster := os.Getenv("CLUSTER_NAME")
-	if computeCluster == "" {
-		if guestCluster {
-			computeCluster = "compute-cluster"
-		} else if supervisorCluster {
-			computeCluster = "wcp-app-platform-sanity-cluster"
-		}
-		framework.Logf("Default cluster is chosen for test")
-	}
 	if hosts == nil {
+		computeCluster := os.Getenv(envComputerClusterName)
+		if computeCluster == "" {
+			if guestCluster {
+				computeCluster = "compute-cluster"
+			} else if supervisorCluster {
+				computeCluster = "wcp-app-platform-sanity-cluster"
+			}
+			framework.Logf("Default cluster is chosen for test")
+		}
 		for _, cluster := range clusterComputeResource {
 			framework.Logf("clusterComputeResource %v", clusterComputeResource)
 			if strings.Contains(cluster.Name(), computeCluster) {
@@ -1677,11 +1678,12 @@ func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterCompu
 			}
 		}
 	}
+	gomega.Expect(err).NotTo(gomega.BeNil())
 	return hosts
 }
 
-//checkAllHostStatus will check and wait till the host is reachable
-func checkAllHostStatus(ctx context.Context, vs *vSphere) {
+//checkAllHostStatuswithwait will check and wait till the host is reachable
+func checkAllHostStatusWithWait(ctx context.Context, vs *vSphere) {
 	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
 	hosts = getHosts(ctx, clusterComputeResource)
 	framework.Logf("host information %v", hosts)
@@ -1727,7 +1729,7 @@ func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 //VsanObjIndentities returns the vsanObjectsUUID
 func VsanObjIndentities(ctx context.Context, vs *vSphere, pvName string) string {
 	var vsanObjUUID string
-	computeCluster := os.Getenv("CLUSTER_NAME")
+	computeCluster := os.Getenv(envComputerClusterName)
 	if computeCluster == "" {
 		if guestCluster {
 			computeCluster = "compute-cluster"

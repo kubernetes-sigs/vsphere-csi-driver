@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		isVsanhealthServiceStopped = false
-		checkAllHostStatus(ctx, &e2eVSphere)
+		checkAllHostStatusWithWait(ctx, &e2eVSphere)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
-		checkAllHostStatus(ctx, &e2eVSphere)
+		checkAllHostStatusWithWait(ctx, &e2eVSphere)
 	})
 
 	/*

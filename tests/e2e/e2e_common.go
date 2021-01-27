@@ -61,6 +61,7 @@ const (
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
+	envComputerClusterName                     = "CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	ext3FSType                                 = "ext3"
