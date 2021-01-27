@@ -5,6 +5,8 @@
 - [Set Up Zones in the vSphere CNS Environment](#set_up_zones_in_vsphere)
 - [Enable Zones for the vSphere CPI and CSI Driver](#enable_zones_for_vsphere_cpi_and_csi)
 
+**Note:** Volume Topology and Availability Zone feature is **beta** in vSphere CSI Driver.
+
 When you deploy CPI and CSI in a vSphere environment that includes multiple data centers or host clusters, you can use zoning.
 
 Zoning enables orchestration systems, like Kubernetes, to integrate with vSphere storage resources that are not equally available to all nodes. As a result, the orchestration system can make intelligent decisions when dynamically provisioning volumes, and avoid situations such as those where a pod cannot start because the storage resource it needs is not accessible.
