@@ -25,5 +25,5 @@ import (
 // required to support CNS API backend
 type CnsController interface {
 	csi.ControllerServer
-	Init(config *config.Config) error
+	Init(config *config.Config, version string) error
 }

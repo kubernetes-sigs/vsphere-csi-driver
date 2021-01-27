@@ -18,10 +18,15 @@ package wcpguest
 
 import (
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
@@ -75,7 +80,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *cnsconfig.Config) error {
+func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -154,6 +159,19 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
+	// Go module to keep the metrics http server running all the time.
+	go func() {
+		prometheus.CsiInfo.WithLabelValues(version).Set(1)
+		for {
+			log.Info("Starting the http server to expose Prometheus metrics..")
+			http.Handle("/metrics", promhttp.Handler())
+			err = http.ListenAndServe(":2112", nil)
+			if err != nil {
+				log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
+			}
+			log.Info("Restarting http server to expose Prometheus metrics..")
+		}
+	}()
 	return nil
 }
 
@@ -199,101 +217,155 @@ func (c *controller) ReloadConfiguration() {
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("CreateVolume: called with args %+v", *req)
-	err := validateGuestClusterCreateVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
-	// Get PVC name and disk size for the supervisor cluster
-	// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
-	supervisorPVCName := c.tanzukubernetesClusterUID + "-" + req.Name[4:]
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	createVolumeInternal := func() (
+		*csi.CreateVolumeResponse, error) {
 
-	// Volume Size - Default is 10 GiB
-	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
-	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
-		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
-	}
-	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-
-	// Get supervisorStorageClass and accessMode
-	var supervisorStorageClass string
-	for param := range req.Parameters {
-		paramName := strings.ToLower(param)
-		if paramName == common.AttributeSupervisorStorageClass {
-			supervisorStorageClass = req.Parameters[param]
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("CreateVolume: called with args %+v", *req)
+		err := validateGuestClusterCreateVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+			log.Error(msg)
+			return nil, err
 		}
-	}
-	accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
-	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-			claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
-			log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
-			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(ctx, claim, metav1.CreateOptions{})
-			if err != nil {
-				msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
+		if isFileVolumeRequest {
+			volumeType = prometheus.PrometheusFileVolumeType
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		}
+
+		// Get PVC name and disk size for the supervisor cluster
+		// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
+		supervisorPVCName := c.tanzukubernetesClusterUID + "-" + req.Name[4:]
+
+		// Volume Size - Default is 10 GiB
+		volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
+		if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
+			volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
+		}
+		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+		// Get supervisorStorageClass and accessMode
+		var supervisorStorageClass string
+		for param := range req.Parameters {
+			paramName := strings.ToLower(param)
+			if paramName == common.AttributeSupervisorStorageClass {
+				supervisorStorageClass = req.Parameters[param]
+			}
+		}
+		accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
+		pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
+				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
+				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
+				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(ctx, claim, metav1.CreateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+			} else {
+				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
-		} else {
-			msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+		}
+		isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
+		if !isBound {
+			msg := fmt.Sprintf("failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
+		attributes := make(map[string]string)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && isFileVolumeRequest {
+			attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+		} else {
+			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+		}
+		resp := &csi.CreateVolumeResponse{
+			Volume: &csi.Volume{
+				VolumeId:      supervisorPVCName,
+				CapacityBytes: int64(volSizeMB * common.MbInBytes),
+				VolumeContext: attributes,
+			},
+		}
+		return resp, nil
 	}
-	isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
-	if !isBound {
-		msg := fmt.Sprintf("failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	attributes := make(map[string]string)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
+	resp, err := createVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
-		attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	resp := &csi.CreateVolumeResponse{
-		Volume: &csi.Volume{
-			VolumeId:      supervisorPVCName,
-			CapacityBytes: int64(volSizeMB * common.MbInBytes),
-			VolumeContext: attributes,
-		},
-	}
-	return resp, nil
+	return resp, err
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("DeleteVolume: called with args: %+v", *req)
-	var err error
-	err = validateGuestClusterDeleteVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for Delete Volume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
-	err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(ctx, req.VolumeId, *metav1.NewDeleteOptions(0))
-	if err != nil {
-		if errors.IsNotFound(err) {
-			log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
-			return &csi.DeleteVolumeResponse{}, nil
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+
+	deleteVolumeInternal := func() (
+		*csi.DeleteVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("DeleteVolume: called with args: %+v", *req)
+		var err error
+		err = validateGuestClusterDeleteVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for Delete Volume Request: %+v has failed. Error: %+v", *req, err)
+			log.Error(msg)
+			return nil, err
 		}
-		msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		// Retrieve Supervisor PVC
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, req.VolumeId, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming the volume is already deleted.", req.VolumeId)
+				return &csi.DeleteVolumeResponse{}, nil
+			}
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", req.VolumeId, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+		for _, accessMode := range svPVC.Spec.AccessModes {
+			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
+				volumeType = prometheus.PrometheusFileVolumeType
+			}
+		}
+		err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(ctx, req.VolumeId, *metav1.NewDeleteOptions(0))
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
+				return &csi.DeleteVolumeResponse{}, nil
+			}
+			msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
+		return &csi.DeleteVolumeResponse{}, nil
 	}
-	log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
-	return &csi.DeleteVolumeResponse{}, nil
+	resp, err := deleteVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // ControllerPublishVolume attaches a volume to the Node VM.
