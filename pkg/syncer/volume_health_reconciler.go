@@ -346,7 +346,7 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	}
 	if tkgPVList == nil {
 		// If no PV is found, the SV PVC may not be referenced within this TKG. Do not requeue this request.
-		log.Debugf("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s. Igonoring ...", svcPVC.Namespace, svcPVC.Name)
+		log.Debugf("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s. Igonoring ...", namespace, name)
 		return nil
 	}
 

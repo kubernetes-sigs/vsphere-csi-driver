@@ -12,7 +12,9 @@ require (
 	github.com/elazarl/goproxy/ext v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-logr/zapr v0.1.1 // indirect
-	github.com/golang/protobuf v1.4.2
+	github.com/go-openapi/spec v0.19.8 // indirect
+	github.com/go-openapi/swag v0.19.9 // indirect
+	github.com/golang/protobuf v1.4.3
 	github.com/google/go-cmp v0.5.0 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
@@ -25,14 +27,14 @@ require (
 	github.com/onsi/ginkgo v1.14.2
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.1.0 // indirect
+	github.com/prometheus/client_golang v1.9.0
 	github.com/rexray/gocsi v1.2.1
 	github.com/spf13/cobra v1.1.1
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
-	github.com/vmware/govmomi v0.24.0
+	github.com/vmware/govmomi v0.24.1-0.20210127152625-854ba4efe87e
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
