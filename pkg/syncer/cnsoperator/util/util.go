@@ -29,6 +29,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -45,7 +46,15 @@ var virtualNetworkGVR = schema.GroupVersionResource{
 	Resource: "virtualnetworks",
 }
 
-const snatIPAnnotation = "ncp/snat_ip"
+const (
+	snatIPAnnotation = "ncp/snat_ip"
+	// Namespace for system resources
+	kubeSystemNamespace = "kube-system"
+	// WCP configmap that contains info about networking configuration
+	wcpNetworkConfigMap = "wcp-network-config"
+	// Key for network-provider field in 'wcp-network-config' configmap
+	networkProvider = "network_provider"
+)
 
 // GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName
 func GetVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
@@ -139,4 +148,29 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
 	return ip, nil
+}
+
+// GetNetworkProvider reads the network-config configmap in Supervisor cluster and
+// returns the network provider as NSX-T or VDS. Returns an error if network provider
+// is not present in the configmap.
+func GetNetworkProvider(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("GetNetworkProvider: Creating Kubernetes client failed. Err: %v", err)
+		return "", err
+	}
+	cm, err := k8sclient.CoreV1().ConfigMaps(kubeSystemNamespace).Get(ctx, wcpNetworkConfigMap, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get config map %q in namespace %q. Err: %v", wcpNetworkConfigMap, kubeSystemNamespace, err)
+	}
+
+	for k, v := range cm.Data {
+		if k == networkProvider {
+			log.Debugf("Returning network provider value as: %q", v)
+			return v, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q", wcpNetworkConfigMap, kubeSystemNamespace)
 }
