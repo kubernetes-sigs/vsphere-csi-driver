@@ -203,6 +203,10 @@ spec:
           name: socket-dir
       - name: vsphere-csi-controller
         image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
+        ports:
+         - containerPort: 2112
+           name: prometheus
+           protocol: TCP
         lifecycle:
           preStop:
             exec:
