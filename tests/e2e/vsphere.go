@@ -25,7 +25,6 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
-	vimmethods "github.com/vmware/govmomi/vim25/methods"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
@@ -685,19 +684,11 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 			Value: value,
 		}
 	)
-<<<<<<< HEAD
-	req := vimtypes.QueryVsanObjects{
-		This:  QueryVsanObjectsInstance,
-		Uuids: uuids,
-	}
-	res, err := vimmethods.QueryVsanObjects(ctx, c.serviceClient, &req)
-=======
 	req := types.QueryVsanObjects{
 		This:  QueryVsanObjectsInstance,
 		Uuids: uuids,
 	}
 	res, err := methods.QueryVsanObjects(ctx, c.serviceClient, &req)
->>>>>>> da2335dfe9f6c316083643c78192492a68cda5e5
 	if err != nil {
 		framework.Logf("QueryVsanObjects Failed with err %v", err)
 		return "", err
