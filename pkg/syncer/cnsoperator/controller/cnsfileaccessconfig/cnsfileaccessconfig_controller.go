@@ -42,8 +42,10 @@ import (
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/util"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -70,6 +72,16 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	// Initialize the k8s orchestrator interface
+	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
+	if err != nil {
+		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
+		return err
+	}
+	if !coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
+		log.Infof("Not initializing the CnsFileAccessConfig Controller as File volume feature is disabled on the cluster")
+		return nil
+	}
 	// Initializes kubernetes client
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
