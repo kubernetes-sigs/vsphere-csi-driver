@@ -15,7 +15,9 @@ In order to utilize this feature in your vSphere environment, you need to make s
 
 - Establish a dedicated file share network connecting all the kubernetes nodes and make sure this network is routable to the vSAN File Share network.  Refer to [Network Access of vSAN File Share](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.storage.doc/GUID-EFC00FFF-E720-44F1-B229-4C13687E6B85.html) to understand the setup better.
 
-- Configure the kubernetes nodes with the same DNS server as the one used to configure the file services in the vSAN cluster configuration. This will help the nodes resolve the access points it gets from the File service and mount the file share as a volume while creating a pod. Refer to [vSAN - Configure File Service](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-CA9CF043-9434-454E-86E7-DCA9AD9B0C09.html) for more details.
+- Configure the kubernetes nodes to use the DNS server which was used to configure the file services in the vSAN cluster. This will help the nodes resolve the file share access points with Fully Qualified Domain Name (FQDN) while mounting the file volume to the Pod. In order to retrieve the vSAN file service DNS configuration, head over to the `Configure` tab of your vSAN cluster and navigate to the File Service section as shown in the screenshot below.
+
+![CONFIGURE-FILE-SERVICES](https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/docs/images/LOCATE-FILE-SERVICE-FQDN.png)
 
 - Configure the kubernetes secret named `vsphere-config-secret` to specify network permissions and placement of volumes for your vSAN file shares in your vSphere environment. This step is completely optional. Refer to the [CSI vSphere driver installation](../driver-deployment/installation.md) instructions on `vSphere configuration file for file volumes` to learn more. If not specified, it is upto the CSI driver to use its discretion to place the file share volumes in any of your vSAN datastores with File services enabled. In such a scenario, the file volumes backed by vSAN file shares using the NFSv4 protocol will assume default network permissions i.e Read-Write privilege and root access to all the IP ranges.
 
@@ -27,7 +29,7 @@ The next section on CSI file services integration will explain some of the spec 
 
 ## File services integration with your application
 
-### File Volume PVC
+### Dynamic Provisioning of file volumes
 
 To give this example a try, you can first pick the Storage Class spec from [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-file-driver/example-sc.yaml). To create a file volume PVC spec, set `accessModes` to either `ReadWriteMany` or `ReadOnlyMany` depending upon your requirement.
 
