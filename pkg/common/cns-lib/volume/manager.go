@@ -73,6 +73,8 @@ type Manager interface {
 	ExpandVolume(ctx context.Context, volumeID string, size int64) error
 	// ResetManager helps set new manager instance and VC configuration
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
+	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec
+	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS
@@ -762,4 +764,56 @@ func (m *defaultManager) RelocateVolume(ctx context.Context, relocateSpecList ..
 		return nil, err
 	}
 	return res, err
+}
+
+// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec
+func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+
+	var task *object.Task
+	var taskInfo *vim25types.TaskInfo
+
+	task, err = m.virtualCenter.CnsClient.ConfigureVolumeACLs(ctx, spec)
+	if err != nil {
+		log.Errorf("CNS ConfigureVolumeACLs failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+
+	// Get the taskInfo
+	taskInfo, err = cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		log.Errorf("failed to get taskInfo for ConfigureVolumeACLs task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	// Get the taskResult
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("unable to find the task result for ConfigureVolumeACLs task from vCenter %q. taskID: %q, opId: %q ConfigureVolumeACL results: %+v . Error: %v",
+			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId, taskResult, err)
+		return err
+	}
+
+	if taskResult == nil {
+		log.Errorf("taskResult is empty for ConfigureVolumeACLs task: %q. ConfigureVolumeACLsSpec: %q", taskInfo.ActivationId, spew.Sdump(spec))
+		return errors.New("taskResult is empty")
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		msg := fmt.Sprintf("failed to apply ConfigureVolumeACLs. Volume ID: %s. ConfigureVolumeACLsSpec: %q, fault: %q, opId: %q", spec.VolumeId.Id, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+
+	log.Infof("ConfigureVolumeACLs: Volume ACLs configured successfully. VolumeName: %q, opId: %q, volumeID: %q", spec.VolumeId.Id, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
+	return nil
 }
