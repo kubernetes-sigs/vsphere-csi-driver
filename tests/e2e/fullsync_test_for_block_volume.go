@@ -181,8 +181,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -348,7 +352,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -622,8 +626,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -685,8 +693,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

@@ -28,6 +28,7 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
+	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	configSecret                               = "vsphere-config-secret"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
@@ -39,6 +40,7 @@ const (
 	defaultPandoraSyncWaitTime                 = 90
 	defaultVCRebootWaitTime                    = 180
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
+	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
@@ -60,6 +62,7 @@ const (
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
+	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	esxPassword                                = "ca$hc0w"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
@@ -110,6 +113,8 @@ const (
 	totalResizeWaitPeriod                      = 10 * time.Minute
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
+	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
+	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
 	vsanHealthServiceWaitTime                  = 15
 	vsanhealthServiceName                      = "vsan-health"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
@@ -118,10 +123,6 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	wcpServiceName                             = "wcp"
 	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
-	envVmdkDiskURL                             = "DISK_URL_PATH"
-	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
-	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
-	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 )
 
 // The following variables are required to know cluster type to run common e2e tests
