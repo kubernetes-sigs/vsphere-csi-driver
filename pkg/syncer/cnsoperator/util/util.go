@@ -54,6 +54,10 @@ const (
 	wcpNetworkConfigMap = "wcp-network-config"
 	// Key for network-provider field in 'wcp-network-config' configmap
 	networkProvider = "network_provider"
+	// NSXTNetworkProvider holds the network provider name for NSX-T based setups
+	NSXTNetworkProvider = "NSXT_CONTAINER_PLUGIN"
+	// VDSNetworkProvider holds the network provider name for VDS based setups
+	VDSNetworkProvider = "VSPHERE_NETWORK"
 )
 
 // GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName
@@ -150,9 +154,10 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	return ip, nil
 }
 
-// GetNetworkProvider reads the network-config configmap in Supervisor cluster and
-// returns the network provider as NSX-T or VDS. Returns an error if network provider
-// is not present in the configmap.
+// GetNetworkProvider reads the network-config configmap in Supervisor cluster
+// Returns the network provider as NSXT_CONTAINER_PLUGIN for NSX-T OR
+// Returns the network provider as VSPHERE_NETWORK for VDS.
+// Returns an error if network provider is not present in the configmap.
 func GetNetworkProvider(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	k8sclient, err := k8s.NewClient(ctx)

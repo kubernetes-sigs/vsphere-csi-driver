@@ -18,6 +18,7 @@ package cnsfileaccessconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -25,12 +26,14 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -38,16 +41,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internal/cnsoperator/cnsfilevolumeclient"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/util"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/util"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
@@ -109,13 +114,28 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 		log.Error(msg)
 		return err
 	}
+
+	cfg, err := config.GetConfig()
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	// create a new dynamic client for config
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to create client using config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, dynamicClient, recorder))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, vmOperatorClient client.Client, recorder record.EventRecorder) reconcile.Reconciler {
-	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient, recorder: recorder}
+func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface, recorder record.EventRecorder) reconcile.Reconciler {
+	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient, dynamicClient: dynamicClient, recorder: recorder}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -154,6 +174,7 @@ type ReconcileCnsFileAccessConfig struct {
 	configInfo       *types.ConfigInfo
 	volumeManager    volumes.Manager
 	vmOperatorClient client.Client
+	dynamicClient    dynamic.Interface
 	recorder         record.EventRecorder
 }
 
@@ -168,7 +189,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 	instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Infof("CnsFileAccessConfig resource not found. Ignoring since object must be deleted.")
 			return reconcile.Result{}, nil
 		}
@@ -186,6 +207,16 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
+
+	// Get the virtualmachine instance
+	vm, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", instance.Spec.VMName, err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	log.Debugf("Found virtualMachine instance for VM: %q/%q: +%v", instance.Namespace, instance.Spec.VMName, vm)
 
 	if instance.DeletionTimestamp != nil {
 		// TODO:
@@ -230,16 +261,6 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 		}
 	}
 
-	// Get the virtualmachine instance
-	vm, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", instance.Spec.VMName, err)
-		log.Error(msg)
-		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-	log.Debugf("Found virtualMachine instance for VM with name: %q: +%v", instance.Spec.VMName, vm)
-
 	vmOwnerRefExists := false
 	if len(instance.OwnerReferences) != 0 {
 		for _, ownerRef := range instance.OwnerReferences {
@@ -262,7 +283,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 	}
 	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds", instance.Name, instance.Namespace, timeout)
 	if !instance.Status.Done {
-		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
 			log.Error(msg)
@@ -298,10 +319,13 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-
-		// TODO:
-		// Get the network configuration details and configuring File share ACLs
-
+		err = r.configureFileVolumeACL(ctx, volumeID, vm, instance)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to update CnsFileAccessConfig instance with error: %+v", err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 		// Update the instance to indicate the volume registration is successful
 		msg := fmt.Sprintf("Successfully configured access points of VM: %q on the volume: %q", instance.Spec.VMName, instance.Spec.PvcName)
 		instance.Status.AccessPoints = accessPoints
@@ -319,6 +343,90 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 	delete(backOffDuration, instance.Name)
 	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileCnsFileAccessConfig) configureFileVolumeACL(ctx context.Context, volumeID string, vm *vmoperatortypes.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+	log := logger.GetLogger(ctx)
+	networkProvider, err := cnsoperatorutil.GetNetworkProvider(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to identify the network provider. Error: %+v", err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+	var nsxConfiguration bool
+	if networkProvider == "" {
+		return errors.New("Unable to find network provider information")
+	}
+	if networkProvider == cnsoperatorutil.NSXTNetworkProvider {
+		nsxConfiguration = true
+	} else if networkProvider == cnsoperatorutil.VDSNetworkProvider {
+		nsxConfiguration = false
+	} else {
+		msg := fmt.Sprintf("Unknown network provider. Error: %+v", err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+
+	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient, r.dynamicClient, vm.Namespace, vm.Name, nsxConfiguration)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get external facing IP address for VM %q/%q. Err: %+v", vm.Namespace, vm.Name, err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+
+	log.Debugf("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
+	// TODO:
+	// Keep an in-memory cache of ExternalIP to ClientVms map and update
+
+	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get CNSFileVolumeClient instance. Error: %+v", err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+	clientVms, err := cnsFileVolumeClientInstance.GetClientVMsFromIPList(ctx, instance.Namespace+"/"+instance.Spec.PvcName, tkgVMIP)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get the list of clients VMs for IP %q. Error: %+v", tkgVMIP, err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+	if len(clientVms) == 0 {
+		// Prepare the CnsVolumeACLConfigureSpec
+		cnsVolumeID := cnstypes.CnsVolumeId{
+			Id: volumeID,
+		}
+		vSanFileShareNetPermissions := make([]vsanfstypes.VsanFileShareNetPermission, 0)
+		vsanFileShareAccessType := vsanfstypes.VsanFileShareAccessTypeREAD_WRITE
+		vSanFileShareNetPermissions = append(vSanFileShareNetPermissions, vsanfstypes.VsanFileShareNetPermission{
+			Ips:         tkgVMIP,
+			Permissions: vsanFileShareAccessType,
+		})
+
+		cnsNFSAccessControlSpecList := make([]cnstypes.CnsNFSAccessControlSpec, 0)
+		cnsNFSAccessControlSpecList = append(cnsNFSAccessControlSpecList, cnstypes.CnsNFSAccessControlSpec{
+			Permission: vSanFileShareNetPermissions,
+		})
+
+		cnsVolumeACLConfigSpec := cnstypes.CnsVolumeACLConfigureSpec{
+			VolumeId:              cnsVolumeID,
+			AccessControlSpecList: cnsNFSAccessControlSpecList,
+		}
+		err = r.volumeManager.ConfigureVolumeACLs(ctx, cnsVolumeACLConfigSpec)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to configure ACLs for volume: %q. Error: %+v", volumeID, err)
+			log.Error(msg)
+			return errors.New(msg)
+		}
+		log.Debugf("Successfully configured ACLs for volume %q", volumeID)
+	}
+	err = cnsFileVolumeClientInstance.AddClientVMToIPList(ctx, instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to add VM %q with IP %q to IPList. Error: %+v", vm.Name, vm.Status.VmIp, err)
+		log.Error(msg)
+		return errors.New(msg)
+	}
+	log.Debugf("Successfully added VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q", vm.Status.VmIp, instance.Name, instance.Namespace)
+	return nil
 }
 
 // setInstanceSuccess sets instance to success and records an event on the CnsFileAccessConfig instance
