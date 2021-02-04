@@ -72,8 +72,7 @@ func validateCreateFileReqParam(paramName, value string) bool {
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 // TODO: Need to remove AttributeHostLocal after external provisioner stops sending this parameter
-func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
-	isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
+func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest, isBlockRequest bool) error {
 	// Get create params
 	params := req.GetParameters()
 	for paramName, value := range params {

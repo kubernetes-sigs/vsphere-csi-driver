@@ -1,5 +1,5 @@
 /*
-Copyright 2018 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,17 +13,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-package types
+package main
 
 import (
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd"
 )
 
-// CnsController is the interface for the CSI Controller Server plus extra methods
-// required to support CNS API backend
-type CnsController interface {
-	csi.ControllerServer
-	Init(config *config.Config, version string) error
+// Version of the tool. This should be set via ldflags.
+var Version string
+
+func main() {
+	cmd.InitRoot(Version)
+	cmd.Execute()
 }

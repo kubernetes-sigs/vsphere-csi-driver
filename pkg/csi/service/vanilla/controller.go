@@ -84,7 +84,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *cnsconfig.Config) error {
+func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -718,6 +718,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
 	}
+	log.Infof("ControllerPublishVolume successful with publish context: %v", publishInfo)
 	return &csi.ControllerPublishVolumeResponse{
 		PublishContext: publishInfo,
 	}, nil
@@ -797,6 +798,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		log.Error(msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
+	log.Infof("ControllerUnpublishVolume successful for volume ID: %s", req.VolumeId)
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 

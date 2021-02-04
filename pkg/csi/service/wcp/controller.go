@@ -18,8 +18,13 @@ package wcp
 
 import (
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
@@ -66,7 +71,7 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *cnsconfig.Config) error {
+func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -150,6 +155,19 @@ func (c *controller) Init(config *cnsconfig.Config) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
+	// Go module to keep the metrics http server running all the time.
+	go func() {
+		prometheus.CsiInfo.WithLabelValues(version).Set(1)
+		for {
+			log.Info("Starting the http server to expose Prometheus metrics..")
+			http.Handle("/metrics", promhttp.Handler())
+			err = http.ListenAndServe(":2112", nil)
+			if err != nil {
+				log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
+			}
+			log.Info("Restarting http server to expose Prometheus metrics..")
+		}
+	}()
 	return nil
 }
 
@@ -402,49 +420,111 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("CreateVolume: called with args %+v", *req)
 
-	// Validate create request
-	err := validateWCPCreateVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	createVolumeInternal := func() (
+		*csi.CreateVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("CreateVolume: called with args %+v", *req)
 
-	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-			msg := "File volume feature is disabled on the cluster"
-			log.Warn(msg)
-			return nil, status.Errorf(codes.Unimplemented, msg)
+		isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
+		if isBlockRequest {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		} else {
+			volumeType = prometheus.PrometheusFileVolumeType
 		}
-		return c.createFileVolume(ctx, req)
+		// Validate create request
+		err := validateWCPCreateVolumeRequest(ctx, req, isBlockRequest)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+			log.Error(msg)
+			return nil, err
+		}
+
+		if !isBlockRequest {
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+				msg := "File volume feature is disabled on the cluster"
+				log.Warn(msg)
+				return nil, status.Errorf(codes.Unimplemented, msg)
+			}
+			return c.createFileVolume(ctx, req)
+		}
+		return c.createBlockVolume(ctx, req)
 	}
-	return c.createBlockVolume(ctx, req)
+	resp, err := createVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("DeleteVolume: called with args: %+v", *req)
-	var err error
-	err = validateWCPDeleteVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
-		log.Error(msg)
-		return nil, err
+
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+
+	deleteVolumeInternal := func() (
+		*csi.DeleteVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("DeleteVolume: called with args: %+v", *req)
+		var err error
+		err = validateWCPDeleteVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
+			log.Error(msg)
+			return nil, err
+		}
+		// Query CNS to get the volume type.
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+		}
+		queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{
+			Names: []string{
+				string(cnstypes.QuerySelectionNameTypeVolumeType),
+			},
+		})
+		if err != nil {
+			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		if len(queryResult.Volumes) == 0 {
+			msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		if queryResult.Volumes[0].VolumeType == common.BlockVolumeType {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		} else {
+			volumeType = prometheus.PrometheusFileVolumeType
+		}
+
+		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
+		if err != nil {
+			msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		return &csi.DeleteVolumeResponse{}, nil
 	}
-	err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
+	resp, err := deleteVolumeInternal()
 	if err != nil {
-		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	return &csi.DeleteVolumeResponse{}, nil
+	return resp, err
 }
 
 // ControllerPublishVolume attaches a volume to the Node VM.

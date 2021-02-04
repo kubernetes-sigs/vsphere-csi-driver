@@ -35,6 +35,9 @@ import (
 // FileVolumeClient exposes an interface to support
 // configuration of CNS file volume ACL's.
 type FileVolumeClient interface {
+	// GetClientVMsFromIPList returns the list of client vms associated
+	// with a given External IP address and CnsFileVolumeClient instance name
+	GetClientVMsFromIPList(ctx context.Context, fileVolumeName string, clientVMIP string) ([]string, error)
 	// AddClientVMToIPList adds the input clientVMName to the list of
 	// clientVMNames that expose the same external clientVMIP for a
 	// given file volume. fileVolumeName is used to uniquely
@@ -89,6 +92,56 @@ func GetFileVolumeClientInstance(ctx context.Context) (FileVolumeClient, error) 
 	}
 
 	return fileVolumeClientInstance, nil
+}
+
+// GetClientVMsFromIPList returns the list of client vms associated with a
+// given External IP address and CnsFileVolumeClient instance
+// Callers need to specify fileVolumeName as a combination of
+// "<SV-namespace>/<SV-PVC-name>". This combination is used to uniquely
+// identify CnsFileVolumeClient instances.
+// Returns an empty list if the instance doesnt exist OR if the
+// input IP address is not present in this instance.
+// Returns an error if any operations fails.
+func (f *fileVolumeClient) GetClientVMsFromIPList(ctx context.Context, fileVolumeName string, clientVMIP string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Fetching client VMs list from cnsfilevolumeclient %s for IP address %s", fileVolumeName, clientVMIP)
+	actual, _ := f.volumeLock.LoadOrStore(fileVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast lock for cnsfilevolumeclient instance: %s", fileVolumeName)
+	}
+	instanceLock.Lock()
+	defer instanceLock.Unlock()
+
+	instance := &v1alpha1.CnsFileVolumeClient{}
+	instanceNamespace, instanceName, err := cache.SplitMetaNamespaceKey(fileVolumeName)
+	if err != nil {
+		log.Errorf("failed to split key %s with error: %+v", fileVolumeName, err)
+		return []string{}, err
+	}
+	instanceKey := types.NamespacedName{
+		Namespace: instanceNamespace,
+		Name:      instanceName,
+	}
+	err = f.client.Get(ctx, instanceKey, instance)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// If the get() on the instance fails, then we return empty list.
+			log.Infof("Cnsfilevolumeclient instance %s not found. Returning empty list", fileVolumeName)
+			return []string{}, nil
+		}
+		log.Errorf("failed to get cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
+		return []string{}, err
+	}
+
+	// Verify if input clientVMIP exists in Spec.ExternalIPtoClientVms
+	log.Debugf("Verifying if ExternalIPtoClientVms list exists for IP address: %s", clientVMIP)
+	clientVMsList, ok := instance.Spec.ExternalIPtoClientVms[clientVMIP]
+	if ok {
+		return clientVMsList, nil
+	}
+	return []string{}, nil
 }
 
 // AddClientVMToIPList adds the input clientVMName to the list of
