@@ -249,8 +249,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create POD using the above PVC")
 		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
-		originalFSSize, err := getFSSizeMb(f, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
@@ -265,7 +263,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Increase PVC size and verify Volume resize")
-		increaseSizeOfPvcAttachedToPod(f, client, namespace, originalFSSize, pvclaim, pod)
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, pod)
 	})
 
 	/*
@@ -300,8 +298,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create POD")
 		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
-		originalFSSize, err := getFSSizeMb(f, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
@@ -315,7 +311,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		increaseSizeOfPvcAttachedToPod(f, client, namespace, originalFSSize, pvclaim, pod)
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, pod)
 	})
 
 	/*
@@ -415,13 +411,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		increaseVolumeMultipleTimes(ctx, f, client, namespace, volHandle, originalFSSize, pvclaim, pod)
+		increaseOnlineVolumeMultipleTimes(ctx, f, client, namespace, volHandle, originalFSSize, pvclaim, pod)
 	})
 
 })
 
-//increaseVolumeMultipleTimes this method increases the same volume multiple times and verifies PVC and Filesystem size
-func increaseVolumeMultipleTimes(ctx context.Context, f *framework.Framework, client clientset.Interface, namespace string, volHandle string, originalSizeInMb int64, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
+//increaseOnlineVolumeMultipleTimes this method increases the same volume multiple times and verifies PVC and Filesystem size
+func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framework, client clientset.Interface, namespace string, volHandle string, originalSizeInMb int64, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 	// Modify PVC spec to trigger volume expansion
 	ginkgo.By("Expanding pvc 10 times")
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
@@ -583,7 +579,12 @@ func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Inte
 }
 
 //increaseSizeOfPvcAttachedToPod this method increases the PVC size, which is attached to POD
-func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Interface, namespace string, originalSizeInMb int64, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
+func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Interface, namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
+
+	//Fetch original FileSystemSize
+	originalSizeInMb, err := getFSSizeMb(f, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	//resize PVC
 	// Modify PVC spec to trigger volume expansion
 	ginkgo.By("Expanding current pvc")
@@ -591,7 +592,7 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	newSize := currentPvcSize.DeepCopy()
 	newSize.Add(resource.MustParse("1Gi"))
 	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
-	pvclaim, err := expandPVCSize(pvclaim, newSize, client)
+	pvclaim, err = expandPVCSize(pvclaim, newSize, client)
 	framework.ExpectNoError(err, "While updating pvc for more size")
 	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 

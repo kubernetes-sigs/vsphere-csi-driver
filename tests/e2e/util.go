@@ -72,8 +72,9 @@ import (
 )
 
 var (
-	svcClient    clientset.Interface
-	svcNamespace string
+	svcClient        clientset.Interface
+	svcNamespace     string
+	defaultDatastore *object.Datastore
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -2127,59 +2128,32 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 	return pvc
 }
 
-// waitForPVCToComplete waits for PVC to complete PVC resize. It waits till the condition "FileSystemResizePending" is gone from the PVC condetion status
-func waitForPVCToCompleteResizing(client clientset.Interface, namespace string, pvcName string, poll time.Duration, timeout time.Duration) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var pvclaim *v1.PersistentVolumeClaim
-	var err error
-
-	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
-		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("error while fetching pvc '%v' after controller resize: %v", pvcName, err)
-		}
-		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
-		inProgressConditions := pvclaim.Status.Conditions
-		if len(inProgressConditions) > 0 {
-			expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status conditions", pvcName))
-			if inProgressConditions[0].Type == v1.PersistentVolumeClaimFileSystemResizePending {
-				framework.Logf("PVC '%v' resize is in progress", pvcName)
-			}
-			continue
-		} else if len(inProgressConditions) == 0 {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("Timed out waiting for PVC to completing resize")
-
-}
-
 //getDefaultDatastore returns default datastore
 func getDefaultDatastore(ctx context.Context) *object.Datastore {
-	var defaultDatastore *object.Datastore
-	finder := find.NewFinder(e2eVSphere.Client.Client, false)
-	cfg, err := getConfig()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	dcList := strings.Split(cfg.Global.Datacenters, ",")
-	datacenters := []string{}
-	for _, dc := range dcList {
-		dcName := strings.TrimSpace(dc)
-		if dcName != "" {
-			datacenters = append(datacenters, dcName)
-		}
-	}
-	for _, dc := range datacenters {
-		defaultDatacenter, err := finder.Datacenter(ctx, dc)
+	if defaultDatastore == nil {
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		finder.SetDatacenter(defaultDatacenter)
-		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
-		if err == nil {
-			break
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		datacenters := []string{}
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
 		}
+		for _, dc := range datacenters {
+			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+			if err == nil {
+				break
+			}
+		}
+		gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
 	}
-	gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
+
 	return defaultDatastore
 }
