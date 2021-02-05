@@ -72,8 +72,9 @@ import (
 )
 
 var (
-	svcClient    clientset.Interface
-	svcNamespace string
+	svcClient        clientset.Interface
+	svcNamespace     string
+	defaultDatastore *object.Datastore
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -2144,4 +2145,34 @@ func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef
 		return true, nil
 	})
 	return waitErr
+}
+
+//getDefaultDatastore returns default datastore
+func getDefaultDatastore(ctx context.Context) *object.Datastore {
+	if defaultDatastore == nil {
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		datacenters := []string{}
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+		for _, dc := range datacenters {
+			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+			if err == nil {
+				break
+			}
+		}
+		gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
+	}
+
+	return defaultDatastore
 }
