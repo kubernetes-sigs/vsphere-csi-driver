@@ -161,7 +161,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterReboot(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Waiting for %v for host to come up fully", VCRebootWaitTime))
 		time.Sleep(time.Duration(VCRebootWaitTime) * time.Second)
 		ginkgo.By("Done with reboot")

@@ -1684,7 +1684,7 @@ func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterCompu
 
 //waitForAllHostsToBeUp will check and wait till the host is reachable
 func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
-	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
+	clusterComputeResource, _ = getClusterComputeResource(ctx, vs)
 	hosts = getHosts(ctx, clusterComputeResource)
 	framework.Logf("host information %v", hosts)
 	for index := range hosts {
