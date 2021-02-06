@@ -436,7 +436,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Storage Class")
@@ -570,7 +570,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = e2eVSphere.deleteFCD(ctx, fcdID, datastore.Reference())
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), disklibUnlinkErr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})

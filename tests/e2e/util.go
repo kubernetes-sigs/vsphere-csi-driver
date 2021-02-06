@@ -78,6 +78,7 @@ var (
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
 	hosts                  []*object.HostSystem
+	defaultDatastore       *object.Datastore
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -2193,4 +2194,53 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 	pvc := getPersistentVolumeClaimSpec(namespace, labels, pvName)
 	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
 	return pvc
+}
+
+//deleteFcdWithRetriesForSpecificErr method to retry fcd deletion when a specific error is encountered
+func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference, errToIgnore string) error {
+	var err error
+	waitErr := wait.PollImmediate(poll*15, pollTimeout, func() (bool, error) {
+		framework.Logf("Trying to delete FCD: %s", fcdID)
+		err = e2eVSphere.deleteFCD(ctx, fcdID, dsRef)
+		if err != nil {
+			if strings.Contains(err.Error(), errToIgnore) {
+				// In FCD, there is a background thread that makes calls to host to sync datastore every minute.
+				framework.Logf("Hit error '%s' while trying to delete FCD: %s, will retry after %v seconds ...", err.Error(), fcdID, poll*15)
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	return waitErr
+}
+
+//getDefaultDatastore returns default datastore
+func getDefaultDatastore(ctx context.Context) *object.Datastore {
+	if defaultDatastore == nil {
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		datacenters := []string{}
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+		for _, dc := range datacenters {
+			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+			if err == nil {
+				break
+			}
+		}
+		gomega.Expect(defaultDatastore).NotTo(gomega.BeNil())
+	}
+
+	return defaultDatastore
 }
