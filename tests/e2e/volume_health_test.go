@@ -2025,12 +2025,22 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		svcPV := getPvFromClaim(svcClient, svNamespace, svPVCName)
 		framework.Logf("PV name in SVC for PVC in GC %v", svcPV.Name)
 
+		var gcClient clientset.Interface
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
+			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
 			time.Sleep(pollTimeoutShort)
 			if err != nil {
 				time.Sleep(hostRecoveryTime)
+			}
+			if !isControlerUP {
+				bringUpTKGController(svcClient)
+				bringUpCsiController(gcClient)
 			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2048,12 +2058,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
-		var gcClient clientset.Interface
-		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
-			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
 		ginkgo.By("Bring down csi-controller pod in GC")
 		bringDownTKGController(svcClient)
 		bringDownCsiController(gcClient)
@@ -2062,13 +2066,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		//PSOD the host
 		ginkgo.By("PSOD the host")
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, svcPV.Name)
-
-		defer func() {
-			if !isControlerUP {
-				bringUpTKGController(svcClient)
-				bringUpCsiController(gcClient)
-			}
-		}()
 
 		//Health status in gc pvc should be still accessible
 		ginkgo.By("poll for health status annotation")
