@@ -49,6 +49,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     export SHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5cf05d97-4aac6e02-2940-02003e89d50e/"
     export NONSHARED_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5cf05d98-b2c43515-d903-02003e89d50e/"
     export DESTINATION_VSPHERE_DATASTORE_URL="ds:///vmfs/volumes/5ad05d98-c2d43415-a903-12003e89d50e/" # Any local datastore url
+    export SHARED_VVOL_DATASTORE_URL="ds:///vmfs/volumes/vvol:5c5ddeccfb2f476c-ac17f22d228af0f1/" #shared VVOL datastore url
+    export SHARED_NFS_DATASTORE_URL="ds:///vmfs/volumes/fb4efbd8-6e969410/" #shared NFS datastore url
+    export SHARED_VMFS_DATASTORE_URL="ds:///vmfs/volumes/6009698f-424076e2-c60d-02008c6fa7e4/" #shared VMFS datastore url
     export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
     export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="non-shared-ds-policy"
     # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in csi-driver-deploy.yaml
