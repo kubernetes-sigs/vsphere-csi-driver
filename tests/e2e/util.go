@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -72,9 +73,12 @@ import (
 )
 
 var (
-	svcClient        clientset.Interface
-	svcNamespace     string
-	defaultDatastore *object.Datastore
+	svcClient              clientset.Interface
+	svcNamespace           string
+	vsanHealthClient       *VsanClient
+	clusterComputeResource []*object.ClusterComputeResource
+	hosts                  []*object.HostSystem
+	defaultDatastore       *object.Datastore
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -1633,13 +1637,70 @@ func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.St
 
 }
 
+//getClusterComputeResource returns the clusterComputeResource and vSANClient
+func getClusterComputeResource(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient) {
+	var err error
+	if clusterComputeResource == nil {
+		clusterComputeResource, vsanHealthClient, err = getClusterName(ctx, vs)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	return clusterComputeResource, vsanHealthClient
+}
+
+//findIP returns the IP from the input string
+func findIP(input string) string {
+	numBlock := "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
+	regexPattern := numBlock + "\\." + numBlock + "\\." + numBlock + "\\." + numBlock
+	regEx := regexp.MustCompile(regexPattern)
+	return regEx.FindString(input)
+}
+
+//getHosts returns list of hosts and it takes clusterComputeResource as input
+//This method is used by WCP and GC tests
+func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource) []*object.HostSystem {
+	var err error
+	if hosts == nil {
+		computeCluster := os.Getenv(envComputeClusterName)
+		if computeCluster == "" {
+			if guestCluster {
+				computeCluster = "compute-cluster"
+			} else if supervisorCluster {
+				computeCluster = "wcp-app-platform-sanity-cluster"
+			}
+			framework.Logf("Default cluster is chosen for test")
+		}
+		for _, cluster := range clusterComputeResource {
+			framework.Logf("clusterComputeResource %v", clusterComputeResource)
+			if strings.Contains(cluster.Name(), computeCluster) {
+				hosts, err = cluster.Hosts(ctx)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	return hosts
+}
+
+//waitForAllHostsToBeUp will check and wait till the host is reachable
+func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
+	clusterComputeResource, _ = getClusterComputeResource(ctx, vs)
+	hosts = getHosts(ctx, clusterComputeResource)
+	framework.Logf("host information %v", hosts)
+	for index := range hosts {
+		ip := findIP(hosts[index].String())
+		err := waitForHostToBeUp(ip)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
 //psodHostWithPv methods finds the esx host where pv is residing and psods it.
 //It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
-func psodHostWithPv(ctx context.Context, vs *vSphere) string {
+func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 	ginkgo.By("VsanObjIndentities")
-	vsanObjuuid := VsanObjIndentities(ctx, &e2eVSphere)
+	framework.Logf("pvName %v", pvName)
+	vsanObjuuid := VsanObjIndentities(ctx, &e2eVSphere, pvName)
 	framework.Logf("vsanObjuuid %v", vsanObjuuid)
-	gomega.Expect(vsanObjuuid).NotTo(gomega.BeEmpty())
+	gomega.Expect(vsanObjuuid).NotTo(gomega.BeNil())
 
 	ginkgo.By("Get host info using queryVsanObj")
 	hostInfo := queryVsanObj(ctx, &e2eVSphere, vsanObjuuid)
@@ -1665,9 +1726,9 @@ func psodHostWithPv(ctx context.Context, vs *vSphere) string {
 }
 
 //VsanObjIndentities returns the vsanObjectsUUID
-func VsanObjIndentities(ctx context.Context, vs *vSphere) []string {
-	var vsanObjUUID []string
-	computeCluster := os.Getenv("CLUSTER_NAME")
+func VsanObjIndentities(ctx context.Context, vs *vSphere, pvName string) string {
+	var vsanObjUUID string
+	computeCluster := os.Getenv(envComputeClusterName)
 	if computeCluster == "" {
 		if guestCluster {
 			computeCluster = "compute-cluster"
@@ -1676,24 +1737,28 @@ func VsanObjIndentities(ctx context.Context, vs *vSphere) []string {
 		}
 		framework.Logf("Default cluster is choosen for test")
 	}
-	clusterComputeResource, vsanHealthClient, err := getClusterName(ctx, vs)
-	framework.Logf("clusterComputeResource %v", clusterComputeResource)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
 
 	for _, cluster := range clusterComputeResource {
-		framework.Logf("cluster name %v", cluster.Name())
 		if strings.Contains(cluster.Name(), computeCluster) {
 			clusterConfig, err := vsanHealthClient.VsanQueryObjectIdentities(ctx, cluster.Reference())
+			framework.Logf("clusterconfig %v", clusterConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			vsanObjUUID = clusterConfig.Health.ObjectHealthDetail[0].ObjUuids
-			break
+			for index := range clusterConfig.Identities {
+				if strings.Contains(clusterConfig.Identities[index].Description, pvName) {
+					vsanObjUUID = clusterConfig.Identities[index].Uuid
+					framework.Logf("vsanObjUUID is %v", vsanObjUUID)
+					break
+				}
+			}
 		}
 	}
+	gomega.Expect(vsanObjUUID).NotTo(gomega.BeNil())
 	return vsanObjUUID
 }
 
 //queryVsanObj takes vsanObjuuid as input and resturns vsanObj info such as hostUUID
-func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid []string) string {
+func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid string) string {
 	c := newClient(ctx, vs)
 	datacenter := e2eVSphere.Config.Global.Datacenters
 
@@ -1704,8 +1769,7 @@ func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid []string) string
 	dc, err := finder.Datacenter(ctx, datacenter)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	finder.SetDatacenter(dc)
-
-	result, err := vsanHealthClient.QueryVsanObjects(ctx, vsanObjuuid, vs)
+	result, err := vsanHealthClient.QueryVsanObjects(ctx, []string{vsanObjuuid}, vs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return result
@@ -1897,6 +1961,7 @@ func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvc
 
 //pvcHealthAnnotationWatcher polls the health status of pvc and returns error if any
 func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
+	framework.Logf("Waiting for health annotation for pvclaim %v", pvclaim.Name)
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)
 		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
@@ -1912,18 +1977,20 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 	return waitErr
 }
 
-//wait for ESX to be up
-func checkHostStatus(ip string) error {
-	framework.Logf("host ip %v", ip)
+//waitForHostToBeUp will check the status of hosts and also wait for pollTimeout minutes
+//To make sure host is reachable
+func waitForHostToBeUp(ip string) error {
+	framework.Logf("checking host status of %v", ip)
+	gomega.Expect(ip).NotTo(gomega.BeNil())
 	timeout := 1 * time.Second
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait until %v seconds", pollTimeoutShort)
 		_, err := net.DialTimeout("tcp", ip+":22", timeout)
 		if err != nil {
-			framework.Logf("Site unreachable, error: ", err)
+			framework.Logf("host unreachable, error: ", err)
 			return false, nil
 		}
-		framework.Logf("Site reachable")
+		framework.Logf("host reachable")
 		return true, nil
 	})
 	return waitErr
