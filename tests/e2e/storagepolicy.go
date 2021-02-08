@@ -63,10 +63,18 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisi
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		}
 	})
 

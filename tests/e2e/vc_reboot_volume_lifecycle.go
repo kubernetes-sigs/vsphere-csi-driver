@@ -64,10 +64,18 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		} else {
 			VCRebootWaitTime = defaultVCRebootWaitTime
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 	ginkgo.AfterEach(func() {
 		if supervisorCluster || guestCluster {
 			deleteResourceQuota(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		}
 	})
 

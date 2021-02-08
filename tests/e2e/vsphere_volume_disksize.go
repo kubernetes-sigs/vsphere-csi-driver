@@ -65,12 +65,21 @@ var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] [csi-guest] Volume Disk 
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		}
+
 	})
 
 	// Test for valid disk size of 2Gi
