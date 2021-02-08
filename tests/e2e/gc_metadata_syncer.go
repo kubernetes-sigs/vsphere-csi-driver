@@ -61,22 +61,6 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvc               *v1.PersistentVolumeClaim
 	)
 
-	ginkgo.BeforeSuite(func() {
-		if guestCluster {
-			ginkgo.By("Inside BeforeSuite")
-			svcClient, svNamespace = getSvcClientAndNamespace()
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-			setResourceQuota(svcClient, svNamespace, rqLimit, storagePolicyName)
-		}
-	})
-
-	ginkgo.AfterSuite(func() {
-		if guestCluster {
-			ginkgo.By("Inside AfterSuite")
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit, storagePolicyName)
-		}
-	})
-
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
@@ -88,6 +72,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bootstrap()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		labelKey = "app"
@@ -96,6 +81,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvclabelValue = "e2e-labels-pvc"
 		pvlabelKey = "pvapp"
 		pvlabelValue = "e2e-labels-pv"
+	})
+
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
 	/*

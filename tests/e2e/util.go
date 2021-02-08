@@ -799,16 +799,23 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 }
 
 // setResourceQuota resource quota to the specified limit for the given namespace
-func setResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
+func setResourceQuota(client clientset.Interface, namespace string, size string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	//deleteResourceQuota if already present
+	deleteResourceQuota(client, namespace)
+
 	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	newQuota := newTestResourceQuota(existingResourceQuota.GetName(), size, scName)
-	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(ctx, newQuota, metav1.UpdateOptions{})
+	framework.Logf("existingResourceQuota name %s", existingResourceQuota.GetName())
+	requestStorageQuota := updatedSpec4ExistingResourceQuota(existingResourceQuota.GetName(), size)
+	testResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(ctx, requestStorageQuota, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", resourceQuota))
+	ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+	//TODO: Add polling instead of static wait time and assert against the updated quota
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds", sleepTimeOut))
+	time.Sleep(sleepTimeOut * time.Second)
+
 }
 
 // newTestResourceQuota returns a quota that enforces default constraints for testing
@@ -819,6 +826,17 @@ func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQ
 	return &v1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       v1.ResourceQuotaSpec{Hard: hard},
+	}
+}
+
+// updatedSpec4ExistingResourceQuota returns a quota that enforces default constraints for testing
+func updatedSpec4ExistingResourceQuota(name string, size string) *v1.ResourceQuota {
+	updateQuota := v1.ResourceList{}
+	// test quota on discovered resource type
+	updateQuota[v1.ResourceName("requests.storage")] = resource.MustParse(size)
+	return &v1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       v1.ResourceQuotaSpec{Hard: updateQuota},
 	}
 }
 
