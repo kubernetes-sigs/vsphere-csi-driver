@@ -64,6 +64,7 @@ const (
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
+	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	ext3FSType                                 = "ext3"
