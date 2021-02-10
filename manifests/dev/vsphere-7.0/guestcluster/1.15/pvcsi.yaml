@@ -279,8 +279,6 @@ spec:
             value: /csi/csi.sock
           - name: DRIVER_REG_SOCK_PATH
             value: /var/lib/kubelet/plugins_registry/csi.vsphere.vmware.com/csi.sock
-        securityContext:
-          privileged: true
         volumeMounts:
           - name: plugin-dir
             mountPath: /csi
