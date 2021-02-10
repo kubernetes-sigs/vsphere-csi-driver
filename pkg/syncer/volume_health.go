@@ -97,7 +97,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 						pvc.Namespace, pvc.Name, val, volHealthStatus)
 					metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 					metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealthTS, time.Now().Format(time.UnixDate))
-					log.Infof("set annotation for health to %s at time %s", volHealthStatus, time.Now().Format(time.UnixDate))
+					log.Infof("csiGetVolumeHealthStatus: set annotation for health to %s at time %s for pvc %s/%s", volHealthStatus, time.Now().Format(time.UnixDate), pvc.Namespace, pvc.Name)
 					_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 					if err != nil {
 						if apierrors.IsConflict(err) {
@@ -106,12 +106,11 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 							// pvc get from pvcLister may be stale, try to get updated pvc which bound to pv from API server
 							newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 							if err == nil {
-								log.Debugf("csiGetVolumeHealthStatus: update volume health annotation for pvc %s/%s which "+
-									"get from API server from old value %s to new value %s",
-									newPvc.Namespace, newPvc.Name, val, volHealthStatus)
+								log.Infof("csiGetVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
+									"get from API server from old value %s to new value %s at time %s",
+									newPvc.Namespace, newPvc.Name, val, volHealthStatus, time.Now().Format(time.UnixDate))
 								metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 								metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, time.Now().Format(time.UnixDate))
-								log.Infof("set annotation for health to %s at time %s", volHealthStatus, time.Now().Format(time.UnixDate))
 								_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx, newPvc, metav1.UpdateOptions{})
 								if err != nil {
 									log.Errorf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
