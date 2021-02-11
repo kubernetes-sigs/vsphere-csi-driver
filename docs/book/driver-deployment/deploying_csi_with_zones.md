@@ -172,10 +172,15 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
      - name: vsphere-csi-node
      .
      .
-     volumeMounts:
-     - name: vsphere-config-volume
-       mountPath: /etc/cloud
-       readOnly: true
+       env:
+       - name: VSPHERE_CSI_CONFIG
+         value: "/etc/cloud/csi-vsphere.conf"
+     .
+     .
+       volumeMounts:
+       - name: vsphere-config-volume
+         mountPath: /etc/cloud
+         readOnly: true
      .
      .
      volumes:

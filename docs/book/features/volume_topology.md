@@ -9,7 +9,7 @@
 
 Prerequisite : Enable topology in the Kubernetes Cluster. Follow steps mentioned in [Deployment with Topology](../driver-deployment/deploying_csi_with_zones.md).
 
-## Deploy workloads using topology with `immediate` volume binding mode <a id="deploy_workload_using_topology"></a>
+## Deploy workloads using topology with `immediate` volume binding mode <a id="deploy_workload_using_topology_immediate"></a>
 
 When topology is enabled in the cluster, you can deploy a Kubernetes workload to a specific region or zone defined in the topology.
 
