@@ -701,7 +701,18 @@ func (s *service) NodeGetInfo(
 				return nil, status.Errorf(codes.Internal, err.Error())
 			}
 		}
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
+		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+		if err != nil {
+			log.Errorf("failed to create tagManager. Err: %v", err)
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		defer func() {
+			err := tagManager.Logout(ctx)
+			if err != nil {
+				log.Errorf("failed to logout tagManager. err: %v", err)
+			}
+		}()
+		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
 		if err != nil {
 			log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
 			return nil, status.Errorf(codes.Internal, err.Error())
