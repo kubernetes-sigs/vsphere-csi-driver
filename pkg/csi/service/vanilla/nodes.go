@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/vmware/govmomi/vapi/tags"
+
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
@@ -133,7 +135,7 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachi
 //      ds:///vmfs/volumes/vsan:524fae1aaca129a5-1ee55a87f26ae626/:
 //         [map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west]
 //         map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east]]]]
-func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneCategoryName string, regionCategoryName string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
+func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager, zoneCategoryName string, regionCategoryName string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("GetSharedDatastoresInTopology: called with topologyRequirement: %+v, zoneCategoryName: %s, regionCategoryName: %s", topologyRequirement, zoneCategoryName, regionCategoryName)
 	allNodes, err := nodes.cnsNodeManager.GetAllNodes(ctx)
@@ -152,7 +154,7 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 		log.Debugf("getNodesInZoneRegion: called with zoneValue: %s, regionValue: %s", zoneValue, regionValue)
 		var nodeVMsInZoneAndRegion []*cnsvsphere.VirtualMachine
 		for _, nodeVM := range allNodes {
-			isNodeInZoneRegion, err := nodeVM.IsInZoneRegion(ctx, zoneCategoryName, regionCategoryName, zoneValue, regionValue)
+			isNodeInZoneRegion, err := nodeVM.IsInZoneRegion(ctx, zoneCategoryName, regionCategoryName, zoneValue, regionValue, tagManager)
 			if err != nil {
 				log.Errorf("Error checking if node VM: %v belongs to zone [%s] and region [%s]. err: %+v", nodeVM, zoneValue, regionValue, err)
 				return nil, err
