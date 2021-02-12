@@ -21,9 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
@@ -209,6 +213,19 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
+	// Go module to keep the metrics http server running all the time.
+	go func() {
+		prometheus.CsiInfo.WithLabelValues(version).Set(1)
+		for {
+			log.Info("Starting the http server to expose Prometheus metrics..")
+			http.Handle("/metrics", promhttp.Handler())
+			err = http.ListenAndServe(":2112", nil)
+			if err != nil {
+				log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
+			}
+			log.Info("Restarting http server to expose Prometheus metrics..")
+		}
+	}()
 	return nil
 }
 
@@ -553,133 +570,65 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 // in CreateVolumeRequest
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("CreateVolume: called with args %+v", *req)
-	volumeCapabilities := req.GetVolumeCapabilities()
-	if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
-	}
-	if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
-		vsan67u3Release, err := isVsan67u3Release(ctx, c)
-		if err != nil {
-			log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
-			return nil, status.Error(codes.Internal, err.Error())
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	createVolumeInternal := func() (
+		*csi.CreateVolumeResponse, error) {
+
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("CreateVolume: called with args %+v", *req)
+		volumeCapabilities := req.GetVolumeCapabilities()
+		if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
 		}
-		if vsan67u3Release {
-			msg := "fileshare volume creation is not supported on vSAN 67u3 release"
-			log.Error(msg)
-			return nil, status.Error(codes.FailedPrecondition, msg)
+		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			vsan67u3Release, err := isVsan67u3Release(ctx, c)
+			if err != nil {
+				log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			if vsan67u3Release {
+				msg := "fileshare volume creation is not supported on vSAN 67u3 release"
+				log.Error(msg)
+				return nil, status.Error(codes.FailedPrecondition, msg)
+			}
+			return c.createFileVolume(ctx, req)
 		}
-		return c.createFileVolume(ctx, req)
+		volumeType = prometheus.PrometheusBlockVolumeType
+		return c.createBlockVolume(ctx, req)
 	}
-	return c.createBlockVolume(ctx, req)
+	resp, err := createVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("DeleteVolume: called with args: %+v", *req)
-	var err error
-	err = validateVanillaDeleteVolumeRequest(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	var volumePath string
-	if strings.Contains(req.VolumeId, ".vmdk") {
-		// in-tree volume support
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
-			// Migration feature switch is disabled
-			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-		// Migration feature switch is enabled
-		volumePath = req.VolumeId
-		// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
-		if err := initVolumeMigrationService(ctx, c); err != nil {
-			// Error is already wrapped in CSI error code
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+
+	deleteVolumeInternal := func() (
+		*csi.DeleteVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("DeleteVolume: called with args: %+v", *req)
+		var err error
+		err = validateVanillaDeleteVolumeRequest(ctx, req)
+		if err != nil {
 			return nil, err
 		}
-		req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId})
-		if err != nil {
-			msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	}
-	err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
-	if err != nil {
-		msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	// Migration feature switch is enabled and volumePath is set
-	if volumePath != "" {
-		// Delete VolumePath to VolumeID mapping
-		err = volumeMigrationService.DeleteVolumeInfo(ctx, req.VolumeId)
-		if err != nil {
-			msg := fmt.Sprintf("failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	}
-	return &csi.DeleteVolumeResponse{}, nil
-}
-
-// ControllerPublishVolume attaches a volume to the Node VM.
-// volume id and node name is retrieved from ControllerPublishVolumeRequest
-func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
-	*csi.ControllerPublishVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateVanillaControllerPublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	publishInfo := make(map[string]string)
-	// Check whether its a block or file volume
-	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
-		// File Volume
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
-		if err != nil {
-			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
-		}
-		if len(queryResult.Volumes) == 0 {
-			msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
-		}
-
-		vSANFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
-		publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
-		nfsv4AccessPointFound := false
-		for _, kv := range vSANFileBackingDetails.AccessPoints {
-			if kv.Key == common.Nfsv4AccessPointKey {
-				publishInfo[common.Nfsv4AccessPoint] = kv.Value
-				nfsv4AccessPointFound = true
-				break
-			}
-		}
-		if !nfsv4AccessPointFound {
-			msg := fmt.Sprintf("failed to get NFSv4 access point for volume: %q."+
-				" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-	} else {
-		// Block Volume
+		var volumePath string
 		if strings.Contains(req.VolumeId, ".vmdk") {
+			volumeType = prometheus.PrometheusBlockVolumeType
 			// in-tree volume support
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled
@@ -688,118 +637,280 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 			// Migration feature switch is enabled
-			storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
-			volumePath := req.VolumeId
+			volumePath = req.VolumeId
 			// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
 			if err := initVolumeMigrationService(ctx, c); err != nil {
 				// Error is already wrapped in CSI error code
 				return nil, err
 			}
-			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId})
 			if err != nil {
 				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
 			}
+		} else {
+			// Query CNS to get the volume type.
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+			}
+			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			})
+			if err != nil {
+				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+			if len(queryResult.Volumes) == 0 {
+				msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+			if queryResult.Volumes[0].VolumeType == common.BlockVolumeType {
+				volumeType = prometheus.PrometheusBlockVolumeType
+			} else {
+				volumeType = prometheus.PrometheusFileVolumeType
+			}
 		}
-		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
-			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+			msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
-		log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
-		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-		if err != nil {
-			msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+		// Migration feature switch is enabled and volumePath is set
+		if volumePath != "" {
+			// Delete VolumePath to VolumeID mapping
+			err = volumeMigrationService.DeleteVolumeInfo(ctx, req.VolumeId)
+			if err != nil {
+				msg := fmt.Sprintf("failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
 		}
-		publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
-		publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+		return &csi.DeleteVolumeResponse{}, nil
 	}
-	log.Infof("ControllerPublishVolume successful with publish context: %v", publishInfo)
-	return &csi.ControllerPublishVolumeResponse{
-		PublishContext: publishInfo,
-	}, nil
+	resp, err := deleteVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
+}
+
+// ControllerPublishVolume attaches a volume to the Node VM.
+// volume id and node name is retrieved from ControllerPublishVolumeRequest
+func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
+	*csi.ControllerPublishVolumeResponse, error) {
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+
+	controllerPublishVolumeInternal := func() (
+		*csi.ControllerPublishVolumeResponse, error) {
+
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerPublishVolume: called with args %+v", *req)
+		err := validateVanillaControllerPublishVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		publishInfo := make(map[string]string)
+		// Check whether its a block or file volume
+		if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			// File Volume
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+			}
+			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+			if len(queryResult.Volumes) == 0 {
+				msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+
+			vSANFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+			publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
+			nfsv4AccessPointFound := false
+			for _, kv := range vSANFileBackingDetails.AccessPoints {
+				if kv.Key == common.Nfsv4AccessPointKey {
+					publishInfo[common.Nfsv4AccessPoint] = kv.Value
+					nfsv4AccessPointFound = true
+					break
+				}
+			}
+			if !nfsv4AccessPointFound {
+				msg := fmt.Sprintf("failed to get NFSv4 access point for volume: %q."+
+					" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		} else {
+			// Block Volume
+			volumeType = prometheus.PrometheusBlockVolumeType
+			if strings.Contains(req.VolumeId, ".vmdk") {
+				// in-tree volume support
+				if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+					// Migration feature switch is disabled
+					msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+				// Migration feature switch is enabled
+				storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
+				volumePath := req.VolumeId
+				// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
+				if err := initVolumeMigrationService(ctx, c); err != nil {
+					// Error is already wrapped in CSI error code
+					return nil, err
+				}
+				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
+				if err != nil {
+					msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
+					log.Error(msg)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
+			}
+			node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+			if err != nil {
+				msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
+			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+			if err != nil {
+				msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+			publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+		}
+		log.Infof("ControllerPublishVolume successful with publish context: %v", publishInfo)
+		return &csi.ControllerPublishVolumeResponse{
+			PublishContext: publishInfo,
+		}, nil
+	}
+	resp, err := controllerPublishVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateVanillaControllerUnpublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	if !strings.Contains(req.VolumeId, ".vmdk") {
-		// check if volume is block or file, skip detach for file volume
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+
+	controllerUnpublishVolumeInternal := func() (
+		*csi.ControllerUnpublishVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+		err := validateVanillaControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		if !strings.Contains(req.VolumeId, ".vmdk") {
+			// check if volume is block or file, skip detach for file volume
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
+			}
+			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+			if len(queryResult.Volumes) == 0 {
+				msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+			if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
+				volumeType = prometheus.PrometheusFileVolumeType
+				log.Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
+		} else {
+			// in-tree volume support
+			volumeType = prometheus.PrometheusBlockVolumeType
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+				// Migration feature switch is disabled
+				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			// Migration feature switch is enabled
+			// ControllerUnpublishVolume will never be the first call back for vmdk registration with CNS.
+			// Here in the migration.VolumeSpec, we do not supply SPBM Policy name.
+			// Node drain is the pre-requisite for volume migration, so volume will be registered with SPBM policy
+			// during ControllerPublish if metadata-syncer fails to register volume using associated SPBM Policy.
+			// for ControllerUnpublishVolume we anticipate volume is already registered with CNS, and volumeMigrationService
+			// should return volumeID for requested VolumePath
+			volumePath := req.VolumeId
+			// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
+			if err := initVolumeMigrationService(ctx, c); err != nil {
+				// Error is already wrapped in CSI error code
+				return nil, err
+			}
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath})
+			if err != nil {
+				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
+		// Block Volume
+		volumeType = prometheus.PrometheusBlockVolumeType
+		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+		if err != nil {
+			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
-		if len(queryResult.Volumes) == 0 {
-			msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
+		err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+		if err != nil {
+			msg := fmt.Sprintf("failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
-		if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
-			log.Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
-			return &csi.ControllerUnpublishVolumeResponse{}, nil
-		}
+		log.Infof("ControllerUnpublishVolume successful for volume ID: %s", req.VolumeId)
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	}
+	resp, err := controllerUnpublishVolumeInternal()
+	if err != nil {
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
-		// in-tree volume support
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
-			// Migration feature switch is disabled
-			msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
-		// Migration feature switch is enabled
-		// ControllerUnpublishVolume will never be the first call back for vmdk registration with CNS.
-		// Here in the migration.VolumeSpec, we do not supply SPBM Policy name.
-		// Node drain is the pre-requisite for volume migration, so volume will be registered with SPBM policy
-		// during ControllerPublish if metadata-syncer fails to register volume using associated SPBM Policy.
-		// for ControllerUnpublishVolume we anticipate volume is already registered with CNS, and volumeMigrationService
-		// should return volumeID for requested VolumePath
-		volumePath := req.VolumeId
-		// In case if feature state switch is enabled after controller is deployed, we need to initialize the volumeMigrationService
-		if err := initVolumeMigrationService(ctx, c); err != nil {
-			// Error is already wrapped in CSI error code
-			return nil, err
-		}
-		req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath})
-		if err != nil {
-			msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
-		}
+		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	// Block Volume
-	node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
-	}
-	err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
-	if err != nil {
-		msg := fmt.Sprintf("failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
-	}
-	log.Infof("ControllerUnpublishVolume successful for volume ID: %s", req.VolumeId)
-	return &csi.ControllerUnpublishVolumeResponse{}, nil
+	return resp, err
 }
 
 // ControllerExpandVolume expands a volume.
