@@ -234,6 +234,17 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(request reconcile.Request) (rec
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		removeFinalizerFromCRDInstance(ctx, instance)
+		err = updateCnsFileAccessConfig(ctx, r.client, instance)
+		if err != nil {
+			msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
+				instance.Name, instance.Namespace, err)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		// Cleanup instance entry from backOffDuration map
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
 
