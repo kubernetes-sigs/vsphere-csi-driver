@@ -101,7 +101,7 @@ CNSCTL_BIN := $(BIN_OUT)/$(CNSCTL_BIN_NAME).$(GOOS)_$(GOARCH)
 build-cnsctl: $(CNSCTL_BIN)
 ifndef CNSCTL_BIN_SRCS
 CNSCTL_BIN_SRCS := $(CNSCTL_BIN_NAME)/main.go go.mod go.sum
-CNSCTL_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' $(CNSCTL_BIN_NAME) | grep $(MOD_NAME) | sed 's~$(MOD_NAME)~.~'))
+CNSCTL_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./$(CNSCTL_BIN_NAME) | grep $(MOD_NAME) | sed 's~$(MOD_NAME)~.~'))
 export CNSCTL_BIN_SRCS
 endif
 $(CNSCTL_BIN): $(CNSCTL_BIN_SRCS)
