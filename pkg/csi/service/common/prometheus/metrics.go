@@ -33,6 +33,10 @@ const (
 	PrometheusCreateVolumeOpType = "create-volume"
 	// PrometheusDeleteVolumeOpType represents the DeleteVolume operation.
 	PrometheusDeleteVolumeOpType = "delete-volume"
+	// PrometheusAttachVolumeOpType represents the AttachVolume operation.
+	PrometheusAttachVolumeOpType = "attach-volume"
+	// PrometheusDetachVolumeOpType represents the DetachVolume operation.
+	PrometheusDetachVolumeOpType = "detach-volume"
 
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
