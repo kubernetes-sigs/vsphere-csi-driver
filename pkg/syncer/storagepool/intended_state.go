@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
@@ -74,15 +75,14 @@ type intendedState struct {
 type SpController struct {
 	vc        *cnsvsphere.VirtualCenter
 	clusterID string
-	// intendedStateMap stores the datastoreMoid -> IntendedState for each datastore
-	intendedStateMap map[string]*intendedState
+	// intendedStateMap stores the datastoreMoid -> IntendedState for each datastore. Underlying map type map[string]*intendedState
+	intendedStateMap sync.Map
 }
 
 func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpController, error) {
 	return &SpController{
-		vc:               vc,
-		clusterID:        clusterID,
-		intendedStateMap: make(map[string]*intendedState),
+		vc:        vc,
+		clusterID: clusterID,
 	}, nil
 }
 
@@ -310,7 +310,7 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 			continue
 		}
 	}
-	c.intendedStateMap[state.dsMoid] = state
+	c.intendedStateMap.Store(state.dsMoid, state)
 	return nil
 }
 
@@ -319,9 +319,14 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, dsSummary types.DatastoreSummary,
 	scWatchCntlr *StorageClassWatch) error {
 	log := logger.GetLogger(ctx)
-	intendedState, ok := c.intendedStateMap[dsMoid]
+	state, ok := c.intendedStateMap.Load(dsMoid)
 	if !ok {
 		log.Debugf("Skipping update for %s", dsMoid)
+		return nil
+	}
+	intendedState, ok := state.(*intendedState)
+	if !ok {
+		log.Debugf("Skipping update for %s, value stored in cache is of type %T, expected *intendedState", dsMoid, state)
 		return nil
 	}
 	log.Debugf("Datastore: %s, StoragePool: %s", dsMoid, intendedState.spName)
@@ -407,14 +412,18 @@ func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState
 	return hostCapacityErr
 }
 
-func (c *SpController) deleteIntendedState(ctx context.Context, spName string) bool {
-	for dsMoid, state := range c.intendedStateMap {
-		if state.spName == spName {
-			delete(c.intendedStateMap, dsMoid)
-			return true
+func (c *SpController) deleteIntendedState(ctx context.Context, spName string) (deleted bool) {
+	deleted = false
+	c.intendedStateMap.Range(func(key, value interface{}) bool {
+		state, ok := value.(*intendedState)
+		if ok && state.spName == spName {
+			c.intendedStateMap.Delete(key)
+			deleted = true
+			return false // break the range loop
 		}
-	}
-	return false
+		return true // iterate over next key, if any
+	})
+	return deleted
 }
 
 func deleteStoragePool(ctx context.Context, spName string) error {
