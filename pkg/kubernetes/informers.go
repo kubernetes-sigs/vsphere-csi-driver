@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/sample-controller/pkg/signals"
 )
@@ -148,6 +149,11 @@ func (im *InformerManager) GetConfigMapLister() corelisters.ConfigMapLister {
 // GetPodLister returns Pod Lister for the calling informer manager
 func (im *InformerManager) GetPodLister() corelisters.PodLister {
 	return im.informerFactory.Core().V1().Pods().Lister()
+}
+
+// GetVALister returns VolumeAttachment Lister for the calling informer manager
+func (im *InformerManager) GetVALister() storagelistersv1.VolumeAttachmentLister {
+	return im.informerFactory.Storage().V1().VolumeAttachments().Lister()
 }
 
 // Listen starts the Informers
