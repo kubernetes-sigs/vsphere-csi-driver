@@ -293,15 +293,16 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 	}
-
+	clusterFlavor, err := GetClusterFlavor(ctx)
+	if err != nil {
+		return err
+	}
 	if cfg.NetPermissions == nil {
 		// If no net permissions are given, assume default
 		log.Info("No Net Permissions given in Config. Using default permissions.")
-		// TODO:
-		// For now, adding full permissions for READ/WRITE for all file volumes on all flavors
-		// Later when ACLs are implemented for file volumes in WCP, give full permissions
-		// only for Vanilla and no permissions for WCP.
-		cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
+		}
 	} else {
 		for key, netPerm := range cfg.NetPermissions {
 			if netPerm.Permissions == "" {
