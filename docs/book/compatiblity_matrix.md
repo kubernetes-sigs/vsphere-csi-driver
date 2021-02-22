@@ -1,17 +1,21 @@
 # Compatibility Matrix for vSphere CSI Driver
 
-- vSphere CSI driver is released with specific version of CSI sidecar containers which has the minimum kubernetes version requirement.
+- vSphere CSI driver is released with specific version of CSI sidecar containers which has the minimum and maximum kubernetes version requirement.
 
-| vSphere CSI Driver | Minimum Kubernetes Version |
-|--------------------|----------------------------|
-| v1.0.2             | v1.14.0                    |
-| v1.0.3             | v1.14.0                    |
-| v2.0.0             | v1.16.0                    |
-| v2.0.1             | v1.17.0                    |
-| v2.1.0             | v1.17.0                    |
+Note:
 
-- vSphere CSI driver is compatible with vSphere 67u3, vSphere 7.0 and 7.0u1.
-  - vSphere CSI Driver is backward and forward compatible to vSphere releases
+- vmware supports the deprecated release of the driver until End Of Life date.
+
+| vSphere CSI Driver | Minimum Kubernetes Release | Maximum Kubernetes Release            | Deprecated | End of Life  |
+|--------------------|----------------------------|---------------------------------------| -----------|--------------|
+| [v2.1.1](./releases/v2.1.1.md)             | 1.17                    | 1.19       | No         | -            |
+| [v2.1.0](./releases/v2.1.0.md)             | 1.17                    | 1.19       | No         | -            |
+| [v2.0.1](./releases/v2.0.1.md)             | 1.17                    | 1.19       | Yes        | January 2022 |
+| [v2.0.0](./releases/v2.0.0.md)             | 1.16                    | 1.18       | Yes        | January 2022 |
+| [v1.0.3](./releases/v1.0.3.md)             | 1.14                    | 1.16       | Yes        | June 2021    |
+| [v1.0.2](./releases/v1.0.2.md)             | 1.14                    | 1.16       | Yes        | January 2021 |
+
+- vSphere CSI driver is compatible with vSphere 67u3, vSphere 7.0 and 7.0u1. If you have a newer vCenter version but older ESXi hosts, new features added in the newer vCenter will not work until all the ESXi hosts are upgraded to the newer version.
   - For bug fixes and performance improvements, user can deploy the latest vSphere CSI driver without upgrading vSphere.
   - Features added in the newer vSphere releases does not work on the older vSphere CSI driver. Refer to [feature matrix](supported_features_matrix.md) to learn about what features added in each release of vSphere and CSI driver.
 

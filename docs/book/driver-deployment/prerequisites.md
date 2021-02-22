@@ -135,100 +135,73 @@ Follow the steps described under “Install the vSphere Cloud Provider Interface
 
 Installation steps for vSphere CPI is briefly described here
 
-1. Create a cloud-config configmap of vSphere configuration
-
-    Here is an example configuration file with dummy values:
-
-    ```bash
-    tee /etc/kubernetes/vsphere.conf >/dev/null <<EOF
-    [Global]
-    insecure-flag = "true"
-
-    [VirtualCenter "IP or FQDN"]
-    user = "username@vsphere.local"
-    password = "password"
-    port = "port"
-    datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
-
-    EOF
-    ```
-
-    ```bash
-    cd /etc/kubernetes
-    kubectl create configmap cloud-config --from-file=vsphere.conf --namespace=kube-system
-    ```
-
-    ```bash
-    kubectl get configmap cloud-config --namespace=kube-system
-    NAME           DATA   AGE
-    cloud-config   1      82s
-    ```
-
-   Remove vsphere.conf file created at /etc/kubernetes/
-
-    ```bash
-    rm -rf /etc/kubernetes/vsphere.conf
-    ```
-
-2. Install CPI.
-
-   1. Taint nodes.
+Step-1: Taint nodes.
   
-       Before installing CPI, verify all nodes (including master nodes) are tainted with "node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule".
+Before installing CPI, verify all nodes (including master nodes) are tainted with "node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule".
 
-       To taint nodes use following command
+To taint nodes use following command
 
-        ```bash
-        kubectl taint node <node-name> node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
-        ```
+```bash
+kubectl taint node <node-name> node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
+```
 
-        When the kubelet is started with an “external” cloud provider, this taint is set on a node to mark it as unusable. After a controller from the cloud-controller-manager initializes this node, the kubelet removes this taint.
+When the kubelet is started with an “external” cloud provider, this taint is set on a node to mark it as unusable. After a controller from the cloud-controller-manager initializes this node, the kubelet removes this taint.
 
-   2. Create a cloud-config configmap of vSphere configuration. Note: This is used for CPI. There is separate secret required for vSphere CSI driver.
+Step-2: Create a cloud-config configmap of vSphere configuration. Note: This is used for CPI. There is separate secret required for vSphere CSI driver. Here is an example configuration file with dummy values:
 
-      - Here is an example configuration file with dummy values:
+```bash
+tee /etc/kubernetes/vsphere.conf >/dev/null <<EOF
+[Global]
+insecure-flag = "true"
 
-          ```bash
-          tee /etc/kubernetes/vsphere.conf >/dev/null <<EOF
-          [Global]
-          insecure-flag = "true"
+[VirtualCenter "IP or FQDN"]
+user = "username@vsphere.local"
+password = "password"
+port = "port"
+datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 
-          [VirtualCenter "IP or FQDN"]
-          user = "username@vsphere.local"
-          password = "password"
-          port = "port"
-          datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
+EOF
+```
 
-          EOF
-          ```
+Here in vsphere.conf file,
 
-        Here in vsphere.conf file,
+- `insecure-flag` - should be set to true to use self-signed certificate for login.
+- `VirtualCenter` - section defines vCenter IP address / FQDN.
+- `user` - vCenter username.
+- `password` - password for vCenter user specified with user.
+- `port` - vCenter Server Port.
+- `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacenter is enough but when datacenter is placed in the folder, path needs to be specified as folder/datacenter-name. Please note since comma is used as a delimiter, the datacenter name itself must not contain a comma.
 
-          - `insecure-flag` - should be set to true to use self-signed certificate for login.
-          - `VirtualCenter` - section defines vCenter IP address / FQDN.
-          - `user` - vCenter username.
-          - `password` - password for vCenter user specified with user.
-          - `port` - vCenter Server Port.
-          - `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacenter is enough but when datacenter is placed in the folder, path needs to be specified as folder/datacenter-name. Please note since comma is used as a delimiter, the datacenter name itself must not contain a comma.
+```bash
+cd /etc/kubernetes
+kubectl create configmap cloud-config --from-file=vsphere.conf --namespace=kube-system
+```
 
-   3. Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod.
+```bash
+kubectl get configmap cloud-config --namespace=kube-system
+NAME           DATA   AGE
+cloud-config   1      82s
+```
 
-      ```bash
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-roles.yaml
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
-      kubectl apply -f https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
-      ```
+Remove vsphere.conf file created at /etc/kubernetes/
 
-   4. Verify `ProviderID` is set for all nodes.
+Step-3: Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod.
 
-      ```bash
-      $ kubectl describe nodes | grep "ProviderID"
-      ProviderID: vsphere://<provider-id1>
-      ProviderID: vsphere://<provider-id2>
-      ProviderID: vsphere://<provider-id3>
-      ProviderID: vsphere://<provider-id4>
-      ProviderID: vsphere://<provider-id5>
-      ```
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-roles.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
+kubectl apply -f https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
+```
 
-      vSphere CSI driver needs the `ProviderID` field to be set for all nodes.
-  
+Step-4: Verify `ProviderID` is set for all nodes.
+
+```bash
+kubectl describe nodes | grep "ProviderID"
+ProviderID: vsphere://<provider-id1>
+ProviderID: vsphere://<provider-id2>
+ProviderID: vsphere://<provider-id3>
+ProviderID: vsphere://<provider-id4>
+ProviderID: vsphere://<provider-id5>
+```
+
+vSphere CSI driver needs the `ProviderID` field to be set for all nodes.
