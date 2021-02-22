@@ -39,9 +39,11 @@ import (
 var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine after VC Reboots", func() {
 	f := framework.NewDefaultFramework("e2e-volume-life-cycle")
 	var (
-		client           clientset.Interface
-		namespace        string
-		VCRebootWaitTime int
+		client            clientset.Interface
+		namespace         string
+		storagePolicyName string
+		VCRebootWaitTime  int
+		scParameters      map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -53,6 +55,9 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
+		scParameters = make(map[string]string)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
 		if os.Getenv(envVCRebootWaitTime) != "" {
 			VCRebootWaitTime, err = strconv.Atoi(os.Getenv(envVCRebootWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -61,7 +66,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 	})
 	ginkgo.AfterEach(func() {
-		if supervisorCluster {
+		if supervisorCluster || guestCluster {
 			deleteResourceQuota(client, namespace)
 		}
 	})
@@ -79,34 +84,32 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[csi-supervisor] [csi-guest] verify volume operations on VC works fine after vc reboots", func() {
-		storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		scParameters := make(map[string]string)
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] verify volume operations on VC works fine after vc reboots", func() {
 
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var svcPVCName string
+		var err error
+		ginkgo.By("Creating Storage Class and PVC")
 		// decide which test setup is available to run
-		if supervisorCluster {
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for Vanilla setup")
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
+			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
-		}
-		var storageclass *storagev1.StorageClass
-		var pvclaim *v1.PersistentVolumeClaim
-		var svcPVCName string // PVC Name in the Supervisor Cluster
-		var err error
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		// decide which test setup is available to run
-		if guestCluster {
-			ginkgo.By("CNS_TEST: Running for GC setup")
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
-		} else {
-			ginkgo.By("CNS_TEST: Running for WCP setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -114,8 +117,9 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -123,7 +127,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		pvc, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
@@ -147,9 +150,13 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
+		}
+		if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(nodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if vanillaCluster {
+			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
@@ -177,7 +184,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
 			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, nodeName))
-		} else {
+		}
+		if guestCluster {
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", volumeID, nodeName))
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -185,6 +193,13 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow CnsNodeVMAttachment controller to reconcile resource", waitTimeForCNSNodeVMAttachmentReconciler))
 			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 			verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		}
+		if vanillaCluster {
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
 		}
 	})
 })
