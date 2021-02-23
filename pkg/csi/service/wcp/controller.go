@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
