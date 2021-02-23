@@ -2196,16 +2196,18 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 }
 
 //deleteFcdWithRetriesForSpecificErr method to retry fcd deletion when a specific error is encountered
-func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference, errToIgnore string) error {
+func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference, errsToIgnore []string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll*15, pollTimeout, func() (bool, error) {
 		framework.Logf("Trying to delete FCD: %s", fcdID)
 		err = e2eVSphere.deleteFCD(ctx, fcdID, dsRef)
 		if err != nil {
-			if strings.Contains(err.Error(), errToIgnore) {
-				// In FCD, there is a background thread that makes calls to host to sync datastore every minute.
-				framework.Logf("Hit error '%s' while trying to delete FCD: %s, will retry after %v seconds ...", err.Error(), fcdID, poll*15)
-				return false, nil
+			for _, errToIgnore := range errsToIgnore {
+				if strings.Contains(err.Error(), errToIgnore) {
+					// In FCD, there is a background thread that makes calls to host to sync datastore every minute.
+					framework.Logf("Hit error '%s' while trying to delete FCD: %s, will retry after %v seconds ...", err.Error(), fcdID, poll*15)
+					return false, nil
+				}
 			}
 			return false, err
 		}
