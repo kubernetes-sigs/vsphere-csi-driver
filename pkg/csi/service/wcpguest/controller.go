@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
