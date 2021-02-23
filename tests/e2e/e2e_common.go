@@ -89,6 +89,7 @@ const (
 	kubeAPIRecoveryTime                        = 1 * time.Minute
 	kubeSystemNamespace                        = "kube-system"
 	nfs4FSType                                 = "nfs4"
+	objOrItemNotFoundErr                       = "The object or item referred to could not be found"
 	passorwdFilePath                           = "/etc/vmware/wcp/.storageUser"
 	podContainerCreatingState                  = "ContainerCreating"
 	poll                                       = 2 * time.Second
