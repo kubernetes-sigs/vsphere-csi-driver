@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
-		namespace = f.Namespace.Name
+		namespace = getNamespaceToRunTests(f)
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -80,18 +80,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defaultDatastore = getDefaultDatastore(ctx)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 
-	})
-	ginkgo.AfterEach(func() {
-		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
-		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -109,6 +104,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if supervisorCluster {
+			ginkgo.By("Delete Resource quota")
+			deleteResourceQuota(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		}
 
 	})
@@ -250,14 +254,19 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion on dynamic volume", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion on dynamic volume", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		var volHandle string
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVSANDatastoreURL, namespace)
+		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -268,7 +277,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD using the above PVC")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -276,10 +285,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
@@ -317,7 +331,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -345,12 +359,14 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		6. Modify PVC to be a smaller size.
 		7. Verify that the PVC size does not change because volume shrinking is not supported.
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion shrinking volume not allowed", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion shrinking volume not allowed", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", namespace)
+		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
+
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -361,7 +377,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -369,10 +385,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
 		// Modify PVC spec to a smaller size
@@ -399,13 +420,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			8. Verify the PVC Size should increased by 10Gi
 			9. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion multiple times on the same PVC", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion multiple times on the same PVC", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", namespace)
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -415,7 +436,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		ginkgo.By("Create POD")
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -423,12 +445,18 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
+		ginkgo.By("Increase PVC size and verify Volume resize")
 		increaseOnlineVolumeMultipleTimes(ctx, f, client, namespace, volHandle, pvclaim, pod)
 	})
 
@@ -447,13 +475,16 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion when VSAN-health is down", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion when VSAN-health is down", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", namespace)
+		var originalSizeInMb, fsSize int64
+		var err error
+
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -463,8 +494,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
-		originalFSSize, err := getFSSizeMb(f, pod)
+		ginkgo.By("Create POD")
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+
+		//Fetch original FileSystemSize
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+		originalSizeInMb, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -473,10 +508,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
 		ginkgo.By("Bring down Vsan-health service")
@@ -506,7 +546,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("File system resize should not succeed Since Vsan-health is down. Expect an error")
 		expectedErrMsg := "503 Service Unavailable"
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
-
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -523,15 +562,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
 		// first time
-		if fsSize < originalFSSize {
-			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
-		}
+		gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
 		ginkgo.By("File system resize finished successfully")
 
 	})
@@ -550,13 +587,16 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion when SPS-Service is down ", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion when SPS-Service is down ", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", namespace)
+		var originalSizeInMb, fsSize int64
+		var err error
+
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -566,8 +606,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
-		originalFSSize, err := getFSSizeMb(f, pod)
+		ginkgo.By("Create POD")
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+
+		//Fetch original FileSystemSize
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+		originalSizeInMb, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -576,10 +620,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
 		ginkgo.By("Bring down SPS service")
@@ -625,15 +674,14 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
 		// first time
-		if fsSize < originalFSSize {
-			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d mb", pvclaim.Name, fsSize)
-		}
+		gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
+
 		ginkgo.By("File system resize finished successfully")
 
 	})
@@ -651,13 +699,17 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify online volume expansion by updating PVC with different sizes concurrently", func() {
+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion by updating PVC with different sizes concurrently", func() {
+
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var originalSizeInMb, fsSize int64
+		var err error
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", namespace)
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -668,8 +720,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD using the above PVC")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
-		originalFSSize, err := getFSSizeMb(f, pod)
+		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+
+		//Fetch original FileSystemSize
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+		originalSizeInMb, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -678,10 +733,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
 		}()
 
 		ginkgo.By("Expanding current pvc")
@@ -712,16 +772,16 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFSSizeMb(f, pod)
-		framework.Logf("FileSystemSize after PVC resize %d mb , FileSystemSize Before PVC resize %d mb ", fsSize, originalFSSize)
+		fsSize, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("FileSystemSize after PVC resize %d mb , FileSystemSize Before PVC resize %d mb ", fsSize, originalSizeInMb)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
 		// first time
-		if fsSize < originalFSSize {
-			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
-		}
+		gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
+
 		ginkgo.By("File system resize finished successfully")
 
 		pvcsize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
@@ -759,7 +819,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("Create StorageClass on shared VVOL datastore with allowVolumeExpansion set to true, Create PVC")
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVVOLdatastoreURL, namespace)
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVVOLdatastoreURL, "", namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -770,7 +830,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD using the above PVC")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -786,7 +846,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
 		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, pod)
-
 	})
 
 	/*
@@ -813,7 +872,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("Create StorageClass on shared NFS datastore with allowVolumeExpansion set to true")
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedNFSdatastoreURL, namespace)
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedNFSdatastoreURL, "", namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -824,7 +883,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD using the above PVC")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -865,8 +924,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if sharedVMFSdatastoreURL == "" {
 			ginkgo.Skip("Skipping the test because SHARED_VMFS_DATASTORE_URL is not set. This may be due to testbed is not having shared VNFS datastore.")
 		}
+
 		ginkgo.By("Create StorageClass on shared VMFS datastore with allowVolumeExpansion set to true")
-		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVMFSdatastoreURL, namespace)
+		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVMFSdatastoreURL, "", namespace)
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -877,7 +937,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD using the above PVC")
-		pod := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -901,8 +961,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 //increaseOnlineVolumeMultipleTimes this method increases the same volume multiple times and verifies PVC and Filesystem size
 func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framework, client clientset.Interface, namespace string, volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 
-	//Get original FileSystem size
-	originalSizeInMb, err := getFSSizeMb(f, pod)
+	var originalSizeInMb, fsSize int64
+	var err error
+	//Fetch original FileSystemSize
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+	originalSizeInMb, err = getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Modify PVC spec to trigger volume expansion
@@ -956,14 +1019,13 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err := getFSSizeMb(f, pod)
+	fsSize, err = getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
 	// the original volume size as the filesystem is formatted.
-	if fsSize < originalSizeInMb {
-		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d mb", pvclaim.Name, fsSize)
-	}
+	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
+
 	framework.Logf("File system resize finished successfully %d mb", fsSize)
 
 }
@@ -1023,13 +1085,9 @@ func createStaticPVC(ctx context.Context, f *framework.Framework, client clients
 }
 
 //createSCwithVolumeExpansionTrueAndDynamicPVC creates storageClass with allowVolumeExpansion set to true and Creates PVC. Waits till PV, PVC are in bound
-func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client clientset.Interface, dsurl string, namespace string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
+func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client clientset.Interface, dsurl string, storagePolicyName string, namespace string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = ext4FSType
-
-	if dsurl != "" {
-		scParameters[scParamDatastoreURL] = dsurl
-	}
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
@@ -1037,7 +1095,25 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
+	if vanillaCluster {
+		if dsurl != "" {
+			scParameters[scParamDatastoreURL] = dsurl
+		}
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
+	} else if supervisorCluster {
+		ginkgo.By("CNS_TEST: Running for WCP setup")
+		framework.Logf("storagePolicyName: %s", storagePolicyName)
+		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		scParameters[scParamStoragePolicyID] = profileID
+		// create resource quota
+		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
+	} else {
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		scParameters[svStorageClassName] = storagePolicyName
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Waiting for PVC to be bound
@@ -1054,16 +1130,26 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client
 }
 
 //createPODandVerifyVolumeMount this method creates POD and verifies VolumeMount
-func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Interface, namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) *v1.Pod {
+func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Interface, namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	var exists bool
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
-	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
-
+	if vanillaCluster {
+		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+	} else if guestCluster {
+		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+	}
+	framework.Logf("VMUUID : %s", vmUUID)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
@@ -1072,14 +1158,16 @@ func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Inte
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	return pod
+	return pod, vmUUID
 }
 
 //increaseSizeOfPvcAttachedToPod this method increases the PVC size, which is attached to POD
 func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Interface, namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
-
+	var originalSizeInMb int64
+	var err error
 	//Fetch original FileSystemSize
-	originalSizeInMb, err := getFSSizeMb(f, pod)
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+	originalSizeInMb, err = getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//resize PVC
@@ -1100,16 +1188,16 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	pvcConditions := pvclaim.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
+	var fsSize int64
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err := getFSSizeMb(f, pod)
+	fsSize, err = getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("File system size after expansion : %s", fsSize)
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
 	// the original volume size as the filesystem is formatted for the
 	// first time
-	if fsSize < originalSizeInMb {
-		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d mb", pvclaim.Name, fsSize)
-	}
+	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
 	ginkgo.By("File system resize finished successfully")
 }
 
@@ -1984,10 +2072,20 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 
 // getFSSizeMb returns filesystem size in Mb
 func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
-	output, err := storage_utils.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
-	if err != nil {
-		return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
+	var output string
+	var err error
+	if supervisorCluster {
+		namespace := getNamespaceToRunTests(f)
+		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		output = framework.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
+	} else {
+		output, err = storage_utils.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
+		if err != nil {
+			return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
+		}
 	}
+
 	arrMountOut := strings.Fields(string(output))
 	if len(arrMountOut) <= 0 {
 		return -1, fmt.Errorf("error when parsing output of `df -T`. output: %s", string(output))
