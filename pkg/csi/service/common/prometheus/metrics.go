@@ -29,6 +29,8 @@ const (
 	// PrometheusUnknownVolumeType is used in situation when the volume type could not be found.
 	PrometheusUnknownVolumeType = "unknown"
 
+	// CSI operation types
+
 	// PrometheusCreateVolumeOpType represents the CreateVolume operation.
 	PrometheusCreateVolumeOpType = "create-volume"
 	// PrometheusDeleteVolumeOpType represents the DeleteVolume operation.
@@ -37,6 +39,31 @@ const (
 	PrometheusAttachVolumeOpType = "attach-volume"
 	// PrometheusDetachVolumeOpType represents the DetachVolume operation.
 	PrometheusDetachVolumeOpType = "detach-volume"
+
+	// CNS operation types
+
+	// PrometheusCnsCreateVolumeOpType represents the CreateVolume operation.
+	PrometheusCnsCreateVolumeOpType = "create-volume"
+	// PrometheusCnsDeleteVolumeOpType represents the DeleteVolume operation.
+	PrometheusCnsDeleteVolumeOpType = "delete-volume"
+	// PrometheusCnsAttachVolumeOpType represents the AttachVolume operation.
+	PrometheusCnsAttachVolumeOpType = "attach-volume"
+	// PrometheusCnsDetachVolumeOpType represents the DetachVolume operation.
+	PrometheusCnsDetachVolumeOpType = "detach-volume"
+	// PrometheusCnsUpdateVolumeMetadataOpType represents the UpdateVolumeMetadata operation.
+	PrometheusCnsUpdateVolumeMetadataOpType = "update-volume-metadata"
+	// PrometheusCnsExpandVolumeOpType represents the ExpandVolume operation.
+	PrometheusCnsExpandVolumeOpType = "expand-volume"
+	// PrometheusCnsQueryVolumeOpType represents the QueryVolume operation.
+	PrometheusCnsQueryVolumeOpType = "query-volume"
+	// PrometheusCnsQueryAllVolumeOpType represents the QueryAllVolume operation.
+	PrometheusCnsQueryAllVolumeOpType = "query-all-volume"
+	// PrometheusCnsQueryVolumeInfoOpType represents the QueryVolumeInfo operation.
+	PrometheusCnsQueryVolumeInfoOpType = "query-volume-info"
+	// PrometheusCnsRelocateVolumeOpType represents the RelocateVolume operation.
+	PrometheusCnsRelocateVolumeOpType = "relocate-volume"
+	// PrometheusCnsConfigureVolumeACLOpType represents the ConfigureVolumeAcl operation.
+	PrometheusCnsConfigureVolumeACLOpType = "configure-volume-acl"
 
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
@@ -51,9 +78,9 @@ var (
 		Help: "CSI Info",
 	}, []string{"version"})
 
-	// VolumeControlOpsHistVec is a histogram vector metric to observe various control
+	// CsiControlOpsHistVec is a histogram vector metric to observe various control
 	// operations in CSI.
-	VolumeControlOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	CsiControlOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "csi_volume_ops_histogram",
 		Help: "Histogram vector for CSI volume operations.",
 		// Creating more buckets for operations that takes few seconds and less buckets
@@ -65,4 +92,19 @@ var (
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume"
 		// Possible status - "pass", "fail"
 		[]string{"voltype", "optype", "status"})
+
+	// CnsControlOpsHistVec is a histogram vector metric to observe various control
+	// operations on CNS. Note that this captures the time taken by CNS into a bucket
+	// as seen by the client(CSI in this case).
+	CnsControlOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "cns_volume_ops_histogram",
+		Help: "Histogram vector for CNS operations.",
+		// Creating more buckets for operations that takes few seconds and less buckets
+		// for those that are taking a long time. A CNS operation taking a long time is
+		// unexpected and we don't have to be accurate(just approximation is fine).
+		Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 60, 120, 180, 300},
+	},
+		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume", etc
+		// Possible status - "pass", "fail"
+		[]string{"optype", "status"})
 )

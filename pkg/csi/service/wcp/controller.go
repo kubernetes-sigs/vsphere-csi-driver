@@ -455,10 +455,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}
 	resp, err := createVolumeInternal()
 	if err != nil {
-		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
-		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
@@ -518,10 +518,10 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	}
 	resp, err := deleteVolumeInternal()
 	if err != nil {
-		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
-		prometheus.VolumeControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
