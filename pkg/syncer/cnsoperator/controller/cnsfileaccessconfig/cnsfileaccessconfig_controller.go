@@ -434,6 +434,7 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context, 
 	vSanFileShareNetPermissions = append(vSanFileShareNetPermissions, vsanfstypes.VsanFileShareNetPermission{
 		Ips:         tkgVMIP,
 		Permissions: vsanFileShareAccessType,
+		AllowRoot:   true,
 	})
 
 	cnsNFSAccessControlSpecList := make([]cnstypes.CnsNFSAccessControlSpec, 0)
