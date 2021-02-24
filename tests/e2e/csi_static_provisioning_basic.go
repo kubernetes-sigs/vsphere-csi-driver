@@ -111,7 +111,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				datacenters = append(datacenters, dcName)
 			}
 		}
-
 		for _, dc := range datacenters {
 			defaultDatacenter, err = finder.Datacenter(ctx, dc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -120,7 +119,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			nonsharedDatastore, err = getDatastoreByURL(ctx, nonSharedDatastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 	})
 
@@ -160,6 +162,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
 
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		}
 	})
 
 	staticProvisioningPreSetUpUtil := func(ctx context.Context) (*restclient.Config, *storagev1.StorageClass, string) {

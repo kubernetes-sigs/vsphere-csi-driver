@@ -59,6 +59,13 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		bootstrap()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+	})
+
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
 	/*

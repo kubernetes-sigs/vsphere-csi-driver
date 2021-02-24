@@ -102,6 +102,16 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+	})
+	ginkgo.AfterEach(func() {
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		}
 	})
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Should create and delete pod with the same volume source", func() {

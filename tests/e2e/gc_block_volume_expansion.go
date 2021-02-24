@@ -74,6 +74,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
+
+		//Set resource quota
+		ginkgo.By("Set Resource quota for GC")
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 
@@ -96,7 +102,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		// replace second element with pod.Name
 		cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
-		svcClient, _ = getSvcClientAndNamespace()
 
 	})
 
@@ -114,6 +119,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
 	/*

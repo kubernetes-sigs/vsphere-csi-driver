@@ -81,6 +81,17 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		defaultDatastore = getDefaultDatastore(ctx)
 
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
+	})
+	ginkgo.AfterEach(func() {
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		}
 	})
 
 	ginkgo.AfterEach(func() {

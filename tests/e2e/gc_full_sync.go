@@ -73,6 +73,13 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+	})
+
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
 	/*
