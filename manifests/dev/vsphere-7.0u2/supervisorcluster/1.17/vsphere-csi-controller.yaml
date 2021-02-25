@@ -269,6 +269,10 @@ spec:
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
         imagePullPolicy: "IfNotPresent"
+        ports:
+          - containerPort: 2113
+            name: prometheus
+            protocol: TCP
         volumeMounts:
         - mountPath: /etc/vmware/wcp
           name: vsphere-config-volume
@@ -299,3 +303,22 @@ metadata:
   name: csi-feature-states
   namespace: vmware-system-csi
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vsphere-csi-controller
+  namespace: vmware-system-csi
+  labels:
+    app: vsphere-csi-controller
+spec:
+  ports:
+    - name: ctlr
+      port: 2112
+      targetPort: 2112
+      protocol: TCP
+    - name: syncer
+      port: 2113
+      targetPort: 2113
+      protocol: TCP
+  selector:
+    app: vsphere-csi-controller

@@ -121,6 +121,10 @@ spec:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
+          ports:
+            - containerPort: 2113
+              name: prometheus
+              protocol: TCP
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
@@ -176,3 +180,23 @@ metadata:
 spec:
   attachRequired: true
   podInfoOnMount: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vsphere-csi-controller
+  namespace: kube-system
+  labels:
+    app: vsphere-csi-controller
+spec:
+  ports:
+    - name: ctlr
+      port: 2112
+      targetPort: 2112
+      protocol: TCP
+    - name: syncer
+      port: 2113
+      targetPort: 2113
+      protocol: TCP
+  selector:
+    app: vsphere-csi-controller

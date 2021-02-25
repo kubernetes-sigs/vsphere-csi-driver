@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
