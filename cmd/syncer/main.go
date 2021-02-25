@@ -20,7 +20,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -103,6 +107,21 @@ func main() {
 				}
 			}()
 		}
+
+		// Go module to keep the metrics http server running all the time.
+		go func() {
+			prometheus.SyncerInfo.WithLabelValues(syncer.Version).Set(1)
+			for {
+				log.Info("Starting the http server to expose Prometheus metrics..")
+				http.Handle("/metrics", promhttp.Handler())
+				err = http.ListenAndServe(":2113", nil)
+				if err != nil {
+					log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
+				}
+				log.Info("Restarting http server to expose Prometheus metrics..")
+			}
+		}()
+
 		// Initialize syncer components that are dependant on the outcome of leader election, if enabled.
 		run = initSyncerComponents(ctx, clusterFlavor, configInfo, &syncer.COInitParams)
 

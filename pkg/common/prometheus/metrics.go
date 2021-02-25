@@ -74,14 +74,20 @@ const (
 var (
 	// CsiInfo is a gauge metric to observe the CSI version.
 	CsiInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "csi_info",
+		Name: "vsphere_csi_info",
 		Help: "CSI Info",
+	}, []string{"version"})
+
+	// SyncerInfo is a gauge metric to observe the CSI version.
+	SyncerInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vsphere_syncer_info",
+		Help: "Syncer Info",
 	}, []string{"version"})
 
 	// CsiControlOpsHistVec is a histogram vector metric to observe various control
 	// operations in CSI.
 	CsiControlOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "csi_volume_ops_histogram",
+		Name: "vsphere_csi_volume_ops_histogram",
 		Help: "Histogram vector for CSI volume operations.",
 		// Creating more buckets for operations that takes few seconds and less buckets
 		// for those that are taking a long time. A CSI operation taking a long time is
@@ -97,7 +103,7 @@ var (
 	// operations on CNS. Note that this captures the time taken by CNS into a bucket
 	// as seen by the client(CSI in this case).
 	CnsControlOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "cns_volume_ops_histogram",
+		Name: "vsphere_cns_volume_ops_histogram",
 		Help: "Histogram vector for CNS operations.",
 		// Creating more buckets for operations that takes few seconds and less buckets
 		// for those that are taking a long time. A CNS operation taking a long time is
