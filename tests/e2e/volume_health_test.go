@@ -1585,7 +1585,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		svPVCName := volHandle
 		if supervisorCluster {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv = getPvFromClaim(client, namespace, pvclaim.Name)
 			framework.Logf("volume name %v", pv.Name)
 		}
 
@@ -2203,9 +2203,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			for _, sspod := range ssPodsBeforeScaleDown.Items {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pvSVC = getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache
-						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pvSVC.Spec.CSI.VolumeHandle, volumespec.PersistentVolumeClaim.ClaimName, pvSVC.ObjectMeta.Name, sspod.Name)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
