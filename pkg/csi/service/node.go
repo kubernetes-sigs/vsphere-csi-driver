@@ -701,7 +701,18 @@ func (s *service) NodeGetInfo(
 				return nil, status.Errorf(codes.Internal, err.Error())
 			}
 		}
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region)
+		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+		if err != nil {
+			log.Errorf("failed to create tagManager. Err: %v", err)
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		defer func() {
+			err := tagManager.Logout(ctx)
+			if err != nil {
+				log.Errorf("failed to logout tagManager. err: %v", err)
+			}
+		}()
+		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
 		if err != nil {
 			log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -1030,6 +1041,9 @@ func publishFileVol(
 	// Check for read-only flag on Pod pvc spec
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
+	}
+	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
+		mntFlags = append(mntFlags, "hard")
 	}
 	// Retrieve the file share access point from publish context
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]

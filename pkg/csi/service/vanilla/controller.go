@@ -27,13 +27,14 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
+	"github.com/vmware/govmomi/vapi/tags"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -51,7 +52,7 @@ import (
 type NodeManagerInterface interface {
 	Initialize(ctx context.Context) error
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
-	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
+	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
@@ -379,7 +380,25 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Errorf(errMsg)
 			return nil, status.Error(codes.NotFound, errMsg)
 		}
-		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
+		vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to get vCenter. Err: %v", err)
+			log.Errorf(errMsg)
+			return nil, status.Error(codes.NotFound, errMsg)
+		}
+		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to get tagManager. Err: %v", err)
+			log.Errorf(errMsg)
+			return nil, status.Error(codes.NotFound, errMsg)
+		}
+		defer func() {
+			err := tagManager.Logout(ctx)
+			if err != nil {
+				log.Errorf("failed to logout tagManager. err: %v", err)
+			}
+		}()
+		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
 			msg := fmt.Sprintf("failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 			log.Error(msg)
