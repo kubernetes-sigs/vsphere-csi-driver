@@ -4,6 +4,7 @@
 * [Overview](overview.md)
 * Releases
   * Native Kubernetes on vSphere
+    * [v2.1.1](releases/v2.1.1.md)
     * [v2.1.0](releases/v2.1.0.md)
     * [v2.0.1](releases/v2.0.1.md)
     * [v2.0.0](releases/v2.0.0.md)
