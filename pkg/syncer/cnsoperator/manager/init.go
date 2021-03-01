@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	internal "sigs.k8s.io/vsphere-csi-driver/pkg/internal/cnsoperator/cnsfilevolumeclient/v1alpha1"
+	internal "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -54,8 +54,8 @@ type cnsOperator struct {
 	coCommonInterface commonco.COCommonInterface
 }
 
-// InitCnsOperator initializes the Cns Operator
-func InitCnsOperator(configInfo *types.ConfigInfo, coInitParams *interface{}) error {
+// InitWcpCnsOperator initializes the Cns Operator for WCP
+func InitWcpCnsOperator(configInfo *types.ConfigInfo, coInitParams *interface{}) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -177,6 +177,35 @@ func InitCnsOperator(configInfo *types.ConfigInfo, coInitParams *interface{}) er
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Errorf("failed to start Cns operator. Err: %+v", err)
 		return err
+	}
+	return nil
+}
+
+// InitCommonCnsOperator initializes the Cns Operator for all flavors
+func InitCommonCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
+	coInitParams *interface{}) error {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	var coCommonInterface commonco.COCommonInterface
+	var err error
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, *coInitParams)
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorVanilla, *coInitParams)
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorGuest, *coInitParams)
+	}
+	if err != nil {
+		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
+		return err
+	}
+	if coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
+		log.Infof("Triggerfullsync feature enabled")
+		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, "triggercsifullsync_crd.yaml")
+		if err != nil {
+			log.Errorf("Failed to create %q CRD. Err: %+v", internal.TriggerCsiFullSyncPlural, err)
+			return err
+		}
 	}
 	return nil
 }
