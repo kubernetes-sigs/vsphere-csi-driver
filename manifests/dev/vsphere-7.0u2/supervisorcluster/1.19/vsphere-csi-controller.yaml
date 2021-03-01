@@ -308,6 +308,7 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "online-volume-extend": "true"
+  "trigger-csi-fullsync" : "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
