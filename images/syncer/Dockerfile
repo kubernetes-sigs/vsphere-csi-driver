@@ -56,6 +56,8 @@ ADD pkg/apis/cnsoperator/config/cnsregistervolume_crd.yaml /config/
 
 ADD pkg/apis/cnsoperator/config/cnsfileaccessconfig_crd.yaml /config/
 
-ADD pkg/internal/cnsoperator/config/cnsfilevolumeclient_crd.yaml /config/
+ADD pkg/internalapis/cnsoperator/config/cnsfilevolumeclient_crd.yaml /config/
+
+ADD pkg/internalapis/cnsoperator/config/triggercsifullsync_crd.yaml /config/
 
 ENTRYPOINT ["/bin/vsphere-syncer"]

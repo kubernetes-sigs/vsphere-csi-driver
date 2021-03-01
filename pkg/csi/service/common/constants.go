@@ -225,4 +225,6 @@ const (
 	FileVolume = "file-volume"
 	// FakeAttach is the feature flag for fake attach support in WCP
 	FakeAttach = "fake-attach"
+	// TriggerCSIFullSyync is feature flag to trigger full sync
+	TriggerCsiFullSync = "trigger-csi-fullsync"
 )

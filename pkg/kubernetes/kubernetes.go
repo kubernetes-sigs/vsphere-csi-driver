@@ -56,7 +56,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	cnsfilevolumeclientv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internal/cnsoperator/cnsfilevolumeclient/v1alpha1"
+	cnsoperatorinternal "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator"
 )
 
 const (
@@ -176,7 +176,7 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
-		err = cnsfilevolumeclientv1alpha1.AddToScheme(scheme)
+		err = cnsoperatorinternal.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err

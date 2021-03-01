@@ -1,0 +1,73 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: triggercsifullsyncs.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: TriggerCsiFullSync
+    listKind: TriggerCsiFullSyncList
+    plural: triggercsifullsyncs
+    singular: triggercsifullsync
+  scope: Cluster
+  validation:
+    openAPIV3Schema:
+      description: TriggerCsiFullSync is the Schema for the triggercsifullsyncs API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          type: object
+          description: TriggerCsiFullSyncSpec is the spec for TriggerCsiFullSync
+          properties:
+            triggerSyncID:
+              description: TriggerSync gives an option to trigger full sync on demand.
+              type: int
+          required:
+          - triggerSync
+        status:
+          type: object
+          description: TriggerCsiFullSyncStatus defines the observed state of TriggerCsiFullSync
+          properties:
+            inProgress:
+              description: InProgress indicates whether a CSI full sync is in progress.
+              type: boolean
+            lastTriggerSyncID:
+              description: LastTriggerSyncID indicates the last trigger sync Id that completed.
+              type: int
+            lastSuccessfulStartTimeStamp:
+              description: LastSuccessfulStartTimeStamp indicates last successful full sync start timestamp.
+              type: date
+            lastSuccessfulEndTimeStamp:
+              description: LastSuccessfulEndTimeStamp indicates last successful full sync end timestamp.
+              type: date
+            lastRunStartTimeStamp:
+              description: LastRunStartTimeStamp indicates last run full sync start timestamp.
+              type: date
+            lastRunEndTimeStamp:
+              description: LastRunEndTimeStamp indicates last run full sync end timestamp.
+              type: date
+            error:
+              description: The last error encountered during import operation, if any.
+              type: string
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
