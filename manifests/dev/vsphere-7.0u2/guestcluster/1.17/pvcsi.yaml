@@ -169,6 +169,8 @@ spec:
               value: "50"
             - name: CSI_NAMESPACE
               value: {{ .PVCSINamespace }}
+            - name: X_CSI_SERIAL_VOL_ACCESS_TIMEOUT
+              value: 3m
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
