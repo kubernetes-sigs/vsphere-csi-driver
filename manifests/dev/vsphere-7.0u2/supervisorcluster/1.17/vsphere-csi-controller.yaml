@@ -298,6 +298,7 @@ apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
+  "trigger-csi-fullsync" : "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

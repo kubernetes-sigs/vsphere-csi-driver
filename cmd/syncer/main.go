@@ -154,6 +154,10 @@ func main() {
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo, coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
+		if err := manager.InitCommonCnsOperator(ctx, clusterFlavor, coInitParams); err != nil {
+			log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+			os.Exit(1)
+		}
 		// Initialize CNS Operator for Supervisor clusters
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
@@ -163,8 +167,8 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				}
 			}()
 			go func() {
-				if err := manager.InitCnsOperator(configInfo, coInitParams); err != nil {
-					log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+				if err := manager.InitWcpCnsOperator(configInfo, coInitParams); err != nil {
+					log.Errorf("Error initializing WCP components of Cns Operator. Error: %+v", err)
 					os.Exit(1)
 				}
 			}()

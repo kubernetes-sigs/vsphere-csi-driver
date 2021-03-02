@@ -410,6 +410,7 @@ data:
   "volume-health": "true"
   "online-volume-extend": "true"
   "file-volume": "false"
+  "trigger-csi-fullsync" : "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
