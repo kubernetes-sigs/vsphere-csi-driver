@@ -44,8 +44,6 @@ var (
 )
 
 const (
-	// bufferDiskSize to ensure successful allocation
-	bufferDiskSize = 4 * 1024 * 1024
 	// StoragePoolAnnotationKey is a PVC annotation to specify the StoragePool on which PV should be placed.
 	StoragePoolAnnotationKey = "failure-domain.beta.vmware.com/storagepool"
 	// ScNameAnnotationKey is a PVC annotation to specify storage class from which PV should be provisioned
@@ -68,8 +66,8 @@ const (
 // StoragePoolInfo is abstraction of a storage pool list
 // XXX Change all usage of this into a map
 type StoragePoolInfo struct {
-	Name           string
-	FreeCapInBytes int64
+	Name                  string
+	AllocatableCapInBytes int64
 }
 
 // byCombination uses several different property to rank storage pools
@@ -87,10 +85,10 @@ func (p byCOMBINATION) Swap(i, j int) {
 
 // compare func for ranked storage pool list
 func (p byCOMBINATION) Less(i, j int) bool {
-	if p[i].FreeCapInBytes > p[j].FreeCapInBytes {
+	if p[i].AllocatableCapInBytes > p[j].AllocatableCapInBytes {
 		return true
 	}
-	if (p[i].FreeCapInBytes == p[j].FreeCapInBytes) && (p[i].Name < p[j].Name) {
+	if (p[i].AllocatableCapInBytes == p[j].AllocatableCapInBytes) && (p[i].Name < p[j].Name) {
 		return true
 	}
 	return false
@@ -152,14 +150,14 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client
 		volumeToSPMap[vol.PVName] = assignedSPName
 		for idx, sp := range b.storagePoolList {
 			if sp.GetName() == assignedSPName {
-				curFreeCap, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "freeSpace")
+				curAllocatableCap, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "allocatableSpace")
 				if !found || err != nil {
-					log.Warnf("Could not get current free capacity for SP %v. Found: %v. Error: %v.", sp.GetName(), found, err)
+					log.Warnf("Could not get current allocatable capacity for SP %v. Found: %v. Error: %v.", sp.GetName(), found, err)
 					break
 				}
-				err = unstructured.SetNestedField(b.storagePoolList[idx].Object, curFreeCap-vol.SizeInBytes, "status", "capacity", "freeSpace")
+				err = unstructured.SetNestedField(b.storagePoolList[idx].Object, curAllocatableCap-vol.SizeInBytes, "status", "capacity", "allocatableSpace")
 				if err != nil {
-					log.Warnf("Could not update free space for SP %v. Error: %v", sp.GetName(), err)
+					log.Warnf("Could not update allocatable space for SP %v. Error: %v", sp.GetName(), err)
 				}
 				break
 			}
@@ -537,16 +535,16 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 		}
 
 		// the storage pool capacity is expressed in raw bytes
-		spSize, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "freeSpace")
+		spSize, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "allocatableSpace")
 		if !found || err != nil {
 			notEnoughCapacity++
 			continue
 		}
 
-		if spSize > volSizeBytes+bufferDiskSize { //filter by capacity
+		if spSize > volSizeBytes { //filter by capacity
 			spList = append(spList, StoragePoolInfo{
-				Name:           spName,
-				FreeCapInBytes: spSize,
+				Name:                  spName,
+				AllocatableCapInBytes: spSize,
 			})
 		} else {
 			notEnoughCapacity++
@@ -626,9 +624,9 @@ func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVByt
 	spRemoved := false
 	for i := range spList {
 		if spList[i].Name == spName {
-			if spList[i].FreeCapInBytes > pendingPVBytes {
-				spList[i].FreeCapInBytes -= pendingPVBytes
-				if spList[i].FreeCapInBytes > curPVBytes+bufferDiskSize {
+			if spList[i].AllocatableCapInBytes > pendingPVBytes {
+				spList[i].AllocatableCapInBytes -= pendingPVBytes
+				if spList[i].AllocatableCapInBytes > curPVBytes {
 					usageUpdated = true
 				} else {
 					spList = removeSPFromList(spList, spName)
