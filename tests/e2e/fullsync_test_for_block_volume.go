@@ -186,7 +186,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{objOrItemNotFoundErr, disklibUnlinkErr})
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -352,7 +352,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{objOrItemNotFoundErr, disklibUnlinkErr})
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -631,7 +631,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{objOrItemNotFoundErr, disklibUnlinkErr})
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -698,7 +698,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{objOrItemNotFoundErr, disklibUnlinkErr})
+		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(), []string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
