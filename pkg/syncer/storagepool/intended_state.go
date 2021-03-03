@@ -40,6 +40,11 @@ import (
 
 const (
 	changeThresholdB = 1 * 1024 * 1024 * 1024
+	// maximum overhead space consumed during provision of a persistent volume on vSAN Direct datastore. This number is empirically obtained and can change with changes in underlying storage layer.
+	vsanDirectOverheadSpaceB = 4 * 1024 * 1024
+	// This denotes the percentage of free space with can be utilised to provision persistent volumes on vSAN SNA after considering the overhead.
+	// This number is empirically obtained and can change with changes in underlying storage layer.
+	vsanSnaUtilisationPercentage = 0.96
 )
 
 // intendedState of a StoragePool from Datastore properties fetched from VC as source of truth
@@ -54,6 +59,9 @@ type intendedState struct {
 	capacity *resource.Quantity
 	// From Datastore.summary.freeSpace in VC
 	freeSpace *resource.Quantity
+	// obtained after subtracting overhead from free space. for vSAN-SNA its 4% less of free space, for vSAN-Direct its 4 MiB less of free space.
+	// for vSAN default overhead depends on type of policy used, currently its also 4% less of free space.
+	allocatableSpace *resource.Quantity
 	// from Datastore.summary.Url
 	url string
 	// from Datastore.summary.Accessible
@@ -150,19 +158,22 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		return nil, err
 	}
 
+	allocatableSpace := getAllocatableSpace(dsProps.freeSpace, dsProps.dsType)
+
 	return &intendedState{
-		dsMoid:        ds.Reference().Value,
-		dsType:        dsProps.dsType,
-		spName:        spName,
-		capacity:      dsProps.capacity,
-		freeSpace:     dsProps.freeSpace,
-		url:           dsProps.dsURL,
-		accessible:    dsProps.accessible,
-		datastoreInMM: dsProps.inMM,
-		allHostsInMM:  allNodesInMM,
-		nodes:         nodes,
-		compatSC:      compatSC,
-		isRemoteVsan:  remoteVsan,
+		dsMoid:           ds.Reference().Value,
+		dsType:           dsProps.dsType,
+		spName:           spName,
+		capacity:         dsProps.capacity,
+		freeSpace:        dsProps.freeSpace,
+		allocatableSpace: allocatableSpace,
+		url:              dsProps.dsURL,
+		accessible:       dsProps.accessible,
+		datastoreInMM:    dsProps.inMM,
+		allHostsInMM:     allNodesInMM,
+		nodes:            nodes,
+		compatSC:         compatSC,
+		isRemoteVsan:     remoteVsan,
 	}, nil
 }
 
@@ -211,21 +222,41 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 			compatSC = append(compatSC, scName)
 		}
 	}
+	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested capacity. Thus maximum allocatable space in vSAN-SNA is 96% of free-capacity.
+	vsanSnaDsType := fmt.Sprintf("%s-sna", vsan.dsType)
+	freeSpace := resource.NewQuantity(vsanHost.Capacity-vsanHost.CapacityUsed, resource.DecimalSI)
+	allocatableSpace := getAllocatableSpace(freeSpace, vsanSnaDsType)
 
 	return &intendedState{
-		dsMoid:        fmt.Sprintf("%s-%s", vsan.dsMoid, node),
-		dsType:        fmt.Sprintf("%s-sna", vsan.dsType),
-		spName:        fmt.Sprintf("%s-%s", vsan.spName, node),
-		capacity:      resource.NewQuantity(vsanHost.Capacity, resource.DecimalSI),
-		freeSpace:     resource.NewQuantity(vsanHost.Capacity-vsanHost.CapacityUsed, resource.DecimalSI),
-		url:           vsan.url,
-		accessible:    true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
-		datastoreInMM: false, // If this node is inMM - the storagepool will not exist at all
-		allHostsInMM:  false, // If this node is inMM - the storagepool will not exist at all
-		nodes:         nodes,
-		compatSC:      compatSC,
-		isRemoteVsan:  false,
+		dsMoid:           fmt.Sprintf("%s-%s", vsan.dsMoid, node),
+		dsType:           vsanSnaDsType,
+		spName:           fmt.Sprintf("%s-%s", vsan.spName, node),
+		capacity:         resource.NewQuantity(vsanHost.Capacity, resource.DecimalSI),
+		freeSpace:        freeSpace,
+		allocatableSpace: allocatableSpace,
+		url:              vsan.url,
+		accessible:       true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
+		datastoreInMM:    false, // If this node is inMM - the storagepool will not exist at all
+		allHostsInMM:     false, // If this node is inMM - the storagepool will not exist at all
+		nodes:            nodes,
+		compatSC:         compatSC,
+		isRemoteVsan:     false,
 	}, nil
+}
+
+func getAllocatableSpace(freeSpace *resource.Quantity, dsType string) *resource.Quantity {
+	if dsType == spTypePrefix+"vsanD" {
+		// In vSAN Direct overhead to provision volume is upperbound by 4MiB space. Thus maximum allocatable space in vSAN Direct is 4MiB less than free-capacity.
+		allocatableSpaceInBytes := freeSpace.Value() - vsanDirectOverheadSpaceB
+		if allocatableSpaceInBytes > 0 {
+			return resource.NewQuantity(allocatableSpaceInBytes, resource.DecimalSI)
+		}
+		return resource.NewQuantity(0, resource.DecimalSI)
+	}
+	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested capacity. Thus maximum allocatable space in vSAN-SNA is 96% of free-capacity.
+	// for vSAN datastores overhead is also affected by the storage policy used, eg. ftt-0, ftt-1 etc.
+	allocatableSpaceInBytes := int64(float64(freeSpace.Value()) * vsanSnaUtilisationPercentage)
+	return resource.NewQuantity(allocatableSpaceInBytes, resource.DecimalSI)
 }
 
 // getVsanHostCapacities queries each ESX for vSAN disk capacity information.
@@ -342,9 +373,11 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	if dsSummary.Type == "vsan" && intendedState.isCapacityChangeSignificant(ctx, dsSummary.Capacity, dsSummary.FreeSpace) {
 		needToUpdateVsanCapacity = true
 	}
+
 	if dsSummary.Type != "vsan" || needToUpdateVsanCapacity {
 		intendedState.capacity = resource.NewQuantity(dsSummary.Capacity, resource.DecimalSI)
 		intendedState.freeSpace = resource.NewQuantity(dsSummary.FreeSpace, resource.DecimalSI)
+		intendedState.allocatableSpace = getAllocatableSpace(intendedState.freeSpace, spTypePrefix+dsSummary.Type)
 	}
 	intendedSpName := makeStoragePoolName(dsSummary.Name)
 	oldSpName := intendedState.spName
@@ -487,8 +520,9 @@ func (state *intendedState) createUnstructuredStoragePool(ctx context.Context) *
 				"accessibleNodes":          state.nodes,
 				"compatibleStorageClasses": state.compatSC,
 				"capacity": map[string]interface{}{
-					"total":     state.capacity.Value(),
-					"freeSpace": state.freeSpace.Value(),
+					"total":            state.capacity.Value(),
+					"freeSpace":        state.freeSpace.Value(),
+					"allocatableSpace": state.allocatableSpace.Value(),
 				},
 			},
 		},
@@ -507,6 +541,7 @@ func (state *intendedState) updateUnstructuredStoragePool(ctx context.Context, s
 	setNestedField(ctx, sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""), "metadata", "labels", spTypeLabelKey)
 	setNestedField(ctx, sp.Object, state.capacity.Value(), "status", "capacity", "total")
 	setNestedField(ctx, sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
+	setNestedField(ctx, sp.Object, state.allocatableSpace.Value(), "status", "capacity", "allocatableSpace")
 	err := unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")
 	if err != nil {
 		log.Errorf("err: %v", err)
