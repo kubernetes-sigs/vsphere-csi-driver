@@ -470,6 +470,12 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 		case "updateVolume":
 			// volume exist in K8S and CNS cache, but metadata is different, need to update this volume
 			log.Debugf("FullSync: Volume with id %q added to volume update list", volumeHandle)
+			var volumeType string
+			if IsMultiAttachAllowed(pv) {
+				volumeType = common.FileVolumeType
+			} else {
+				volumeType = common.BlockVolumeType
+			}
 			updateSpec := cnstypes.CnsVolumeMetadataUpdateSpec{
 				VolumeId: cnstypes.CnsVolumeId{
 					Id: volumeHandle,
@@ -501,7 +507,43 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 					updateSpec.Metadata.EntityMetadata = append(updateSpec.Metadata.EntityMetadata, oldMetadata)
 				}
 			}
-			updateSpecArray = append(updateSpecArray, updateSpec)
+
+			if volumeType == common.BlockVolumeType {
+				// For Block volume, CNS only allow one instances for one EntityMetadata type in UpdateVolumeMetadataSpec
+				// if there are more than one pod instances in the entity UpdateVolumeMetadataSpec, need to invoke
+				// multiple UpdateVolumeMetadata call
+				var metadataList []cnstypes.BaseCnsEntityMetadata
+				var podMetadataList []cnstypes.BaseCnsEntityMetadata
+				for _, metadata := range updateSpec.Metadata.EntityMetadata {
+					entityType := metadata.(*cnstypes.CnsKubernetesEntityMetadata).EntityType
+					if entityType == string(cnstypes.CnsKubernetesEntityTypePOD) {
+						podMetadataList = append(podMetadataList, metadata)
+					} else {
+						metadataList = append(metadataList, metadata)
+					}
+				}
+				if len(podMetadataList) > 0 {
+					for _, podMetadata := range podMetadataList {
+						updateSpecNew := cnstypes.CnsVolumeMetadataUpdateSpec{
+							VolumeId: cnstypes.CnsVolumeId{
+								Id: volumeHandle,
+							},
+							Metadata: cnstypes.CnsVolumeMetadata{
+								ContainerCluster:      containerCluster,
+								ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+								// Update metadata in CNS with the new metadata present in K8S
+								EntityMetadata: append(metadataList, podMetadata),
+							},
+						}
+						log.Debugf("FullSync: updateSpec %+v is added to updateSpecArray\n", spew.Sdump(updateSpecNew))
+						updateSpecArray = append(updateSpecArray, updateSpecNew)
+					}
+				} else {
+					updateSpecArray = append(updateSpecArray, updateSpec)
+				}
+			} else {
+				updateSpecArray = append(updateSpecArray, updateSpec)
+			}
 		}
 	}
 	return createSpecArray, updateSpecArray
