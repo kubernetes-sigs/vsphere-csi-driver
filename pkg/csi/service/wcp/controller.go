@@ -483,31 +483,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, err
 		}
-		// Query CNS to get the volume type.
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
-		}
-		queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{
-			Names: []string{
-				string(cnstypes.QuerySelectionNameTypeVolumeType),
-			},
-		})
-		if err != nil {
-			msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
-		}
-		if len(queryResult.Volumes) == 0 {
-			msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
-		}
-		if queryResult.Volumes[0].VolumeType == common.BlockVolumeType {
-			volumeType = prometheus.PrometheusBlockVolumeType
-		} else {
-			volumeType = prometheus.PrometheusFileVolumeType
-		}
-
+		// TODO: Add code to determine the volume type and set volumeType for Prometheus metric accordingly.
 		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
 			msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
