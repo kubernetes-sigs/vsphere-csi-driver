@@ -2,7 +2,6 @@ kind: StorageClass
 apiVersion: storage.k8s.io/v1
 metadata:
   name: example-vanilla-block-sc
-  namespace: kube-system
   annotations:
     storageclass.kubernetes.io/is-default-class: "false"
 provisioner: csi.vsphere.vmware.com
