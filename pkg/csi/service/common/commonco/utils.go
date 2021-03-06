@@ -54,8 +54,8 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 			internalFSSName = csiconfig.DefaultInternalFSSConfigMapName
 		}
 		if strings.TrimSpace(internalFSSNamespace) == "" {
-			log.Infof("Defaulting feature states configmap namespace to %q", csiconfig.DefaultCSINamespaceVanillaK8s)
-			internalFSSNamespace = csiconfig.DefaultCSINamespaceVanillaK8s
+			log.Infof("Defaulting feature states configmap namespace to %q", csiconfig.DefaultCSINamespace)
+			internalFSSNamespace = csiconfig.DefaultCSINamespace
 		}
 		*initParams = k8sorchestrator.K8sVanillaInitParams{
 			InternalFeatureStatesConfigInfo: csiconfig.FeatureStatesConfigInfo{

@@ -193,7 +193,7 @@ func TestIsFSSEnabledInVanilla(t *testing.T) {
 	}
 	internalFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
-		configMapNamespace: cnsconfig.DefaultCSINamespaceVanillaK8s,
+		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      internalFSS,
 	}
 	k8sOrchestrator := K8sOrchestrator{
