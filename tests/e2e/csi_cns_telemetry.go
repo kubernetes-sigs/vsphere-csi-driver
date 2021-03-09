@@ -1,0 +1,207 @@
+/*
+Copyright 2021 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+)
+
+var _ = ginkgo.Describe("[csi-vanilla] CNS-CSI Cluster Distribution Telemetry", func() {
+	f := framework.NewDefaultFramework("csi-cns-telemetry")
+	var (
+		client       clientset.Interface
+		namespace    string
+		scParameters map[string]string
+		datastoreURL string
+	)
+
+	ginkgo.BeforeEach(func() {
+		bootstrap()
+		client = f.ClientSet
+		namespace = getNamespaceToRunTests(f)
+		scParameters = make(map[string]string)
+		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		//Reset the cluster distribution value to original value
+		isSet := setClusterDistributionValue4Vanilla(ctx, client, vanillaClusterDistribution)
+		gomega.Expect(isSet).To(gomega.BeTrue())
+	})
+
+	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		//Reset the cluster distribution value to original value
+		isSet := setClusterDistributionValue4Vanilla(ctx, client, vanillaClusterDistribution)
+		gomega.Expect(isSet).To(gomega.BeTrue())
+	})
+
+	/*
+		Test to verify cluster distribution set in PVC is being honored during volume creation.
+		Steps
+			1. Create StorageClass
+			2. Create PVC with valid disk size
+			3. Expect PVC to pass and cluster distribution value set
+			4. Update cluster-distribution value
+			5. Create another PVC with valid disk size
+			6. Expect PVC to pass and cluster distribution value set to latest update
+			7. Expect the old PVC to reflect the latest cluster-distribution value
+	*/
+
+	// Test for cluster-distribution value presence
+	ginkgo.It("Verify dynamic provisioning of pvc has cluster-distribution value updated", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Invoking cluster-distribution for volume basic test")
+		var storageclasspvc1 *storagev1.StorageClass
+		var pvclaim1 *v1.PersistentVolumeClaim
+		var err error
+
+		scParameters[scParamDatastoreURL] = datastoreURL
+		storageclasspvc1, pvclaim1, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc1.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		persistentvolumes1, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
+		volHandle1 := persistentvolumes1[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, pvclaim1.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle1)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle1))
+		queryResult1, err := e2eVSphere.queryCNSVolumeWithResult(volHandle1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult1.Volumes) > 0)
+
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult1.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+
+		gomega.Expect(queryResult1.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(vanillaClusterDistribution), "Wrong/empty cluster-distribution name present on CNS")
+
+		ginkgo.By("Setting the cluster-distribution value to empty")
+		//Reset the cluster distribution value to original value
+		isSet := setClusterDistributionValue4Vanilla(ctx, client, "")
+		gomega.Expect(isSet).To(gomega.BeTrue())
+
+		defer func() {
+			//Reset the cluster distribution value to original value
+			isSet := setClusterDistributionValue4Vanilla(ctx, client, vanillaClusterDistribution)
+			gomega.Expect(isSet).To(gomega.BeTrue())
+		}()
+
+		var storageclasspvc2 *storagev1.StorageClass
+		var pvclaim2 *v1.PersistentVolumeClaim
+
+		// decide which test setup is available to run
+		scParameters[scParamDatastoreURL] = datastoreURL
+		storageclasspvc2, pvclaim2, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc2.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
+
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, pvclaim2.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle2))
+		queryResult2, err := e2eVSphere.queryCNSVolumeWithResult(volHandle2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult2.Volumes) > 0).To(gomega.BeTrue())
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+
+		queryResult3, err := e2eVSphere.queryCNSVolumeWithResult(volHandle1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult3.Volumes) > 0).To(gomega.BeTrue())
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+
+		ginkgo.By("Verifying cluster-distribution value specified in secret is honored")
+		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+
+		ginkgo.By("Setting the cluster-distribution value to empty")
+		//Reset the cluster distribution value to original value
+		isSet = setClusterDistributionValue4Vanilla(ctx, client, "CSI-\tVanilla-#Test")
+		gomega.Expect(isSet).To(gomega.BeTrue())
+
+		defer func() {
+			//Reset the cluster distribution value to original value
+			isSet = setClusterDistributionValue4Vanilla(ctx, client, vanillaClusterDistribution)
+			gomega.Expect(isSet).To(gomega.BeTrue())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle2))
+		queryResult2, err = e2eVSphere.queryCNSVolumeWithResult(volHandle2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult2.Volumes) > 0).To(gomega.BeTrue())
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+
+		queryResult3, err = e2eVSphere.queryCNSVolumeWithResult(volHandle1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult3.Volumes) > 0).To(gomega.BeTrue())
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+
+		ginkgo.By("Verifying cluster-distribution value specified in secret is honored")
+		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal("CSI-\tVanilla-#Test"), "Wrong/empty cluster-distribution name present on CNS")
+		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal("CSI-\tVanilla-#Test"), "Wrong/empty cluster-distribution name present on CNS")
+	})
+})

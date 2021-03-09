@@ -1325,6 +1325,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			}
 		case "cluster-id":
 			config.Global.ClusterID = value
+		case "cluster-distribution":
+			config.Global.ClusterDistribution = value
 		case "user":
 			config.Global.User = value
 		case "password":
@@ -2268,4 +2270,56 @@ func getDefaultDatastore(ctx context.Context) *object.Datastore {
 	}
 
 	return defaultDatastore
+}
+
+//setClusterDistributionValue4Vanilla returns boolean
+func setClusterDistributionValue4Vanilla(ctx context.Context, client clientset.Interface, clusterDistribution string) bool {
+	framework.Logf("Cluster distribution to set is = %s", clusterDistribution)
+	isClusterDistributionValueSet := false
+
+	// Get the current cluster-distribution value from secret
+	currentSecret, err := client.CoreV1().Secrets(kubeSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Secret Name is %s", currentSecret.Name)
+
+	//Read and map the content of csi-vsphere.conf to a variable
+	originalConf := string(currentSecret.Data[vSphereCSIConf])
+	cfg, err := readConfigFromSecretString(originalConf)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	//Current value of cluster-distribution is
+	framework.Logf("Cluster-distribution value before modifying is = %s", cfg.Global.ClusterDistribution)
+
+	// Check if the cluster-distribution value is as required or reset
+	if cfg.Global.ClusterDistribution != clusterDistribution {
+		// Modify csi-vsphere.conf file
+		modifiedConf := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
+			cfg.Global.InsecureFlag, cfg.Global.ClusterID, clusterDistribution, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort)
+
+		// Set modified csi-vsphere.conf file and update
+		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+		_, err := client.CoreV1().Secrets(kubeSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Sleeping for volume health to reflect the cluster-distribution value = %s", clusterDistribution)
+		time.Sleep(time.Duration(healthStatusWaitTime))
+
+		// Check if the current cluster-distribution value is set
+		currentSecret, err = client.CoreV1().Secrets(kubeSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Secret Name is %s", currentSecret.Name)
+
+		//Read and map the content of csi-vsphere.conf to a variable
+		originalConf = string(currentSecret.Data[vSphereCSIConf])
+		cfg, err = readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(cfg.Global.ClusterDistribution).Should(gomega.Equal(clusterDistribution), "Cluster-distribution value was no set even after wait time")
+		isClusterDistributionValueSet = true
+	} else {
+		framework.Logf("Cluster-distribution value is already as expected, no changes done. Value is %s", cfg.Global.ClusterDistribution)
+		isClusterDistributionValueSet = true
+	}
+
+	return isClusterDistributionValueSet
 }
