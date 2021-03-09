@@ -212,7 +212,7 @@ spec:
             name: pvcsi-config-volume
             readOnly: true
         - name: liveness-probe
-          image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
+          image: vmware.io/csi-livenessprobe:<image_tag>
           args:
             - "--csi-address=$(ADDRESS)"
           imagePullPolicy: "IfNotPresent"
