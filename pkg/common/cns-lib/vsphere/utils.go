@@ -48,6 +48,21 @@ func IsNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
+// IsAlreadyExists checks if err is the AlreadyExists fault, if no then returns false
+// If the error is AlreadyExists fault, the method return true along with the
+// name of the managed object
+func IsAlreadyExists(err error) (bool, string) {
+	isAlreadyExistsError := false
+	objectName := ""
+	if soap.IsSoapFault(err) {
+		_, isAlreadyExistsError = soap.ToSoapFault(err).VimFault().(types.AlreadyExists)
+		if isAlreadyExistsError {
+			objectName = soap.ToSoapFault(err).VimFault().(types.AlreadyExists).Name
+		}
+	}
+	return isAlreadyExistsError, objectName
+}
+
 // IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault, if yes then returns true else return false
 func IsManagedObjectNotFound(err error) bool {
 	isNotFoundError := false
