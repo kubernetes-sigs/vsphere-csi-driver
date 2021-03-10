@@ -472,7 +472,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// If CNS CreateVolume API does not return datastoreURL, retrieve this by calling QueryVolume
 	// otherwise, retrieve this from PlacementResults from the response of CreateVolume API
 	var volumeAccessibleTopology = make(map[string]string)
-	var datastoreAccessibleTopology = make([]map[string]string, 0)
+	var datastoreAccessibleTopology []map[string]string
 	var datastoreURL string
 	if len(datastoreTopologyMap) > 0 {
 		if volumeInfo.DatastoreURL == "" {
@@ -487,9 +487,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if len(queryResult.Volumes) > 0 {
 				// Find datastore topology from the retrieved datastoreURL
+				if queryResult.Volumes[0].DatastoreUrl == "" {
+					msg := fmt.Sprintf("could not retrieve datastore of volume: %q", volumeInfo.VolumeID.Id)
+					log.Error(msg)
+					return nil, status.Error(codes.Internal, msg)
+				}
 				datastoreAccessibleTopology = datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
 				datastoreURL = queryResult.Volumes[0].DatastoreUrl
 				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
+			} else {
+				msg := fmt.Sprintf("QueryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
 			}
 		} else {
 			// retrieve datastoreURL from placementResults
