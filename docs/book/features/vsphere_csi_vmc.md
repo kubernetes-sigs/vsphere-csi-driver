@@ -6,7 +6,7 @@
 - [Introduction](#introduction)
 - [Deploy vSphere CSI driver on VMC](#deploy-csi-on-vmc)
 
-**Note:** Feature to support vSphere CSI driver on VMC is released with [v2.2.0](https://github.com/kubernetes-sigs/vsphere-csi-driver/releases/tag/v2.2.0). Currently, it only support block volume. Minimum SDDC version to support this feature is 1.12.
+**Note:** Feature to support vSphere CSI driver on VMC will be released with v2.2.0. v2.2.0 vSphere CSI driver on VMC will only support block volume. The minimum SDDC version to support this feature is 1.12. Please refer to [VMC release notes](https://docs.vmware.com/en/VMware-Cloud-on-AWS/0/rn/vmc-on-aws-relnotes.html) to get more details.
 
 ## Introduction <a id="introduction"></a>
 
