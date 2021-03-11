@@ -54,6 +54,7 @@ Here is an example vSphere configuration file for block volumes, with dummy valu
 $ cat /etc/kubernetes/csi-vsphere.conf
 [Global]
 cluster-id = "<cluster-id>"
+cluster-distribution = "<cluster-distribution>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
 thumbprint = "<cert thumbprint>" # optional, use with insecure-flag set to false without providing ca-file
 
