@@ -41,6 +41,9 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["volumeattachments"]
     verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]
+    verbs: ["patch"]
   - apiGroups: ["policy"]
     resources: ["podsecuritypolicies"]
     verbs: ["use"]
@@ -354,7 +357,7 @@ spec:
         - name: sys-devices-dir
           mountPath: /sys/devices
       - name: liveness-probe
-        image: vmware.io/csi-livenessprobe/csi-livenessprobe:<image_tag>
+        image: vmware.io/csi-livenessprobe:<image_tag>
         args:
         - --csi-address=/csi/csi.sock
         imagePullPolicy: "IfNotPresent"
