@@ -278,8 +278,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 		if !isBound {
-			msg := fmt.Sprintf("failed to create volume on namespace: %s  in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
+			msg := fmt.Sprintf("failed to create volume on namespace: %s in supervisor cluster. Error: %+v", c.supervisorNamespace, err)
 			log.Error(msg)
+			eventList, err := c.supervisorClient.CoreV1().Events(c.supervisorNamespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + pvc.Name})
+			if err != nil {
+				log.Errorf("Unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v", c.supervisorNamespace, pvc.Name, err)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			log.Errorf("Last observed events on the pvc %q/%q in supervisor cluster: %+v", c.supervisorNamespace, pvc.Name, spew.Sdump(eventList.Items))
 			return nil, status.Errorf(codes.Internal, msg)
 		}
 		attributes := make(map[string]string)
