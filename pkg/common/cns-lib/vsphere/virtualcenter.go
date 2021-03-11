@@ -211,6 +211,14 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	err := vc.connect(ctx, false)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
+		// Logging out of the current session to make sure we
+		// retry creating a new client in the next attempt
+		defer func() {
+			logoutErr := vc.Client.Logout(ctx)
+			if logoutErr != nil {
+				log.Errorf("Could not logout of VC session. Error: %v", logoutErr)
+			}
+		}()
 	}
 	return err
 }
