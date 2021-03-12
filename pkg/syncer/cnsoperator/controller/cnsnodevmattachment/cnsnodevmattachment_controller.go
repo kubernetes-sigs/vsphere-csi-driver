@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
@@ -72,11 +73,17 @@ var (
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
+	configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		log.Debug("Not initializing the CnsNodeVmAttachment Controller as its a non-WCP CSI deployment")
+		return nil
+	}
+
 	// Initializes kubernetes client
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {

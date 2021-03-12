@@ -72,11 +72,16 @@ var (
 
 // Add creates a new CnsFileAccessConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
+	configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		log.Debug("Not initializing the CnsFileAccessConfig Controller as its a non-WCP CSI deployment")
+		return nil
+	}
 	// Initialize the k8s orchestrator interface
 	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
 	if err != nil {

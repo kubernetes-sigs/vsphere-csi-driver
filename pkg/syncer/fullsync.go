@@ -33,11 +33,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
-// csiFullSync reconciles volume metadata on a vanilla k8s cluster
+// CsiFullSync reconciles volume metadata on a vanilla k8s cluster
 // with volume metadata on CNS
-func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: start")
+
 	var migrationFeatureStateForFullSync bool
 	// Fetch CSI migration feature state once, before performing full sync operations
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
@@ -47,7 +48,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	k8sPVs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: Failed to get PVs from kubernetes. Err: %v", err)
-		return
+		return err
 	}
 
 	// k8sPVMap is useful for clean and quicker look up.
@@ -57,7 +58,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 		// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
 		if err := initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 			log.Errorf("FullSync: Failed to get migration service. Err: %v", err)
-			return
+			return err
 		}
 	}
 
@@ -73,7 +74,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
-				return
+				return err
 			}
 			k8sPVMap[volumeHandle] = ""
 		}
@@ -83,7 +84,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	pvToPVCMap, pvcToPodMap, err := buildPVCMapPodMap(ctx, k8sPVs, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: Failed to build PVCMap and PodMap. Err: %v", err)
-		return
+		return err
 	}
 	log.Debugf("FullSync: pvToPVCMap %v", pvToPVCMap)
 	log.Debugf("FullSync: pvcToPodMap %v", pvcToPodMap)
@@ -98,13 +99,13 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("FullSync: failed to queryAllVolume with err %+v", err)
-		return
+		return err
 	}
 
 	volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, err := fullSyncConstructVolumeMaps(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap, pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncGetEntityMetadata failed with err %+v", err)
-		return
+		return err
 	}
 	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(volumeToCnsEntityMetadataMap), spew.Sdump(volumeToK8sEntityMetadataMap))
 	log.Debugf("FullSync: volumes where clusterDistribution is set: %+v", volumeClusterDistributionMap)
@@ -112,7 +113,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	vcenter, err := types.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
 	if err != nil {
 		log.Errorf("FullSync: failed to get vcenter with error %+v", err)
-		return
+		return err
 	}
 	// Get specs for create and update volume calls
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
@@ -120,8 +121,9 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: failed to get list of volumes to be deleted with err %+v", err)
-		return
+		return err
 	}
+
 	wg := sync.WaitGroup{}
 	wg.Add(3)
 	// Perform operations
@@ -134,6 +136,7 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log.Debugf("FullSync: cnsDeletionMap at end of cycle: %v", cnsDeletionMap)
 	log.Debugf("FullSync: cnsCreationMap at end of cycle: %v", cnsCreationMap)
 	log.Infof("FullSync: end")
+	return nil
 }
 
 // fullSyncCreateVolumes create volumes with given array of createSpec
