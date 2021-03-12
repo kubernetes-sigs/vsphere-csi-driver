@@ -32,9 +32,9 @@ spec:
           properties:
             triggerSyncID:
               description: TriggerSync gives an option to trigger full sync on demand.
-              type: int
+              type: integer
           required:
-          - triggerSync
+          - triggerSyncID
         status:
           type: object
           description: TriggerCsiFullSyncStatus defines the observed state of TriggerCsiFullSync
@@ -43,20 +43,24 @@ spec:
               description: InProgress indicates whether a CSI full sync is in progress.
               type: boolean
             lastTriggerSyncID:
-              description: LastTriggerSyncID indicates the last trigger sync Id that completed.
-              type: int
+              description: LastTriggerSyncID indicates the last trigger sync Id.
+              type: integer
             lastSuccessfulStartTimeStamp:
               description: LastSuccessfulStartTimeStamp indicates last successful full sync start timestamp.
-              type: date
+              format: date-time
+              type: string
             lastSuccessfulEndTimeStamp:
               description: LastSuccessfulEndTimeStamp indicates last successful full sync end timestamp.
-              type: date
+              format: date-time
+              type: string
             lastRunStartTimeStamp:
               description: LastRunStartTimeStamp indicates last run full sync start timestamp.
-              type: date
+              format: date-time
+              type: string
             lastRunEndTimeStamp:
               description: LastRunEndTimeStamp indicates last run full sync end timestamp.
-              type: date
+              format: date-time
+              type: string
             error:
               description: The last error encountered during import operation, if any.
               type: string

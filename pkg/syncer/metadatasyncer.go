@@ -38,6 +38,9 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -46,6 +49,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
@@ -57,6 +61,9 @@ var (
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator for the syncer container
 	COInitParams interface{}
+
+	// MetadataSyncer instance for the syncer container
+	MetadataSyncer *metadataSyncInformer
 )
 
 // newInformer returns uninitialized metadataSyncInformer
@@ -116,6 +123,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	var err error
 	log.Infof("Initializing MetadataSyncer")
 	metadataSyncer := newInformer()
+	MetadataSyncer = metadataSyncer
 	metadataSyncer.configInfo = configInfo
 
 	// Create the kubernetes client from config
@@ -253,17 +261,70 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	defer fullSyncTicker.Stop()
 	// Trigger full sync
-	go func() {
-		for ; true; <-fullSyncTicker.C {
-			ctx, log = logger.GetNewContextWithLogger()
-			log.Infof("fullSync is triggered")
-			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				pvcsiFullSync(ctx, metadataSyncer)
-			} else {
-				csiFullSync(ctx, metadataSyncer)
-			}
+	// If TriggerCsiFullSync feature gate is enabled, use TriggerCsiFullSync to trigger
+	// full sync. If not, directly invoke full sync methods.
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
+		log.Infof("%q feature flag is enabled. Using TriggerCsiFullSync API to trigger full sync",
+			common.TriggerCsiFullSync)
+		// Get a config to talk to the apiserver
+		restConfig, err := config.GetConfig()
+		if err != nil {
+			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+			return err
 		}
-	}()
+
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
+			return err
+		}
+		go func() {
+			for ; true; <-fullSyncTicker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				log.Infof("periodic fullSync is triggered")
+				triggerCsiFullSyncInstance, err := getTriggerCsiFullSyncInstance(ctx, cnsOperatorClient)
+				if err != nil {
+					log.Warnf("Unable to get the trigger full sync instance. Err: %+v", err)
+					continue
+				}
+
+				// Update TriggerCsiFullSync instance if full sync is not already in progress
+				if triggerCsiFullSyncInstance.Status.InProgress {
+					log.Infof("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+				} else {
+					triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
+					err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
+					if err != nil {
+						log.Errorf("Failed to update TriggerCsiFullSync instance: %+v to increment the TriggerFullSyncId. Error: %v",
+							triggerCsiFullSyncInstance, err)
+					} else {
+						log.Infof("Incremented TriggerSyncID from %d to %d as part of periodic run to trigger full sync",
+							triggerCsiFullSyncInstance.Spec.TriggerSyncID-1, triggerCsiFullSyncInstance.Spec.TriggerSyncID)
+					}
+				}
+			}
+		}()
+	} else {
+		log.Infof("%q feature flag is not enabled. Using the traditional way to directly invoke full sync",
+			common.TriggerCsiFullSync)
+
+		go func() {
+			for ; true; <-fullSyncTicker.C {
+				log.Infof("fullSync is triggered")
+				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+					err := PvcsiFullSync(ctx, metadataSyncer)
+					if err != nil {
+						log.Infof("pvCSI full sync failed with error: %+v", err)
+					}
+				} else {
+					err := CsiFullSync(ctx, metadataSyncer)
+					if err != nil {
+						log.Infof("CSI full sync failed with error: %+v", err)
+					}
+				}
+			}
+		}()
+	}
 
 	volumeHealthTicker := time.NewTicker(time.Duration(getVolumeHealthIntervalInMin(ctx)) * time.Minute)
 	defer volumeHealthTicker.Stop()
@@ -321,6 +382,25 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	<-stopCh
+	return nil
+}
+
+// getTriggerCsiFullSyncInstance gets the full sync instance with name "csifullsync"
+func getTriggerCsiFullSyncInstance(ctx context.Context, client client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
+	triggerCsiFullSyncInstance := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
+	key := k8stypes.NamespacedName{Namespace: "", Name: common.TriggerCsiFullSyncCRName}
+	if err := client.Get(ctx, key, triggerCsiFullSyncInstance); err != nil {
+		return nil, err
+	}
+	return triggerCsiFullSyncInstance, nil
+}
+
+// updateTriggerCsiFullSyncInstance updates the full sync instance with name "csifullsync"
+func updateTriggerCsiFullSyncInstance(ctx context.Context,
+	client client.Client, instance *triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
+	if err := client.Update(ctx, instance); err != nil {
+		return err
+	}
 	return nil
 }
 

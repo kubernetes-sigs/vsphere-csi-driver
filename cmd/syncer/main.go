@@ -154,8 +154,8 @@ func main() {
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo, coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
-		if err := manager.InitCommonCnsOperator(ctx, clusterFlavor, coInitParams); err != nil {
-			log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
+			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
 		}
 		// Initialize CNS Operator for Supervisor clusters
@@ -166,13 +166,13 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					os.Exit(1)
 				}
 			}()
-			go func() {
-				if err := manager.InitWcpCnsOperator(configInfo, coInitParams); err != nil {
-					log.Errorf("Error initializing WCP components of Cns Operator. Error: %+v", err)
-					os.Exit(1)
-				}
-			}()
 		}
+		go func() {
+			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {
+				log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+				os.Exit(1)
+			}
+		}()
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)
