@@ -113,6 +113,17 @@ const (
 	// on which CNS is supported.
 	MinSupportedVCenterPatch int = 3
 
+	// VSphere67u3Version is the minimum vSphere version to use Vslm APIs
+	// to support volume migration feature
+	VSphere67u3Version string = "6.7.3"
+
+	// VSphere7Version is the maximum vSphere version to use Vslm APIs
+	// to support volume migration feature
+	VSphere7Version string = "7.0.0"
+
+	// VSphere67u3lBuildInfo is the build number for vCenter in 6.7 Update 3l GA bits
+	VSphere67u3lBuildInfo int = 17137327
+
 	// VsanAffinityKey is the profile param key to indicate which node the FCD should be affinitized to.
 	VsanAffinityKey string = "VSAN/affinity/affinity"
 
