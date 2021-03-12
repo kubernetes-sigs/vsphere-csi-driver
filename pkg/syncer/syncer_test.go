@@ -72,7 +72,7 @@ const (
 )
 
 var (
-	config               *cnsconfig.Config
+	csiConfig            *cnsconfig.Config
 	ctx                  context.Context
 	cnsVCenterConfig     *cnsvsphere.VirtualCenterConfig
 	err                  error
@@ -159,14 +159,14 @@ func TestSyncerWorkflows(t *testing.T) {
 
 	t.Log("TestSyncerWorkflows: start")
 	var cleanup func()
-	config, cleanup = configFromEnvOrSim()
+	csiConfig, cleanup = configFromEnvOrSim()
 	defer cleanup()
 
 	// CNS based CSI requires a valid cluster name
-	config.Global.ClusterID = testClusterName
+	csiConfig.Global.ClusterID = testClusterName
 
 	// Init VC configuration
-	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, config)
+	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, csiConfig)
 	if err != nil {
 		t.Errorf("failed to get virtualCenter. err=%v", err)
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Initialize metadata syncer object
 	metadataSyncer = &metadataSyncInformer{}
 	configInfo := &types.ConfigInfo{}
-	configInfo.Cfg = config
+	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
 	metadataSyncer.volumeManager = volumes.GetManager(ctx, virtualCenter)
 	metadataSyncer.host = virtualCenter.Config.Host
@@ -615,8 +615,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 			DynamicData: vimtypes.DynamicData{},
 			ContainerCluster: cnstypes.CnsContainerCluster{
 				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-				ClusterId:   config.Global.ClusterID,
-				VSphereUser: config.VirtualCenter[cnsVCenterConfig.Host].User,
+				ClusterId:   csiConfig.Global.ClusterID,
+				VSphereUser: csiConfig.VirtualCenter[cnsVCenterConfig.Host].User,
 			},
 		},
 		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
@@ -654,8 +654,14 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	// PV does not exist in K8S, but volume exist in CNS cache
 	// FullSync should delete this volume from CNS cache after two cycles
 	waitForListerSync()
-	csiFullSync(ctx, metadataSyncer)
-	csiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify if volume has been deleted from cache
 	queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
@@ -695,8 +701,14 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	csiFullSync(ctx, metadataSyncer)
-	csiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify pv label of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
@@ -721,8 +733,10 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	csiFullSync(ctx, metadataSyncer)
-
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Verify pv label value has been updated in CNS cache
 
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {
@@ -740,7 +754,10 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	csiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify pvc label value has been updated in CNS cache
 
@@ -760,7 +777,10 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	csiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify POD metadata of volume matches that of updated metadata
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, queryFilter); err != nil {

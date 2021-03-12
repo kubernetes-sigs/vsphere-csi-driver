@@ -29,6 +29,7 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -97,6 +98,13 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{},
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{},
 	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&triggercsifullsyncv1alpha1.TriggerCsiFullSync{},
+		&triggercsifullsyncv1alpha1.TriggerCsiFullSyncList{},
+	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&metav1.Status{},

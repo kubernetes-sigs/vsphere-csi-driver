@@ -17,9 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
 
 // TriggerCsiFullSyncSpec is the spec for TriggerCsiFullSync
@@ -27,31 +26,31 @@ type TriggerCsiFullSyncSpec struct {
 	// TriggerSyncID gives an option to trigger full sync on demand.
 	// Initial value will be 0. In order to trigger a full sync, user
 	// has to set a number that is 1 greater than the previous one.
-	TriggerSyncID int `json:"triggerSyncID"`
+	TriggerSyncID uint64 `json:"triggerSyncID"`
 }
 
 // TriggerCsiFullSyncStatus contains the status for a TriggerCsiFullSync
 type TriggerCsiFullSyncStatus struct {
 	// InProgress indicates whether a CSI full sync is in progress.
 	// If full sync is completed this field will be unset.
-	InProgress bool `json:"inProgress,omitempty"`
+	InProgress bool `json:"inProgress"`
 
-	// LastTriggerSyncID indicates the last trigger sync Id that completed.
-	LastTriggerSyncID int `json:"lastTriggerSyncID,omitempty"`
+	// LastTriggerSyncID indicates the last trigger sync Id.
+	LastTriggerSyncID uint64 `json:"lastTriggerSyncID"`
 
 	// LastSuccessfulStartTimeStamp indicates last successful full sync start timestamp.
-	LastSuccessfulStartTimeStamp time.Time `json:"lastSuccessfulStartTimeStamp,omitempty"`
+	LastSuccessfulStartTimeStamp *metav1.Time `json:"lastSuccessfulStartTimeStamp,omitempty"`
 
 	// LastSuccessfulEndTimeStamp indicates last successful full sync end timestamp.
-	LastSuccessfulEndTimeStamp time.Time `json:"lastSuccessfulEndTimeStamp,omitempty"`
+	LastSuccessfulEndTimeStamp *metav1.Time `json:"lastSuccessfulEndTimeStamp,omitempty"`
 
 	// LastRunStartTimeStamp indicates last run full sync start timestamp.
 	// This timestamp can be either the successful or failed full sync start timestamp.
-	LastRunStartTimeStamp time.Time `json:"lastRunStartTimeStamp,omitempty"`
+	LastRunStartTimeStamp *metav1.Time `json:"lastRunStartTimeStamp,omitempty"`
 
 	// LastRunEndTimeStamp indicates last run full sync end timestamp.
 	// This timestamp can be either the successful or failed full sync end timestamp.
-	LastRunEndTimeStamp time.Time `json:"lastRunEndTimeStamp,omitempty"`
+	LastRunEndTimeStamp *metav1.Time `json:"lastRunEndTimeStamp,omitempty"`
 
 	// The last error encountered during CSI full sync operation, if any.
 	// Previous error will be cleared when a new full sync is in progress.
@@ -80,4 +79,20 @@ type TriggerCsiFullSyncList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TriggerCsiFullSync `json:"items"`
+}
+
+// CreateTriggerCsiFullSyncInstance creates default CreateTriggerCsiFullSync CR instance
+func CreateTriggerCsiFullSyncInstance() *TriggerCsiFullSync {
+	return &TriggerCsiFullSync{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: common.TriggerCsiFullSyncCRName,
+		},
+		Spec: TriggerCsiFullSyncSpec{
+			TriggerSyncID: 0,
+		},
+		Status: TriggerCsiFullSyncStatus{
+			InProgress:        false,
+			LastTriggerSyncID: 0,
+		},
+	}
 }
