@@ -198,6 +198,10 @@ const (
 	// AnnIgnoreInaccessiblePV is annotation key on volume claim to indicate
 	// if inaccessible PV can be fake attached
 	AnnIgnoreInaccessiblePV = "pv.attach.kubernetes.io/ignore-if-inaccessible"
+
+	// TriggerCsiFullSyncCRName is the instance name of TriggerCsiFullSync
+	// All other names will be rejected by TriggerCsiFullSync controller
+	TriggerCsiFullSyncCRName = "csifullsync"
 )
 
 // Supported container orchestrators
