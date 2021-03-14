@@ -55,6 +55,9 @@ type PoolCapacity struct {
 	// Free Space of the storage pool
 	// +optional
 	FreeSpace *resource.Quantity `json:"freeSpace,omitempty"`
+	// allocatable capacity of storage pool
+	// +optional
+	AllocatableSpace *resource.Quantity `json:"allocatableSpace,omitempty"`
 }
 
 // StoragePoolError describes an error encountered on the pool
