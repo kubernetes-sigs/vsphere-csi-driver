@@ -57,6 +57,13 @@ spec:
             capacity:
               description: Total Capacity of the storage pool
               properties:
+                allocatableSpace:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  description: allocatable capacity of storage pool
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
                 freeSpace:
                   anyOf:
                   - type: integer
