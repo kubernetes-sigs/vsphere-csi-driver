@@ -117,6 +117,8 @@ const (
 	svOperationTimeout                         = 240 * time.Second
 	svStorageClassName                         = "SVStorageClass"
 	totalResizeWaitPeriod                      = 10 * time.Minute
+	vanillaClusterDistribution                 = "CSI-Vanilla"
+	vanillaClusterDirtributionWithSpecialChar  = "CSI-\tVanilla-#Test"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
@@ -125,6 +127,7 @@ const (
 	vsanhealthServiceName                      = "vsan-health"
 	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
 	vsphereControllerManager                   = "vmware-system-tkg-controller-manager"
+	vSphereCSIConf                             = "csi-vsphere.conf"
 	vsphereTKGSystemNamespace                  = "vmware-system-tkg"
 	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
 	wcpServiceName                             = "wcp"
