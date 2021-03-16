@@ -100,7 +100,7 @@ spec:
             path: /healthz
             port: healthz
           initialDelaySeconds: 10
-          timeoutSeconds: 3
+          timeoutSeconds: 5
           periodSeconds: 5
           failureThreshold: 3
       - name: liveness-probe
