@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	internal "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator"
+	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
@@ -130,7 +130,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			// Create FileVolumeClients CRD from manifest if file volume feature is enabled
 			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfilevolumeclient_crd.yaml")
 			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", internal.CnsFileVolumeClientPlural, err)
+				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
 				return err
 			}
 		}
@@ -212,7 +212,7 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 		log.Infof("Triggerfullsync feature enabled")
 		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, "triggercsifullsync_crd.yaml")
 		if err != nil {
-			log.Errorf("Failed to create %q CRD. Err: %+v", internal.TriggerCsiFullSyncPlural, err)
+			log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.TriggerCsiFullSyncPlural, err)
 			return err
 		}
 		// Get a config to talk to the apiserver
