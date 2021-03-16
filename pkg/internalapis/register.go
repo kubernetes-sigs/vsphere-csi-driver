@@ -16,17 +16,19 @@ limitations under the License.
 
 // NOTE: Boilerplate only.  Ignore this file.
 
-// Package apis v1alpha1 contains API Schema definitions for the cns v1alpha1 API group
+// Package internalapis contains API Schema definitions for internal apis
 // +k8s:deepcopy-gen=package,register
 // +groupName=cns.vmware.com
-package apis
+package internalapis
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	cnsfilevolumeclientv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/cnsfilevolumeclient/v1alpha1"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	cnscsisvfeaturestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -76,6 +78,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&triggercsifullsyncv1alpha1.TriggerCsiFullSync{},
 		&triggercsifullsyncv1alpha1.TriggerCsiFullSyncList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnscsisvfeaturestatesv1alpha1.CnsCsiSvFeatureStates{},
+		&cnscsisvfeaturestatesv1alpha1.CnsCsiSvFeatureStatesList{},
 	)
 
 	scheme.AddKnownTypes(
