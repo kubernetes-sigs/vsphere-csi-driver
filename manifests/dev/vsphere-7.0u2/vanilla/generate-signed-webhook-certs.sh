@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-[ -z "${namespace}" ] && namespace=kube-system
+[ -z "${namespace}" ] && namespace=vmware-system-csi
 
 service=vsphere-webhook-svc
 secret=vsphere-webhook-certs
