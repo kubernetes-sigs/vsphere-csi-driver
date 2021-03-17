@@ -15,6 +15,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
+	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vapi/rest"
@@ -355,4 +356,17 @@ func GetDatastoreInfoByURL(ctx context.Context, vc *VirtualCenter, clusterID, ds
 		}
 	}
 	return nil, fmt.Errorf("datastore corresponding to URL %v not found in cluster %v", dsURL, clusterID)
+}
+
+// isVsan67u3Release returns true if it is vSAN 67u3 Release of vCenter.
+func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Debug("Checking if vCenter version is of vsan 67u3 release")
+	vc, err := m.GetVirtualCenter(ctx, host)
+	if err != nil || vc == nil {
+		log.Errorf("failed to get vcenter version. Err: %v", err)
+		return false, err
+	}
+	log.Debugf("vCenter version is :%q", vc.Client.Version)
+	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
 }
