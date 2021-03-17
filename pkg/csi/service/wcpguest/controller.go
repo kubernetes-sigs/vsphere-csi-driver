@@ -819,7 +819,11 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		Name:      cnsFileAccessConfigInstanceName,
 	}
 	if err := c.cnsOperatorClient.Get(ctx, cnsFileAccessConfigInstanceKey, cnsFileAccessConfigInstance); err != nil {
-		msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
+		if errors.IsNotFound(err) {
+			log.Infof("ControllerUnpublishVolume: CnsFileAccessConfig instance %q/%q not found in supervisor cluster. Returning success for the detach operation", c.supervisorNamespace, cnsFileAccessConfigInstanceName)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
+		msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -842,7 +846,7 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		},
 	}); err != nil {
 		if errors.IsNotFound(err) {
-			log.Infof("ControllerUnpublishVolume: CnsFileAccessConfig instance %q/%q already deleted. Returning success for the detach operation")
+			log.Infof("ControllerUnpublishVolume: CnsFileAccessConfig instance %q/%q already deleted. Returning success for the detach operation", c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
 		msg := fmt.Sprintf("failed to delete CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
