@@ -23,14 +23,13 @@ Following listing is for issues observed in vSphere with Tanzu – Supervisor Cl
     - Impact: Supervisor devops can manually expand the PVC in Supervisor namespace, but the file system will not be expanded. It is not a supported use case and a current limitation now.
     - Workaround: Create a static PVC in Tanzu Kubernetes Grid Service Cluster using the SVC PVC, and expand the TKGS PVC to a size equal to or greater than the previously requested size and then attach to a Pod for the underlying filesystem to resize.
 
-## Kubernetes 1.17 and 1.18 issues
+## Kubernetes issues
 
-1. Performance regression in Vanilla Kubernetes 1.17 and 1.18 and Supervisor Cluster 7.0 patch releases.
+1. Performance regression in Vanilla Kubernetes 1.17, 1.18, 1.19 and Supervisor Cluster 7.0 patch releases.
    - Impact: Low throughput of attach and detach operations, especially at scale.
    - Upstream issue is tracked at: https://github.com/kubernetes/kubernetes/issues/84169
    - Workaround:
-     - For Vanilla Kubernetes, upgrade your Kubernetes minor version to 1.17.8 and above or 1.18.5 and above. These versions contain the upstream fix for this issue.
-     - If upgrading the Kubernetes version is not possible, then there is a workaround that can be applied on your Kubernetes cluster. On each primary node, perform the following steps:
-       1. Open kube-controller-manager manifest, located at `/etc/kubernetes/manifests/kube-controller-manager.yaml`
-       2. Add `--disable-attach-detach-reconcile-sync` to spec.containers.command
-       3. Since kube-controller-manager is a static pod, Kubelet will restart it whenever a new flag is added. Make sure the kube-controller-manager pod is up and running.
+     - On Vanilla Kubernetes, for a short-term workaround, perform **either** of the following modifications in the kube-controller-manager manifest located at `/etc/kubernetes/manifests/kube-controller-manager.yaml` on each of your primary nodes:
+       1. Set `--attach-detach-reconcile-sync-period` in spec.containers.command section to a value greater than `60s` depending upon the scale at which you are noticing this issue (higher the scale, higher the value) 
+       2. Add `--disable-attach-detach-reconcile-sync` to the spec.containers.command section.      
+     - Since kube-controller-manager is a static pod, Kubelet will restart it whenever a new flag is added. Make sure the kube-controller-manager pod is up and running.
