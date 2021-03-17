@@ -54,8 +54,6 @@ const (
 	DefaultSupervisorFSSConfigMapName = "csi-feature-states"
 	// DefaultInternalFSSConfigMapName is the default name of feature states config map used in pvCSI and Vanilla drivers
 	DefaultInternalFSSConfigMapName = "internal-feature-states.csi.vsphere.vmware.com"
-	// DefaultCSINamespaceVanillaK8s is the default namespace for vanilla driver
-	DefaultCSINamespaceVanillaK8s = "kube-system"
 	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers
 	DefaultCSINamespace = "vmware-system-csi"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
