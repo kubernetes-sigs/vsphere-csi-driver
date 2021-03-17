@@ -244,7 +244,7 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(request reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 	if fullSyncErr != nil {
-		msg := fmt.Sprintf("Full sync failed for triggerSyncID: %d with error: %+v", triggerSyncID, err)
+		msg := fmt.Sprintf("Full sync failed for triggerSyncID: %d with error: %+v", triggerSyncID, fullSyncErr)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg, startTime)
 	} else {
