@@ -159,7 +159,7 @@ spec:
 apiVersion: v1
 data:
   "csi-migration": "false"
-  "csi-auth-check": "false"
+  "csi-auth-check": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

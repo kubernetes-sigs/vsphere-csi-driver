@@ -31,7 +31,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
-	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"github.com/vmware/govmomi/vapi/tags"
@@ -65,23 +64,6 @@ type controller struct {
 
 // volumeMigrationService holds the pointer to VolumeMigration instance
 var volumeMigrationService migration.VolumeMigrationService
-
-var (
-	// VSAN67u3ControllerServiceCapability represents the capability of controller service
-	// for VSAN67u3 release
-	VSAN67u3ControllerServiceCapability = []csi.ControllerServiceCapability_RPC_Type{
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-	}
-
-	// VSAN7ControllerServiceCapability represents the capability of controller service
-	// for VSAN 7.0 release
-	VSAN7ControllerServiceCapability = []csi.ControllerServiceCapability_RPC_Type{
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-	}
-)
 
 // New creates a CNS controller
 func New() csitypes.CnsController {
@@ -167,8 +149,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.authMgr = authMgr
 		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
 			config.Global.CSIAuthCheckIntervalInMin)
-		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager),
-			config.Global.CSIAuthCheckIntervalInMin)
+		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx, c.manager.VcenterConfig.Host)
+		if err != nil {
+			log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
+			return err
+		}
+		if isvSANFileServicesSupported {
+			go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager),
+				config.Global.CSIAuthCheckIntervalInMin)
+		}
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -612,12 +601,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
-			vsan67u3Release, err := isVsan67u3Release(ctx, c)
+			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx, c.manager.VcenterConfig.Host)
 			if err != nil {
-				log.Error("failed to get vcenter version to help identify if fileshare volume creation should be permitted or not. Error:%v", err)
+				log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
 				return nil, status.Error(codes.Internal, err.Error())
 			}
-			if vsan67u3Release {
+			if !isvSANFileServicesSupported {
 				msg := "fileshare volume creation is not supported on vSAN 67u3 release"
 				log.Error(msg)
 				return nil, status.Error(codes.FailedPrecondition, msg)
@@ -998,22 +987,6 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-// isVsan67u3Release returns true if controller is dealing with vSAN 67u3 Release of vCenter.
-func isVsan67u3Release(ctx context.Context, c *controller) (bool, error) {
-	log := logger.GetLogger(ctx)
-	log.Debug("Checking if vCenter version is of vsan 67u3 release")
-	if c.manager == nil || c.manager.VolumeManager == nil {
-		return false, errors.New("cannot retrieve vcenter version. controller manager is not initialized")
-	}
-	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
-	if err != nil || vc == nil {
-		log.Errorf("failed to get vcenter version. Err: %v", err)
-		return false, err
-	}
-	log.Debugf("vCenter version is :%q", vc.Client.Version)
-	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
-}
-
 // initVolumeMigrationService is a helper method to initialize volumeMigrationService in controller
 func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	log := logger.GetLogger(ctx)
@@ -1038,19 +1011,20 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 
-	var controllerCaps []csi.ControllerServiceCapability_RPC_Type
-
-	vsan67u3Release, err := isVsan67u3Release(ctx, c)
+	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
 	if err != nil {
-		log.Error("failed to get vcenter version to help identify controller service capabilities")
+		log.Errorf("failed to verify if extend volume is supported or not. Error:%+v", err)
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if vsan67u3Release {
-		controllerCaps = VSAN67u3ControllerServiceCapability
-	} else {
-		controllerCaps = VSAN7ControllerServiceCapability
+	controllerCaps := []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 	}
-
+	if isExtendSupported {
+		log.Debug("Adding extend volume capability to default capabilities")
+		controllerCaps = append(controllerCaps,
+			csi.ControllerServiceCapability_RPC_EXPAND_VOLUME)
+	}
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
