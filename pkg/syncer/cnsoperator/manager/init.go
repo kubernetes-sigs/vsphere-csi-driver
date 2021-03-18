@@ -69,11 +69,15 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	log.Infof("Initializing CNS Operator")
 	cnsOperator := &cnsOperator{}
 	cnsOperator.configInfo = configInfo
-	vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
-	if err != nil {
-		return err
+
+	var volumeManager volumes.Manager
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
+		if err != nil {
+			return err
+		}
+		volumeManager = volumes.GetManager(ctx, vCenter)
 	}
-	volumeManager := volumes.GetManager(ctx, vCenter)
 
 	// Get a config to talk to the apiserver
 	restConfig, err := config.GetConfig()
