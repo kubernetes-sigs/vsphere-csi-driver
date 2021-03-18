@@ -175,7 +175,7 @@ spec:
 apiVersion: v1
 data:
   "csi-migration": "false"
-  "csi-auth-check": "false"
+  "csi-auth-check": "true"
   "online-volume-extend": "false"
 kind: ConfigMap
 metadata:
