@@ -154,7 +154,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		if isvSANFileServicesSupported {
-			go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager),
+			go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
 				config.Global.CSIAuthCheckIntervalInMin)
 		}
 	}
@@ -570,12 +570,13 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	var volumeID string
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-		dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
-		log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+		fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+
 		var filteredDatastores []*cnsvsphere.DatastoreInfo
-		for _, datastore := range dsURLToInfoMap {
-			filteredDatastores = append(filteredDatastores, datastore)
+		for _, datastores := range fsEnabledClusterToDsInfoMap {
+			filteredDatastores = append(filteredDatastores, datastores...)
 		}
+
 		if len(filteredDatastores) == 0 {
 			msg := "no datastores found to create file volume"
 			log.Error(msg)
