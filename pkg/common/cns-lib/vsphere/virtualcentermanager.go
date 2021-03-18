@@ -48,6 +48,10 @@ type VirtualCenterManager interface {
 	UnregisterVirtualCenter(ctx context.Context, host string) error
 	// UnregisterAllVirtualCenters disconnects and unregisters all virtual centers.
 	UnregisterAllVirtualCenters(ctx context.Context) error
+	// IsvSANFileServicesSupported checks if vSAN file services is supported or not.
+	IsvSANFileServicesSupported(ctx context.Context, host string) (bool, error)
+	// IsExtendVolumeSupported checks if extend volume is supported or not.
+	IsExtendVolumeSupported(ctx context.Context, host string) (bool, error)
 }
 
 var (
@@ -144,4 +148,26 @@ func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Co
 		return true
 	})
 	return err
+}
+
+// IsvSANFileServicesSupported checks if vSAN file services is supported or not.
+func (m *defaultVirtualCenterManager) IsvSANFileServicesSupported(ctx context.Context, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	is67u3Release, err := isVsan67u3Release(ctx, m, host)
+	if err != nil {
+		log.Errorf("Failed to identify the vCenter release with error: %+v", err)
+		return false, err
+	}
+	return !is67u3Release, nil
+}
+
+// IsExtendVolumeSupported checks if extend volume is supported or not.
+func (m *defaultVirtualCenterManager) IsExtendVolumeSupported(ctx context.Context, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	is67u3Release, err := isVsan67u3Release(ctx, m, host)
+	if err != nil {
+		log.Errorf("Failed to identify the vCenter release with error: %+v", err)
+		return false, err
+	}
+	return !is67u3Release, nil
 }
