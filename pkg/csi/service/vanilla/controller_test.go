@@ -250,6 +250,10 @@ func (f *FakeAuthManager) GetDatastoreMapForFileVolumes(ctx context.Context) map
 	return datastoreMapForFileVolumes
 }
 
+func (f *FakeAuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter) {
+	f.vcenter = vCenter
+}
+
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
 		// Create context

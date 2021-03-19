@@ -119,23 +119,22 @@ func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(ctx context.Contex
 	log := logger.GetLogger(ctx)
 	vc, err := m.GetVirtualCenter(ctx, host)
 	if err != nil {
-		log.Errorf("failed to find VC %s, couldn't unregister", host)
+		if err == ErrVCNotFound {
+			log.Warnf("failed to find vCenter: %q Assuming vCenter is already unregistered.", host)
+			return nil
+		}
 		return err
 	}
-	if vc != nil {
-		if err = vc.DisconnectPbm(ctx); err != nil {
-			log.Warnf("failed to disconnect VC pbm %s, couldn't unregister", host)
-		}
-		if err = vc.Disconnect(ctx); err != nil {
-			log.Warnf("failed to disconnect VC %s, couldn't unregister", host)
-		}
-		vc.DisconnectCns(ctx)
-		m.virtualCenters.Delete(host)
-		log.Infof("Successfully unregistered VC %s", host)
-		return nil
+	if err = vc.DisconnectPbm(ctx); err != nil {
+		log.Warnf("failed to disconnect VC pbm %s, couldn't unregister", host)
 	}
-	log.Warnf("failed to find VC %s, couldn't unregister", host)
-	return err
+	if err = vc.Disconnect(ctx); err != nil {
+		log.Warnf("failed to disconnect VC %s, couldn't unregister", host)
+	}
+	vc.DisconnectCns(ctx)
+	m.virtualCenters.Delete(host)
+	log.Infof("Successfully unregistered VC %s", host)
+	return nil
 }
 
 func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Context) error {
@@ -143,7 +142,7 @@ func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Co
 	log := logger.GetLogger(ctx)
 	m.virtualCenters.Range(func(hostInf, _ interface{}) bool {
 		if err = m.UnregisterVirtualCenter(ctx, hostInf.(string)); err != nil {
-			log.Warnf("failed to unregister VC %v", hostInf)
+			log.Warnf("failed to unregister vCenter: %q, err: %+v", hostInf.(string), err)
 		}
 		return true
 	})

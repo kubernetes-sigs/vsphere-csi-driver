@@ -37,6 +37,8 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -44,7 +46,6 @@ import (
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 var (
@@ -54,13 +55,13 @@ var (
 )
 
 type cnsOperator struct {
-	configInfo        *types.ConfigInfo
+	configInfo        *commonconfig.ConfigurationInfo
 	coCommonInterface commonco.COCommonInterface
 }
 
 // InitCnsOperator initializes the Cns Operator
 func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *types.ConfigInfo, coInitParams *interface{}) error {
+	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -72,7 +73,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 	var volumeManager volumes.Manager
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		vCenter, err := types.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
+		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
 		if err != nil {
 			return err
 		}
@@ -316,7 +317,7 @@ func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
 		log.Errorf("Failed to read config. Error: %+v", err)
 		return err
 	}
-	cnsOperator.configInfo = &types.ConfigInfo{Cfg: cfg}
+	cnsOperator.configInfo = &commonconfig.ConfigurationInfo{Cfg: cfg}
 	log.Infof("Reloaded the value for CnsRegisterVolumesCleanupIntervalInMin to %d", cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
 	return nil
 }
