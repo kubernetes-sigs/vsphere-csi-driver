@@ -40,13 +40,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -64,11 +64,11 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new TriggerCsiFullSync Controller and adds it to the Manager, ConfigInfo
+// Add creates a new TriggerCsiFullSync Controller and adds it to the Manager, ConfigurationInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	var coCommonInterface commonco.COCommonInterface
@@ -102,7 +102,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *types.ConfigInfo, recorder record.EventRecorder) reconcile.Reconciler {
+	configInfo *config.ConfigurationInfo, recorder record.EventRecorder) reconcile.Reconciler {
 	return &ReconcileTriggerCsiFullSync{client: mgr.GetClient(), scheme: mgr.GetScheme(),
 		clusterFlavor: clusterFlavor, configInfo: configInfo, recorder: recorder}
 }
@@ -140,7 +140,7 @@ type ReconcileTriggerCsiFullSync struct {
 	client        client.Client
 	scheme        *runtime.Scheme
 	clusterFlavor cnstypes.CnsClusterFlavor
-	configInfo    *types.ConfigInfo
+	configInfo    *config.ConfigurationInfo
 	recorder      record.EventRecorder
 }
 
