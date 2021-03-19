@@ -46,7 +46,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -196,7 +195,7 @@ func TestSyncerWorkflows(t *testing.T) {
 
 	// Initialize metadata syncer object
 	metadataSyncer = &metadataSyncInformer{}
-	configInfo := &types.ConfigInfo{}
+	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = config
 	metadataSyncer.configInfo = configInfo
 	metadataSyncer.volumeManager = volumes.GetManager(ctx, virtualCenter)

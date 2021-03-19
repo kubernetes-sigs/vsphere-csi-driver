@@ -303,6 +303,20 @@ func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
 	return cfg, err
 }
 
+// InitConfigInfo initializes the ConfigurationInfo struct
+func InitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, error) {
+	log := logger.GetLogger(ctx)
+	cfg, err := GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return nil, err
+	}
+	configInfo := &cnsconfig.ConfigurationInfo{
+		Cfg: cfg,
+	}
+	return configInfo, nil
+}
+
 // GetK8sCloudOperatorServicePort return the port to connect the K8sCloudOperator gRPC service.
 // If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
 // return the interval value read from environment variable

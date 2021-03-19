@@ -45,6 +45,7 @@ import (
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -53,7 +54,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/util"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -72,7 +72,7 @@ var (
 
 // Add creates a new CnsFileAccessConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func Add(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -134,7 +134,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface, recorder record.EventRecorder) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface, recorder record.EventRecorder) reconcile.Reconciler {
 	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient, dynamicClient: dynamicClient, recorder: recorder}
 }
 
@@ -171,7 +171,7 @@ type ReconcileCnsFileAccessConfig struct {
 	// that reads objects from the cache and writes to the apiserver
 	client           client.Client
 	scheme           *runtime.Scheme
-	configInfo       *types.ConfigInfo
+	configInfo       *commonconfig.ConfigurationInfo
 	volumeManager    volumes.Manager
 	vmOperatorClient client.Client
 	dynamicClient    dynamic.Interface

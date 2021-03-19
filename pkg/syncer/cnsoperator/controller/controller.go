@@ -19,14 +19,14 @@ package controller
 import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager
-var AddToManagerFuncs []func(manager.Manager, *types.ConfigInfo, volumes.Manager) error
+var AddToManagerFuncs []func(manager.Manager, *config.ConfigurationInfo, volumes.Manager) error
 
 // AddToManager adds all Controllers to the Manager
-func AddToManager(manager manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func AddToManager(manager manager.Manager, configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
 	for _, f := range AddToManagerFuncs {
 		if err := f(manager, configInfo, volumeManager); err != nil {
 			return err

@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
@@ -53,7 +54,6 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -70,10 +70,10 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigInfo,
+// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigurationInfo,
 // volumeManager and k8sclient. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func Add(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	// Initializes kubernetes client
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -97,7 +97,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, k8sclient kubernetes.Interface, recorder record.EventRecorder) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager, k8sclient kubernetes.Interface, recorder record.EventRecorder) reconcile.Reconciler {
 	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, k8sclient: k8sclient, recorder: recorder}
 }
 
@@ -163,7 +163,7 @@ var _ reconcile.Reconciler = &ReconcileCnsVolumeMetadata{}
 type ReconcileCnsVolumeMetadata struct {
 	client        client.Client
 	scheme        *runtime.Scheme
-	configInfo    *types.ConfigInfo
+	configInfo    *commonconfig.ConfigurationInfo
 	volumeManager volumes.Manager
 	k8sclient     kubernetes.Interface
 	recorder      record.EventRecorder
@@ -304,7 +304,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (recon
 func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool) bool {
 	log := logger.GetLogger(ctx)
 	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v", instance.Name, deleteFlag)
-	vCenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		log.Errorf("ReconcileCnsVolumeMetadata: Failed to get virtual center instance. Err: %v", err)
 		return false

@@ -26,11 +26,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"github.com/vmware/govmomi/vapi/tags"
@@ -41,6 +39,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -175,9 +174,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					log.Infof("Reloading Configuration")
-					c.ReloadConfiguration(ctx)
-					log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					for {
+						reloadConfigErr := c.ReloadConfiguration()
+						if reloadConfigErr == nil {
+							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+							break
+						}
+						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(5 * time.Second)
+					}
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -221,52 +226,74 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's config cache
 // and VolumeManager's VC Config cache.
-func (c *controller) ReloadConfiguration(ctx context.Context) {
-	log := logger.GetLogger(ctx)
+func (c *controller) ReloadConfiguration() error {
+	ctx, log := logger.GetNewContextWithLogger()
+	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		log.Errorf("failed to read config. Error: %+v", err)
-		return
+		msg := fmt.Sprintf("failed to read config. Error: %+v", err)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 	if err != nil {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
-		return
+		return err
 	}
 	if newVCConfig != nil {
 		var vcenter *cnsvsphere.VirtualCenter
 		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
 			c.manager.VcenterConfig.Password != newVCConfig.Password {
-			log.Debugf("Unregistering virtual center: %q from virtualCenterManager", c.manager.VcenterConfig.Host)
-			err = c.manager.VcenterManager.UnregisterAllVirtualCenters(ctx)
-			if err != nil {
-				log.Errorf("failed to unregister vcenter with virtualCenterManager.")
-				return
+
+			// Verify if new configuration has valid credentials by connecting to vCenter.
+			// Proceed only if the connection succeeds, else return error.
+			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+			if err = newVC.Connect(ctx); err != nil {
+				msg := fmt.Sprintf("failed to connect to VirtualCenter host: %q, Err: %+v", newVCConfig.Host, err)
+				log.Error(msg)
+				return errors.New(msg)
 			}
-			log.Debugf("Registering virtual center: %q with virtualCenterManager", newVCConfig.Host)
-			vcenter, err = c.manager.VcenterManager.RegisterVirtualCenter(ctx, newVCConfig)
+
+			// Reset virtual center singleton instance by passing reload flag as true
+			log.Info("Obtaining new vCenterInstance using new credentials")
+			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 			if err != nil {
-				log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
-				return
+				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
+				log.Error(msg)
+				return errors.New(msg)
 			}
-			c.manager.VcenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
 		} else {
-			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, newVCConfig.Host)
+			// If it's not a VC host or VC credentials update, same singleton instance can be used
+			// and it's Config field can be updated
+			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 			if err != nil {
-				log.Errorf("failed to get VirtualCenter. err=%v", err)
-				return
+				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
+				log.Error(msg)
+				return errors.New(msg)
 			}
 			vcenter.Config = newVCConfig
 		}
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
+		// Re-Initialize Node Manager to cache latest vCenter config
+		c.nodeMgr = &Nodes{}
+		err = c.nodeMgr.Initialize(ctx)
+		if err != nil {
+			log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
+			return err
+		}
+		if c.authMgr != nil {
+			c.authMgr.ResetvCenterInstance(ctx, vcenter)
+			log.Debugf("Updated vCenter in auth manager")
+		}
 	}
 	if cfg != nil {
-		log.Debugf("Updating manager.CnsConfig")
 		c.manager.CnsConfig = cfg
+		log.Debugf("Updated manager.CnsConfig")
 	}
+	return nil
 }
 
 func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {

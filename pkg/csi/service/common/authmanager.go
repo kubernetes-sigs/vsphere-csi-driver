@@ -46,6 +46,9 @@ type AuthorizationService interface {
 	// GetDatastoreMapForFileVolumes returns a map of datastore URL to datastore info for only those
 	// datastores the CSI VC user has Host.Config.Storage privilege on vSAN cluster with vSAN FS enabled.
 	GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo
+
+	// ResetvCenterInstance sets new vCenter instance for AuthorizationService
+	ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter)
 }
 
 // AuthManager maintains an internal map to track the datastores that need to be used by create volume
@@ -106,6 +109,13 @@ func (authManager *AuthManager) GetDatastoreMapForFileVolumes(ctx context.Contex
 		datastoreMapForFileVolumes[dsURL] = dsInfo
 	}
 	return datastoreMapForFileVolumes
+}
+
+// ResetvCenterInstance sets new vCenter instance for AuthorizationService
+func (authManager *AuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter) {
+	log := logger.GetLogger(ctx)
+	log.Info("Resetting vCenter Instance in the AuthManager")
+	authManager.vcenter = vCenter
 }
 
 // refreshDatastoreMapForBlockVolumes scans all datastores in vCenter to check privileges, and compute the
