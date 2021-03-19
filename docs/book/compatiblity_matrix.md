@@ -21,3 +21,4 @@ Note:
 
 - vSphere CSI driver is not supported on Windows based vCenter.
 - vSphere CSI driver is not supported on vSAN stretch cluster.
+- vSphere CSI driver does not support provisioning block or raw block volumes on the NFSv4 Datastore.
