@@ -53,21 +53,24 @@ func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context, req *c
 // ExpandVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateVanillaControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	isOnlineExpansionEnabled bool) error {
+	isOnlineExpansionEnabled, isOnlineExpansionSupported bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	if !isOnlineExpansionEnabled {
-		nodeManager := node.GetManager(ctx)
-		nodes, err := nodeManager.GetAllNodes(ctx)
-		if err != nil {
-			msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
-			log.Error(msg)
-			return status.Error(codes.Internal, msg)
-		}
-		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+	// Check online extend FSS and vCenter support
+	if isOnlineExpansionEnabled && isOnlineExpansionSupported {
+		return nil
 	}
-	return nil
+
+	// Check if it is an online expansion scenario and raise error
+	nodeManager := node.GetManager(ctx)
+	nodes, err := nodeManager.GetAllNodes(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("failed to find VirtualMachines for all registered nodes. Error: %v", err)
+		log.Error(msg)
+		return status.Error(codes.Internal, msg)
+	}
+	return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
 }

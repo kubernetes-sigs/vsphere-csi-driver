@@ -56,6 +56,9 @@ spec:
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--leader-election"
+            # Uncomment the line below to increase performance of online
+            # resize in vSphere versions 7.0U2 or above
+            # - "--handle-volume-inuse-error=false"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -176,7 +179,7 @@ apiVersion: v1
 data:
   "csi-migration": "false"
   "csi-auth-check": "true"
-  "online-volume-extend": "false"
+  "online-volume-extend": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

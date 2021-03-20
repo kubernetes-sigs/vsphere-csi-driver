@@ -160,6 +160,11 @@ apiVersion: v1
 data:
   "csi-migration": "false"
   "csi-auth-check": "true"
+  # Internal FSS for online volume expansion is enabled in v2.2.0 version of the driver.
+  # The vSphere version needs to be at least 7.0U2 for this feature to work.
+  # If the vSphere version is lower then the online volume expansion will fail
+  # with appropriate error message during runtime.
+  "online-volume-extend": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

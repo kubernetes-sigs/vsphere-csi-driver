@@ -189,7 +189,7 @@ func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere
 		log.Error(msg)
 		return status.Errorf(codes.Internal, msg)
 	} else if diskUUID != "" {
-		msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to node. Only offline volume expansion is supported", volumeID)
+		msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to node. Online volume expansion is not supported in this version", volumeID)
 		log.Error(msg)
 		return status.Errorf(codes.FailedPrecondition, msg)
 	}
