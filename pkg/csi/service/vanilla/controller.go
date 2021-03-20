@@ -946,8 +946,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log.Error(msg)
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
+
+	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if online expansion is supported due to error: %v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
 	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-	err := validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled)
+	err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
 	if err != nil {
 		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		log.Error(msg)
