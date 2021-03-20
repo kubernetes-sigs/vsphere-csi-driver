@@ -362,13 +362,17 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 
 	crdName := newCrd.ObjectMeta.Name
 	crd, err := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, newCrd, metav1.CreateOptions{})
-		if err != nil {
-			log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, newCrd, metav1.CreateOptions{})
+			if err != nil {
+				log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
+				return err
+			}
+			log.Infof("%q CRD created successfully", crdName)
+		} else {
 			return err
 		}
-		log.Infof("%q CRD created successfully", crdName)
 	} else {
 		// Update the existing CRD with new CRD
 		crd.Spec = newCrd.Spec
