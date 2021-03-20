@@ -82,23 +82,21 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			deleteResourceQuota(client, namespace)
 		}
 		if pvc != nil {
-			ginkgo.By("checking host status")
-			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(pollTimeoutShort)
+			if hostIP != "" {
+				ginkgo.By("checking host status")
+				err := waitForHostToBeUp(hostIP)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if pvclaim != nil {
-			ginkgo.By("checking host status")
-			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(pollTimeoutShort)
+			if hostIP != "" {
+				ginkgo.By("checking host status")
+				err := waitForHostToBeUp(hostIP)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if isVsanhealthServiceStopped {
@@ -1470,11 +1468,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, pv.Name)
 
 		defer func() {
-			ginkgo.By("checking host status")
-			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
+			if hostIP != "" {
+				ginkgo.By("checking host status")
+				err := waitForHostToBeUp(hostIP)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1585,10 +1582,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		svPVCName := volHandle
 		if supervisorCluster {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv = getPvFromClaim(client, namespace, pvclaim.Name)
 			framework.Logf("volume name %v", pv.Name)
 		}
-
 		if guestCluster {
 			// svcPVCName refers to PVC Name in the supervisor cluster
 			svcPVCName := volHandle
@@ -1618,15 +1614,12 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		//PSOD the host
 		ginkgo.By("PSOD the host")
+		framework.Logf("pvName %v", pv.Name)
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, pv.Name)
-
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
-			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim = nil
@@ -1760,10 +1753,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		defer func() {
 			ginkgo.By("checking host status")
-			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
+			if hostIP != "" {
+				err := waitForHostToBeUp(hostIP)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1918,10 +1910,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
-			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim = nil
@@ -2042,10 +2031,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
-			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if !isControllerUP {
 				bringUpTKGController(svcClient)
 				bringUpCsiController(gcClient)
@@ -2089,7 +2075,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		svPVC := getPVCFromSupervisorCluster(svPVCName)
 		err = pvcHealthAnnotationWatcher(ctx, svcClient, svPVC, healthStatusInAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
 
 		ginkgo.By("Bring up csi-controller pod in GC")
 		bringUpTKGController(svcClient)
@@ -2213,6 +2198,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						ginkgo.By("poll for health status annotation")
 						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						pvSVC = getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						framework.Logf("PV name in SVC for PVC in GC %v", pvSVC.Name)
 					}
 				}
 			}
@@ -2268,10 +2255,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
-			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
@@ -2301,10 +2285,12 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 		ginkgo.By("Expect health annotation is added on the SV pvc is inaccessible")
 		if guestCluster {
+			ginkgo.By("Get svcClient and svNamespace")
+			svcClient, _ := getSvcClientAndNamespace()
 			for _, sspod := range ssPodsBeforeScaleDown.Items {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(svcClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 						svPVC := getPVCFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 						if svPVC.Annotations[volumeHealthAnnotation] == healthStatusInAccessible {
@@ -2318,10 +2304,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			}
 		}
 
-		if !statusFlag {
-			framework.Logf("Volume health status is not as expected")
-			gomega.Expect(statusFlag).NotTo(gomega.BeFalse())
-		}
+		//Expecting the status Flag to be true
+		gomega.Expect(statusFlag).NotTo(gomega.BeFalse(), "Volume health status is not as expected")
 
 		if supervisorCluster {
 			// Get the list of Volumes attached to Pods
@@ -2420,10 +2404,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
-			time.Sleep(pollTimeoutShort)
-			if err != nil {
-				time.Sleep(hostRecoveryTime)
-			}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim = nil
