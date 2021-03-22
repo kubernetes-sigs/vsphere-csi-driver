@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	cnsoperatorinternal "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/cnsfilevolumeclient/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -81,7 +81,7 @@ func GetFileVolumeClientInstance(ctx context.Context) (FileVolumeClient, error) 
 			log.Errorf("failed to get kubeconfig. Err: %v", err)
 			return nil, err
 		}
-		k8sclient, err := k8s.NewClientForGroup(ctx, config, cnsoperatorinternal.GroupName)
+		k8sclient, err := k8s.NewClientForGroup(ctx, config, internalapis.GroupName)
 		if err != nil {
 			log.Errorf("failed to create k8s client. Err: %v", err)
 			return nil, err
