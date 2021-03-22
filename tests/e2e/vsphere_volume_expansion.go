@@ -1778,7 +1778,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 
 	defer func() {
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeout))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeout))
 	}()
 
 	err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
@@ -2159,13 +2159,14 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 	var output string
 	var err error
+
 	if supervisorCluster {
 		namespace := getNamespaceToRunTests(f)
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 	} else {
-		output, err = storage_utils.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
+		output, _, err = storage_utils.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
 		if err != nil {
 			return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
 		}
