@@ -179,10 +179,7 @@ type ReconcileCnsVolumeMetadata struct {
 // based on the state read in the CnsVolumeMetadata.Spec
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileCnsVolumeMetadata) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
+func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
 	instance := &cnsv1alpha1.CnsVolumeMetadata{}
