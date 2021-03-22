@@ -271,7 +271,7 @@ spec:
             secretName: vsphere-config-secret
         - name: socket-dir
           emptyDir: {}
---
+---
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:
