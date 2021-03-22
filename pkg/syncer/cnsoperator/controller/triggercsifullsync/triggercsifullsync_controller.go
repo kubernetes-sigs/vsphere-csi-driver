@@ -103,7 +103,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *types.ConfigInfo, recorder record.EventRecorder) reconcile.Reconciler {
-	return &ReconcileTriggerCsiFullSync{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, recorder: recorder}
+	return &ReconcileTriggerCsiFullSync{client: mgr.GetClient(), scheme: mgr.GetScheme(),
+		clusterFlavor: clusterFlavor, configInfo: configInfo, recorder: recorder}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
