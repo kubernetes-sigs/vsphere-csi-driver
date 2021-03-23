@@ -30,7 +30,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster
@@ -110,7 +109,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 	log.Debugf("FullSync: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n", spew.Sdump(volumeToCnsEntityMetadataMap), spew.Sdump(volumeToK8sEntityMetadataMap))
 	log.Debugf("FullSync: volumes where clusterDistribution is set: %+v", volumeClusterDistributionMap)
 
-	vcenter, err := types.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
+	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
 	if err != nil {
 		log.Errorf("FullSync: failed to get vcenter with error %+v", err)
 		return err

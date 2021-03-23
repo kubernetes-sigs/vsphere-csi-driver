@@ -31,6 +31,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vsan"
 
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi"
@@ -65,6 +66,15 @@ type VirtualCenter struct {
 	// VsanClient represents the VSAN client instance.
 	VsanClient *vsan.Client
 }
+
+var (
+	// VirtualCenter instance
+	vCenterInstance *VirtualCenter
+	// Ensure vcenter is a singleton
+	vCenterInitialized bool
+	// vCenterInstanceLock is used for handling race conditions while initializing a vCenter instance
+	vCenterInstanceLock = &sync.RWMutex{}
+)
 
 func (vc *VirtualCenter) String() string {
 	return fmt.Sprintf("VirtualCenter [Config: %v, Client: %v, PbmClient: %v]",
@@ -214,9 +224,11 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 		// Logging out of the current session to make sure we
 		// retry creating a new client in the next attempt
 		defer func() {
-			logoutErr := vc.Client.Logout(ctx)
-			if logoutErr != nil {
-				log.Errorf("Could not logout of VC session. Error: %v", logoutErr)
+			if vc.Client != nil {
+				logoutErr := vc.Client.Logout(ctx)
+				if logoutErr != nil {
+					log.Errorf("Could not logout of VC session. Error: %v", logoutErr)
+				}
 			}
 		}()
 	}
@@ -457,4 +469,53 @@ func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMore
 		dsList = append(dsList, dsInfos...)
 	}
 	return dsList, nil
+}
+
+// GetVirtualCenterInstance returns the vcenter object singleton.
+// It is thread safe.
+// Takes in a boolean paramater reloadConfig.
+// If reinitialize is true, the vcenter object is instantiated again and the old object becomes eligible for garbage collection.
+// If reinitialize is false and instance was already initialized, the previous instance is returned.
+func GetVirtualCenterInstance(ctx context.Context, config *config.ConfigurationInfo, reinitialize bool) (*VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
+	vCenterInstanceLock.Lock()
+	defer vCenterInstanceLock.Unlock()
+
+	if !vCenterInitialized || reinitialize {
+		log.Infof("Initializing new vCenterInstance.")
+
+		var vcconfig *VirtualCenterConfig
+		vcconfig, err := GetVirtualCenterConfig(ctx, config.Cfg)
+		if err != nil {
+			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", err)
+			return nil, err
+		}
+
+		// Initialize the virtual center manager
+		virtualcentermanager := GetVirtualCenterManager(ctx)
+
+		//Unregister all VCs from virtual center manager
+		if err = virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
+			log.Errorf("failed to unregister vcenter with virtualCenterManager.")
+			return nil, err
+		}
+
+		// Register with virtual center manager
+		vCenterInstance, err = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
+		if err != nil {
+			log.Errorf("failed to register VirtualCenter . Err: %+v", err)
+			return nil, err
+		}
+
+		// Connect to VC
+		err = vCenterInstance.Connect(ctx)
+		if err != nil {
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
+			return nil, err
+		}
+
+		vCenterInitialized = true
+		log.Info("vCenterInstance initialized")
+	}
+	return vCenterInstance, nil
 }
