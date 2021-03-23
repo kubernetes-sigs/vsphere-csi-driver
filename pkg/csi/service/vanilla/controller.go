@@ -947,6 +947,17 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		return nil, status.Errorf(codes.Unimplemented, msg)
 	}
 
+	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
+	if err != nil {
+		log.Errorf("failed to verify if extend volume is supported or not. Error: %+v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if !isExtendSupported {
+		msg := "Volume Expansion is not supported in this vSphere release. Kindly upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support."
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
 	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
 	if err != nil {
 		msg := fmt.Sprintf("failed to check if online expansion is supported due to error: %v", err)
@@ -1045,20 +1056,12 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 
-	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
-	if err != nil {
-		log.Errorf("failed to verify if extend volume is supported or not. Error:%+v", err)
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
 	controllerCaps := []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
-	if isExtendSupported {
-		log.Debug("Adding extend volume capability to default capabilities")
-		controllerCaps = append(controllerCaps,
-			csi.ControllerServiceCapability_RPC_EXPAND_VOLUME)
-	}
+
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
