@@ -86,6 +86,8 @@ Where the entries have the following meaning:
 - `datacenters` - list of all comma separated datacenter paths where kubernetes node VMs are present. When datacenter is located at the root, the name of datacenter is enough but when datacenter is placed in the folder, path needs to be specified as `folder/datacenter-name`.
 Please note since comma is used as a delimiter, the datacenter name itself must not contain a comma.
 
+**Note:** To deploy CSI driver for block volume in VMC environment, in the vSphere configuration file, need to specifiy cloudadmin user in `user` field and cloudadmin password in `password` field.
+
 ### vSphere configuration file for file volumes <a id="vsphereconf_for_file"></a>
 
 For file volumes, there are some extra parameters added to the config to help specify network permissions and placement of volumes. A sample config file for file volumes is shown below.
@@ -126,7 +128,7 @@ datacenters = "<datacenter1-path>, <datacenter2-path>, ..."
 targetvSANFileShareDatastoreURLs = "ds:///vmfs/volumes/vsan:52635b9067079319-95a7473222c4c9cd/" # Optional
 ```
 
-Some of the parameters have been explained in the previous section for block volumes.  
+Some of the parameters have been explained in the previous section for block volumes.
 
 `targetvSANFileShareDatastoreURLs` and `NetPermissions` section are exclusive to file volumes and are optional.
 
