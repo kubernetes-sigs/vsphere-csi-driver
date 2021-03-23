@@ -21,6 +21,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/vmware/govmomi/cns"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -52,6 +54,8 @@ type VirtualCenterManager interface {
 	IsvSANFileServicesSupported(ctx context.Context, host string) (bool, error)
 	// IsExtendVolumeSupported checks if extend volume is supported or not.
 	IsExtendVolumeSupported(ctx context.Context, host string) (bool, error)
+	// IsOnlineExtendVolumeSupported checks if online extend volume is supported or not on the vCenter Host
+	IsOnlineExtendVolumeSupported(ctx context.Context, host string) (bool, error)
 }
 
 var (
@@ -169,4 +173,22 @@ func (m *defaultVirtualCenterManager) IsExtendVolumeSupported(ctx context.Contex
 		return false, err
 	}
 	return !is67u3Release, nil
+}
+
+// IsOnlineExtendVolumeSupported checks if online extend volume is supported or not.
+func (m *defaultVirtualCenterManager) IsOnlineExtendVolumeSupported(ctx context.Context, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get VC instance
+	vcenter, err := m.GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("Failed to get vCenter. Err: %v", err)
+		return false, err
+	}
+	vCenterVersion := vcenter.Client.Version
+	if vCenterVersion != cns.ReleaseVSAN67u3 && vCenterVersion != cns.ReleaseVSAN70 && vCenterVersion != cns.ReleaseVSAN70u1 {
+		return true, nil
+	}
+	log.Infof("Online volume expansion is not supported on vCenter version %q", vCenterVersion)
+	return false, nil
 }
