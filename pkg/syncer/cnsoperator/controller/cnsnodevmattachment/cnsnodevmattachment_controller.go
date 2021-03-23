@@ -50,9 +50,9 @@ import (
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -69,10 +69,10 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, ConfigInfo
+// Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager, vSphereSecretConfigInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+func Add(mgr manager.Manager, configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -96,7 +96,7 @@ func Add(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volume
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo, volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = logger.NewContextWithLogger(ctx)
@@ -138,7 +138,7 @@ type ReconcileCnsNodeVMAttachment struct {
 	// that reads objects from the cache and writes to the apiserver
 	client        client.Client
 	scheme        *runtime.Scheme
-	configInfo    *types.ConfigInfo
+	configInfo    *config.ConfigurationInfo
 	volumeManager volumes.Manager
 	nodeManager   cnsnode.Manager
 	recorder      record.EventRecorder
@@ -208,7 +208,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 	}
 	// Get node VM by nodeUUID
 	var dc *vsphere.Datacenter
-	vcenter, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 		instance.Status.Error = err.Error()

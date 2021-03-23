@@ -25,6 +25,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -38,7 +39,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // OperationModeWebHookServer starts container for webhook server
@@ -88,7 +88,7 @@ func main() {
 	} else if *operationMode == operationModeMetaDataSync {
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
 		var err error
-		configInfo, err := types.InitConfigInfo(ctx)
+		configInfo, err := common.InitConfigInfo(ctx)
 		if err != nil {
 			log.Errorf("failed to initialize the configInfo. Err: %+v", err)
 			os.Exit(1)
@@ -151,7 +151,7 @@ func main() {
 // initSyncerComponents initializes syncer components that are dependant on the leader election algorithm.
 // This function is only called by the leader instance of vsphere-syncer, if enabled.
 // TODO: Change name from initSyncerComponents to init<Name>Components where <Name> will be the name of this container
-func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo, coInitParams *interface{}) func(ctx context.Context) {
+func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *config.ConfigurationInfo, coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
 		// Initialize CNS Operator for Supervisor clusters

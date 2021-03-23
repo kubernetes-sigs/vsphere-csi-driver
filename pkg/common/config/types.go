@@ -76,6 +76,11 @@ type Config struct {
 	}
 }
 
+// ConfigurationInfo is a struct that used to capture config param details
+type ConfigurationInfo struct {
+	Cfg *Config
+}
+
 // FeatureStatesConfigInfo contains the details about feature states configmap
 type FeatureStatesConfigInfo struct {
 	Name      string

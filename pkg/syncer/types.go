@@ -26,9 +26,9 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // Version of the syncer. This should be set via ldflags.
@@ -95,7 +95,7 @@ type metadataSyncInformer struct {
 	host               string
 	cnsOperatorClient  client.Client
 	supervisorClient   clientset.Interface
-	configInfo         *types.ConfigInfo
+	configInfo         *commonconfig.ConfigurationInfo
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
 	pvcLister          corelisters.PersistentVolumeClaimLister
