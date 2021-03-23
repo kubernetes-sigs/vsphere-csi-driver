@@ -29,7 +29,6 @@
   * [Volume Topology](features/volume_topology.md)
   * [Volume Health](features/volume_health.md)
   * [vSphere CSI Migration](features/vsphere_csi_migration.md)
-  * [CNS Telemetry](features/cns_telemetry.md)
 * [Known Issues](known_issues.md)
 * [Troubleshooting](troubleshooting.md)
 * [Development](development.md)
