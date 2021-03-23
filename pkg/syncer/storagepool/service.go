@@ -28,11 +28,11 @@ import (
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	commontypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 // Service holds the controllers needed to manage StoragePools
@@ -50,7 +50,7 @@ var (
 
 // InitStoragePoolService initializes the StoragePool service that updates
 // vSphere Datastore information into corresponding k8s StoragePool resources.
-func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigInfo, coInitParams *interface{}) error {
+func InitStoragePoolService(ctx context.Context, configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initializing Storage Pool Service")
 
@@ -74,9 +74,9 @@ func InitStoragePoolService(ctx context.Context, configInfo *commontypes.ConfigI
 	}
 
 	// Get VC connection
-	vc, err := commontypes.GetVirtualCenterInstance(ctx, configInfo, false)
+	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 	if err != nil {
-		log.Errorf("Failed to get vCenter from ConfigInfo. Err: %+v", err)
+		log.Errorf("Failed to get vCenter from vSphereSecretConfigInfo. Err: %+v", err)
 		return err
 	}
 

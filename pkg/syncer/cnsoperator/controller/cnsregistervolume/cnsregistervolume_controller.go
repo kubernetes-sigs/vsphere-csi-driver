@@ -42,10 +42,11 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 const (
@@ -63,11 +64,11 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CnsRegisterVolume Controller and adds it to the Manager, ConfigInfo
+// Add creates a new CnsRegisterVolume Controller and adds it to the Manager, ConfigurationInfo
 // and VirtualCenterTypes. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *types.ConfigInfo, volumeManager volumes.Manager) error {
+	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsRegisterVolume Controller as its a non-WCP CSI deployment")
@@ -93,7 +94,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *types.ConfigInfo, volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
 	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, recorder: recorder}
 }
 
@@ -129,7 +130,7 @@ type ReconcileCnsRegisterVolume struct {
 	// that reads objects from the cache and writes to the apiserver
 	client        client.Client
 	scheme        *runtime.Scheme
-	configInfo    *types.ConfigInfo
+	configInfo    *commonconfig.ConfigurationInfo
 	volumeManager volumes.Manager
 	recorder      record.EventRecorder
 }
@@ -189,7 +190,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	vc, err := types.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)

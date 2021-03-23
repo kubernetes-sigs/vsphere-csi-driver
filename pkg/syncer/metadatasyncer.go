@@ -36,11 +36,13 @@ import (
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
@@ -52,7 +54,6 @@ import (
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/types"
 )
 
 var (
@@ -118,7 +119,7 @@ func getVolumeHealthIntervalInMin(ctx context.Context) int {
 }
 
 // InitMetadataSyncer initializes the Metadata Sync Informer
-func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *types.ConfigInfo) error {
+func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *cnsconfig.ConfigurationInfo) error {
 	log := logger.GetLogger(ctx)
 	var err error
 	log.Infof("Initializing MetadataSyncer")
@@ -159,7 +160,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	} else {
 		// Initialize volume manager with vcenter credentials
 		// if metadata syncer is being intialized for Vanilla or Supervisor clusters
-		vCenter, err := types.GetVirtualCenterInstance(ctx, configInfo, false)
+		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 		if err != nil {
 			return err
 		}
@@ -188,11 +189,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					log.Infof("Reloading Configuration")
-					if err := ReloadConfiguration(ctx, metadataSyncer); err != nil {
-						log.Errorf("failed to reload configuration from: %q. Current configuration unchanged.", cfgPath)
-					} else {
-						log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					for {
+						reloadConfigErr := ReloadConfiguration(metadataSyncer)
+						if reloadConfigErr == nil {
+							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+							break
+						}
+						log.Errorf("failed to reload configuration will retry again in 5 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(5 * time.Second)
 					}
 				}
 			case err, ok := <-watcher.Errors:
@@ -405,8 +409,9 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 }
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's cached configs
-func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
-	log := logger.GetLogger(ctx)
+func ReloadConfiguration(metadataSyncer *metadataSyncInformer) error {
+	ctx, log := logger.GetNewContextWithLogger()
+	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
 		msg := fmt.Sprintf("failed to read config. Error: %+v", err)
@@ -453,7 +458,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 
 				// Reset virtual center singleton instance by passing reload flag as true
 				log.Info("Obtaining new vCenterInstance using new credentials")
-				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg}, true)
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 				if err != nil {
 					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
 					log.Error(msg)
@@ -462,7 +467,7 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			} else {
 				// If it's not a VC host or VC credentials update, same singleton instance can be used
 				// and it's Config field can be updated
-				vcenter, err = types.GetVirtualCenterInstance(ctx, &types.ConfigInfo{Cfg: cfg}, false)
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 				if err != nil {
 					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
 					log.Error(msg)
@@ -475,9 +480,10 @@ func ReloadConfiguration(ctx context.Context, metadataSyncer *metadataSyncInform
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 				storagepool.ResetVC(ctx, vcenter)
 			}
+			metadataSyncer.host = newVCConfig.Host
 		}
 		if cfg != nil {
-			metadataSyncer.configInfo = &types.ConfigInfo{Cfg: cfg}
+			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
 			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
