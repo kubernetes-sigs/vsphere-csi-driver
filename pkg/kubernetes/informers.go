@@ -99,6 +99,20 @@ func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(
 	})
 }
 
+// AddNamespaceListener hooks up add, update, delete callbacks
+func (im *InformerManager) AddNamespaceListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+	if im.namespaceInformer == nil {
+		im.namespaceInformer = im.informerFactory.Core().V1().Namespaces().Informer()
+	}
+	im.namespaceSynced = im.namespaceInformer.HasSynced
+
+	im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+}
+
 // AddConfigMapListener hooks up add, update, delete callbacks
 func (im *InformerManager) AddConfigMapListener(ctx context.Context, client clientset.Interface, namespace string, add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.configMapInformer == nil {
