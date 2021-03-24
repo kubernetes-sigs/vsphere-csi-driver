@@ -234,6 +234,8 @@ const (
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check
 	CSIAuthCheck = "csi-auth-check"
+	// CSISVFeatureStateReplication is feature flag for SV feature state replication feature
+	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
 	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
 	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
 	// FileVolume is feature flag name for file volume support in WCP
