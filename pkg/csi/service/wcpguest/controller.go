@@ -37,6 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -716,6 +717,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	}
 	var err error
 	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("virtualMachine %q not found. Returning success for detach operation", req.NodeId)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
 		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -736,6 +741,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			break
 		}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Infof("virtualMachine %q not found. Returning success for detach operation", req.NodeId)
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
 			msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
