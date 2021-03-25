@@ -54,7 +54,7 @@ Here is an example vSphere configuration file for block volumes, with dummy valu
 $ cat /etc/kubernetes/csi-vsphere.conf
 [Global]
 cluster-id = "<cluster-id>"
-cluster-distribution = "<cluster-distribution>" # optional
+cluster-distribution = "<cluster-distribution>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
 thumbprint = "<cert thumbprint>" # optional, use with insecure-flag set to false without providing ca-file
 
@@ -70,7 +70,7 @@ Where the entries have the following meaning:
 
 - `cluster-id` - represents the unique cluster identifier. Each kubernetes cluster should have it's own unique cluster-id set in the configuration file. The cluster ID should not exceed 64 characters.
 
-- `cluster-distribution` - represents the distribution of the kubernetes cluster. This parameter will be made mandatory in a future release. Examples are `Openshift`, `Anthos` and `PKS`.
+- `cluster-distribution` - represents the distribution of the kubernetes cluster. This parameter is optional but will be made mandatory in a future release. Examples are `Openshift`, `Anthos` and `PKS`.
 
   - values with special character `\r` causes vSphere CSI controller to go into CrashLoopBackOff state.
 
@@ -103,7 +103,7 @@ For file volumes, there are some extra parameters added to the config to help sp
 $ cat /etc/kubernetes/csi-vsphere.conf
 [Global]
 cluster-id = "<cluster-id>"
-cluster-distribution = "<cluster-distribution>" # optional
+cluster-distribution = "<cluster-distribution>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
 
 [NetPermissions "A"]
