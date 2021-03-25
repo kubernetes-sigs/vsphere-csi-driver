@@ -33,6 +33,8 @@ type e2eTestConfig struct {
 	Global struct {
 		// Kubernetes Cluster-ID
 		ClusterID string `gcfg:"cluster-id"`
+		// Kubernetes Cluster-Distribution
+		ClusterDistribution string `gcfg:"cluster-distribution"`
 		// vCenter username.
 		User string `gcfg:"user"`
 		// vCenter password in clear text.
