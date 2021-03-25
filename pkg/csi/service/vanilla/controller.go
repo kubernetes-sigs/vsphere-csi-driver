@@ -751,7 +751,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
 			}
-			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+				},
+			}
+			// Select only the backing object details.
+			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			if err != nil {
 				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
 				log.Error(msg)
@@ -860,7 +866,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
 			}
-			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			}
+			// Select only the volume type.
+			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			if err != nil {
 				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
 				log.Error(msg)

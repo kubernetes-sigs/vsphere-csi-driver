@@ -553,7 +553,13 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 	}
-	queryResult, err := manager.VolumeManager.QueryVolume(ctx, queryFilter)
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+		},
+	}
+	// Query only the backing object details.
+	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
 		return false, err
