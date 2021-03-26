@@ -41,7 +41,7 @@ PUSH=
 LATEST=
 CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
-VERSION=$(git describe --dirty --always 2>/dev/null)
+VERSION=$(git describe --tags "$(git rev-list --tags --max-count=1)" 2>/dev/null)
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
