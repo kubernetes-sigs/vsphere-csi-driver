@@ -33,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vslm"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
@@ -76,6 +77,10 @@ type Manager interface {
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
+	// RegisterDisk registers virtual disks as First Class disks using Vslm endpoint
+	RegisterDisk(ctx context.Context, path string, name string) (string, error)
+	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id
+	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS
@@ -950,4 +955,62 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// RegisterDisk registers a virtual disk as a First Class Disk.
+// This method helps in registering VCP volumes as FCD using vslm endpoint
+// The method takes 2 parameters, path and name. Path refers to backingDiskURLPath
+// containing the vmdkPath and name is any given string for the FCD.
+// RegisterDisk API takes this name as optional parameter, so it need not be
+// a unique string or anything.
+func (m *defaultManager) RegisterDisk(ctx context.Context, path string, name string) (string, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return "", err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return "", err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	vStorageObject, err := globalObjectManager.RegisterDisk(ctx, path, name)
+	if err != nil {
+		alreadyExists, objectID := cnsvsphere.IsAlreadyExists(err)
+		if alreadyExists {
+			log.Infof("vStorageObject: %q, already exists and registered as First Class Disk. Returning success for RegisterDisk operation", objectID)
+			return objectID, nil
+		}
+		log.Errorf("failed to register virtual disk %q as first class disk with err: %v", path, err)
+		return "", err
+	}
+	return vStorageObject.Config.Id.Id, nil
+}
+
+// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id
+func (m *defaultManager) RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return nil, err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return nil, err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	vStorageObject, err := globalObjectManager.Retrieve(ctx, vim25types.ID{Id: volumeID})
+	if err != nil {
+		log.Errorf("failed to retrieve virtual disk for volumeID %q with err: %v", volumeID, err)
+		return nil, err
+	}
+	log.Infof("Successfully retrieved vStorageObject object for volumeID: %q", volumeID)
+	log.Debugf("vStorageObject for volumeID: %q is %+v", volumeID, vStorageObject)
+	return vStorageObject, nil
 }
