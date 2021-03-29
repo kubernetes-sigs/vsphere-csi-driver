@@ -28,9 +28,6 @@ coverage_report.out
 # Ignore any Dockerfiles at the root of the project.
 /Dockerfile*
 
-# Ignore vendor at the root of the project.
-/vendor
-
 # OSX trash
 .DS_Store
 
