@@ -30,6 +30,7 @@ import (
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vsan"
+	"github.com/vmware/govmomi/vslm"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -65,6 +66,8 @@ type VirtualCenter struct {
 	CnsClient *cns.Client
 	// VsanClient represents the VSAN client instance.
 	VsanClient *vsan.Client
+	// VslmClient represents the Vslm client instance.
+	VslmClient *vslm.Client
 }
 
 var (
@@ -278,6 +281,13 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	if vc.CnsClient != nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
+			return err
+		}
+	}
+	// Recreate VslmClient If created using timed out VC Client
+	if vc.VslmClient != nil {
+		if vc.VslmClient, err = NewVslmClient(ctx, vc.Client.Client); err != nil {
+			log.Errorf("failed to create Vslm client on vCenter host %v with err: %v", vc.Config.Host, err)
 			return err
 		}
 	}
