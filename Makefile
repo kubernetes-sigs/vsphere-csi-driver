@@ -157,7 +157,7 @@ else
 CONTROLLER_GEN=$(shell which controller-gen)
 endif
 
-$(SYNCER_BIN): $(SYNCER_BIN_SRCS) syncer_manifest
+$(SYNCER_BIN): $(SYNCER_BIN_SRCS)
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS_VENDOR) -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
 	@touch $@
 
