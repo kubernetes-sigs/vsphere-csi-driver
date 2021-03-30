@@ -93,7 +93,7 @@ data:
   "csi-migration": "false"
   "csi-auth-check": "true"
   "online-volume-extend": "true"
-  "trigger-csi-fullsync" : "false"
+  "trigger-csi-fullsync": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

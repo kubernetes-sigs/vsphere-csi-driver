@@ -90,7 +90,7 @@ spec:
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
-              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: INCLUSTER_CLIENT_QPS
@@ -138,7 +138,7 @@ spec:
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
-              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: CSI_NAMESPACE
