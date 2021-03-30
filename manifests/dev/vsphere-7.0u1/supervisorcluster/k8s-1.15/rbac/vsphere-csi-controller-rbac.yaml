@@ -57,7 +57,7 @@ roleRef:
   kind: ClusterRole
   name: wcp-privileged-psp
 subjects:
-  # For the kube-system nodes.
+  # For the vmware-system-csi nodes.
   - apiGroup: rbac.authorization.k8s.io
     kind: Group
     name: system:serviceaccounts:vmware-system-csi

@@ -93,13 +93,13 @@ roleRef:
   kind: ClusterRole
   name: wcp-privileged-psp
 subjects:
-# For the kube-system nodes.
+# For the vmware-system-csi nodes.
 - apiGroup: rbac.authorization.k8s.io
   kind: Group
   name: system:serviceaccounts:vmware-system-csi
 ---
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: vsphere-csi-provisioner-secret-binding
   namespace: vmware-system-csi
@@ -207,9 +207,9 @@ spec:
       - name: vsphere-csi-controller
         image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
         ports:
-          - containerPort: 2112
-            name: prometheus
-            protocol: TCP
+         - containerPort: 2112
+           name: prometheus
+           protocol: TCP
         lifecycle:
           preStop:
             exec:
@@ -228,7 +228,7 @@ spec:
         - name: POD_LISTENER_SERVICE_PORT
           value: "29000"
         - name: VSPHERE_CSI_CONFIG
-          value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+          value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
         imagePullPolicy: "IfNotPresent"
@@ -268,7 +268,7 @@ spec:
         - name: POD_LISTENER_SERVICE_PORT
           value: "29000"
         - name: VSPHERE_CSI_CONFIG
-          value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
+          value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
         imagePullPolicy: "IfNotPresent"
@@ -301,7 +301,7 @@ apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
-  "trigger-csi-fullsync" : "false"
+  "trigger-csi-fullsync": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
