@@ -94,7 +94,7 @@ data:
   # If the vSphere version is lower then the online volume expansion will fail
   # with appropriate error message during runtime.
   "online-volume-extend": "true"
-  "trigger-csi-fullsync" : "false"
+  "trigger-csi-fullsync": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
