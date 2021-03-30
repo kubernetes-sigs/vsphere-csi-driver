@@ -1,8 +1,0 @@
-apiVersion: cns.vmware.com/v1alpha1
-kind: CnsRegisterVolume
-metadata:
-  name: import-mongodb
-spec:
-  pvcName: mongo-pvc
-  volumeID: fe1efbd0-79f7-4a2f-a8a9-69852e62225a
-  accessMode: ReadWriteOnce

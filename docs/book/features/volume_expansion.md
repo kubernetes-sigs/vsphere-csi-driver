@@ -1,15 +1,20 @@
 # vSphere CSI Driver - Volume Expansion
 
-CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver supports volume expansion for dynamically/statically created **block** volumes only. Kubernetes supports two modes of volume expansion - offline and online. When the PVC is being used by a Pod i.e it is mounted on a node, the resulting volume expansion operation is termed as an online expansion. In all other cases, it is an offline expansion. Depending upon the kubernetes flavor and the mode of volume expansion required for your use case, refer to the table below to know the minimum version of the vSphere CSI driver to be used.
+CSI Volume Expansion was introduced as an alpha feature in Kubernetes 1.14 and it was promoted to beta in Kubernetes 1.16. The vSphere CSI driver supports volume expansion for dynamically/statically created **block** volumes only.
 
-| vSphere CSI flavor    (minimum versions required)                                          | Vanilla                     |      Supervisor cluster                    | Tanzu Kubernetes Grid Service (TKGS) |
-|-----------------------------------------------------|-----------------------------------|--------------------------------------|----------------------------|
-| Offline volume expansion support                                               | vSphere CSI driver v2.0; vCenter 7.0; ESXi 7.0| vCenter 7.0U2; ESXi 7.0U2 | vCenter 7.0U1;  ESXi 7.0U1             |
-|         Online volume expansion support                                            |    vSphere CSI driver v2.2; vCenter 7.0U2; ESXi 7.0U2           |    vCenter 7.0U2; ESXi 7.0U2                                  |     vCenter 7.0U2; ESXi 7.0U2                       |                       |
+Kubernetes supports two modes of volume expansion - offline and online. When the PVC is being used by a Pod i.e it is mounted on a node, the resulting volume expansion operation is termed as an online expansion. In all other cases, it is an offline expansion.
 
-**NOTE**: vSphere CSI driver v2.2 is not yet released.
+Refer to the table below to know the minimum version of the vSphere CSI driver, vCenter and ESXi release versions for this feature.
 
-For more information, check the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions and the [known issues](../known_issues.md) section to see if this feature caters to your requirement.
+|                          | Minimum vSphere CSI Driver release | Minimum vCenter Release | Minimum ESXi Release |
+|--------------------------|------------------------------------|-------------------------|----------------------|
+| Offline volume expansion | v2.0                               | 7.0                     | 7.0                  |
+| Online volume expansion  | v2.2                               | 7.0u2                   | 7.0u2                |
+
+Make sure all the ESXi hosts of the cluster are on the same version as the vCenter.
+For volume expansion to work, the vCenter and all the ESX hosts of the cluster need to be on the supported versions of the feature i.e version 7.0 and above, otherwise volume resize operation fails with `A general system error occurred: Failed to lock the file: api = DiskLib_Grow` error.
+
+Refer to the [compatibility matrix](../compatiblity_matrix.md) page for more details.
 
 ## Feature Gate
 
@@ -21,9 +26,7 @@ An external-resizer sidecar container implements the logic of watching the Kuber
 
 ## Requirements
 
-If you are either on the supervisor cluster or on TKGS, check if your environment adheres to the required kubernetes and vSphere CSI driver versions mentioned above and skip this section to directly proceed to the `Expand PVC` section below to use this feature.
-
-However, in order to try this feature out on the vanilla kubernetes driver, you need to modify the StorageClass definition in your environment as mentioned below.
+To use this feature, first step is to modify the StorageClass definition in the Kubernetes Cluster as mentioned below.
 
 ### StorageClass
 
