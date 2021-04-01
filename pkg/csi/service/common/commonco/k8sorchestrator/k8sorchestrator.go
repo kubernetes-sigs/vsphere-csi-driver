@@ -582,7 +582,11 @@ func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string
 	//Check pvc annotations
 	pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
 	if err != nil {
-		log.Errorf("ClearFakeAttached: failed to get pvc annotations for volume ID %s while checking if it was fake attached")
+		if err.Error() == common.ErrNotFound.Error() {
+			// PVC not found, which means PVC could have been deleted. No need to proceed.
+			return nil
+		}
+		log.Errorf("ClearFakeAttached: failed to get pvc annotations for volume ID %s while checking if it was fake attached", volumeID)
 		return err
 	}
 	val, found := pvcAnn[common.AnnFakeAttached]
@@ -592,6 +596,10 @@ func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string
 		annotations := make(map[string]string)
 		annotations[common.AnnFakeAttached] = ""
 		if err := c.updatePVCAnnotations(ctx, volumeID, annotations); err != nil {
+			if err.Error() == common.ErrNotFound.Error() {
+				// PVC not found, which means PVC could have been deleted.
+				return nil
+			}
 			log.Errorf("failed to clear fake attach annotation on the pvc for volume %s. Error:%+v", volumeID, err)
 			return err
 		}
