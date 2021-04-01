@@ -23,7 +23,9 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -39,6 +41,11 @@ func (c *K8sOrchestrator) getPVCAnnotations(ctx context.Context, volumeID string
 
 		pvcObj, err := c.informerManager.GetPVCLister().PersistentVolumeClaims(pvcNamespace).Get(pvcName)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				//PVC may have been deleted.
+				log.Debugf("PVC %s is not found in namespace %s using informer manager", pvcName, pvcNamespace)
+				return nil, common.ErrNotFound
+			}
 			log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
 			return nil, err
 		}
@@ -46,9 +53,8 @@ func (c *K8sOrchestrator) getPVCAnnotations(ctx context.Context, volumeID string
 		return pvcObj.Annotations, nil
 	}
 
-	errMsg := fmt.Sprintf("could not find pvc for volumeID: %s", volumeID)
-	log.Debugf(errMsg)
-	return nil, errors.New(errMsg)
+	log.Debugf("could not find pvc for volumeID: %s", volumeID)
+	return nil, common.ErrNotFound
 }
 
 // updatePVCAnnotations updates annotations passed as key-value pairs
@@ -62,6 +68,11 @@ func (c *K8sOrchestrator) updatePVCAnnotations(ctx context.Context, volumeID str
 
 		pvcObj, err := c.informerManager.GetPVCLister().PersistentVolumeClaims(pvcNamespace).Get(pvcName)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				//PVC may have been deleted. Return.
+				log.Debugf("PVC %s is not found in namespace %s using informer manager", pvcName, pvcNamespace)
+				return common.ErrNotFound
+			}
 			log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
 			return err
 		}
