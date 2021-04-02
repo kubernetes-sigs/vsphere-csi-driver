@@ -623,16 +623,21 @@ func (s *service) NodeGetInfo(
 	*csi.NodeGetInfoResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	log.Infof("NodeGetInfo: called with args %+v", *req)
+
+	var nodeInfoResponse *csi.NodeGetInfoResponse
 
 	nodeID := os.Getenv("NODE_NAME")
 	if nodeID == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
-		return &csi.NodeGetInfoResponse{
+		nodeInfoResponse = &csi.NodeGetInfoResponse{
 			NodeId:             nodeID,
 			AccessibleTopology: &csi.Topology{},
-		}, nil
+		}
+		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+		return nodeInfoResponse, nil
 	}
 	var cfg *cnsconfig.Config
 	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
@@ -643,9 +648,11 @@ func (s *service) NodeGetInfo(
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-			return &csi.NodeGetInfoResponse{
+			nodeInfoResponse = &csi.NodeGetInfoResponse{
 				NodeId: nodeID,
-			}, nil
+			}
+			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+			return nodeInfoResponse, nil
 		}
 		log.Errorf("failed to read cnsconfig. Error: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -727,11 +734,12 @@ func (s *service) NodeGetInfo(
 	if len(accessibleTopology) > 0 {
 		topology.Segments = accessibleTopology
 	}
-
-	return &csi.NodeGetInfoResponse{
+	nodeInfoResponse = &csi.NodeGetInfoResponse{
 		NodeId:             nodeID,
 		AccessibleTopology: topology,
-	}, nil
+	}
+	log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+	return nodeInfoResponse, nil
 }
 
 func (s *service) NodeExpandVolume(
