@@ -185,7 +185,7 @@ cloud-config   1      82s
 
 Remove vsphere.conf file created at /etc/kubernetes/
 
-Step-3: Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod.
+Step-3: Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-roles.yaml
