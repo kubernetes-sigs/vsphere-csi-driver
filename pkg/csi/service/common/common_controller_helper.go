@@ -18,11 +18,13 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -139,6 +141,70 @@ func CheckAPI(version string) error {
 		}
 	}
 	return nil
+}
+
+// UseVslmAPIs checks if specified version is between 6.7 Update 3l and 7.0
+// The method takes aboutInfo{} as input which contains details about
+// VC version, build number and so on.
+// If the version is between the upper and lower bounds, the method returns true, else returns false
+// and appropriate errors during failure cases
+func UseVslmAPIs(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.ApiVersion, ".")
+	apiVersion := strings.Join(items[:], "")
+	// Convert version string to string, Ex: "6.7.3" becomes 673, "7.0.0.0" becomes 700
+	vSphereVersionInt, err := strconv.Atoi(apiVersion[0:3])
+	if err != nil {
+		msg := fmt.Sprintf("Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
+		log.Errorf(msg)
+		return false, errors.New(msg)
+	}
+	vSphere67u3VersionStr := strings.Join(strings.Split(VSphere67u3Version, "."), "")
+	vSphere67u3VersionInt, err := strconv.Atoi(vSphere67u3VersionStr[0:3])
+	if err != nil {
+		msg := fmt.Sprintf("Error while converting VSphere67u3Version %q to integer, err %+v", VSphere67u3Version, err)
+		log.Errorf(msg)
+		return false, errors.New(msg)
+	}
+	vSphere7VersionStr := strings.Join(strings.Split(VSphere7Version, "."), "")
+	vSphere7VersionInt, err := strconv.Atoi(vSphere7VersionStr[0:3])
+	if err != nil {
+		msg := fmt.Sprintf("Error while converting VSphere7Version %q to integer, err %+v", VSphere7Version, err)
+		log.Errorf(msg)
+		return false, errors.New(msg)
+	}
+	// Check if the current vSphere version is between 6.7.3 and 7.0.0
+	if vSphereVersionInt > vSphere67u3VersionInt && vSphereVersionInt <= vSphere7VersionInt {
+		return true, nil
+	}
+	// Check if version is 6.7.3
+	if vSphereVersionInt == vSphere67u3VersionInt {
+		// CSI migration feature will be supported only from 6.7 Update 3l vSphere version onwards
+		// For all older 6.7 Update 3 such as 3a, 3b and so on, we do not support the CSI migration feature.
+		// Because there is no patch version number in aboutInfo{}, we will rely on the build number to check for 6.7 Update 3l
+		// VC builds are always incremental and hence we can use the build info to check if VC version is 6.7 Update 3l
+		// Here is a snippet of the build info for the GA bits mentioned here: https://docs.vmware.com/en/VMware-vSphere/6.7/rn/vsphere-vcenter-server-67u3l-release-notes.html
+		// Name: "VMware vCenter Server",
+		// FullName: "VMware vCenter Server 6.7.0 build-17137327",
+		// Version: "6.7.0",
+		// Build:  "17137327",
+		// ApiVersion: "6.7.3",
+		if vcBuild, err := strconv.Atoi(aboutInfo.Build); err == nil {
+			if vcBuild >= VSphere67u3lBuildInfo {
+				return true, nil
+			}
+			msg := fmt.Sprintf("Found vCenter version :%q. The minimum supported vCenter version for CSI migration feature is vCenter Server 6.7 Update 3l.", aboutInfo.ApiVersion)
+			log.Errorf(msg)
+			return false, errors.New(msg)
+		}
+		if err != nil {
+			msg := fmt.Sprintf("Error while converting VC Build info %q to integer, err %+v", aboutInfo.Build, err)
+			log.Errorf(msg)
+			return false, errors.New(msg)
+		}
+	}
+	// For all other versions
+	return false, nil
 }
 
 // ValidateControllerExpandVolumeRequest is the helper function to validate
