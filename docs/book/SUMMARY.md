@@ -27,7 +27,6 @@
   * [File Volume](features/file_volume.md)
   * [Volume Expansion](features/volume_expansion.md)
   * [Volume Topology](features/volume_topology.md)
-  * [Volume Health](features/volume_health.md)
   * [vSphere CSI Migration](features/vsphere_csi_migration.md)
 * [Known Issues](known_issues.md)
 * [Troubleshooting](troubleshooting.md)
