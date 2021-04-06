@@ -135,7 +135,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					c.ReloadConfiguration()
+					for {
+						reloadConfigErr := c.ReloadConfiguration()
+						if reloadConfigErr == nil {
+							log.Infof("Successfully reloaded configuration from: %q", pvcsiConfigPath)
+							break
+						}
+						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(5 * time.Second)
+					}
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -177,39 +185,40 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 // ReloadConfiguration reloads configuration from the secret, and reset restClientConfig, supervisorClient
 // and re-create vmOperatorClient using new config
-func (c *controller) ReloadConfiguration() {
+func (c *controller) ReloadConfiguration() error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
-		return
+		return err
 	}
 	if cfg != nil {
 		c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
 		c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 		if err != nil {
 			log.Errorf("failed to create supervisorClient. Error: %+v", err)
-			return
+			return err
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
 		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
-			return
+			return err
 		}
 		c.vmWatcher, err = k8s.NewVirtualMachineWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
 			log.Errorf("failed to create vmWatcher. Error: %+v", err)
-			return
+			return err
 		}
 		log.Infof("successfully re-created vmOperatorClient using updated configuration")
 		c.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("failed to create cnsOperatorClient. Error: %+v", err)
-			return
+			return err
 		}
 	}
+	return nil
 }
 
 // CreateVolume is creating CNS Volume using volume request specified
