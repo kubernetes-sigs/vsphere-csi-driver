@@ -138,7 +138,8 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			}
 			go func() {
 				log.Debugf("Starting Informer for cnsvspherevolumemigrations")
-				informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, "cnsvspherevolumemigrations")
+				informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version,
+					"cnsvspherevolumemigrations", metav1.NamespaceNone, true)
 				if err != nil {
 					log.Errorf("failed to create dynamic informer for volume migration CRD. Err: %v", err)
 				}
