@@ -69,6 +69,11 @@ type InformerManager struct {
 	// Function to determine if pvcInformer has been synced
 	pvcSynced cache.InformerSynced
 
+	// namespaceInformer informer
+	namespaceInformer cache.SharedInformer
+	// Function to determine if namespaceInformer has been synced
+	namespaceSynced cache.InformerSynced
+
 	// Pod informer
 	podInformer cache.SharedInformer
 	// Function to determine if podInformer has been synced
