@@ -15,7 +15,7 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
 - apiGroups: [""]
-  resources: ["nodes", "pods", "configmaps", "resourcequotas"]
+  resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
@@ -41,6 +41,9 @@ rules:
 - apiGroups: ["cns.vmware.com"]
   resources: ["cnsnodevmattachments", "cnsvolumemetadatas"]
   verbs: ["get", "list", "watch", "update"]
+- apiGroups: ["cns.vmware.com"]
+  resources: ["cnscsisvfeaturestates"]
+  verbs: ["create", "get", "list", "update"]
 - apiGroups: ["cns.vmware.com"]
   resources: ["cnsregistervolumes"]
   verbs: ["get", "list", "watch", "update", "delete"]
@@ -302,6 +305,7 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "trigger-csi-fullsync": "false"
+  "csi-sv-feature-states-replication": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
