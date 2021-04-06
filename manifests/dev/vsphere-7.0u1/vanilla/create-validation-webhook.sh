@@ -41,7 +41,7 @@ done
 
 [ -z "${namespace}" ] && namespace=vmware-system-csi
 
-CA_BUNDLE=$(kubectl get configmap -n vmware-system-csi extension-apiserver-authentication -o=jsonpath='{.data.client-ca-file}' | base64 | tr -d '\n')
+CA_BUNDLE=$(kubectl get configmap -n kube-system extension-apiserver-authentication -o=jsonpath='{.data.client-ca-file}' | base64 | tr -d '\n')
 
 # clean-up previously created service and validatingwebhookconfiguration. Ignore errors if not present.
 
