@@ -106,7 +106,7 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
 
 ##### Procedure
 
-1. Install the vSphere CPI.
+1. Create a config secret for vSphere CPI:
 
    In the value fields of the configmap cloud-config file, specify region and zone.
    Make sure to add the names of categories you defined in vSphere, such as k8s-region and k8s-zone.
@@ -132,13 +132,17 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    ```bash
    cd /etc/kubernetes
    kubectl create configmap cloud-config --from-file=vsphere.conf --namespace=kube-system
+   ```
 
+2. Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod
+
+   ```bash
    kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-roles.yaml
    kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
    kubectl apply -f https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
    ```
 
-2. Verify that your CCM installation is successful.
+3. Verify that your CCM installation is successful.
 
    After installation, labels `failure-domain.beta.kubernetes.io/region` and `failure-domain.beta.kubernetes.io/zone` are applied to all nodes.
 
@@ -153,7 +157,7 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    k8s-node5    Ready    <none>   18m   v1.14.2   zone-c   region-1
    ```
 
-3. Install the CSI driver.
+4. Install the CSI driver.
 
    Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true` and `--strict-topology`.
 
@@ -191,7 +195,7 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
      .
      ```
 
-4. Verify that your CSI driver installation is successful.
+5. Verify that your CSI driver installation is successful.
 
    ```bash
    kubectl get csinodes -o jsonpath='{range .items[*]}{.metadata.name} {.spec}{"\n"}{end}'
