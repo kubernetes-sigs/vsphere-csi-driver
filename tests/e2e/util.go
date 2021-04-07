@@ -2202,6 +2202,45 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	return pod, nil
 }
 
+// createPodForFSGroup helps create pod with fsGroup
+func createPodForFSGroup(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, fsGroup *int64, runAsUser *int64) (*v1.Pod, error) {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	if fsGroup == nil {
+		fsGroup = func(i int64) *int64 {
+			return &i
+		}(1000)
+	}
+	if runAsUser == nil {
+		runAsUser = func(i int64) *int64 {
+			return &i
+		}(2000)
+	}
+
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod.Spec.SecurityContext = &v1.PodSecurityContext{
+		RunAsUser: runAsUser,
+		FSGroup:   fsGroup,
+	}
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
+}
+
 // getPersistentVolumeSpecForFileShare returns the PersistentVolume spec
 func getPersistentVolumeSpecForFileShare(fileshareID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
 	pv := getPersistentVolumeSpec(fileshareID, persistentVolumeReclaimPolicy, labels)
