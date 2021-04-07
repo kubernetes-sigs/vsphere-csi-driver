@@ -24,13 +24,10 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -41,13 +38,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -725,6 +725,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	}
 	var err error
 	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+		if errors.IsNotFound(err) {
+			log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.", c.supervisorNamespace, req.NodeId, req.VolumeId)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
 		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		log.Error(msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -745,6 +749,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			break
 		}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+			if errors.IsNotFound(err) {
+				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.", c.supervisorNamespace, req.NodeId, req.VolumeId)
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
 			msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
@@ -792,18 +800,24 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
 			continue
 		}
-		isVolumeDetached = true
-		for _, volume := range vm.Status.Volumes {
-			if volume.Name == req.VolumeId {
-				log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
-				isVolumeDetached = false
-				if volume.Attached && volume.Error != "" {
-					msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+		switch event.Type {
+		case watch.Added, watch.Modified:
+			isVolumeDetached = true
+			for _, volume := range vm.Status.Volumes {
+				if volume.Name == req.VolumeId {
+					log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
+					isVolumeDetached = false
+					if volume.Attached && volume.Error != "" {
+						msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
+						log.Error(msg)
+						return nil, status.Errorf(codes.Internal, msg)
+					}
+					break
 				}
-				break
 			}
+		case watch.Deleted:
+			log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.", c.supervisorNamespace, req.NodeId, req.VolumeId)
+			isVolumeDetached = true
 		}
 	}
 	log.Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
