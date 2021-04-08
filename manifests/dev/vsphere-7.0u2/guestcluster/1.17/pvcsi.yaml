@@ -239,6 +239,7 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--enable-leader-election"
             - "--leader-election-type=leases"
+            - "--default-fstype=ext4"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
