@@ -97,7 +97,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// Datacenters are returned.
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
-			log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+			log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
 			return nil, err
 		}
 		isSharedDatastoreURL := false
@@ -284,8 +284,13 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 	var datastores []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
+			datacenters, err := vc.ListDatacenters(ctx)
+			if err != nil {
+				log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+				return "", err
+			}
 			// get all vSAN datastores from VC
-			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx)
+			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 			if err != nil {
 				log.Errorf("failed to get vSAN datastores with error %+v", err)
 				return "", err
@@ -294,7 +299,7 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			for dsURL := range vsanDsURLToInfoMap {
 				allvsanDatastoreUrls = append(allvsanDatastoreUrls, dsURL)
 			}
-			fsEnabledMap, err := IsFileServiceEnabled(ctx, allvsanDatastoreUrls, vc)
+			fsEnabledMap, err := IsFileServiceEnabled(ctx, allvsanDatastoreUrls, vc, datacenters)
 			if err != nil {
 				log.Errorf("failed to get if file service is enabled on vsan datastores with error %+v", err)
 				return "", err
