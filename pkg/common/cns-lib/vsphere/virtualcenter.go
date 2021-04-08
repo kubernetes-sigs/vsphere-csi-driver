@@ -399,18 +399,12 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 
 // GetVsanDatastores returns all the datastore URL to DatastoreInfo map for all the
 // vSAN datastores in the VC.
-func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) (map[string]*DatastoreInfo, error) {
+func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context, datacenters []*Datacenter) (map[string]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	if err := vc.Connect(ctx); err != nil {
 		log.Errorf("failed to connect to vCenter. err: %v", err)
 		return nil, err
 	}
-	datacenters, err := vc.ListDatacenters(ctx)
-	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
-		return nil, err
-	}
-
 	vsanDsURLInfoMap := make(map[string]*DatastoreInfo)
 	for _, dc := range datacenters {
 		finder := find.NewFinder(dc.Datacenter.Client(), false)

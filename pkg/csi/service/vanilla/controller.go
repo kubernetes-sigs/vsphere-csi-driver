@@ -106,8 +106,14 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	isAuthCheckFSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
 	// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if CSIAuthCheck FSS is not enabled
 	if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
+		datacenters, err := vc.ListDatacenters(ctx)
+		if err != nil {
+			msg := fmt.Sprintf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+			log.Error(msg)
+			return errors.New(msg)
+		}
 		// Check if file service is enabled on datastore present in targetvSANFileShareDatastoreURLs.
-		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc)
+		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
 		if err != nil {
 			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
 			log.Error(msg)
