@@ -124,6 +124,7 @@ spec:
         - operator: "Exists"
           key: node-role.kubernetes.io/master
           effect: NoSchedule
+      priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
         - name: csi-attacher
           image: vmware.io/csi-attacher:<image_tag>
@@ -298,6 +299,7 @@ spec:
         role: vsphere-csi
     spec:
       serviceAccountName: vsphere-csi-node
+      priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
       - name: node-driver-registrar
         image: vmware.io/csi-node-driver-registrar:<image_tag>
