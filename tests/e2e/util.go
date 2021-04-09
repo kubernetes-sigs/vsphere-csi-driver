@@ -1972,7 +1972,7 @@ func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvc
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-	ginkgo.By(fmt.Sprintf("polling for %v minutes...", pollTimeout))
+	ginkgo.By(fmt.Sprintf("polling for %v minutes...", healthStatusPollTimeout))
 	err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatus)
 	if err != nil {
 		return err
@@ -1983,8 +1983,8 @@ func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface, pvc
 //pvcHealthAnnotationWatcher polls the health status of pvc and returns error if any
 func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, healthStatus string) error {
 	framework.Logf("Waiting for health annotation for pvclaim %v", pvclaim.Name)
-	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
-		framework.Logf("wait for next poll %v", pollTimeoutShort)
+	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", healthStatusPollInterval)
 		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, nil
@@ -2004,8 +2004,8 @@ func waitForHostToBeUp(ip string) error {
 	framework.Logf("checking host status of %v", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	timeout := 1 * time.Second
-	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
-		framework.Logf("wait until %v seconds", pollTimeoutShort)
+	waitErr := wait.Poll(timeout, healthStatusPollTimeout, func() (bool, error) {
+		framework.Logf("wait until %v seconds", vsanHealthServiceWaitTime)
 		_, err := net.DialTimeout("tcp", ip+":22", timeout)
 		if err != nil {
 			framework.Logf("host unreachable, error: ", err)

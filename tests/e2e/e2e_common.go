@@ -80,7 +80,6 @@ const (
 	healthStatusAccessible                     = "accessible"
 	healthStatusInAccessible                   = "inaccessible"
 	healthStatusWaitTime                       = 2 * time.Minute
-	hostRecoveryTime                           = 5 * time.Minute
 	invalidFSType                              = "ext10"
 	k8sPodTerminationTimeOut                   = 7 * time.Minute
 	k8sPodTerminationTimeOutLong               = 10 * time.Minute
@@ -96,6 +95,8 @@ const (
 	poll                                       = 2 * time.Second
 	pollTimeout                                = 5 * time.Minute
 	pollTimeoutShort                           = 1 * time.Minute
+	healthStatusPollTimeout                    = 15 * time.Minute
+	healthStatusPollInterval                   = 15 * time.Second
 	psodTime                                   = "120"
 	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
 	quotaName                                  = "cns-test-quota"
