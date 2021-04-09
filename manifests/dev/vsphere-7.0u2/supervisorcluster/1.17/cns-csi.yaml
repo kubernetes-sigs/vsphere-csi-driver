@@ -157,6 +157,7 @@ spec:
         - "--enable-leader-election"
         - "--leader-election-type=leases"
         - "--enable-hostlocal-placement=true"
+        - "--default-fstype=ext4"
         env:
         - name: ADDRESS
           value: /var/lib/csi/sockets/pluginproxy/csi.sock
