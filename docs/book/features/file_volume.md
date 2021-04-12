@@ -161,7 +161,6 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   csi:
     driver: "csi.vsphere.vmware.com"
-    fsType: nfs4
     volumeAttributes:
       type: "vSphere CNS File Volume"
     "volumeHandle": "file:236b3e6b-cfb0-4b73-a271-2591b2f31b4c"

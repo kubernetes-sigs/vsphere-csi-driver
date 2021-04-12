@@ -21,7 +21,7 @@ Refer to the following feature comparisons table to know what is added in the vS
 | Dynamic provisioning(with and without SPBM) | Supported for block volumes only | Supported for block and file volumes |
 | Static Provisioning | Supported for block volumes only | Supported for block and file volumes |
 | Expand volume (Offline) | Not supported | Supported for block volumes |
-| Storage vMotion of block volumes | Not supported | Supported |
+| Storage vMotion of block volumes | Not supported | Not supported |
 | vSphere UI integration(CNS dashboard, vSAN virtual objects, vSphere space) | Not supported | Supported |
 | [Tanzu™ Kubernetes Grid™ Service](https://docs.vmware.com/en/VMware-vSphere/7.0/vmware-vsphere-with-kubernetes/GUID-152BE7D2-E227-4DAA-B527-557B564D9718.html) | Not supported | Supported |
 | Tolerate Datacenter name, Datastore name and Storage policy name changes | Not Supported | supported |

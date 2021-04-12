@@ -1,7 +1,0 @@
-apiVersion: cns.vmware.com/v1alpha1
-kind: CnsRegisterVolume
-metadata:
-  name: import-mongodb
-spec:
-  pvcName: mongo-pvc
-  diskURLPath: https://10.161.1.195/folder/testdisk2.vmdk?dcPath=test-vpx-1586388419-26155-wcp.wcp-sanity&dsName=nfs0-1
