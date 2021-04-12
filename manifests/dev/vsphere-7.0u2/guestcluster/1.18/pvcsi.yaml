@@ -238,8 +238,7 @@ spec:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
-            - "--enable-leader-election"
-            - "--leader-election-type=leases"
+            - "--leader-election"
             - "--default-fstype=ext4"
           imagePullPolicy: "IfNotPresent"
           env:
