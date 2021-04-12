@@ -17,6 +17,7 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      serviceAccountName: vsphere-csi-node
       dnsPolicy: "Default"
       containers:
       - name: node-driver-registrar
@@ -46,7 +47,7 @@ spec:
           initialDelaySeconds: 5
           timeoutSeconds: 5
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.2.0-rc.3
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.2.0
         args:
           - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
           - "--fss-namespace=$(CSI_NAMESPACE)"
@@ -92,6 +93,10 @@ spec:
           mountPropagation: "Bidirectional"
         - name: device-dir
           mountPath: /dev
+        - name: blocks-dir
+          mountPath: /sys/block
+        - name: sys-devices-dir
+          mountPath: /sys/devices
         ports:
           - containerPort: 9808
             name: healthz
@@ -131,6 +136,14 @@ spec:
       - name: device-dir
         hostPath:
           path: /dev
+      - name: blocks-dir
+        hostPath:
+          path: /sys/block
+          type: Directory
+      - name: sys-devices-dir
+        hostPath:
+          path: /sys/devices
+          type: Directory
       tolerations:
         - effect: NoExecute
           operator: Exists

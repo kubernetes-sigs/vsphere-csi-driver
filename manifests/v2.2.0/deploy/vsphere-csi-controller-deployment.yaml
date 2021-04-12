@@ -51,14 +51,11 @@ spec:
           args:
             - "--v=4"
             - "--timeout=300s"
-            - "--handle-volume-inuse-error=true"
+            - "--handle-volume-inuse-error=false"
             - "--csi-address=$(ADDRESS)"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--leader-election"
-            # Uncomment the line below to increase performance of online
-            # resize in vSphere versions 7.0U2 or above
-            # - "--handle-volume-inuse-error=false"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -66,7 +63,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.2.0-rc.3
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.2.0
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
@@ -120,7 +117,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.2.0-rc.3
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.2.0
           args:
             - "--leader-election"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
@@ -185,7 +182,7 @@ metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
   namespace: kube-system
 ---
-apiVersion: storage.k8s.io/v1beta1
+apiVersion: storage.k8s.io/v1 # For k8s 1.17 use storage.k8s.io/v1beta1
 kind: CSIDriver
 metadata:
   name: csi.vsphere.vmware.com
