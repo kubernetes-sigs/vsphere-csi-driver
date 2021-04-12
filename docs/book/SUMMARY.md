@@ -1,21 +1,18 @@
 # Summary
 
-* [Glossary](glossary.md)
 * [Overview](overview.md)
 * Releases
-  * Native Kubernetes on vSphere
-    * [v2.1.1](releases/v2.1.1.md)
-    * [v2.1.0](releases/v2.1.0.md)
-    * [v2.0.1](releases/v2.0.1.md)
-    * [v2.0.0](releases/v2.0.0.md)
-    * [v1.0.3](releases/v1.0.3.md)
-    * [v1.0.2](releases/v1.0.2.md)
-    * [v1.0.1](releases/v1.0.1.md)
-  * vSphere with Tanzu – Supervisor
-  * vSphere with Tanzu – Guest
+  * [v2.2.0](releases/v2.2.0.md)
+  * [v2.1.1](releases/v2.1.1.md)
+  * [v2.1.0](releases/v2.1.0.md)
+  * [v2.0.1](releases/v2.0.1.md)
+  * [v2.0.0](releases/v2.0.0.md)
+  * [v1.0.3](releases/v1.0.3.md)
+  * [v1.0.2](releases/v1.0.2.md)
+  * [v1.0.1](releases/v1.0.1.md)
 * [Compatibility Matrix](compatiblity_matrix.md)
 * [Supported Feature Matrix](supported_features_matrix.md)
-  * [Limits](limits.md)
+* [Feature Limits](limits.md)
 * [Upgrade Support Matrix](upgrade_support_matrix.md)
 * Driver Deployment
   * [Prerequisites](driver-deployment/prerequisites.md)
@@ -27,7 +24,6 @@
   * [File Volume](features/file_volume.md)
   * [Volume Expansion](features/volume_expansion.md)
   * [Volume Topology](features/volume_topology.md)
-  * [Volume Health](features/volume_health.md)
   * [vSphere CSI Migration](features/vsphere_csi_migration.md)
 * [Known Issues](known_issues.md)
 * [Troubleshooting](troubleshooting.md)
