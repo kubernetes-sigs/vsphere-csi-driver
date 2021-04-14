@@ -156,15 +156,14 @@ spec:
       hostNetwork: true
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.1.0_vmware.3
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.1.0_vmware.4
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
             - "--strict-topology"
-            - "--enable-leader-election"
-            - "--leader-election-type=leases"
+            - "--leader-election"
             - "--enable-hostlocal-placement=true"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
