@@ -376,8 +376,15 @@ func namespaceUpdated(oldObj, newObj interface{}) {
 	_, labelPresentInNewNamespace := newNamespace.Labels[WorkLoadNamespaceLabelKey]
 
 	if !labelPresentInOldNamespace && labelPresentInNewNamespace {
+		// Label with Key vSphereClusterID is added on the namespace
 		log.Infof("Observed new workload namespace: %v", newNamespace.Name)
 		pendingCRUpdatesObj.enqueueFeatureStateUpdatesForWorkloadNamespace(ctx, newNamespace.Name)
+	} else if labelPresentInOldNamespace && !labelPresentInNewNamespace {
+		// Label with Key vSphereClusterID is removed from the namespace
+		log.Infof("label vSphereClusterID is removed from namespace: %q Removing namespace from listing of further feature states CR updates", newNamespace.Name)
+		pendingCRUpdatesObj.lock.Lock()
+		defer pendingCRUpdatesObj.lock.Unlock()
+		delete(pendingCRUpdatesObj.namespaceUpdateMap, newNamespace.Name)
 	}
 }
 
@@ -393,7 +400,7 @@ func namespaceDeleted(obj interface{}) {
 		log.Warnf("namespaceDeleted: unrecognized object %+v", obj)
 		return
 	}
-	log.Infof("Namespace: %q is deleted", namespace.Namespace)
+	log.Infof("Namespace: %q is deleted", namespace.Name)
 
 	pendingCRUpdatesObj.lock.Lock()
 	defer pendingCRUpdatesObj.lock.Unlock()
