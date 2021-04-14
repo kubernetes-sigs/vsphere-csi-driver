@@ -50,7 +50,7 @@ Steps
 
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-guest] [csi-supervisor] Volume Filesystem Group Test", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] Volume Filesystem Group Test", func() {
 	f := framework.NewDefaultFramework("volume-fsgroup")
 	var (
 		client            clientset.Interface
@@ -85,7 +85,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-guest] [csi-supervisor] Volume
 		var runAsUser int64
 
 		ginkgo.By("Creating a PVC")
-		scParameters[scParamDatastoreURL] = datastoreURL
 
 		// Create a StorageClass
 		if vanillaCluster {
@@ -136,10 +135,24 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-guest] [csi-supervisor] Volume
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := persistentvolumes[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
 		var vmUUID string
+		var exists bool
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+		if vanillaCluster {
+			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Get volume ID from Supervisor cluster
+			volumeID = getVolumeIDFromSupervisorCluster(volumeID)
+		} else {
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		}
+
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
@@ -154,9 +167,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-guest] [csi-supervisor] Volume
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		if supervisorCluster {
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, vmUUID))
+			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+		} else {
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		}
 	})
 })
