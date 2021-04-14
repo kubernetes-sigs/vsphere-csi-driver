@@ -79,8 +79,9 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 
 1. Upgrade vSphere to 7.0u1.
 2. Upgrade kubernetes to 1.19 release.
-3. Install vSphere Cloud Provider Interface (CPI). Please follow guideline mentioned at https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html#vsphere_cpi
-4. Install vSphere CSI Driver (version v2.1.0). Use deployment manifests and RBAC files published at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla
+3. Ensure that your version of kubectl is also at 1.19 or later.
+4. Install vSphere Cloud Provider Interface (CPI). Please follow guideline mentioned at https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html#vsphere_cpi
+5. Install vSphere CSI Driver (version v2.1.0). Use deployment manifests and RBAC files published at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla
    - Make sure to enable csi-migration feature gate in the deployment yaml file.
 
            apiVersion: v1
@@ -145,18 +146,28 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
    - `CSIMigrationvSphere` flag enables shims and translation logic to route volume operations from the vSphere in-tree plugin to vSphere CSI plugin. Supports falling back to in-tree vSphere plugin if a node does not have a vSphere CSI plugin installed and configured.
    - `CSIMigrationvSphere` requires `CSIMigration` feature flag to be enabled. This flag is enabling CSI migration on the Kubernetes Cluster.
 
-    Steps:
-   - Enable feature flags `CSIMigration` and `CSIMigrationvSphere` on `kube-controller` and `kubelet` on all primary nodes.
+    6.1 Steps for the control plane node(s)
+
+   - Enable feature flags `CSIMigration` and `CSIMigrationvSphere` on `kube-controller` and `kubelet` on all control plane nodes.
      - update kube-controller-manager manifest file and following arguments. This file is generally available at `/etc/kubernetes/manifests/kube-controller-manager.yaml`
 
             `- --feature-gates=CSIMigration=true,CSIMigrationvSphere=true`
      - update kubelet configuration file and add following flags. This file is generally available at `/var/lib/kubelet/config.yaml`
 
               featureGates:
-              {
-                "CSIMigration": true,
-                "CSIMigrationvSphere": true
-              }
+                CSIMigration: true
+                CSIMigrationvSphere: true
+   
+   - Restart the kubelet on the control plane nodes using the command:
+       $ systemctl restart kubelet
+
+   - Verify that the kubelet is functioning correctly using the following command:
+       $ systemctl status kubelet
+
+   - If there are any issues with the kubelet, check the logs on the control plane node using the following command:
+       $ journalctl -xe
+
+    6.2 Steps for the worker node(s)
 
    - Enable feature flags `CSIMigration` and `CSIMigrationvSphere` on `kubelet` on all workload nodes. Please note that before changing the configuration on the Kubelet on each node we **must drain** the node (remove running application workloads).  
      - Node drain example.
@@ -180,8 +191,20 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
                csi.vsphere.vmware.com:
                  Node ID:  k8s-node1
            Events:         <none>
+     
+   - Restart the kubelet on the control plane nodes using the command:
+       $ systemctl restart kubelet
 
-   - Repeat this for all workload nodes in the Kubernetes Cluster.
+   - Verify that the kubelet is functioning correctly using the following command:
+       $ systemctl status kubelet
+
+   - If there are any issues with the kubelet, check the logs on the control plane node using the following command:
+       $ journalctl -xe
+
+   - Once the kubelet is restarted, `uncordon` the node so that it can be used for scheduling workloads:
+     $ kubectl uncordon k8s-node1
+
+   - Repeat these steps for all workload nodes in the Kubernetes Cluster.
 
 7. There is also an optional `CSIMigrationvSphereComplete` flag that can be enabled if all the nodes have CSI migration enabled. `CSIMigrationvSphereComplete` helps stop registering the vSphere in-tree plugin in kubelet and volume controllers and enables shims and translation logic to route volume operations from the vSphere in-tree plugin to vSphere CSI plugin. `CSIMigrationvSphereComplete` flag requires `CSIMigration` and `CSIMigrationvSphere` feature flags enabled and vSphere CSI plugin installed and configured on all nodes in the cluster.
 8. Verify vSphere in-tree PVCs and PVs are migrated to vSphere CSI driver, verify `pv.kubernetes.io/migrated-to: csi.vsphere.vmware.com` annotations are present on PVCs and PVs.
