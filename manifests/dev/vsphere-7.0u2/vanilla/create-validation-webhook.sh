@@ -50,7 +50,7 @@ kubectl delete validatingwebhookconfiguration.admissionregistration.k8s.io valid
 kubectl delete serviceaccount vsphere-csi-webhook --namespace "${namespace}" 2>/dev/null || true
 kubectl delete clusterrole.rbac.authorization.k8s.io vsphere-csi-webhook-role 2>/dev/null || true
 kubectl delete clusterrolebinding.rbac.authorization.k8s.io vsphere-csi-webhook-role-binding --namespace "${namespace}" 2>/dev/null || true
-kubectl delete deployment vsphere-csi-webhook --namespace "${namespace}" || true
+kubectl delete deployment vsphere-csi-webhook --namespace "${namespace}" 2>/dev/null || true
 
 # patch validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
 sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" validatingwebhook.yaml | kubectl apply -f -
