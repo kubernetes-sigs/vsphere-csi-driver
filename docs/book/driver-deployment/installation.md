@@ -1,4 +1,6 @@
 <!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD034 -->
+<!-- markdownlint-disable MD014 -->
 # vSphere CSI Driver - Installation
 
 This section contains steps to install vSphere CSI Driver. Please visit the [Prerequisite](prerequisites.md) section before proceeding.
@@ -181,13 +183,26 @@ rm csi-vsphere.conf
 
 Before you deploy the vSphere CSI driver, refer to the [Compatibility](../compatiblity_matrix.md) page to view the supported kubernetes versions for a particular vSphere CSI version and [feature support](../supported_features_matrix.md) page to see what features are supported on that version.
 
-- Choose the manifests pertaining to the latest version of vSphere CSI driver from the [Github](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/) repository. For example, if you want to deploy vSphere CSI v2.1.1 on a vSphere 7.0u1 environment, you will choose [this](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.1.1/vsphere-7.0u1/vanilla) folder.
-  
+- Get the deployment manifests pertaining to the version of vSphere CSI driver.
+  - [v2.2.0](../releases/v2.2.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.2.0/manifests/v2.2.0
+  - [v2.1.1](../releases/v2.1.1.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.1.1/manifests/v2.1.1
+  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.1.0
+
   NOTE: Refer [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
 
 - Create the roles, cluster roles and service accounts needed for installation of vSphere CSI Driver by deploying the YAML files available in the `rbac` folder of the vSphere CSI driver version you have chosen.
 
+    ```bash
+    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/rbac/vsphere-csi-controller-rbac.yaml
+    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/rbac/vsphere-csi-node-rbac.yaml
+    ```
+
 - Deploy the CSI controller and node daemonset using the YAML files available in the `deploy` folder of the same version.
+
+    ```bash
+    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-controller-deployment.yaml
+    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-node-ds.yaml
+    ```
 
 ## Verify that CSI has been successfully deployed <a id="verify"></a>
 
