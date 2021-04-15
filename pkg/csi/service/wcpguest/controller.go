@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -62,6 +63,8 @@ var (
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
+	// virtualMachineLock is used for handling race conditions during concurrent Attach/Detach calls
+	virtualMachineLock = &sync.Mutex{}
 )
 
 type controller struct {
@@ -433,7 +436,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	var isVolumePresentInSpec, isVolumeAttached bool
 	var diskUUID string
 	for _, volume := range virtualMachine.Spec.Volumes {
-		if volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == req.VolumeId {
+		if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
 			log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
 			isVolumePresentInSpec = true
 			break
@@ -460,8 +463,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 					ClaimName: req.VolumeId,
 				},
 			}
+			virtualMachineLock.Lock()
 			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 			err := c.vmOperatorClient.Update(ctx, virtualMachine)
+			virtualMachineLock.Unlock()
 			if err == nil || time.Now().After(timeout) {
 				break
 			}
@@ -740,8 +745,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		for index, volume := range virtualMachine.Spec.Volumes {
 			if volume.Name == req.VolumeId {
 				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+				virtualMachineLock.Lock()
 				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index], virtualMachine.Spec.Volumes[index+1:]...)
 				err = c.vmOperatorClient.Update(ctx, virtualMachine)
+				virtualMachineLock.Unlock()
 				break
 			}
 		}
