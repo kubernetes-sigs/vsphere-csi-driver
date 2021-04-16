@@ -58,8 +58,9 @@ func main() {
 	if err != nil {
 		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
 	}
+	serviceMode := os.Getenv("X_CSI_MODE")
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace)
+		*internalFSSName, *internalFSSNamespace, serviceMode)
 
 	gocsi.Run(
 		context.Background(),
