@@ -24,7 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"time"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
@@ -38,9 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -63,12 +59,6 @@ const (
 	timeout      = 60 * time.Second
 	pollTime     = 5 * time.Second
 	manifestPath = "/config"
-)
-
-var (
-	dynamicInformerInitialized = false
-	dynamicInformerInitLock    = &sync.Mutex{}
-	dynamicInformerFactory     dynamicinformer.DynamicSharedInformerFactory
 )
 
 // GetKubeConfig helps retrieve Kubernetes Config
@@ -451,32 +441,4 @@ func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1b
 		return nil, err
 	}
 	return &crd, nil
-}
-
-// GetDynamicInformer returns informer for specified CRD group, version and name
-// return error if failure observed
-func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName string) (informers.GenericInformer, error) {
-	log := logger.GetLogger(ctx)
-	dynamicInformerInitLock.Lock()
-	defer dynamicInformerInitLock.Unlock()
-
-	if !dynamicInformerInitialized {
-		// Get a config to talk to the apiserver
-		cfg, err := GetKubeConfig(ctx)
-		if err != nil {
-			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
-			return nil, err
-		}
-		// Grab a dynamic interface to create informers from
-		dc, err := dynamic.NewForConfig(cfg)
-		if err != nil {
-			log.Errorf("could not generate dynamic client for config. err :%v", err)
-			return nil, err
-		}
-		dynamicInformerFactory = dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, 0, metav1.NamespaceAll, nil)
-		dynamicInformerInitialized = true
-	}
-	// Return informer from shared dynamic informer factory for input resource
-	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
-	return dynamicInformerFactory.ForResource(gvr), nil
 }
