@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/akutz/gofsutil v0.1.2
-	github.com/container-storage-interface/spec v1.2.0
+	github.com/container-storage-interface/spec v1.4.0
 	github.com/coreos/etcd v3.3.25+incompatible // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect

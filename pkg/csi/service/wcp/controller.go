@@ -793,3 +793,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	return resp, nil
 }
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
+	*csi.ControllerGetVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerGetVolume: called with args %+v", *req)
+	return nil, status.Error(codes.Unimplemented, "")
+}
