@@ -240,14 +240,14 @@ func (f *FakeAuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) ma
 	return datastoreMapForBlockVolumes
 }
 
-func (f *FakeAuthManager) GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
-	datastoreMapForFileVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
-	fmt.Print("FakeAuthManager: GetDatastoreMapForFileVolumes")
+func (f *FakeAuthManager) GetFsEnabledClusterToDsMap(ctx context.Context) map[string][]*cnsvsphere.DatastoreInfo {
+	fsEnabledClusterToDsMap := make(map[string][]*cnsvsphere.DatastoreInfo)
+	fmt.Print("FakeAuthManager: GetClusterToFsEnabledDsMap")
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datastoreMapForFileVolumes, _ := common.GenerateDatastoreMapForFileVolumes(ctx, f.vcenter)
-		return datastoreMapForFileVolumes
+		fsEnabledClusterToDsMap, _ := common.GenerateFSEnabledClustersToDsMap(ctx, f.vcenter)
+		return fsEnabledClusterToDsMap
 	}
-	return datastoreMapForFileVolumes
+	return fsEnabledClusterToDsMap
 }
 
 func (f *FakeAuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter) {

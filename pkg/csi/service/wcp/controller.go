@@ -126,7 +126,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		c.authMgr = authMgr
 		// TODO: Invoke similar method for block volumes
-		go common.ComputeDatastoreMapForFileVolumes(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
 	go func() {
 		for {
@@ -406,12 +406,21 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	var volumeID string
 	var err error
 
-	dsURLToInfoMap := c.authMgr.GetDatastoreMapForFileVolumes(ctx)
-	log.Debugf("Filtered Datastores: %+v", dsURLToInfoMap)
+	fsEnabledClusterToDsMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
-	for _, datastore := range dsURLToInfoMap {
-		filteredDatastores = append(filteredDatastores, datastore)
+
+	// targetvSANFileShareClusters is set in CSI secret when file volume feature is enabled
+	// on WCP. So we get datastores with privileges to create file volumes for each specified
+	// vSAN cluster, and use those datastores to create file volumes.
+	for _, targetvSANcluster := range c.manager.VcenterConfig.TargetvSANFileShareClusters {
+		if datastores, ok := fsEnabledClusterToDsMap[targetvSANcluster]; ok {
+			for _, dsInfo := range datastores {
+				log.Debugf("Adding datastore %q to filtered datastores", dsInfo.Info.Url)
+				filteredDatastores = append(filteredDatastores, dsInfo)
+			}
+		}
 	}
+
 	if len(filteredDatastores) == 0 {
 		msg := "no datastores found to create file volume"
 		log.Error(msg)

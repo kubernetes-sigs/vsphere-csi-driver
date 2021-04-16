@@ -43,9 +43,9 @@ type AuthorizationService interface {
 	// datastores the CSI VC user has Datastore.FileManagement privilege for.
 	GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo
 
-	// GetDatastoreMapForFileVolumes returns a map of datastore URL to datastore info for only those
-	// datastores the CSI VC user has Host.Config.Storage privilege on vSAN cluster with vSAN FS enabled.
-	GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo
+	// GetFsEnabledClusterToDsMap returns a map of cluster ID to datastores info objects for vSAN clusters with
+	// file services enabled. The datastores are those on which the CSI VC user has Host.Config.Storage privilege.
+	GetFsEnabledClusterToDsMap(ctx context.Context) map[string][]*cnsvsphere.DatastoreInfo
 
 	// ResetvCenterInstance sets new vCenter instance for AuthorizationService
 	ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter)
@@ -55,8 +55,9 @@ type AuthorizationService interface {
 type AuthManager struct {
 	// map the datastore url to datastore info which need to be used when invoking CNS CreateVolume API
 	datastoreMapForBlockVolumes map[string]*cnsvsphere.DatastoreInfo
-	// map the datastore url to datastore info which need to be used when invoking CNS CreateVolume API
-	datastoreMapForFileVolumes map[string]*cnsvsphere.DatastoreInfo
+	// map the vSAN file services enabled cluster ID to list of datastore info for that cluster.
+	// The datastore info objects are to be used when invoking CNS CreateVolume API
+	fsEnabledClusterToDsMap map[string][]*cnsvsphere.DatastoreInfo
 	// this mutex is to make sure the update for datastoreMap is mutually exclusive
 	rwMutex sync.RWMutex
 	// vCenter Instance
@@ -77,7 +78,7 @@ func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) 
 
 		authManagerInstance = &AuthManager{
 			datastoreMapForBlockVolumes: make(map[string]*cnsvsphere.DatastoreInfo),
-			datastoreMapForFileVolumes:  make(map[string]*cnsvsphere.DatastoreInfo),
+			fsEnabledClusterToDsMap:     make(map[string][]*cnsvsphere.DatastoreInfo),
 			rwMutex:                     sync.RWMutex{},
 			vcenter:                     vc,
 		}
@@ -99,16 +100,15 @@ func (authManager *AuthManager) GetDatastoreMapForBlockVolumes(ctx context.Conte
 	return datastoreMapForBlockVolumes
 }
 
-// GetDatastoreMapForFileVolumes returns a DatastoreMapForFileVolumes. This map maps datastore url to datastore info
-// which need to be used when creating file volume.
-func (authManager *AuthManager) GetDatastoreMapForFileVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
-	datastoreMapForFileVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
+// GetFsEnabledClusterToDsMap returns a map of cluster ID with vSAN file services enabled to its datastore info objects.
+func (authManager *AuthManager) GetFsEnabledClusterToDsMap(ctx context.Context) map[string][]*cnsvsphere.DatastoreInfo {
+	fsEnabledClusterToDsMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	authManager.rwMutex.RLock()
 	defer authManager.rwMutex.RUnlock()
-	for dsURL, dsInfo := range authManager.datastoreMapForFileVolumes {
-		datastoreMapForFileVolumes[dsURL] = dsInfo
+	for clusterID, datastores := range authManager.fsEnabledClusterToDsMap {
+		fsEnabledClusterToDsMap[clusterID] = datastores
 	}
-	return datastoreMapForFileVolumes
+	return fsEnabledClusterToDsMap
 }
 
 // ResetvCenterInstance sets new vCenter instance for AuthorizationService
@@ -134,17 +134,18 @@ func (authManager *AuthManager) refreshDatastoreMapForBlockVolumes() {
 	}
 }
 
-// refreshDatastoreMapForFileVolumes scans all vSAN datastores with vSAN FS enabled in vCenter to
-// check privileges, and compute the datastoreMapForFileVolumes
-func (authManager *AuthManager) refreshDatastoreMapForFileVolumes() {
+// refreshFSEnabledClustersToDsMap scans all clusters with vSAN FS enabled in vCenter to
+// check privileges, and compute the fsEnabledClusterToDsMap
+func (authManager *AuthManager) refreshFSEnabledClustersToDsMap() {
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Debug("auth manager: refreshDatastoreMapForFileVolumes is triggered")
-	newDatastoreMapForFileVolumes, err := GenerateDatastoreMapForFileVolumes(ctx, authManager.vcenter)
+	log.Debug("auth manager: refreshDatastoreMapsForFileVolumes is triggered")
+	newFsEnabledClusterToDsMap, err := GenerateFSEnabledClustersToDsMap(ctx, authManager.vcenter)
 	if err == nil {
 		authManager.rwMutex.Lock()
 		defer authManager.rwMutex.Unlock()
-		authManager.datastoreMapForFileVolumes = newDatastoreMapForFileVolumes
-		log.Debugf("auth manager: datastoreMapForFileVolumes is updated to %v", newDatastoreMapForFileVolumes)
+
+		authManager.fsEnabledClusterToDsMap = newFsEnabledClusterToDsMap
+		log.Debugf("auth manager: newFsEnabledClusterToDsMap is updated to %v", newFsEnabledClusterToDsMap)
 	} else {
 		log.Warnf("auth manager: failed to get updated datastoreMapForFileVolumes, Err: %v", err)
 	}
@@ -160,13 +161,13 @@ func ComputeDatastoreMapForBlockVolumes(authManager *AuthManager, authCheckInter
 	}
 }
 
-// ComputeDatastoreMapForFileVolumes refreshes DatastoreMapForFileVolumes periodically
-func ComputeDatastoreMapForFileVolumes(authManager *AuthManager, authCheckInterval int) {
+// ComputeFSEnabledClustersToDsMap refreshes fsEnabledClusterToDsMap periodically
+func ComputeFSEnabledClustersToDsMap(authManager *AuthManager, authCheckInterval int) {
 	log := logger.GetLoggerWithNoContext()
-	log.Info("auth manager: ComputeDatastoreMapForFileVolumes enter")
+	log.Info("auth manager: ComputeFSEnabledClustersToDsMap enter")
 	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for ; true; <-ticker.C {
-		authManager.refreshDatastoreMapForFileVolumes()
+		authManager.refreshFSEnabledClustersToDsMap()
 	}
 }
 
@@ -207,11 +208,14 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context, vc *vsphere.Virtua
 	return dsURLToInfoMap, nil
 }
 
-// GenerateDatastoreMapForFileVolumes scans all datastores in Vcenter and do privilege check on those datastoes
-// It will return datastores which has the privileges for creating file volume
-func GenerateDatastoreMapForFileVolumes(ctx context.Context, vc *vsphere.VirtualCenter) (map[string]*cnsvsphere.DatastoreInfo, error) {
+// GenerateFSEnabledClustersToDsMap scans all clusters in VC and do privilege check on them.
+// It will return a map of cluster id to the list of datastore objects.
+// The key is cluster moid with vSAN FS enabled and Host.Config.Storage privilege.
+// The value is a list of vSAN datastoreInfo objects for each cluster.
+func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string][]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	dsURLToInfoMap := make(map[string]*cnsvsphere.DatastoreInfo)
+	clusterToDsInfoListMap := make(map[string][]*cnsvsphere.DatastoreInfo)
+
 	// get all vSAN datastores from VC
 	vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx)
 	if err != nil {
@@ -221,27 +225,35 @@ func GenerateDatastoreMapForFileVolumes(ctx context.Context, vc *vsphere.Virtual
 	// Return empty map if no vSAN datastores are found.
 	if len(vsanDsURLToInfoMap) == 0 {
 		log.Debug("No vSAN datastores found")
-		return dsURLToInfoMap, nil
+		return clusterToDsInfoListMap, nil
 	}
-	var allvsanDatastoreUrls []string
-	for dsURL := range vsanDsURLToInfoMap {
-		allvsanDatastoreUrls = append(allvsanDatastoreUrls, dsURL)
-	}
-	fsEnabledMap, err := IsFileServiceEnabled(ctx, allvsanDatastoreUrls, vc)
+
+	// Initialize vsan client
+	err = vc.ConnectVsan(ctx)
 	if err != nil {
-		log.Errorf("failed to get if file service is enabled on vsan datastores with error %+v", err)
+		log.Errorf("error occurred while connecting to VSAN, err: %+v", err)
 		return nil, err
 	}
 
-	for dsURL, dsInfo := range vsanDsURLToInfoMap {
-		if val, ok := fsEnabledMap[dsURL]; ok {
-			if val {
-				dsURLToInfoMap[dsURL] = dsInfo
+	fsEnabledClusterToDsURLsMap, err := getFSEnabledClusterToDsURLsMap(ctx, vc)
+	if err != nil {
+		log.Errorf("failed to get file service enabled clusters map with error %+v", err)
+		return nil, err
+	}
+
+	// Create a map of cluster to dsInfo objects. These objects are used while calling CNS
+	// API to create file volumes
+	for clusterMoID, dsURLs := range fsEnabledClusterToDsURLsMap {
+		for _, dsURL := range dsURLs {
+			if dsInfo, ok := vsanDsURLToInfoMap[dsURL]; ok {
+				log.Debugf("Adding vSAN datastore %q to the list for FS enabled cluster %q", dsURL, clusterMoID)
+				clusterToDsInfoListMap[clusterMoID] = append(clusterToDsInfoListMap[clusterMoID], dsInfo)
 			}
 		}
 	}
-	log.Debugf("dsURLToInfoMap is %+v", dsURLToInfoMap)
-	return dsURLToInfoMap, nil
+
+	log.Debugf("clusterToDsInfoListMap is %+v", clusterToDsInfoListMap)
+	return clusterToDsInfoListMap, nil
 }
 
 // IsFileServiceEnabled checks if file service is enabled on the specified datastoreUrls.
@@ -258,7 +270,8 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *vsphe
 		log.Errorf("error occurred while connecting to VSAN, err: %+v", err)
 		return nil, err
 	}
-	// This gets the datastore to file service enabled map for all the vsan datastores.
+	// This gets the datastore to file service enabled map for all vsan datastores
+	// belonging to clusters with vSAN FS enabled and Host.Config.Storage privileges
 	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc)
 	if err != nil {
 		log.Errorf("failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
@@ -325,17 +338,80 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *vsphere.VirtualC
 	return dsURLToInfoMap, nil
 }
 
-// Creates a map of vsan datastores to file service status (enabled/disabled).
+// Creates a map of vsan datastores to file service enabled status.
+// Since only datastores belonging to clusters with vSAN FS enabled and Host.Config.Storage privileges are returned,
+// file service enabled status will be true for them.
 func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
-	datacenters, err := vc.ListDatacenters(ctx)
+
+	//Get clusters with vSAN FS enabled and privileges
+	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc)
 	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %+v, Error: %+v", vc.Config.Host, err)
+		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
 		return nil, err
 	}
 
 	dsToFileServiceEnabledMap := make(map[string]bool)
+	for _, cluster := range vSANFSClustersWithPriv {
+		dsMoList, err := getDatastoreMOsFromCluster(ctx, vc, cluster)
+		if err != nil {
+			log.Errorf("failed to get datastores for cluster %q. error: %+v", cluster.Reference().Value, err)
+			return nil, err
+		}
+		// TODO: Also identify which vSAN datastore is management
+		// and which one is a workload datastore to support file volumes on VMC
+		for _, dsMo := range dsMoList {
+			if dsMo.Summary.Type == VsanDatastoreType {
+				dsToFileServiceEnabledMap[dsMo.Info.GetDatastoreInfo().Url] = true
+			}
+		}
+	}
+	return dsToFileServiceEnabledMap, nil
+}
+
+// Creates a map of cluster id to datastore urls.
+// The key is cluster moid with vSAN FS enabled and Host.Config.Storage privilege.
+// The value is a list of vSAN datastore URLs for each cluster.
+func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string][]string, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Computing the map for vSAN FS enabled clusters to datastore URLS.")
+
+	//Get clusters with vSAN FS enabled and privileges
+	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc)
+	if err != nil {
+		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
+		return nil, err
+	}
+
+	fsEnabledClusterToDsMap := make(map[string][]string)
+	for _, cluster := range vSANFSClustersWithPriv {
+		clusterMoID := cluster.Reference().Value
+		dsMoList, err := getDatastoreMOsFromCluster(ctx, vc, cluster)
+		if err != nil {
+			log.Errorf("failed to get datastores for cluster %q. error: %+v", clusterMoID, err)
+			return nil, err
+		}
+		for _, dsMo := range dsMoList {
+			if dsMo.Summary.Type == VsanDatastoreType {
+				fsEnabledClusterToDsMap[clusterMoID] =
+					append(fsEnabledClusterToDsMap[clusterMoID], dsMo.Info.GetDatastoreInfo().Url)
+			}
+		}
+	}
+
+	return fsEnabledClusterToDsMap, nil
+}
+
+// Returns a list of clusters with Host.Config.Storage privilege and vSAN file services enabled.
+func getFSEnabledClustersWithPriv(ctx context.Context, vc *vsphere.VirtualCenter) ([]*object.ClusterComputeResource, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Computing the clusters with vSAN file services enabled and Host.Config.Storage privileges")
+	datacenters, err := vc.ListDatacenters(ctx)
+	if err != nil {
+		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+		return nil, err
+	}
 	// Get clusters from datacenters
 	clusterComputeResources := []*object.ClusterComputeResource{}
 	for _, datacenter := range datacenters {
@@ -389,8 +465,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 	log.Debugf("Clusters with priv: %s are : %+v", HostConfigStoragePriv, clusterComputeResourceWithPriv)
 
 	// Get clusters which are vSAN and have vSAN FS enabled
-	pc := property.DefaultCollector(vc.Client.Client)
-	properties := []string{"info", "summary"}
+	clusterComputeResourceWithPrivAndFS := []*object.ClusterComputeResource{}
 	// Get all the vsan datastores with vsan FS from these clusters and add it to map.
 	for _, cluster := range clusterComputeResourceWithPriv {
 		// Get the cluster config to know if file service is enabled on it or not.
@@ -407,30 +482,38 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 				cluster, config)
 			continue
 		}
+
 		log.Debugf("cluster: %+v has vSAN file services enabled: %t", cluster, config.FileServiceConfig.Enabled)
-		var dsList []vim25types.ManagedObjectReference
-		var dsMoList []mo.Datastore
-		datastores, err := cluster.Datastores(ctx)
-		if err != nil {
-			log.Errorf("Error occurred while getting datastores from clusters. error: %+v", err)
-			return nil, err
-		}
-		for _, datastore := range datastores {
-			dsList = append(dsList, datastore.Reference())
-		}
-		err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
-		if err != nil {
-			log.Errorf("failed to get Datastore managed objects from datastore objects."+
-				" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
-			return nil, err
-		}
-		// TODO: ALso identify which vSAN datastore is management
-		// and which one is a workload datastore to support file volumes on VMC
-		for _, dsMo := range dsMoList {
-			if dsMo.Summary.Type == VsanDatastoreType {
-				dsToFileServiceEnabledMap[dsMo.Info.GetDatastoreInfo().Url] = config.FileServiceConfig.Enabled
-			}
+		if config.FileServiceConfig.Enabled {
+			clusterComputeResourceWithPrivAndFS = append(clusterComputeResourceWithPrivAndFS, cluster)
 		}
 	}
-	return dsToFileServiceEnabledMap, nil
+
+	return clusterComputeResourceWithPrivAndFS, nil
+}
+
+// Returns datastore managed objects with info & summary properties for a given cluster
+func getDatastoreMOsFromCluster(ctx context.Context, vc *vsphere.VirtualCenter,
+	cluster *object.ClusterComputeResource) ([]mo.Datastore, error) {
+	log := logger.GetLogger(ctx)
+	datastores, err := cluster.Datastores(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while getting datastores from cluster %q. error: %+v", cluster.Reference().Value, err)
+		return nil, err
+	}
+
+	// Get datastore properties
+	pc := property.DefaultCollector(vc.Client.Client)
+	properties := []string{"info", "summary"}
+	var dsList []vim25types.ManagedObjectReference
+	var dsMoList []mo.Datastore
+	for _, datastore := range datastores {
+		dsList = append(dsList, datastore.Reference())
+	}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	if err != nil {
+		log.Errorf("failed to retrieve datastores. dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
+		return nil, err
+	}
+	return dsMoList, nil
 }

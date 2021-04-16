@@ -131,10 +131,15 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	if err != nil {
 		return nil, err
 	}
-	var targetDatastoreUrlsForFile []string
 
+	var targetDatastoreUrlsForFile []string
 	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs) != "" {
 		targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs, ",")
+	}
+
+	var targetvSANClustersForFile []string
+	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareClusters) != "" {
+		targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareClusters, ",")
 	}
 
 	var vcClientTimeout int
@@ -161,6 +166,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		Password:                         cfg.VirtualCenter[host].Password,
 		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
+		TargetvSANFileShareClusters:      targetvSANClustersForFile,
 		VCClientTimeout:                  vcClientTimeout,
 	}
 

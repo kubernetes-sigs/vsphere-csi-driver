@@ -112,6 +112,8 @@ type VirtualCenterConfig struct {
 	DatacenterPaths []string
 	// TargetDatastoreUrlsForFile represents URLs of file service enabled vSAN datastores in the virtual center.
 	TargetvSANFileShareDatastoreURLs []string
+	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
+	TargetvSANFileShareClusters []string
 	// VCClientTimeout is the time limit in minutes for requests made by vCenter client
 	VCClientTimeout int
 }

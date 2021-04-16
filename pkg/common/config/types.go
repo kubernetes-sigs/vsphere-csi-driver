@@ -113,6 +113,8 @@ type VirtualCenterConfig struct {
 	Datacenters string `gcfg:"datacenters"`
 	// Target datastore urls for provisioning file volumes.
 	TargetvSANFileShareDatastoreURLs string `gcfg:"targetvSANFileShareDatastoreURLs"`
+	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
+	TargetvSANFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
 }
 
 // GCConfig contains information used by guest cluster to access a supervisor
