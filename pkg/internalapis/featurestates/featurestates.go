@@ -28,7 +28,10 @@ import (
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -147,6 +150,28 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 		})
 	informer.Listen()
 	log.Infof("Informer on config-map and namespaces started")
+
+	// Create a dynamic informer for the cnscsisvfeaturestates CR
+	dynInformer, err := k8s.GetDynamicInformer(ctx, CRDGroupName, internalapis.SchemeGroupVersion.Version,
+		CRDPlural, metav1.NamespaceAll, true)
+	if err != nil {
+		log.Errorf("failed to create dynamic informer for %s CR. Error: %+v", CRDPlural, err)
+		return err
+	}
+	dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		// Add
+		AddFunc: nil,
+		// Update
+		UpdateFunc: nil,
+		// Delete
+		DeleteFunc: func(obj interface{}) {
+			fssCRDeleted(obj)
+		},
+	})
+	go func() {
+		log.Infof("Informer to watch on %s CR starting..", CRDPlural)
+		dynInformer.Informer().Run(make(chan struct{}))
+	}()
 
 	// Start routine to process pending feature state updates
 	go pendingCRUpdatesObj.processPendingCRUpdates()
@@ -435,4 +460,51 @@ func getFeatureStates(ctx context.Context) ([]featurestatesv1alpha1.FeatureState
 		featureStates = append(featureStates, featureState)
 	}
 	return featureStates, nil
+}
+
+// fssCRDeleted is called when cnscsisvfeaturestates is deleted
+func fssCRDeleted(obj interface{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	var fssObj featurestatesv1alpha1.CnsCsiSvFeatureStates
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &fssObj)
+	if err != nil {
+		log.Errorf("fssCRDeleted: failed to cast object to %s. err: %v", CRDPlural, err)
+		return
+	}
+	if fssObj.Name != SVFeatureStateCRName {
+		log.Warnf("fssCRDeleted: Ignoring %s CR object with name %q", CRDPlural, fssObj.Name)
+		return
+	}
+	log.Infof("fssCRDeleted: cnscsisvfeaturestates with name: %q is deleted from namespace: %q", fssObj.Name, fssObj.Namespace)
+	if isNamespaceDeleted(ctx, fssObj.Namespace) {
+		return
+	}
+	log.Infof("Namespace: %q is not being deleted. putting back cnscsisvfeaturestates CR on the namespace", fssObj.Namespace)
+	pendingCRUpdatesObj.enqueueFeatureStateUpdatesForWorkloadNamespace(ctx, fssObj.Namespace)
+}
+
+// isNamespaceDeleted return true if namespace is deleted or DeletionTimestamp is present on the namespace
+func isNamespaceDeleted(ctx context.Context, namespace string) bool {
+	log := logger.GetLogger(ctx)
+	for {
+		namespaceObj, err := k8sClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Infof("namespace: %q not found", namespace)
+				return true
+			}
+			log.Errorf("failed to get namespace %q object. err: %v", namespace, err)
+		} else {
+			if namespaceObj.DeletionTimestamp != nil {
+				log.Infof("namespace: %q is being deleted", namespace)
+				return true
+			}
+			return false
+		}
+		time.Sleep(1 * time.Second)
+	}
 }
