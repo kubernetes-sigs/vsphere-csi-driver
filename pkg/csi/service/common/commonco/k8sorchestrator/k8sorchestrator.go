@@ -429,6 +429,10 @@ func configMapAdded(obj interface{}) {
 
 	if fssConfigMap.Name == k8sOrchestratorInstance.supervisorFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.supervisorFSS.configMapNamespace {
+		if serviceMode == "node" {
+			log.Debug("Ignoring supervisor FSS configmap add event in the nodes")
+			return
+		}
 		if getSvFssCRAvailability() {
 			log.Debugf("Ignoring supervisor FSS configmap add event as %q CR is present", featurestates.CRDSingular)
 			return
@@ -459,6 +463,10 @@ func configMapUpdated(oldObj, newObj interface{}) {
 
 	if fssConfigMap.Name == k8sOrchestratorInstance.supervisorFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.supervisorFSS.configMapNamespace {
+		if serviceMode == "node" {
+			log.Debug("Ignoring supervisor FSS configmap update event in the nodes")
+			return
+		}
 		if getSvFssCRAvailability() {
 			log.Debugf("Ignoring supervisor FSS configmap update event as %q CR is present", featurestates.CRDSingular)
 			return
@@ -488,6 +496,10 @@ func configMapDeleted(obj interface{}) {
 	// Check if it is either internal or supervisor FSS configmap
 	if fssConfigMap.Name == k8sOrchestratorInstance.supervisorFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.supervisorFSS.configMapNamespace {
+		if serviceMode == "node" {
+			log.Debug("Ignoring supervisor FSS configmap delete event in the nodes")
+			return
+		}
 		if getSvFssCRAvailability() {
 			log.Debugf("Ignoring supervisor FSS configmap delete event as %q CR is present", featurestates.CRDSingular)
 			return
