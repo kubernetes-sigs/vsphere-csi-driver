@@ -56,7 +56,8 @@ LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa
 RUN tdnf -y install \
   nfs-utils \
   util-linux \
-  e2fsprogs
+  e2fsprogs \
+  xfsprogs
 
 
 # Remove cached data
