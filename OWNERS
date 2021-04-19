@@ -2,7 +2,6 @@
 
 reviewers:
 - divyenpatel
-- dougm
 - SandeepPissay
 - xing-yang
 - BaluDontu
@@ -11,8 +10,6 @@ reviewers:
 
 approvers:
 - divyenpatel
-- dvonthenen
-- frapposelli
 - SandeepPissay
 - xing-yang
 - BaluDontu
@@ -21,3 +18,6 @@ approvers:
 
 emeritus_approvers:
 - codenrhoden
+- dougm
+- dvonthenen
+- frapposelli
