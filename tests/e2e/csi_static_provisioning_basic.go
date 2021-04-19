@@ -605,7 +605,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
 		log.Infof("podName : %s", podName)
 
@@ -693,7 +692,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
 		log.Infof("podName: %s", podName)
 
@@ -790,7 +788,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(60) * time.Second)
 		podName := pod.GetName
 		log.Infof("podName: %s", podName)
 
