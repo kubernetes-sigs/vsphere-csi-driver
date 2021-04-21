@@ -311,12 +311,12 @@ func configMapUpdated(oldObj, newObj interface{}) {
 
 	newfssConfigMap, ok := newObj.(*v1.ConfigMap)
 	if newfssConfigMap == nil || !ok {
-		log.Warnf("configMapUpdated: unrecognized old object %+v", newObj)
+		log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
 		return
 	}
 	oldfssConfigMap, ok := oldObj.(*v1.ConfigMap)
 	if oldfssConfigMap == nil || !ok {
-		log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
+		log.Warnf("configMapUpdated: unrecognized old object %+v", newObj)
 		return
 	}
 
