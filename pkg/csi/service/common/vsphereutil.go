@@ -506,7 +506,7 @@ func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
 	}
-	queryResult, err := volManager.QueryVolume(ctx, queryFilter)
+	queryResult, err := volManager.QueryVolumeAsync(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 	if err != nil {
 		msg := fmt.Sprintf("QueryVolume failed for volumeID: %s with error %+v", volumeID, err)
 		log.Error(msg)
@@ -564,7 +564,7 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 		},
 	}
 	// Query only the backing object details.
-	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err := manager.VolumeManager.QueryVolumeAsync(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("failed to call QueryVolume for volumeID: %q: %v", volumeID, err)
 		return false, err

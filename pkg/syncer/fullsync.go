@@ -95,7 +95,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryAllResult, err := metadataSyncer.volumeManager.QueryVolumeAsync(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("FullSync: failed to queryAllVolume with err %+v", err)
 		return err

@@ -501,7 +501,7 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 				volumeMigrationInstance.cnsConfig.Global.ClusterID,
 			},
 		}
-		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryVolumeAsync(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 		if err != nil {
 			log.Warnf("failed to queryAllVolume with err %+v", err)
 			continue

@@ -148,7 +148,7 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 	var allQueryResults []*cnstypes.CnsQueryResult
 	for {
 		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
-		queryResult, err := volumeManager.QueryVolume(ctx, queryFilter)
+		queryResult, err := volumeManager.QueryVolumeAsync(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 		if err != nil {
 			log.Errorf("failed to QueryVolume using filter: %+v", queryFilter)
 			return nil, err

@@ -63,6 +63,8 @@ type Manager interface {
 	DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error
 	// UpdateVolumeMetadata updates a volume metadata given its spec.
 	UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error
+	// QueryVolumeAsync returns volumes matching the given filter by using CnsQueryAsync API.
+	QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 	// QueryVolume returns volumes matching the given filter.
 	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// QueryVolumeInfo calls the CNS QueryVolumeInfo API and return a task, from which CnsQueryVolumeInfoResult is extracted
@@ -724,6 +726,65 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// QueryVolumeAsync returns volumes matching the given filter using CnsQueryAsync API.
+func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	internalQueryVolume := func() (*cnstypes.CnsQueryResult, error) {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Set up the VC connection
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return nil, err
+		}
+		//Call the CNS QueryVolume
+		res, err := m.virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			log.Errorf("CNS QueryVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		res = updateQueryResult(ctx, m, res)
+		queryVolumeAsyncTask, err := m.virtualCenter.CnsClient.QueryVolumeAsync(ctx, queryFilter, querySelection)
+		if err != nil {
+			log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		queryVolumeAsyncTaskInfo, err := cns.GetTaskInfo(ctx, queryVolumeAsyncTask)
+		if err != nil {
+			log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		queryVolumeAsyncTaskResults, err := cns.GetTaskResultArray(ctx, queryVolumeAsyncTaskInfo)
+		if err != nil {
+			log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		for _, queryVolumeAsyncTaskResult := range queryVolumeAsyncTaskResults {
+			queryVolumeAsyncOperationRes := queryVolumeAsyncTaskResult.GetCnsVolumeOperationResult()
+			if queryVolumeAsyncOperationRes.Fault != nil {
+				log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with fault=%+v", m.virtualCenter.Config.Host, queryVolumeAsyncOperationRes.Fault)
+				return nil, err
+			}
+		}
+		return res, err
+	}
+	start := time.Now()
+	resp, err := internalQueryVolume()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // QueryVolume returns volumes matching the given filter.
