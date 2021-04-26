@@ -141,12 +141,14 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v3.1.0
+          image: k8s.gcr.io/sig-storage/csi-attacher:v3.2.0
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -256,7 +258,7 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v2.1.0
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v2.2.0
           args:
             - "--v=4"
             - "--timeout=300s"
