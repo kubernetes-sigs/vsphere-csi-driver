@@ -216,8 +216,13 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *vsphere.VirtualCe
 	log := logger.GetLogger(ctx)
 	clusterToDsInfoListMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 
+	datacenters, err := vc.ListDatacenters(ctx)
+	if err != nil {
+		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+		return nil, err
+	}
 	// get all vSAN datastores from VC
-	vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx)
+	vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 	if err != nil {
 		log.Errorf("failed to get vSAN datastores with error %+v", err)
 		return nil, err
@@ -235,7 +240,7 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *vsphere.VirtualCe
 		return nil, err
 	}
 
-	fsEnabledClusterToDsURLsMap, err := getFSEnabledClusterToDsURLsMap(ctx, vc)
+	fsEnabledClusterToDsURLsMap, err := getFSEnabledClusterToDsURLsMap(ctx, vc, datacenters)
 	if err != nil {
 		log.Errorf("failed to get file service enabled clusters map with error %+v", err)
 		return nil, err
@@ -257,7 +262,7 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *vsphere.VirtualCe
 }
 
 // IsFileServiceEnabled checks if file service is enabled on the specified datastoreUrls.
-func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *vsphere.VirtualCenter) (map[string]bool, error) {
+func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *vsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
 	// Compute this map during controller init. Re use the map every other time.
 	log := logger.GetLogger(ctx)
 	err := vc.Connect(ctx)
@@ -272,7 +277,7 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *vsphe
 	}
 	// This gets the datastore to file service enabled map for all vsan datastores
 	// belonging to clusters with vSAN FS enabled and Host.Config.Storage privileges
-	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc)
+	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc, datacenters)
 	if err != nil {
 		log.Errorf("failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
 		return nil, err
@@ -341,12 +346,12 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *vsphere.VirtualC
 // Creates a map of vsan datastores to file service enabled status.
 // Since only datastores belonging to clusters with vSAN FS enabled and Host.Config.Storage privileges are returned,
 // file service enabled status will be true for them.
-func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string]bool, error) {
+func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
 
 	//Get clusters with vSAN FS enabled and privileges
-	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc)
+	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc, datacenters)
 	if err != nil {
 		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
 		return nil, err
@@ -373,12 +378,12 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *vsphere.VirtualCenter
 // Creates a map of cluster id to datastore urls.
 // The key is cluster moid with vSAN FS enabled and Host.Config.Storage privilege.
 // The value is a list of vSAN datastore URLs for each cluster.
-func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *vsphere.VirtualCenter) (map[string][]string, error) {
+func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *vsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string][]string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the map for vSAN FS enabled clusters to datastore URLS.")
 
 	//Get clusters with vSAN FS enabled and privileges
-	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc)
+	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc, datacenters)
 	if err != nil {
 		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
 		return nil, err
@@ -404,14 +409,9 @@ func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *vsphere.VirtualCent
 }
 
 // Returns a list of clusters with Host.Config.Storage privilege and vSAN file services enabled.
-func getFSEnabledClustersWithPriv(ctx context.Context, vc *vsphere.VirtualCenter) ([]*object.ClusterComputeResource, error) {
+func getFSEnabledClustersWithPriv(ctx context.Context, vc *vsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) ([]*object.ClusterComputeResource, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the clusters with vSAN file services enabled and Host.Config.Storage privileges")
-	datacenters, err := vc.ListDatacenters(ctx)
-	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-		return nil, err
-	}
 	// Get clusters from datacenters
 	clusterComputeResources := []*object.ClusterComputeResource{}
 	for _, datacenter := range datacenters {
