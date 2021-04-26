@@ -3,7 +3,7 @@ all: build
 # Get the absolute path and name of the current directory.
 PWD := $(abspath .)
 BASE_DIR := $(notdir $(PWD))
-
+GOFLAGS_VENDOR := -mod=vendor
 # BUILD_OUT is the root directory containing the build output.
 export BUILD_OUT ?= .build
 
@@ -50,7 +50,8 @@ endif
 # Verify the dependencies are in place.
 .PHONY: deps
 deps:
-	go mod download && go mod verify
+	go mod vendor
+	go mod tidy
 
 ################################################################################
 ##                                VERSIONS                                    ##
@@ -69,6 +70,18 @@ version:
 build-dirs:
 	@mkdir -p $(BIN_OUT)
 	@mkdir -p $(DIST_OUT)
+
+
+
+################################################################################
+##                                VERIFY VENDOR                               ##
+################################################################################
+.PHONY: verify-vendor
+test: verify-vendor
+verify: verify-vendor
+verify-vendor:
+	@ echo; echo "### $@:"
+	@ ./hack/verify-vendor.sh
 
 ################################################################################
 ##                              BUILD BINARIES                                ##
@@ -92,7 +105,7 @@ CSI_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./c
 export CSI_BIN_SRCS
 endif
 $(CSI_BIN): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(abspath $@) $<
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS_VENDOR) -ldflags '$(LDFLAGS_CSI)' -o $(abspath $@) $<
 	@touch $@
 
 # The cnsctl binary.
@@ -105,7 +118,7 @@ CNSCTL_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' 
 export CNSCTL_BIN_SRCS
 endif
 $(CNSCTL_BIN): $(CNSCTL_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CNSCTL)' -o $(abspath $@) $<
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS_VENDOR) -ldflags '$(LDFLAGS_CNSCTL)' -o $(abspath $@) $<
 	@touch $@
 
 # The Syncer binary.
@@ -137,8 +150,8 @@ else
 CONTROLLER_GEN=$(shell which controller-gen)
 endif
 
-$(SYNCER_BIN): $(SYNCER_BIN_SRCS) syncer_manifest
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
+$(SYNCER_BIN): $(SYNCER_BIN_SRCS)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS_VENDOR) -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
 	@touch $@
 
 # The default build target.
@@ -198,7 +211,6 @@ deploy: | $(DOCKER_SOCK)
 ################################################################################
 .PHONY: clean
 clean:
-	@rm -f Dockerfile*
 	rm -f $(CSI_BIN) vsphere-csi-*.tar.gz vsphere-csi-*.zip \
 		$(SYNCER_BIN) vsphere-syncer-*.tar.gz vsphere-syncer-*.zip \
 		image-*.tar image-*.d $(DIST_OUT)/* $(BIN_OUT)/*
