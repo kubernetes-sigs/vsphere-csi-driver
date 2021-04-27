@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		if pv != nil {
-			framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle))
 		}
 
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pvName, poll, supervisorClusterOperationsTimeout))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvName, poll, supervisorClusterOperationsTimeout))
 		pv = nil
 
 		if cnsRegistervolume != nil {
@@ -354,7 +354,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeout))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeout))
 		pv = nil
 	})
 	/*
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 		pv = nil
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
@@ -535,7 +535,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 		pv = nil
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
@@ -977,7 +977,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace), "Failed to delete PVC", pvc2.Name)
 
 			ginkgo.By("Verify PV should be deleted automatically")
-			framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
 
 			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc1.Name, pv1.Name)
 		}()
@@ -1083,7 +1083,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace), "Failed to delete PVC ", pvc2.Name)
 
 			ginkgo.By("Verify PV should be deleted automatically")
-			framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
 
 			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc1.Name, pv1.Name)
 		}()
@@ -1711,10 +1711,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.ExpectNoError(waitForNamespaceToGetDeleted(ctx, client, namespaceToDelete, poll, supervisorClusterOperationsTimeout))
 
 		ginkgo.By("Verify PV got deleted")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv1.Name, poll, supervisorClusterOperationsTimeout))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv1.Name, poll, supervisorClusterOperationsTimeout))
 		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle))
 
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, supervisorClusterOperationsTimeout))
 		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle))
 
 	})

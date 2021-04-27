@@ -105,7 +105,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := framework.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
+			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))

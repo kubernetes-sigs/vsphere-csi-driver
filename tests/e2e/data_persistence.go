@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 		pv = nil
 
 		ginkgo.By("Verify CRD should be deleted automatically")
