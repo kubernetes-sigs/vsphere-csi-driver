@@ -531,7 +531,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		pvcNew = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(framework.WaitForPersistentVolumeDeleted(clientNewGc, pvNew.Name, poll, pollTimeoutShort))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(clientNewGc, pvNew.Name, poll, pollTimeoutShort))
 		pvNew = nil
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")

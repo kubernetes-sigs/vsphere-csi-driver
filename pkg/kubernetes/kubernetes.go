@@ -198,7 +198,7 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 		Kind:    cnsfileaccessconfigKind,
 	}
 
-	client, err := apiutils.RESTClientForGVK(gvk, config, serializer.NewCodecFactory(scheme))
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
@@ -222,7 +222,7 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, na
 		Kind:    virtualMachineKind,
 	}
 
-	client, err := apiutils.RESTClientForGVK(gvk, config, serializer.NewCodecFactory(scheme))
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err

@@ -140,8 +140,8 @@ type ReconcileCnsRegisterVolume struct {
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	ctx, log := logger.GetNewContextWithLogger()
+func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+	log := logger.GetLogger(ctx)
 	// Fetch the CnsRegisterVolume instance
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
