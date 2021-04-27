@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"strings"
 
-	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -270,13 +269,13 @@ func GetConfigPath(ctx context.Context) string {
 	}
 	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Config path for Guest Cluster
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvGCConfig)
+		cfgPath = os.Getenv(cnsconfig.EnvGCConfig)
 		if cfgPath == "" {
 			cfgPath = cnsconfig.DefaultGCConfigPath
 		}
 	} else {
 		// Config path for SuperVisor and Vanilla Cluster
-		cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
+		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
 		if cfgPath == "" {
 			cfgPath = cnsconfig.DefaultCloudConfigPath
 		}
