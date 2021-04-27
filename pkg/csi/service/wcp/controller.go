@@ -538,135 +538,166 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerPublishVolume: called with args %+v", *req)
-	err := validateWCPControllerPublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Errorf(msg)
-		return nil, err
-	}
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
 
-	vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8sCloudOperator service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
+	controllerPublishVolumeInternal := func() (
+		*csi.ControllerPublishVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerPublishVolume: called with args %+v", *req)
+		err := validateWCPControllerPublishVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Errorf(msg)
+			return nil, err
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
 
-	vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
-	if err != nil {
-		msg := fmt.Sprintf("failed to get datacenter from config with error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	var vCenterHost, dcMorefValue string
-	for key, value := range vcdcMap {
-		vCenterHost = key
-		dcMorefValue = value
-	}
-	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
-	if err != nil {
-		msg := fmt.Sprintf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
-			vc.Config.Host, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
+		vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8sCloudOperator service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 
-	// Connect to VC
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	err = vc.Connect(ctx)
-	if err != nil {
-		msg := fmt.Sprintf("failed to connect to Virtual Center: %s", vc.Config.Host)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
+		vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get datacenter from config with error: %+v", err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		var vCenterHost, dcMorefValue string
+		for key, value := range vcdcMap {
+			vCenterHost = key
+			dcMorefValue = value
+		}
+		vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
+		if err != nil {
+			msg := fmt.Sprintf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
+				vc.Config.Host, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 
-	podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
-	if err != nil {
-		msg := fmt.Sprintf("failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
+		// Connect to VC
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		err = vc.Connect(ctx)
+		if err != nil {
+			msg := fmt.Sprintf("failed to connect to Virtual Center: %s", vc.Config.Host)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 
-	// Attach the volume to the node
-	diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
-	if err != nil {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
-			log.Infof("Volume attachment failed. Checking if it can be fake attached")
-			var capabilities []*csi.VolumeCapability
-			capabilities = append(capabilities, req.VolumeCapability)
-			if !common.IsFileVolumeRequest(ctx, capabilities) { //Block volume
-				allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx, req.VolumeId, c.manager.VolumeManager)
-				if err != nil {
-					msg := fmt.Sprintf("failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
-				}
+		podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
+		if err != nil {
+			msg := fmt.Sprintf("failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
 
-				if allowed {
-					// Mark the volume as fake attached before returning response
-					err := commonco.ContainerOrchestratorUtility.MarkFakeAttached(ctx, req.VolumeId)
+		// Attach the volume to the node
+		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
+		if err != nil {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+				log.Infof("Volume attachment failed. Checking if it can be fake attached")
+				var capabilities []*csi.VolumeCapability
+				capabilities = append(capabilities, req.VolumeCapability)
+				if !common.IsFileVolumeRequest(ctx, capabilities) { //Block volume
+					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx, req.VolumeId, c.manager.VolumeManager)
 					if err != nil {
-						msg := fmt.Sprintf("failed to mark volume: %s as fake attached. Error: %+v", req.VolumeId, err)
+						msg := fmt.Sprintf("failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
 						log.Error(msg)
 						return nil, status.Errorf(codes.Internal, msg)
 					}
 
-					publishInfo := make(map[string]string)
-					publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
-					publishInfo[common.AttributeFakeAttached] = "true"
+					if allowed {
+						// Mark the volume as fake attached before returning response
+						err := commonco.ContainerOrchestratorUtility.MarkFakeAttached(ctx, req.VolumeId)
+						if err != nil {
+							msg := fmt.Sprintf("failed to mark volume: %s as fake attached. Error: %+v", req.VolumeId, err)
+							log.Error(msg)
+							return nil, status.Errorf(codes.Internal, msg)
+						}
 
-					resp := &csi.ControllerPublishVolumeResponse{
-						PublishContext: publishInfo,
+						publishInfo := make(map[string]string)
+						publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+						publishInfo[common.AttributeFakeAttached] = "true"
+
+						resp := &csi.ControllerPublishVolumeResponse{
+							PublishContext: publishInfo,
+						}
+						log.Infof("Volume %s has been fake attached", req.VolumeId)
+						return resp, nil
 					}
-					log.Infof("Volume %s has been fake attached", req.VolumeId)
-					return resp, nil
 				}
+
+				log.Infof("Volume %s is not eligible to be fake attached", req.VolumeId)
 			}
-
-			log.Infof("Volume %s is not eligible to be fake attached", req.VolumeId)
+			msg := fmt.Sprintf("failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
-		msg := fmt.Sprintf("failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
 
-	publishInfo := make(map[string]string)
-	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
-	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
-	resp := &csi.ControllerPublishVolumeResponse{
-		PublishContext: publishInfo,
-	}
+		publishInfo := make(map[string]string)
+		publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
+		publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
+		resp := &csi.ControllerPublishVolumeResponse{
+			PublishContext: publishInfo,
+		}
 
-	return resp, nil
+		return resp, nil
+	}
+	resp, err := controllerPublishVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateWCPControllerUnpublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
-
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
-		// Check if the volume was fake attached and unmark it as not fake attached
-		if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
-			msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	controllerUnpublishVolumeInternal := func() (
+		*csi.ControllerUnpublishVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+		err := validateWCPControllerUnpublishVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 			log.Error(msg)
 			return nil, err
 		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+			// Check if the volume was fake attached and unmark it as not fake attached
+			if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
+				msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
+				log.Error(msg)
+				return nil, err
+			}
+		}
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
-	return &csi.ControllerUnpublishVolumeResponse{}, nil
+	resp, err := controllerUnpublishVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
@@ -751,45 +782,60 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 // ControllerExpandVolume expands a volume.
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
-		msg := "ExpandVolume feature is disabled on the cluster"
-		log.Warn(msg)
-		return nil, status.Errorf(codes.Unimplemented, msg)
-	}
-	log.Infof("ControllerExpandVolume: called with args %+v", *req)
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	controllerExpandVolumeInternal := func() (
+		*csi.ControllerExpandVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
+			msg := "ExpandVolume feature is disabled on the cluster"
+			log.Warn(msg)
+			return nil, status.Errorf(codes.Unimplemented, msg)
+		}
+		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
-	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-	err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
+		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+		err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
+		if err != nil {
+			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+			return nil, err
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+		volumeID := req.GetVolumeId()
+		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+
+		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
+		if err != nil {
+			msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+
+		// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
+		// Volume expansion may succeed on CNS but external-resizer may fail to update API server.
+		// Requests are requeued in this case. Setting nodeExpandsionRequired to false marks PVC
+		// resize as finished which prevents kubelet from expanding the filesystem.
+		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
+		nodeExpansionRequired := true
+		// Set NodeExpansionRequired to false for raw block volumes
+		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+			nodeExpansionRequired = false
+		}
+		resp := &csi.ControllerExpandVolumeResponse{
+			CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
+			NodeExpansionRequired: nodeExpansionRequired,
+		}
+		return resp, nil
+	}
+	resp, err := controllerExpandVolumeInternal()
 	if err != nil {
-		log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
-		return nil, err
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	volumeID := req.GetVolumeId()
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-
-	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
-	if err != nil {
-		msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-
-	// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
-	// Volume expansion may succeed on CNS but external-resizer may fail to update API server.
-	// Requests are requeued in this case. Setting nodeExpandsionRequired to false marks PVC
-	// resize as finished which prevents kubelet from expanding the filesystem.
-	// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-	nodeExpansionRequired := true
-	// Set NodeExpansionRequired to false for raw block volumes
-	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-		nodeExpansionRequired = false
-	}
-	resp := &csi.ControllerExpandVolumeResponse{
-		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
-		NodeExpansionRequired: nodeExpansionRequired,
-	}
-	return resp, nil
+	return resp, err
 }
