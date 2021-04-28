@@ -35,7 +35,7 @@ require (
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	golang.org/x/sys v0.0.0-20210421221651-33663a62ff08 // indirect
+        golang.org/x/sys v0.0.0-20210426230700-d19ff857e887 // indirect
 	golang.org/x/text v0.3.5 // indirect
 	google.golang.org/grpc v1.27.1
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
@@ -56,6 +56,7 @@ require (
 replace (
 	github.com/go-logr/logr => github.com/go-logr/logr v0.3.0
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
+	golang.org/x/sys => golang.org/x/sys v0.0.0-20210426230700-d19ff857e887
 	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/api => k8s.io/api v0.20.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.20.5
