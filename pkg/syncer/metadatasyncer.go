@@ -49,6 +49,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -855,9 +856,9 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
 			}
 			// Query with empty selection. CNS returns only the volume ID from it's cache.
-			queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+			queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				log.Warnf("PVCUpdated: Failed to query volume metadata for volume %q with error %+v", volumeHandle, err)
+				log.Errorf("PVCUpdated: QueryVolume failed with err=%+v", err.Error())
 				return false, err
 			}
 			if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
@@ -998,9 +999,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
 		// QueryAll with no selection will return only the volume ID.
-		queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			log.Errorf("PVUpdated: QueryVolume failed. error: %+v", err)
+			log.Errorf("PVUpdated: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
 		if len(queryResult.Volumes) == 0 {
@@ -1107,9 +1108,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				},
 			},
 		}
-		queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			log.Errorf("PVDeleted: Failed to query volume metadata for volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
+			log.Error("PVDeleted: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
 		if queryResult != nil && len(queryResult.Volumes) == 1 && len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {

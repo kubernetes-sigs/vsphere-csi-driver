@@ -63,12 +63,16 @@ type Manager interface {
 	DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error
 	// UpdateVolumeMetadata updates a volume metadata given its spec.
 	UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error
-	// QueryVolume returns volumes matching the given filter.
-	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// QueryVolumeInfo calls the CNS QueryVolumeInfo API and return a task, from which CnsQueryVolumeInfoResult is extracted
 	QueryVolumeInfo(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error)
 	// QueryAllVolume returns all volumes matching the given filter and selection.
 	QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// QueryVolumeAsync returns CnsQueryResult matching the given filter by using CnsQueryAsync API. QueryVolumeAsync takes querySelection spec
+	// which helps to specify which fields have to be returned for the query entities. All volume fields would be returned as part of the CnsQueryResult
+	// if the querySelection parameters are not specified
+	QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// QueryVolume returns volumes matching the given filter.
+	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// RelocateVolume migrates volumes to their target datastore as specified in relocateSpecList
 	RelocateVolume(ctx context.Context, relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error)
 	// ExpandVolume expands a volume to a new size.
@@ -1015,4 +1019,63 @@ func (m *defaultManager) RetrieveVStorageObject(ctx context.Context, volumeID st
 	log.Infof("Successfully retrieved vStorageObject object for volumeID: %q", volumeID)
 	log.Debugf("vStorageObject for volumeID: %q is %+v", volumeID, vStorageObject)
 	return vStorageObject, nil
+}
+
+// QueryVolumeAsync returns volumes matching the given filter by using CnsQueryAsync API. QueryVolumeAsync takes querySelection spec which helps to specify which fields
+// for the query entities to be returned. All volume fields would be returned as part of the CnsQueryResult if the querySelection parameters are not specified
+func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("validateManager failed with err: %+v", err)
+		return nil, err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return nil, err
+	}
+	isvSphere70U3orAbove, err := cnsvsphere.IsvSphereVersion70U3orAbove(ctx, m.virtualCenter.Client.ServiceContent.About)
+	if err != nil {
+		msg := fmt.Sprintf("Error while checking the vSphere Version %q to invoke QueryVolumeAsync, Error= %+v", m.virtualCenter.Client.ServiceContent.About.Version, err)
+		log.Errorf(msg)
+		return nil, errors.New(msg)
+	}
+	if !isvSphere70U3orAbove {
+		msg := fmt.Sprintf("QueryVolumeAsync is not supported in vSphere Version %q", m.virtualCenter.Client.ServiceContent.About.Version)
+		log.Warnf(msg)
+		return nil, cnsvsphere.ErrNotSupported
+	}
+
+	// Call the CNS QueryVolumeAsync
+	queryVolumeAsyncTask, err := m.virtualCenter.CnsClient.QueryVolumeAsync(ctx, queryFilter, querySelection)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
+	queryVolumeAsyncTaskInfo, err := cns.GetTaskInfo(ctx, queryVolumeAsyncTask)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed to get TaskInfo with err: %v", err)
+		return nil, err
+	}
+	queryVolumeAsyncTaskResult, err := cns.GetTaskResult(ctx, queryVolumeAsyncTaskInfo)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed to get TaskResult with err: %v", err)
+		return nil, err
+	}
+	if queryVolumeAsyncTaskResult == nil {
+		log.Errorf("TaskResult is empty for QueryVolumeAsync task: %q, opID: %q", queryVolumeAsyncTaskInfo.Task.Value, queryVolumeAsyncTaskInfo.ActivationId)
+		return nil, errors.New("taskResult is empty")
+	}
+	volumeOperationRes := queryVolumeAsyncTaskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		msg := fmt.Sprintf("failed to query volumes using CnsQueryVolumeAsync, fault: %q, opID: %q", spew.Sdump(volumeOperationRes.Fault), queryVolumeAsyncTaskInfo.ActivationId)
+		log.Error(msg)
+		return nil, errors.New(msg)
+	}
+	queryVolumeAsyncResult := interface{}(queryVolumeAsyncTaskResult).(*cnstypes.CnsAsyncQueryResult)
+	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
+	log.Debugf("QueryVolumeAsync returned CnsQueryResult: %+v", spew.Sdump(queryVolumeAsyncResult.QueryResult))
+	return &queryVolumeAsyncResult.QueryResult, nil
 }

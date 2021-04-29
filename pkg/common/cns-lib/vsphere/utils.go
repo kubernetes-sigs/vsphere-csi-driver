@@ -27,8 +27,17 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
-const vsanDType = "vsanD"
-const defaultVCClientTimeoutInMinutes = 5
+const (
+	vsanDType                       = "vsanD"
+	defaultVCClientTimeoutInMinutes = 5
+	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere version to use query volume async API
+	VSphere70u3Version int = 703
+)
+
+var (
+	// ErrNotSupported represents not supported error
+	ErrNotSupported = errors.New("not supported")
+)
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin
 func IsInvalidCredentialsError(err error) bool {
@@ -395,4 +404,30 @@ func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host
 	}
 	log.Debugf("vCenter version is :%q", vc.Client.Version)
 	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
+}
+
+// IsvSphereVersion70U3orAbove checks if specified version is 7.0 Update 3 or higher
+// The method takes aboutInfo{} as input which contains details about
+// VC version, build number and so on.
+// If the version is 7.0 Update 3 or higher, the method returns true, else returns false
+// along with appropriate errors during failure cases
+func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.Version, ".")
+	version := strings.Join(items[:], "")
+	// Convert version string to string, Ex: "7.0.3" becomes 703, "7.0.3.1" becomes 703
+	if len(version) >= 3 {
+		vSphereVersionInt, err := strconv.Atoi(version[0:3])
+		if err != nil {
+			msg := fmt.Sprintf("error while converting version %q to integer, err %+v", version, err)
+			log.Errorf(msg)
+			return false, errors.New(msg)
+		}
+		// Check if the current vSphere version is 7.0.3 or higher
+		if vSphereVersionInt >= VSphere70u3Version {
+			return true, nil
+		}
+	}
+	// For all other versions
+	return false, nil
 }

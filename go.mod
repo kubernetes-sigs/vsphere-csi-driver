@@ -28,7 +28,7 @@ require (
 	github.com/spf13/viper v1.7.1
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
-	github.com/vmware/govmomi v0.24.1
+	github.com/vmware/govmomi v0.25.1-0.20210423021950-c00437518152
 	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0
 	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
