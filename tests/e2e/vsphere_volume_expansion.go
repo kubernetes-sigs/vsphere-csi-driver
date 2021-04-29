@@ -1378,7 +1378,8 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 
 	if guestCluster {
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
-		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	// Delete POD
@@ -1577,7 +1578,8 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	if guestCluster {
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
-		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	// Delete POD
@@ -1995,7 +1997,8 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 
 	if guestCluster {
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
-		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
+		_, err = waitForFSResizeInSvc(svcPVCName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	ginkgo.By(fmt.Sprintf("File system resize finished successfully to %d", fsSize))
