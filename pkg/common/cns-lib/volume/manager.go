@@ -557,6 +557,11 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
+			_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
+			if isNotFoundFault {
+				log.Infof("VolumeID: %q, not found. Returning success for this operation since the volume is not present", volumeID)
+				return nil
+			}
 			msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q", volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 			log.Error(msg)
 			return errors.New(msg)
