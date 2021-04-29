@@ -285,12 +285,12 @@ func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 		return vcdcMap, err
 	}
 	if len(vcdcListMap) != 1 {
-		return vcdcMap, fmt.Errorf("Found more than one vCenter instance. WCP Cluster can be deployed in only one VC")
+		return vcdcMap, fmt.Errorf("found more than one vCenter instance. WCP Cluster can be deployed in only one VC")
 	}
 
 	for vcHost, dcList := range vcdcListMap {
 		if len(dcList) > 1 {
-			return vcdcMap, fmt.Errorf("Found more than one datacenter instances: %+v for vcHost: %s. WCP Cluster can be deployed in only one datacenter", dcList, vcHost)
+			return vcdcMap, fmt.Errorf("found more than one datacenter instances: %+v for vcHost: %s. WCP Cluster can be deployed in only one datacenter", dcList, vcHost)
 		}
 		vcdcMap[vcHost] = dcList[0]
 	}
@@ -311,7 +311,7 @@ func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, err
 		}
 	}
 	if len(vcdcMap) == 0 {
-		err = errors.New("Unable get vCenter datacenters from vsphere config")
+		err = errors.New("unable get vCenter datacenters from vsphere config")
 	}
 	return vcdcMap, err
 }
@@ -347,26 +347,26 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		return "", fmt.Errorf("Failed to get Kubernetes config. Err: %+v", err)
+		return "", fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
 	}
 
 	// create a new StoragePool client
 	spclient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		return "", fmt.Errorf("Failed to create StoragePool client using config. Err: %+v", err)
+		return "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName
 	sp, err := spclient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("Failed to get StoragePool with name %s: %+v", spName, err)
+		return "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
 	// extract the datastoreUrl field
 	datastoreURL, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", "datastoreUrl")
 	if !found || err != nil {
-		return "", fmt.Errorf("Failed to find datastoreUrl in StoragePool %s", spName)
+		return "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
 	}
 	return datastoreURL, nil
 }

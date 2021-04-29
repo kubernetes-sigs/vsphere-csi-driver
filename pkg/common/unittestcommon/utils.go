@@ -47,7 +47,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 		}
 		return fakeCO, nil
 	}
-	return nil, fmt.Errorf("Unrecognized CO type")
+	return nil, fmt.Errorf("unrecognized CO type")
 
 }
 

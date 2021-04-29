@@ -29,10 +29,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -92,9 +92,9 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Create CnsNodeVmAttachment CRD
 		crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-		crdNameNodeVMAttachment := apis.CnsNodeVMAttachmentPlural + "." + apis.SchemeGroupVersion.Group
-		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameNodeVMAttachment, apis.CnsNodeVMAttachmentSingular, apis.CnsNodeVMAttachmentPlural,
-			crdKindNodeVMAttachment, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+		crdNameNodeVMAttachment := cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural + "." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
+		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameNodeVMAttachment, cnsoperatorv1alpha1.CnsNodeVMAttachmentSingular, cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural,
+			crdKindNodeVMAttachment, cnsoperatorv1alpha1.SchemeGroupVersion.Group, cnsoperatorv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 		if err != nil {
 			log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVMAttachment, err)
 			return err
@@ -102,10 +102,10 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 		// Create CnsVolumeMetadata CRD
 		crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
-		crdNameVolumeMetadata := apis.CnsVolumeMetadataPlural + "." + apis.SchemeGroupVersion.Group
+		crdNameVolumeMetadata := cnsoperatorv1alpha1.CnsVolumeMetadataPlural + "." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
 
-		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameVolumeMetadata, apis.CnsVolumeMetadataSingular, apis.CnsVolumeMetadataPlural,
-			crdKindVolumeMetadata, apis.SchemeGroupVersion.Group, apis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameVolumeMetadata, cnsoperatorv1alpha1.CnsVolumeMetadataSingular, cnsoperatorv1alpha1.CnsVolumeMetadataPlural,
+			crdKindVolumeMetadata, cnsoperatorv1alpha1.SchemeGroupVersion.Group, cnsoperatorv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
 		if err != nil {
 			log.Errorf("failed to create %q CRD. Err: %+v", crdKindVolumeMetadata, err)
 			return err
@@ -114,7 +114,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		// Create CnsRegisterVolume CRD from manifest
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsregistervolume_crd.yaml")
 		if err != nil {
-			log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsRegisterVolumePlural, err)
+			log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsRegisterVolumePlural, err)
 			return err
 		}
 
@@ -129,7 +129,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			// Create CnsFileAccessConfig CRD from manifest if file volume feature is enabled
 			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfileaccessconfig_crd.yaml")
 			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", apis.CnsFileAccessConfigPlural, err)
+				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
 				return err
 			}
 			// Create FileVolumeClients CRD from manifest if file volume feature is enabled

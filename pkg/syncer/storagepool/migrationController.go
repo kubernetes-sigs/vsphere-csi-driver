@@ -32,7 +32,6 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
@@ -67,7 +66,7 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	if !found || err != nil {
 		return fmt.Errorf("failed to find datastoreUrl in StoragePool %s", targetSPName)
 	}
-	dsInfo, err := vsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterID, datastoreURL)
+	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterID, datastoreURL)
 	if err != nil {
 		return fmt.Errorf("failed to get datastore corressponding to URL %v", datastoreURL)
 	}
