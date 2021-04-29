@@ -117,26 +117,26 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 func CheckAPI(version string) error {
 	items := strings.Split(version, ".")
 	if len(items) < 2 || len(items) > 4 {
-		return fmt.Errorf("Invalid API Version format")
+		return fmt.Errorf("invalid API Version format")
 	}
 	major, err := strconv.Atoi(items[0])
 	if err != nil {
-		return fmt.Errorf("Invalid Major Version value")
+		return fmt.Errorf("invalid Major Version value")
 	}
 	minor, err := strconv.Atoi(items[1])
 	if err != nil {
-		return fmt.Errorf("Invalid Minor Version value")
+		return fmt.Errorf("invalid Minor Version value")
 	}
 
 	if major < MinSupportedVCenterMajor || (major == MinSupportedVCenterMajor && minor < MinSupportedVCenterMinor) {
-		return fmt.Errorf("The minimum supported vCenter is 6.7.3")
+		return fmt.Errorf("the minimum supported vCenter is 6.7.3")
 	}
 
 	if major == MinSupportedVCenterMajor && minor == MinSupportedVCenterMinor {
 		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
 			if err != nil || patch < MinSupportedVCenterPatch {
-				return fmt.Errorf("Invalid patch version value")
+				return fmt.Errorf("invalid patch version value")
 			}
 		}
 	}

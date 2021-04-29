@@ -23,8 +23,9 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 go get honnef.co/go/tools/cmd/staticcheck
-CMD=$(go list -f \{\{\.Target\}\} honnef.co/go/tools/cmd/staticcheck)
 
-CHECKS="all,-ST1*"
+# shellcheck disable=SC2046
+# shellcheck disable=SC1083
+$(go env GOPATH)/bin/staticcheck $(go list ./... | grep -v /vendor/)
 
-"${CMD}" -checks "${CHECKS}" ./...
+

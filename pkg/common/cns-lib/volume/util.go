@@ -34,7 +34,7 @@ func validateManager(ctx context.Context, m *defaultManager) error {
 	if m.virtualCenter == nil {
 		log.Error(
 			"Virtual Center connection not established")
-		return errors.New("Virtual Center connection not established")
+		return errors.New("virtual Center connection not established")
 	}
 	return nil
 }

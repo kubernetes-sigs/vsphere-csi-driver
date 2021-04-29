@@ -128,12 +128,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(queryResult.Volumes) == 0 {
-			err = fmt.Errorf("Error: QueryCNSVolumeWithResult returned no volume")
+			err = fmt.Errorf("error: QueryCNSVolumeWithResult returned no volume")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verifying disk is created on the specified datastore")
 		if queryResult.Volumes[0].DatastoreUrl != datastoreURL {
-			err = fmt.Errorf("Disk is created on the wrong datastore")
+			err = fmt.Errorf("disk is created on the wrong datastore")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -149,12 +149,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(queryResult.Volumes) == 0 {
-			err = fmt.Errorf("Error: QueryCNSVolumeWithResult returned no volume")
+			err = fmt.Errorf("error: QueryCNSVolumeWithResult returned no volume")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verifying disk is relocated to the specified datastore")
 		if queryResult.Volumes[0].DatastoreUrl != destDsURL {
-			err = fmt.Errorf("Disk is relocated on the wrong datastore")
+			err = fmt.Errorf("disk is relocated on the wrong datastore")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})

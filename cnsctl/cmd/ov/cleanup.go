@@ -13,13 +13,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package ov
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"os"
+
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // cleanupCmd represents the cleanup command
@@ -38,6 +40,7 @@ var cleanupCmd = &cobra.Command{
 	},
 }
 
+// InitCleanup help initialize cleanupCmd
 func InitCleanup() {
 	cleanupCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"), "comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
 	cleanupCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")

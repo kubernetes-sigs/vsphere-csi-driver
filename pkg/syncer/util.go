@@ -14,7 +14,6 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -205,13 +204,13 @@ func isValidvSphereVolumeClaim(ctx context.Context, pvcMetadata metav1.ObjectMet
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the PVC metadata
 	if annotation, annMigratedToFound := pvcMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
-		if annotation == types.Name && pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
-			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnMigratedTo, types.Name, pvcMetadata.Name)
+		if annotation == csitypes.Name && pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnMigratedTo, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	} else { // Checking if the PVC was provisioned by CSI
-		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == types.Name {
-			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnStorageProvisioner, types.Name, pvcMetadata.Name)
+		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == csitypes.Name {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnStorageProvisioner, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	}
@@ -225,13 +224,13 @@ func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) boo
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the PV metadata
 	if annotation, annMigratedToFound := pvMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
-		if annotation == types.Name && pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
-			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnMigratedTo, types.Name, pvMetadata.Name)
+		if annotation == csitypes.Name && pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnMigratedTo, csitypes.Name, pvMetadata.Name)
 			return true
 		}
 	} else {
-		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == types.Name {
-			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnDynamicallyProvisioned, types.Name, pvMetadata.Name)
+		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == csitypes.Name {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnDynamicallyProvisioned, csitypes.Name, pvMetadata.Name)
 			return true
 		}
 	}

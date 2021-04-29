@@ -25,7 +25,6 @@ import (
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,7 +36,7 @@ import (
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client, vmName string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
-	vmKey := types.NamespacedName{
+	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
 		Name:      vmName,
 	}

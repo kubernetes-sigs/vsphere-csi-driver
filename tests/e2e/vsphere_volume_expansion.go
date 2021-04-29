@@ -1011,7 +1011,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(12288)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("Received wrong disk size after volume expansion. Expected: %d Actual: %d", newSizeInMb, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb)
+		err = fmt.Errorf("received wrong disk size after volume expansion. Expected: %d Actual: %d", newSizeInMb, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1316,7 +1316,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(3072)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("Got wrong disk size after volume expansion")
+		err = fmt.Errorf("got wrong disk size after volume expansion")
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1535,7 +1535,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(3072)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("Got wrong disk size after volume expansion")
+		err = fmt.Errorf("got wrong disk size after volume expansion")
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1937,7 +1937,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(12288)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("Received wrong disk size after volume expansion. Expected: %d Actual: %d", newSizeInMb, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb)
+		err = fmt.Errorf("received wrong disk size after volume expansion. Expected: %d Actual: %d", newSizeInMb, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

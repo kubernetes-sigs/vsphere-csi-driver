@@ -25,8 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	k8stypes "k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -68,7 +67,7 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	// TODO:
 	// Enhancements to use informers instead of API server invocations is tracked here:
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/599
-	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	err := client.Get(ctx, apitypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
 	if err != nil {
 		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 			pvcName, namespace, err)
@@ -77,7 +76,7 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 
 	// Get PV by name
 	pv := &v1.PersistentVolume{}
-	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
+	err = client.Get(ctx, apitypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
 	if err != nil {
 		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
 			pvc.Spec.VolumeName, pvcName, err)
@@ -92,7 +91,7 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	log := logger.GetLogger(ctx)
 	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
 	virtualMachineInstance := &vmoperatortypes.VirtualMachine{}
-	vmKey := types.NamespacedName{
+	vmKey := apitypes.NamespacedName{
 		Namespace: vmNamespace,
 		Name:      vmName,
 	}
