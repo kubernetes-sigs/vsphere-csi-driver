@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

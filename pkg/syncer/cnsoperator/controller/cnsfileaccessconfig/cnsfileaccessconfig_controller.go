@@ -474,7 +474,7 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context, vm *
 	}
 	var nsxConfiguration bool
 	if networkProvider == "" {
-		return "", errors.New("Unable to find network provider information")
+		return "", errors.New("unable to find network provider information")
 	}
 	if networkProvider == cnsoperatorutil.NSXTNetworkProvider {
 		nsxConfiguration = true

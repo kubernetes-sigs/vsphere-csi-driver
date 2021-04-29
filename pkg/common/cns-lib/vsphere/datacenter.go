@@ -76,7 +76,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 				dc}, nil
 		}
 	}
-	err = fmt.Errorf("Couldn't find Datastore given URL %q", datastoreURL)
+	err = fmt.Errorf("couldn't find Datastore given URL %q", datastoreURL)
 	log.Error(err)
 	return nil, err
 }

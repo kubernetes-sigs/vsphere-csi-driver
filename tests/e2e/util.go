@@ -38,10 +38,8 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
-	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -65,7 +63,6 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -177,7 +174,7 @@ func getVMUUIDFromNodeName(nodeName string) (string, error) {
 
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the one is CNS cache
 func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string, PersistentVolumeClaimName string, PersistentVolumeName string,
-	PodName string, Labels ...types.KeyValue) error {
+	PodName string, Labels ...vim25types.KeyValue) error {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return err
@@ -443,7 +440,7 @@ func getDatastoreByURL(ctx context.Context, datastoreURL string, dc *object.Data
 		framework.Logf("failed to get all the datastores. err: %+v", err)
 		return nil, err
 	}
-	var dsList []types.ManagedObjectReference
+	var dsList []vim25types.ManagedObjectReference
 	for _, ds := range datastores {
 		dsList = append(dsList, ds.Reference())
 	}
@@ -463,7 +460,7 @@ func getDatastoreByURL(ctx context.Context, datastoreURL string, dc *object.Data
 				dsMo.Reference()), nil
 		}
 	}
-	err = fmt.Errorf("Couldn't find Datastore given URL %q", datastoreURL)
+	err = fmt.Errorf("couldn't find Datastore given URL %q", datastoreURL)
 	return nil, err
 }
 
@@ -669,7 +666,7 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 // match the topology constraints specified in the storage class
 func verifyVolumeTopology(pv *v1.PersistentVolume, zoneValues []string, regionValues []string) (string, string, error) {
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
-		return "", "", fmt.Errorf("Node Affinity rules for PV should exist in topology aware provisioning")
+		return "", "", fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
 	}
 	var pvZone string
 	var pvRegion string
@@ -718,7 +715,7 @@ func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, err
 			return podRegion, podZone, nil
 		}
 	}
-	err := errors.New("Could not find the topology from pod")
+	err := errors.New("could not find the topology from pod")
 	return "", "", err
 }
 
@@ -1455,11 +1452,11 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 }
 
 //Get CNS register volume
-func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *v1alpha1.CnsRegisterVolume) *v1alpha1.CnsRegisterVolume {
+func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) *cnsregistervolumev1alpha1.CnsRegisterVolume {
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cns := &v1alpha1.CnsRegisterVolume{}
+	cns := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegisterVolume.Name, Namespace: cnsRegisterVolume.Namespace}, cns)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1467,7 +1464,7 @@ func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cn
 }
 
 // Update CNS register volume
-func updateCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *v1alpha1.CnsRegisterVolume) *v1alpha1.CnsRegisterVolume {
+func updateCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config, cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) *cnsregistervolumev1alpha1.CnsRegisterVolume {
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1647,7 +1644,7 @@ func getPersistentVolumeSpecFromVolume(volumeID string, persistentVolumeReclaimP
 }
 
 // DeleteStatefulPodAtIndex deletes pod given index in the desired statefulset
-func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *apps.StatefulSet) {
+func DeleteStatefulPodAtIndex(client clientset.Interface, index int, ss *appsv1.StatefulSet) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	name := fmt.Sprintf("%v-%v", ss.Name, index)
@@ -2032,7 +2029,7 @@ func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface, na
 		}
 		framework.Logf("Get namespace %s is failed, ignoring for %v: %v", namespaceToDelete, Poll, err)
 	}
-	return fmt.Errorf("Namespace %s still exists within %v", namespaceToDelete, timeout)
+	return fmt.Errorf("namespace %s still exists within %v", namespaceToDelete, timeout)
 }
 
 // waitForCNSRegisterVolumeToGetCreated waits for a cnsRegisterVolume to get created or until timeout occurs, whichever comes first.
@@ -2258,7 +2255,7 @@ func getPersistentVolumeClaimSpecForFileShare(namespace string, labels map[strin
 }
 
 //deleteFcdWithRetriesForSpecificErr method to retry fcd deletion when a specific error is encountered
-func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference, errsToIgnore []string, errsToContinue []string) error {
+func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef vim25types.ManagedObjectReference, errsToIgnore []string, errsToContinue []string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll*15, pollTimeout, func() (bool, error) {
 		framework.Logf("Trying to delete FCD: %s", fcdID)

@@ -312,7 +312,7 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				}
 			}
 			if len(datastores) == 0 {
-				msg := "No file service enabled vsan datastore is present in the environment."
+				msg := "no file service enabled vsan datastore is present in the environment"
 				log.Error(msg)
 				return "", errors.New(msg)
 			}
