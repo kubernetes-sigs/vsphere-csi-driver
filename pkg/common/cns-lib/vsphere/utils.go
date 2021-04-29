@@ -181,10 +181,10 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
 		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
 		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
-			return nil, errors.New("Invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
+			return nil, errors.New("invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
 		}
 		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
-			err = errors.New("Non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
+			err = errors.New("non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
 			return nil, err
 		}
 	}
@@ -199,7 +199,7 @@ func GetVcenterIPs(cfg *config.Config) ([]string, error) {
 		vCenterIPs = append(vCenterIPs, key)
 	}
 	if len(vCenterIPs) == 0 {
-		err = errors.New("Unable get vCenter Hosts from VSphereConfig")
+		err = errors.New("unable get vCenter Hosts from VSphereConfig")
 	}
 	return vCenterIPs, err
 }
@@ -259,7 +259,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 	restClient := rest.NewClient(vc.Client.Client)
 	signer, err := signer(ctx, vc.Client.Client, vc.Config.Username, vc.Config.Password)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create the Signer. Error: %v", err)
+		return nil, fmt.Errorf("failed to create the Signer. Error: %v", err)
 	}
 	if signer == nil {
 		user := url.UserPassword(vc.Config.Username, vc.Config.Password)
@@ -268,7 +268,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 		err = restClient.LoginByToken(restClient.WithSigner(ctx, signer))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("Failed to login for the rest client. Error: %v", err)
+		return nil, fmt.Errorf("failed to login for the rest client. Error: %v", err)
 	}
 	tagManager := tags.NewManager(restClient)
 	if tagManager == nil {
@@ -284,16 +284,16 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	// get all the vsan direct datastore urls in this VC; and later filter in this cluster
 	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get vSAN Direct VMFS datastores. Err: %+v", err)
+		return nil, nil, fmt.Errorf("failed to get vSAN Direct VMFS datastores. Err: %+v", err)
 	}
 
 	// find datastores shared across all hosts in given cluster
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get hosts from VC. Err: %+v", err)
+		return nil, nil, fmt.Errorf("failed to get hosts from VC. Err: %+v", err)
 	}
 	if len(hosts) == 0 {
-		return nil, nil, fmt.Errorf("Empty List of hosts returned from VC")
+		return nil, nil, fmt.Errorf("empty List of hosts returned from VC")
 	}
 	sharedDatastores := make([]*DatastoreInfo, 0)
 	vsanDirectDatastores := make([]*DatastoreInfo, 0)
@@ -330,7 +330,7 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		}
 	}
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
-		return nil, nil, fmt.Errorf("No candidates datastores found in the Kubernetes cluster")
+		return nil, nil, fmt.Errorf("no candidates datastores found in the Kubernetes cluster")
 	}
 	return sharedDatastores, vsanDirectDatastores, nil
 }

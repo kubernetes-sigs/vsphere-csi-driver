@@ -13,13 +13,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package ov
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"os"
+
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var datastores, cfgFile string
@@ -37,6 +39,7 @@ var lsCmd = &cobra.Command{
 	},
 }
 
+// InitLs helps initialize lsCmd
 func InitLs() {
 	lsCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"), "comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
 	lsCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "comma-separated kubeconfig file(s) (alternatively use CNSCTL_KUBECONFIG env variable)")
