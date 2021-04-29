@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		pvcDeleted        bool
 		cmd               []string
 		svcClient         clientset.Interface
+		svNamespace       string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		//Set resource quota
 		ginkgo.By("Set Resource quota for GC")
-		svcClient, svNamespace := getSvcClientAndNamespace()
+		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 
 		// Create Storage class and PVC
@@ -119,7 +120,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcClient, svNamespace := getSvcClientAndNamespace()
+		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
