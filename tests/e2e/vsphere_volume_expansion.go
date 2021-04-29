@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		6. Modify PVC to be a smaller size.
 		7. Verify that the PVC size does not change because volume shrinking is not supported.
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion shrinking volume not allowed", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Verify online volume expansion shrinking volume not allowed", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -429,7 +429,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			8. Verify the PVC Size should increased by 10Gi
 			9. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion multiple times on the same PVC", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Verify online volume expansion multiple times on the same PVC", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -484,7 +484,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion when VSAN-health is down", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Verify online volume expansion when VSAN-health is down", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -492,6 +492,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var originalSizeInMb, fsSize int64
 		var err error
+		var expectedErrMsg string
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
@@ -553,7 +554,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("File system resize should not succeed Since Vsan-health is down. Expect an error")
-		expectedErrMsg := "503 Service Unavailable"
+		if guestCluster {
+			expectedErrMsg = "didn't find a plugin capable of expanding the volume"
+		} else {
+			expectedErrMsg = "503 Service Unavailable"
+		}
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -595,7 +600,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion when SPS-Service is down ", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Verify online volume expansion when SPS-Service is down", func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -603,6 +608,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var originalSizeInMb, fsSize int64
 		var err error
+		var expectedErrMsg string
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, "", storagePolicyName, namespace)
 		defer func() {
@@ -664,7 +670,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("File system resize should not succeed Since SPS service is down. Expect an error")
-		expectedErrMsg := "failed to expand volume"
+		if guestCluster {
+			expectedErrMsg = "didn't find a plugin capable of expanding the volume"
+		} else {
+			expectedErrMsg = "failed to expand volume"
+		}
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1208,7 +1218,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		newSize.Add(resource.MustParse("10Gi"))
 		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
 		_, err = expandPVCSize(pvclaim, newSize, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
@@ -1652,6 +1662,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
+	var volHandle string
 
 	if vanillaCluster {
 		if dsurl != "" {
@@ -1681,7 +1692,13 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework, client
 	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pv := persistentvolumes[0]
-	volHandle := pv.Spec.CSI.VolumeHandle
+
+	if guestCluster {
+		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+	} else {
+		volHandle = pv.Spec.CSI.VolumeHandle
+	}
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 	return volHandle, pvclaims[0], pv, storageclass
 
