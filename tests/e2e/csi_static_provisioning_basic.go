@@ -1479,7 +1479,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		ginkgo.By("Creating FCD (CNS Volume)")
-		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteFCDRequired = false
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", pandoraSyncWaitTime, fcdID))
@@ -1504,7 +1504,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("Volume Handle :%s", volumeHandle)
 
 		ginkgo.By("Creating PV in guest cluster")
-		gcPV := getPersistentVolumeSpecWithStorageclass(volumeHandle, v1.PersistentVolumeReclaimRetain, storageclass.Name, nil)
+		gcPV := getPersistentVolumeSpecWithStorageclass(volumeHandle, v1.PersistentVolumeReclaimRetain, storageclass.Name, nil, diskSize)
 		gcPV, err = client.CoreV1().PersistentVolumes().Create(ctx, gcPV, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1513,17 +1513,14 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("PV name in GC : %s", gcPVName)
 
 		ginkgo.By("Creating PVC in guest cluster")
-		gcPVC := getPVCSpecWithPVandStorageClass(svpvcName, "default", nil, gcPVName, storageclass.Name)
+		gcPVC := getPVCSpecWithPVandStorageClass(svpvcName, "default", nil, gcPVName, storageclass.Name, diskSize)
 		gcPVC, err = client.CoreV1().PersistentVolumeClaims("default").Create(ctx, gcPVC, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		time.Sleep(time.Duration(10) * time.Second)
-		framework.Logf("PVC name in GC : %s", gcPVC.GetName())
-		//TODO: add volume health check after PVC creation
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, "default", gcPVC.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("PVC name in GC : %s", gcPVC.GetName())
 
 		ginkgo.By("Creating pod")
 		pod, err := createPod(client, "default", nil, []*v1.PersistentVolumeClaim{gcPVC}, false, "")
@@ -1534,8 +1531,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Wait for 3 minutes for the pod to get terminated successfully")
-		time.Sleep(supervisorClusterOperationsTimeout)
 
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
