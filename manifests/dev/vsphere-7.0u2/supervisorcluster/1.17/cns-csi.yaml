@@ -306,6 +306,7 @@ data:
   "volume-health": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "false"
+  "fake-attach": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
