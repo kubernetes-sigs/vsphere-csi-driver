@@ -48,13 +48,18 @@ func IsNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
-// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault, if yes then returns true else return false
-func IsManagedObjectNotFound(err error) bool {
-	isNotFoundError := false
+// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault,
+// if yes then checks ManagedObjectNotFound thrown for the the intended object, if yes return true else return false
+func IsManagedObjectNotFound(err error, moRef types.ManagedObjectReference) bool {
 	if soap.IsSoapFault(err) {
-		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
+		fault, isNotFoundError := soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
+		if isNotFoundError {
+			if fault.Obj.Type == moRef.Type && fault.Obj.Value == moRef.Value {
+				return true
+			}
+		}
 	}
-	return isNotFoundError
+	return false
 }
 
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject object from given parameters
