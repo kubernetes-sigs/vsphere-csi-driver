@@ -13,23 +13,24 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package cmd
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
 	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd/ov"
 	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd/ova"
 )
 
-
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:     "cnsctl",
-	Short:   "CLI tool for CNS-CSI.",
-	Long:    "A fast CLI based tool for storage operations on Cloud Native Storage solution in VMware vSphere.",
+	Use:   "cnsctl",
+	Short: "CLI tool for CNS-CSI.",
+	Long:  "A fast CLI based tool for storage operations on Cloud Native Storage solution in VMware vSphere.",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -41,7 +42,7 @@ func Execute() {
 	}
 }
 
-func InitViper() {
+func initViper() {
 	viper.SetEnvPrefix("cnsctl")
 	err := viper.BindEnv("datacenter")
 	if err != nil {
@@ -61,8 +62,9 @@ func InitViper() {
 	viper.AutomaticEnv() // read in environment variables that match
 }
 
+// InitRoot helps initialize cntctl packages
 func InitRoot(version string) {
-	InitViper()
+	initViper()
 	rootCmd.Version = version
 	ov.InitOv(rootCmd)
 	ova.InitOva(rootCmd)

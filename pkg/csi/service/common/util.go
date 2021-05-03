@@ -216,7 +216,7 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 			} else if param == AttributeFsType {
 				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 			} else {
-				return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
+				return nil, fmt.Errorf("invalid param: %q and value: %q", param, value)
 			}
 		}
 	} else {

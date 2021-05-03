@@ -13,13 +13,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package ova
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"os"
+
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var cfgFile string
@@ -36,6 +38,7 @@ var lsCmd = &cobra.Command{
 	},
 }
 
+// InitLs helps initialize lsCmd
 func InitLs() {
 	lsCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")
 	lsCmd.PersistentFlags().BoolVarP(&all, "all", "a", false, "Show orphan and used volume attachment CRs in the Kubernetes cluster")

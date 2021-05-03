@@ -13,13 +13,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package ov
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
 )
 
 var datastore string
@@ -41,6 +43,7 @@ var rmCmd = &cobra.Command{
 	},
 }
 
+// InitRm helps initialize rmCmd
 func InitRm() {
 	rmCmd.PersistentFlags().StringVarP(&datastore, "datastore", "d", "", "a single datastore name")
 	rmCmd.PersistentFlags().BoolVarP(&forceDelete, "force", "f", false, "force delete the volume")
