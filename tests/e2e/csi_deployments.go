@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -28,7 +27,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
 var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployments", func() {
@@ -44,6 +42,7 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		pvclaims          []*v1.PersistentVolumeClaim
 		pvclaim           *v1.PersistentVolumeClaim
 		sc                *storagev1.StorageClass
+		svNamespace       string
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -51,6 +50,11 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
+
+		ginkgo.By("Set Resource Quota")
+		svcClient, svNamespace = getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageclassname, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
@@ -63,16 +67,14 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("Delete Resource Quota")
-		deleteResourceQuota(client, namespace)
+		ginkgo.By("Modify Resource Quota")
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 
 		if pvclaim != nil {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		ginkgo.By(fmt.Sprintf("Deleting deployments in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
 
 	})
 
@@ -101,9 +103,6 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
-
-		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, storageclassname)
 
 		ginkgo.By("Creating StorageClass for Deployment")
 		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
@@ -166,13 +165,10 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		maxReplica = 0
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
-
-		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, storageclassname)
+		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating StorageClass for Deployment")
-		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "100Mi", nil, "", false, "")
+		sc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
