@@ -116,11 +116,13 @@ const (
 	startOperation                             = "start"
 	stopOperation                              = "stop"
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
+	svClusterDistribution                      = "SupervisorCluster"
 	svOperationTimeout                         = 240 * time.Second
 	svStorageClassName                         = "SVStorageClass"
 	totalResizeWaitPeriod                      = 10 * time.Minute
+	tkgClusterDistribution                     = "TKGService"
 	vanillaClusterDistribution                 = "CSI-Vanilla"
-	vanillaClusterDirtributionWithSpecialChar  = "CSI-\tVanilla-#Test"
+	vanillaClusterDistributionWithSpecialChar  = "CSI-\tVanilla-#Test"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
