@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (
@@ -127,6 +128,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.authMgr = authMgr
 		// TODO: Invoke similar method for block volumes
 		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+	}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency) {
+		log.Infof("CSI Volume manager idempotency handling feature flag is enabled.")
+		// TODO: Assign VolumeOperationRequest object to a variable
+		_, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return err
+		}
 	}
 	go func() {
 		for {

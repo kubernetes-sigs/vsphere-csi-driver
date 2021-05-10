@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
+	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 const (
@@ -167,6 +168,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			return nil, err
 		}
 		err = internalapis.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
+		err = cnsvolumeoperationrequestv1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
@@ -372,9 +378,9 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 		return nil
 	}
 
-	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crd.Name)
+	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crdName)
 	if err != nil {
-		log.Errorf("CRD %q created but failed to establish. Err: %+v", crd.Name, err)
+		log.Errorf("CRD %q created but failed to establish. Err: %+v", crdName, err)
 	}
 	return err
 }
