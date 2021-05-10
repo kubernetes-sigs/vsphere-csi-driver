@@ -46,6 +46,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.20.5
 	k8s.io/apimachinery v0.20.5
 	k8s.io/client-go v0.20.5
+	k8s.io/kubectl v0.0.0
 	k8s.io/kubernetes v1.20.5
 	k8s.io/mount-utils v0.20.5
 	k8s.io/sample-controller v0.20.5

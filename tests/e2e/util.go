@@ -55,6 +55,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
@@ -2075,7 +2076,7 @@ func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var k8sMasterIP string
 	for _, node := range nodes.Items {
-		if strings.Contains(node.Name, "master") {
+		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
 				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
@@ -2141,6 +2142,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, 
 	return err
 }
 
+//sshExec runs a command on the host via ssh
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
 	result := fssh.Result{Host: host, Cmd: cmd}
 	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
@@ -2299,9 +2301,11 @@ func getDefaultDatastore(ctx context.Context) *object.Datastore {
 			defaultDatacenter, err := finder.Datacenter(ctx, dc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
+			framework.Logf("Looking for default datastore in DC: " + dc)
 			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			if err == nil {
+				framework.Logf("Datstore found for DS URL:" + datastoreURL)
 				break
 			}
 		}
@@ -2347,4 +2351,123 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 	} else {
 		framework.Logf("Cluster-distribution value is already as expected, no changes done. Value is %s", cfg.Global.ClusterDistribution)
 	}
+}
+
+//toggleCSIMigrationFeatureGatesOnK8snodes to toggle CSI migration feature gates on kublets for worker nodes
+func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool) {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, node := range nodes.Items {
+		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+			continue
+		}
+		dh := drain.Helper{
+			Ctx:                 ctx,
+			Client:              client,
+			Force:               true,
+			IgnoreAllDaemonSets: true,
+			Out:                 ginkgo.GinkgoWriter,
+			ErrOut:              ginkgo.GinkgoWriter,
+		}
+		ginkgo.By("Cordoning of node: " + node.Name)
+		err = drain.RunCordonOrUncordon(&dh, &node, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Draining of node: " + node.Name)
+		err = drain.RunNodeDrain(&dh, node.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Modifying feature gates in kubelet config yaml of node: " + node.Name)
+		nodeIP := getK8sNodeIP(&node)
+		toggleCSIMigrationFeatureGatesOnkublet(ctx, client, nodeIP, shouldEnable)
+		ginkgo.By("Wait for feature gates update on the k8s CSI node: " + node.Name)
+		err = waitForCSIMigrationFeatureGatesToggleOnkublet(ctx, client, node.Name, shouldEnable)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Uncordoning of node: " + node.Name)
+		err = drain.RunCordonOrUncordon(&dh, &node, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+//waitForCSIMigrationFeatureGatesToggleOnkublet wait for CSIMigration Feature Gates toggle result on the csinode
+func waitForCSIMigrationFeatureGatesToggleOnkublet(ctx context.Context, client clientset.Interface, nodeName string, added bool) error {
+	var found bool
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		csinode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		found = false
+		for annotation, value := range csinode.Annotations {
+			if annotation == migratedPluginAnnotation && value == vcpProvisionerName {
+				found = true
+				break
+			}
+		}
+		if added && found {
+			return true, nil
+		}
+		if !added && !found {
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+//toggleCSIMigrationFeatureGatesOnkublet adds/remove CSI migration feature gates to kubelet config yaml in given k8s node
+func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context, client clientset.Interface, nodeIP string, shouldAdd bool) {
+	grepCmd := "grep CSIMigration " + kubeletConfigYaml
+	framework.Logf("Invoking command '%v' on host %v", grepCmd, nodeIP)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("ca$hc0w"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	result, err := sshExec(sshClientConfig, nodeIP, grepCmd)
+	if err != nil {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", grepCmd, nodeIP))
+	}
+
+	var sshCmd string
+	if result.Code != 0 && shouldAdd {
+		// please don't change alignment in below assignment
+		sshCmd = `echo "featureGates:
+  {
+    "CSIMigration": true,
+	"CSIMigrationvSphere": true
+  }" >>` + kubeletConfigYaml
+	} else if result.Code == 0 && !shouldAdd {
+		sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+	}
+	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
+	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, nodeIP))
+	}
+	restartKubeletCmd := "systemctl daemon-reload && systemctl restart kubelet"
+	framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
+	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, nodeIP))
+	}
+}
+
+// getK8sNodeIP returns the IP for the given k8s node
+func getK8sNodeIP(node *v1.Node) string {
+	var address string
+	addrs := node.Status.Addresses
+	for _, addr := range addrs {
+		if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+			address = addr.Address
+			break
+		}
+	}
+	gomega.Expect(address).NotTo(gomega.BeNil(), "Unable to find IP for node: "+node.Name)
+	return address
 }
