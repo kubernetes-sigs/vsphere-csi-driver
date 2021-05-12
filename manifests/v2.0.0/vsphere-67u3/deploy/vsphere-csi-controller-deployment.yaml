@@ -1,13 +1,17 @@
-kind: StatefulSet
+# Minimum Kubernetes version - 1.16
+# For prior releases make sure to add required --feature-gates flags
+kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: vsphere-csi-controller
   namespace: kube-system
 spec:
-  serviceName: vsphere-csi-controller
   replicas: 1
-  updateStrategy:
-    type: "RollingUpdate"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: vsphere-csi-controller
@@ -22,16 +26,18 @@ spec:
         node-role.kubernetes.io/master: ""
       tolerations:
         - operator: "Exists"
-          key: node-role.kubernetes.io/master
           effect: NoSchedule
+        - operator: "Exists"
+          effect: NoExecute
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v1.1.1
+          image: quay.io/k8scsi/csi-attacher:v2.0.0
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -39,13 +45,11 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v1.0.2
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0
           lifecycle:
             preStop:
               exec:
                 command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
-          args:
-            - "--v=4"
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -54,6 +58,8 @@ spec:
               value: "controller"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
+            - name: LOGGER_LEVEL
+              value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -83,27 +89,32 @@ spec:
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v1.0.2
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.0
           args:
-            - "--v=2"
+            - "--leader-election"
           imagePullPolicy: "Always"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
               value: "30"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
+            - name: LOGGER_LEVEL
+              value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v1.2.2
+          image: quay.io/k8scsi/csi-provisioner:v1.4.0
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=true"
-            - "--strict-topology"
+            # needed only for topology aware setup
+            #- "--feature-gates=Topology=true"
+            #- "--strict-topology"
+            - "--enable-leader-election"
+            - "--leader-election-type=leases"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -111,13 +122,13 @@ spec:
             - mountPath: /csi
               name: socket-dir
       volumes:
-        - name: vsphere-config-volume
-          secret:
-            secretName: vsphere-config-secret
-        - name: socket-dir
-          hostPath:
-            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-            type: DirectoryOrCreate
+      - name: vsphere-config-volume
+        secret:
+          secretName: vsphere-config-secret
+      - name: socket-dir
+        hostPath:
+          path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
+          type: DirectoryOrCreate
 ---
 apiVersion: storage.k8s.io/v1beta1
 kind: CSIDriver
