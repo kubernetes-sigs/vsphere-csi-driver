@@ -51,6 +51,9 @@ rules:
     resources: ["cnsregistervolumes"]
     verbs: ["get", "list", "watch", "update", "delete"]
   - apiGroups: ["cns.vmware.com"]
+    resources: ["triggercsifullsyncs"]
+    verbs: ["create", "get", "update", "watch", "list"]
+  - apiGroups: ["cns.vmware.com"]
     resources: ["storagepools"]
     verbs: ["get", "watch", "list", "delete", "update", "create", "patch"]
   - apiGroups: ["apiextensions.k8s.io"]
@@ -158,7 +161,6 @@ spec:
             - "--enable-hostlocal-placement=true"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
-            - "--default-fstype=ext4"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -211,6 +213,10 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
+          ports:
+           - containerPort: 2112
+             name: prometheus
+             protocol: TCP
           lifecycle:
             preStop:
               exec:
@@ -229,7 +235,7 @@ spec:
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
-              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
+              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
@@ -239,6 +245,8 @@ spec:
               readOnly: true
             - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
+            - mountPath: /etc/vmware/wcp/tls/
+              name: host-vmca
         - name: liveness-probe
           image: localhost:5000/vmware.io/csi-livenessprobe:v2.2.0_vmware.1
           args:
@@ -269,14 +277,20 @@ spec:
             - name: POD_LISTENER_SERVICE_PORT
               value: "29000"
             - name: VSPHERE_CSI_CONFIG
-              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf"
+              value: "/etc/vmware/wcp/vsphere-cloud-provider.conf" # here vsphere-cloud-provider.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
           imagePullPolicy: "IfNotPresent"
+          ports:
+           - containerPort: 2113
+             name: prometheus
+             protocol: TCP
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
               readOnly: true
+            - mountPath: /etc/vmware/wcp/tls/
+              name: host-vmca
       volumes:
         - name: vsphere-config-volume
           secret:
@@ -285,6 +299,10 @@ spec:
           hostPath:
             path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
             type: DirectoryOrCreate
+        - name: host-vmca
+          hostPath:
+            path: /etc/vmware/wcp/tls/
+            type: Directory
 ---
 apiVersion: storage.k8s.io/v1beta1
 kind: CSIDriver
@@ -300,7 +318,7 @@ data:
   "volume-health": "true"
   "vsan-direct-disk-decommission": "false"
   "trigger-csi-fullsync": "false"
-  "csi-sv-feature-states-replication": "false"
+  "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
 kind: ConfigMap
 metadata:
@@ -326,3 +344,4 @@ spec:
       protocol: TCP
   selector:
     app: vsphere-csi-controller
+  type: LoadBalancer
