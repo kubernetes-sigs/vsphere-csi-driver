@@ -98,7 +98,7 @@ func (s *service) NodeStageVolume(
 
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
-	// Check for block volume or file share
+	// Check for block volume or file share.
 	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCap}) {
 		log.Infof("NodeStageVolume: Volume %q detected as a file share volume. Ignoring staging for file volumes.", volumeID)
 		return &csi.NodeStageVolumeResponse{}, nil
@@ -107,12 +107,12 @@ func (s *service) NodeStageVolume(
 	var err error
 	params := nodeStageParams{
 		volID: volumeID,
-		// Retrieve accessmode - RO/RW
+		// Retrieve accessmode - RO/RW.
 		ro: common.IsVolumeReadOnly(req.GetVolumeCapability()),
 	}
-	// TODO: Verify if volume exists and return a NotFound error in negative scenario
+	// TODO: Verify if volume exists and return a NotFound error in negative scenario.
 
-	// Check if this is a MountVolume or Raw BlockVolume
+	// Check if this is a MountVolume or Raw BlockVolume.
 	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Mount); ok {
 		// Mount Volume
 		// Extract mount volume details
