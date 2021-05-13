@@ -9,7 +9,6 @@
   * [v2.0.0](releases/v2.0.0.md)
   * [v1.0.3](releases/v1.0.3.md)
   * [v1.0.2](releases/v1.0.2.md)
-  * [v1.0.1](releases/v1.0.1.md)
 * [Compatibility Matrix](compatiblity_matrix.md)
 * [Supported Feature Matrix](supported_features_matrix.md)
 * [Feature Limits](limits.md)
