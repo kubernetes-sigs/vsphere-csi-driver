@@ -52,9 +52,10 @@ import (
 )
 
 const (
-	devDiskID   = "/dev/disk/by-id"
-	blockPrefix = "wwn-0x"
-	dmiDir      = "/sys/class/dmi"
+	devDiskID                     = "/dev/disk/by-id"
+	blockPrefix                   = "wwn-0x"
+	dmiDir                        = "/sys/class/dmi"
+	maxAllowedBlockVolumesPerNode = 59
 )
 
 type nodeStageParams struct {
@@ -631,9 +632,32 @@ func (s *service) NodeGetInfo(
 	if nodeID == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
+	var maxVolumesPerNode int64
+	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
+		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if value < 0 {
+				msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is less than 0", v)
+				log.Errorf(msg)
+				return nil, status.Error(codes.Internal, msg)
+			} else if value > maxAllowedBlockVolumesPerNode {
+				msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is more than %v", v, maxAllowedBlockVolumesPerNode)
+				log.Errorf(msg)
+				return nil, status.Error(codes.Internal, msg)
+			} else {
+				maxVolumesPerNode = value
+				log.Infof("NodeGetInfo: MAX_VOLUMES_PER_NODE is set to %v", maxVolumesPerNode)
+			}
+		} else {
+			msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is invalid", v)
+			log.Errorf(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	}
+
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		nodeInfoResponse = &csi.NodeGetInfoResponse{
 			NodeId:             nodeID,
+			MaxVolumesPerNode:  maxVolumesPerNode,
 			AccessibleTopology: &csi.Topology{},
 		}
 		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
@@ -649,7 +673,8 @@ func (s *service) NodeGetInfo(
 		if os.IsNotExist(err) {
 			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
 			nodeInfoResponse = &csi.NodeGetInfoResponse{
-				NodeId: nodeID,
+				NodeId:            nodeID,
+				MaxVolumesPerNode: maxVolumesPerNode,
 			}
 			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 			return nodeInfoResponse, nil
@@ -736,6 +761,7 @@ func (s *service) NodeGetInfo(
 	}
 	nodeInfoResponse = &csi.NodeGetInfoResponse{
 		NodeId:             nodeID,
+		MaxVolumesPerNode:  maxVolumesPerNode,
 		AccessibleTopology: topology,
 	}
 	log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
