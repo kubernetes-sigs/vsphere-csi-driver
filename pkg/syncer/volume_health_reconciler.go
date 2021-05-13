@@ -354,6 +354,10 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 
 	for _, tkgPV := range tkgPVList {
 		// Update Tanzu Kubernetes Grid PVC volume health annotation
+		if tkgPV.Spec.ClaimRef == nil {
+			log.Debugf("skipping tkgPV: %v with nil ClaimRef", tkgPV.Name)
+			continue
+		}
 		err = rc.updateTKGPVC(ctx, svcPVC, tkgPV)
 		if err != nil {
 			log.Errorf("updating Tanzu Kubernetes Grid PVC for PV %s failed: %v", tkgPV.Name, err)
