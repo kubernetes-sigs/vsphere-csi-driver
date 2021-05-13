@@ -14,9 +14,9 @@ For example, if you want to upgrade driver from `v2.0.0` release to `v2.0.1` rel
 Uninstall `v2.0.0` driver
 
 ```bash
-kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-67u3/vanilla/deploy/vsphere-csi-controller-deployment.yaml
-kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-67u3/vanilla/deploy/vsphere-csi-node-ds.yaml
-kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.0/vsphere-67u3/vanilla/rbac/vsphere-csi-controller-rbac.yaml
+kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.0/vsphere-67u3/deploy/vsphere-csi-controller-deployment.yaml
+kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.0/vsphere-67u3/deploy/vsphere-csi-node-ds.yaml
+kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.0/vsphere-67u3/rbac/vsphere-csi-controller-rbac.yaml
 ```
 
 Wait for vSphere CSI Controller Pod and vSphere CSI Nodes Pods to be completely deleted.
@@ -24,9 +24,9 @@ Wait for vSphere CSI Controller Pod and vSphere CSI Nodes Pods to be completely 
 Install `v2.0.1` driver
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.1/vsphere-67u3/vanilla/rbac/vsphere-csi-controller-rbac.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.1/vsphere-67u3/vanilla/deploy/vsphere-csi-controller-deployment.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/v2.0.1/vsphere-67u3/vanilla/deploy/vsphere-csi-node-ds.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.1/vsphere-67u3/rbac/vsphere-csi-controller-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.1/vsphere-67u3/deploy/vsphere-csi-controller-deployment.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.0/manifests/v2.0.1/vsphere-67u3/deploy/vsphere-csi-node-ds.yaml
 ```
 
 We also recommend you to follow our [installation guide](installation.md) to refer to updated instruction and encourage you to go through all [pre-requisites](prerequisites.md) for newer releases of the vSphere CSI driver.
