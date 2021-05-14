@@ -263,18 +263,6 @@ spec:
   podInfoOnMount: false
 ---
 apiVersion: v1
-data:
-  "volume-extend": "true"
-  "volume-health": "true"
-  "trigger-csi-fullsync": "false"
-  "csi-sv-feature-states-replication": "false"
-  "fake-attach": "true"
-kind: ConfigMap
-metadata:
-  name: csi-feature-states
-  namespace: vmware-system-csi
----
-apiVersion: v1
 kind: Service
 metadata:
   name: vsphere-csi-controller
