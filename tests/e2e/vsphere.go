@@ -588,7 +588,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 
 	err := json.Unmarshal([]byte(hostInfo), &result)
@@ -660,7 +660,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 	clusterComputeResource, _, err := getClusterName(ctx, vs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
