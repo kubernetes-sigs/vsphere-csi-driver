@@ -52,6 +52,7 @@ LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa
 # nfs-utils  : The nfs-utils package contains simple nfs client service.
 # util-linux : Utilities for handling file systems, consoles, partitions.
 # e2fsprogs  : The E2fsprogs package contains the utilities for handling the ext file system.
+# xfsprogs   : The xfsprogs package contains administration and debugging tools for the XFS file system
 
 RUN tdnf -y install \
   nfs-utils \
