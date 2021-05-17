@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, true, false, true)
 	})
 	/*
-		Verify File Volume is created without specifing fstype in pv spec
+		Verify File Volume is created without specifying fstype in pv spec
 
 			1. Create StorageClass without specifying fsType
 			2. Create a PVC1 with "ReadWriteMany" using the SC from above
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify File Volume is created without specifing fstype in pv spec", func() {
+	ginkgo.It("[csi-file-vanilla] Verify File Volume is created without specifying fstype in pv spec", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

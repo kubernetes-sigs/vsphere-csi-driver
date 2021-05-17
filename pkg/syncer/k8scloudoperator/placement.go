@@ -273,7 +273,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePo
 	if len(accessibleNodes) != 1 {
 		log.Warnf("Unexpected number of accessible nodes found for storage pool %v. Expected 1 found %v", storagePoolName, len(accessibleNodes))
 		if len(accessibleNodes) == 0 {
-			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. Maybe its unmounted or host is under maintainence mode")
+			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. Maybe its unmounted or host is under maintenance mode")
 		}
 		// if datastore is accessible from multiple host, ignore the error.
 	}
