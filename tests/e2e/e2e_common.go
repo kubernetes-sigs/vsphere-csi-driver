@@ -102,6 +102,7 @@ const (
 	healthStatusPollInterval                   = 15 * time.Second
 	psodTime                                   = "120"
 	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
+	pvcHealthTimestampAnnotation               = "volumehealth.storage.kubernetes.io/health-timestamp"
 	quotaName                                  = "cns-test-quota"
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                         = 2 * time.Second
