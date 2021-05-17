@@ -24,12 +24,16 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 var mapVolumePathToID map[string]map[string]string
@@ -66,7 +70,11 @@ func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName stri
 }
 
 // IsFakeAttachAllowed checks if the passed volume can be fake attached and mark it as fake attached.
-func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error) {
+func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
+	ctx context.Context,
+	volumeID string,
+	volumeManager cnsvolume.Manager,
+) (bool, error) {
 	// TODO - This can be implemented if we add WCP controller tests for attach volume
 	log := logger.GetLogger(ctx)
 	msg := "IsFakeAttachAllowed for FakeK8SOrchestrator is not yet implemented."
@@ -93,7 +101,11 @@ func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID st
 }
 
 // GetFakeVolumeMigrationService returns the mocked VolumeMigrationService
-func GetFakeVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager, cnsConfig *cnsconfig.Config) (MockVolumeMigrationService, error) {
+func GetFakeVolumeMigrationService(
+	ctx context.Context,
+	volumeManager *cnsvolume.Manager,
+	cnsConfig *cnsconfig.Config,
+) (MockVolumeMigrationService, error) {
 	// fakeVolumeMigrationInstance is a mocked instance of volumeMigration
 	fakeVolumeMigrationInstance := &mockVolumeMigration{
 		volumePathToVolumeID: sync.Map{},
@@ -112,7 +124,10 @@ func GetFakeVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume
 }
 
 // GetVolumeID mocks the method with returns Volume Id for a given Volume Path
-func (dummyInstance *mockVolumeMigration) GetVolumeID(ctx context.Context, volumeSpec *migration.VolumeSpec) (string, error) {
+func (dummyInstance *mockVolumeMigration) GetVolumeID(
+	ctx context.Context,
+	volumeSpec *migration.VolumeSpec,
+) (string, error) {
 	return mapVolumePathToID["dummy-vms-CR"][volumeSpec.VolumePath], nil
 }
 
@@ -124,5 +139,37 @@ func (dummyInstance *mockVolumeMigration) GetVolumePath(ctx context.Context, vol
 // DeleteVolumeInfo mocks the method to delete mapping of volumePath to VolumeID for specified volumeID
 func (dummyInstance *mockVolumeMigration) DeleteVolumeInfo(ctx context.Context, volumeID string) error {
 	delete(mapVolumePathToID, "dummy-vms-CR")
+	return nil
+}
+
+// InitFakeVolumeOperationRequestInterface returns a fake implementation
+// of the VolumeOperationRequest interface.
+func InitFakeVolumeOperationRequestInterface() (cnsvolumeoperationrequest.VolumeOperationRequest, error) {
+	return &fakeVolumeOperationRequestInterface{
+		volumeOperationRequestMap: make(map[string]*cnsvolumeoperationrequest.VolumeOperationRequestDetails),
+	}, nil
+}
+
+// GetRequestDetails returns the VolumeOperationRequestDetails for the given
+// name, if any, stored by the fake VolumeOperationRequest interface.
+func (f *fakeVolumeOperationRequestInterface) GetRequestDetails(
+	ctx context.Context,
+	name string,
+) (*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
+	instance, ok := f.volumeOperationRequestMap[name]
+	if !ok {
+		return nil, apierrors.NewNotFound(cnsvolumeoperationrequestv1alpha1.Resource(
+			"cnsvolumeoperationrequests"), name)
+	}
+	return instance, nil
+
+}
+
+// StoreRequestDetails stores the input fake VolumeOperationRequestDetails.
+func (f *fakeVolumeOperationRequestInterface) StoreRequestDetails(
+	ctx context.Context,
+	instance *cnsvolumeoperationrequest.VolumeOperationRequestDetails,
+) error {
+	f.volumeOperationRequestMap[instance.Name] = instance
 	return nil
 }

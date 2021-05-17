@@ -19,13 +19,18 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
+	uuidlib "github.com/google/uuid"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-
-	uuidlib "github.com/google/uuid"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -160,4 +165,154 @@ func updateQueryResult(ctx context.Context, m *defaultManager, res *cnstypes.Cns
 		}
 	}
 	return res
+}
+
+// setupConnection connects to CNS and updates the VSphereUser to the session's user.
+func setupConnection(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
+	spec *cnstypes.CnsVolumeCreateSpec) error {
+	log := logger.GetLogger(ctx)
+	// Set up the VC connection.
+	err := virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+	// If the VSphereUser in the CreateSpec is different from session user,
+	// update the CreateSpec.
+	s, err := virtualCenter.Client.SessionManager.UserSession(ctx)
+	if err != nil {
+		log.Errorf("failed to get usersession with err: %v", err)
+		return err
+	}
+	if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
+		log.Debugf("Update VSphereUser from %s to %s", spec.Metadata.ContainerCluster.VSphereUser, s.UserName)
+		spec.Metadata.ContainerCluster.VSphereUser = s.UserName
+	}
+	return nil
+}
+
+// getPendingCreateVolumeTaskFromMap returns the CreateVolume task for a volume stored in the volumeTaskMap.
+func getPendingCreateVolumeTaskFromMap(ctx context.Context, volNameFromInputSpec string) *object.Task {
+	var task *object.Task
+	log := logger.GetLogger(ctx)
+	taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
+	if ok {
+		task = taskDetailsInMap.task
+		log.Infof("CreateVolume task still pending for Volume: %q, with taskInfo: %+v",
+			volNameFromInputSpec, task)
+	}
+	return task
+}
+
+// invokeCNSCreateVolume truncates the input volume name and invokes a CreateVolume operation for that volume on CNS.
+func invokeCNSCreateVolume(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
+	spec *cnstypes.CnsVolumeCreateSpec) (*object.Task, error) {
+	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
+	log := logger.GetLogger(ctx)
+	// Truncate the volume name to make sure the name is within 80 characters before calling CNS.
+	if len(spec.Name) > maxLengthOfVolumeNameInCNS {
+		volNameAfterTruncate := spec.Name[0 : maxLengthOfVolumeNameInCNS-1]
+		log.Infof("Create Volume with name %s is too long, truncate it to %s", spec.Name, volNameAfterTruncate)
+		spec.Name = volNameAfterTruncate
+		log.Debugf("CNS Create Volume is called with %v", spew.Sdump(*spec))
+	}
+	cnsCreateSpecList = append(cnsCreateSpecList, *spec)
+	task, err := virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
+	if err != nil {
+		log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", virtualCenter.Config.Host, err)
+		return nil, err
+	}
+	return task, nil
+}
+
+// isStaticallyProvisioned returns true if the input spec is for a statically provisioned volume.
+func isStaticallyProvisioned(spec *cnstypes.CnsVolumeCreateSpec) bool {
+	var isStaticallyProvisionedBlockVolume bool
+	var isStaticallyProvisionedFileVolume bool
+	if spec.VolumeType == string(cnstypes.CnsVolumeTypeBlock) {
+		blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+		if ok && (blockBackingDetails.BackingDiskId != "" || blockBackingDetails.BackingDiskUrlPath != "") {
+			isStaticallyProvisionedBlockVolume = true
+		}
+	}
+	if spec.VolumeType == string(cnstypes.CnsVolumeTypeFile) {
+		fileBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+		if ok && fileBackingDetails.BackingFileId != "" {
+			isStaticallyProvisionedFileVolume = true
+		}
+	}
+	return isStaticallyProvisionedBlockVolume || isStaticallyProvisionedFileVolume
+}
+
+// getTaskResultFromTaskInfo returns the task result for a given task.
+func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (cnstypes.BaseCnsVolumeOperationResult,
+	error) {
+	log := logger.GetLogger(ctx)
+
+	// Get the taskResult.
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+
+	if err != nil {
+		log.Errorf("failed to get task result for task with ID: %q, opId: %q result: %+v",
+			taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
+		return nil, err
+	}
+
+	if taskResult == nil {
+		return nil, logger.LogNewErrorf(log, "taskResult is empty for task: %q", taskInfo.ActivationId)
+	}
+	return taskResult, nil
+}
+
+// validateCreateVolumeResponseFault validates if the CreateVolume task fault. If it failed with an AlreadyRegistered
+// fault, then it returns the CnsVolumeInfo object. Otherwise, it returns an error.
+func validateCreateVolumeResponseFault(ctx context.Context, name string, resp *cnstypes.CnsVolumeOperationResult) (*CnsVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+	fault, ok := resp.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
+	if ok {
+		log.Infof("Volume is already registered with CNS. VolumeName: %q, volumeID: %q",
+			name, fault.VolumeId.Id)
+		return &CnsVolumeInfo{
+			DatastoreURL: "",
+			VolumeID:     fault.VolumeId,
+		}, nil
+	}
+
+	msg := fmt.Sprintf("failed to create volume with fault: %q", spew.Sdump(resp.Fault))
+	log.Error(msg)
+	return nil, errors.New(msg)
+
+}
+
+// getCnsVolumeInfoFromTaskResult retrieves the datastoreURL and returns the CnsVolumeInfo object.
+func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter, volumeName string,
+	volumeID cnstypes.CnsVolumeId, taskResult cnstypes.BaseCnsVolumeOperationResult) (*CnsVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+	var datastoreURL string
+	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
+	if volumeCreateResult.PlacementResults != nil {
+		var datastoreMoRef types.ManagedObjectReference
+		for _, placementResult := range volumeCreateResult.PlacementResults {
+			// For the datastore which the volume is provisioned, placementFaults will not be set.
+			if len(placementResult.PlacementFaults) == 0 {
+				datastoreMoRef = placementResult.Datastore
+				break
+			}
+		}
+		var dsMo mo.Datastore
+		pc := property.DefaultCollector(virtualCenter.Client.Client)
+		err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
+		}
+		datastoreURL = dsMo.Summary.Url
+	}
+	log.Infof("Volume created successfully. VolumeName: %q, volumeID: %q",
+		volumeName, volumeID)
+	log.Debugf("CreateVolume volumeId %q is placed on datastore %q",
+		volumeID, datastoreURL)
+	return &CnsVolumeInfo{
+		DatastoreURL: datastoreURL,
+		VolumeID:     volumeID,
+	}, nil
 }
