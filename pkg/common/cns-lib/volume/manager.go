@@ -23,9 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -34,8 +31,10 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
-
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (
@@ -116,7 +115,9 @@ type createVolumeTaskDetails struct {
 }
 
 // GetManager returns the Manager instance.
-func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter) Manager {
+func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
+	idempotencyHandlingEnabled bool) Manager {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
@@ -126,14 +127,18 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter) Manager {
 	}
 	log.Infof("Initializing new volume.defaultManager...")
 	managerInstance = &defaultManager{
-		virtualCenter: vc,
+		virtualCenter:              vc,
+		operationStore:             operationStore,
+		idempotencyHandlingEnabled: idempotencyHandlingEnabled,
 	}
 	return managerInstance
 }
 
 // DefaultManager provides functionality to manage volumes.
 type defaultManager struct {
-	virtualCenter *cnsvsphere.VirtualCenter
+	virtualCenter              *cnsvsphere.VirtualCenter
+	operationStore             cnsvolumeoperationrequest.VolumeOperationRequest
+	idempotencyHandlingEnabled bool
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -162,16 +167,14 @@ func ClearTaskInfoObjects() {
 	}
 }
 
-// ResetManager helps set new manager instance and VC configuration.
+// ResetManager helps set manager instance with new VC configuration.
 func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	if vcenter.Config.Host != managerInstance.virtualCenter.Config.Host {
-		log.Infof("Re-initializing volume.defaultManager")
-		managerInstance = &defaultManager{
-			virtualCenter: vcenter,
-		}
+		log.Infof("Re-initializing defaultManager.virtualCenter")
+		managerInstance.virtualCenter = vcenter
 	}
 	m.virtualCenter.Config = vcenter.Config
 	if m.virtualCenter.Client != nil {

@@ -18,6 +18,7 @@ package cnsvolumeoperationrequest
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
@@ -31,6 +32,12 @@ const (
 	// maxEntriesInLatestOperationDetails specifies the maximum length of
 	// the LatestOperationDetails allowed in a cnsvolumeoperationrequest instance
 	maxEntriesInLatestOperationDetails = 10
+	// TaskInvocationStatusInProgress represents a task thats status is InProgress.
+	TaskInvocationStatusInProgress = "InProgress"
+	// TaskInvocationStatusError represents a task thats status is Error.
+	TaskInvocationStatusError = "Error"
+	// TaskInvocationStatusSuccess represents a task thats status is Success.
+	TaskInvocationStatusSuccess = "Success"
 )
 
 // VolumeOperationRequestDetails stores details about a single operation
