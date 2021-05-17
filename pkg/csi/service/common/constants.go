@@ -246,4 +246,6 @@ const (
 	FakeAttach = "fake-attach"
 	// TriggerCSIFullSyync is feature flag to trigger full sync
 	TriggerCsiFullSync = "trigger-csi-fullsync"
+	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling in CSI volume manager
+	CSIVolumeManagerIdempotency = "csi-volume-manager-idempotency"
 )
