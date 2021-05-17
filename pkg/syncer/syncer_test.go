@@ -190,14 +190,14 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter)
+	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false)
 
 	// Initialize metadata syncer object
 	metadataSyncer = &metadataSyncInformer{}
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter)
+	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false)
 	metadataSyncer.host = virtualCenter.Config.Host
 
 	// Create the kubernetes client from config or env
