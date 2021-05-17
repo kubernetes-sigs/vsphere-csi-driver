@@ -490,7 +490,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		Steps:
 		1. Create a SC with allowVolumeExpansion set to 'true'
 		2. create a PVC of 2Gi using the SC created in step 1 and wait for binding with PV
-		3. resize GC PVC to 4Gi and 5Gi in two seperate threads
+		3. resize GC PVC to 4Gi and 5Gi in two separate threads
 		4. Verify GC PVC reaches 5Gi "FilesystemResizePending" state
 		5. Check using CNS query that size of the volume is 5Gi
 		6. Verify size of PVs in SVC and GC are 5Gi

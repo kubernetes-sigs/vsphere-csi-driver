@@ -707,7 +707,7 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context, crd *mi
 	return waitErr
 }
 
-// verifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
+// verifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) bool {
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -836,7 +836,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 	return pvEntryFound == verifyPvEntry && pvcEntryFound == verifyPvcEntry && podEntryFound == verifyPodEntry
 }
 
-// waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
+// waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) error {
 	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
 		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)

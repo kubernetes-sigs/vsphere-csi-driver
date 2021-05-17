@@ -750,7 +750,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			log.Infof("Delete storage clas")
+			log.Infof("Delete storage class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()

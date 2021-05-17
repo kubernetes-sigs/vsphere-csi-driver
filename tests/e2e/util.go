@@ -1046,7 +1046,7 @@ func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, e
 	return nil
 }
 
-//verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisior
+//verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisor
 func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
 	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
@@ -1056,7 +1056,7 @@ func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, e
 	gomega.Expect(instance).NotTo(gomega.BeNil())
 }
 
-//verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisior
+//verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisor
 func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
 	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
@@ -1713,7 +1713,7 @@ func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
 }
 
 //psodHostWithPv methods finds the esx host where pv is residing and psods it.
-//It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
+//It uses VsanObjIndentities and QueryVsanObjects apis to achieve it and returns the host ip
 func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 	ginkgo.By("VsanObjIndentities")
 	framework.Logf("pvName %v", pvName)
@@ -1754,7 +1754,7 @@ func VsanObjIndentities(ctx context.Context, vs *vSphere, pvName string) string 
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
 
@@ -2343,7 +2343,7 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 		_, err := client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//Adding a explict wait of one min for the Cluster-distribution to refect latest value
+		//Adding a explicit wait of one min for the Cluster-distribution to reflect latest value
 		time.Sleep(time.Duration(pollTimeoutShort))
 
 		framework.Logf("Cluster distribution value is now set to = %s", clusterDistribution)
