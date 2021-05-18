@@ -34,11 +34,12 @@ func SetLoggerLevel(logLevel LogLevel) {
 	if logLevel != ProductionLogLevel && logLevel != DevelopmentLogLevel {
 		defaultLogLevel = ProductionLogLevel
 	}
-	newLogger().Sugar().Infof("Setting default log level to :%q", defaultLogLevel)
+	GetLoggerWithNoContext().Infof("Setting default log level to :%q", defaultLogLevel)
 }
 
 // getLogger returns the logger associated with the given context.
-// If there is no logger associated with context, getLogger func will return a new logger.
+// If there is no logger associated with context, getLogger func will return
+// a new logger.
 func getLogger(ctx context.Context) *zap.Logger {
 	if logger, _ := ctx.Value(loggerKey{}).(*zap.Logger); logger != nil {
 		return logger
@@ -47,37 +48,31 @@ func getLogger(ctx context.Context) *zap.Logger {
 }
 
 // GetLogger returns SugaredLogger associated with given context.
-// this func is using private func getLogger
 func GetLogger(ctx context.Context) *zap.SugaredLogger {
 	return getLogger(ctx).Sugar()
 }
 
-// NewContextWithLogger returns a new child context with context UUID set using key CtxId
+// NewContextWithLogger returns a new child context with context UUID set
+// using key CtxId.
 func NewContextWithLogger(ctx context.Context) context.Context {
 	newCtx := withFields(ctx, zap.String(LogCtxIDKey, uuid.New().String()))
 	return newCtx
 }
 
-// GetNewContextWithLogger creates a new context with context UUID and logger set
-// func returns both context and logger to the caller.
+// GetNewContextWithLogger creates a new context with context UUID and logger
+// set func returns both context and logger to the caller.
 func GetNewContextWithLogger() (context.Context, *zap.SugaredLogger) {
-	newCtx := withFields(context.Background(), zap.String(LogCtxIDKey, uuid.New().String()))
+	newCtx := NewContextWithLogger(context.Background())
 	return newCtx, GetLogger(newCtx)
-}
-
-// withLogger returns a new context derived from ctx that
-// is associated with the given logger.
-func withLogger(ctx context.Context, logger *zap.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey{}, logger)
 }
 
 // withFields returns a new context derived from ctx
 // that has a logger that always logs the given fields.
 func withFields(ctx context.Context, fields ...zapcore.Field) context.Context {
-	return withLogger(ctx, getLogger(ctx).With(fields...))
+	return context.WithValue(ctx, loggerKey{}, getLogger(ctx).With(fields...))
 }
 
-// newLogger creates and return a new logger depending logLevel set
+// newLogger creates and return a new logger depending logLevel set.
 func newLogger() *zap.Logger {
 	var logger *zap.Logger
 	if defaultLogLevel == DevelopmentLogLevel {
@@ -92,7 +87,7 @@ func newLogger() *zap.Logger {
 }
 
 // GetLoggerWithNoContext returns a new logger to the caller.
-// returned logger is not associated with any context
+// Returned logger is not associated with any context.
 func GetLoggerWithNoContext() *zap.SugaredLogger {
 	return newLogger().Sugar()
 }
