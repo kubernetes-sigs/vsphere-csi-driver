@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	dep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -64,9 +65,6 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 	})
 
 	ginkgo.AfterEach(func() {
-		_, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
 		ginkgo.By("Modify Resource Quota")
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
@@ -115,7 +113,7 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		}()
 
 		ginkgo.By("Creating Deployments")
-		deploymentSpec := NewDeployment(deploymentName, replica, lables, "nginx", "k8s.gcr.io/nginx-slim:0.8", "")
+		deploymentSpec := dep.NewDeployment(deploymentName, replica, lables, "nginx", "k8s.gcr.io/nginx-slim:0.8", "")
 		createDeployments(namespace, deploymentSpec, client)
 
 		ginkgo.By("Update deployment image")

@@ -2286,6 +2286,90 @@ func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef
 	return waitErr
 }
 
+// NewDeployment returns a deployment spec with the specified argument.
+func NewDeploymentwithVolume(deploymentName string, replicas int32, podLabels map[string]string, imageName, image string, pvclaims []*v1.PersistentVolumeClaim, strategyType appsv1.DeploymentStrategyType) *appsv1.Deployment {
+	zero := int64(0)
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+
+	deploymentSpec := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   deploymentName,
+			Labels: podLabels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
+			Strategy: appsv1.DeploymentStrategy{
+				Type: strategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: int32(0)},
+					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: int32(1)},
+				},
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
+				Spec: v1.PodSpec{
+					TerminationGracePeriodSeconds: &zero,
+					Containers: []v1.Container{
+						{
+							Name:            imageName,
+							Image:           image,
+							SecurityContext: &v1.SecurityContext{},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for index, pvclaim := range pvclaims {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	deploymentSpec.Spec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	deploymentSpec.Spec.Template.Spec.Volumes = volumes
+
+	return deploymentSpec
+}
+
+//createDeployments will create deployments in the given namespace
+func createDeployments(ns string, dep *apps.Deployment, c clientset.Interface) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf(fmt.Sprintf("Creating Deployment %v/%v with %d replicas and selector %+v",
+		dep.Namespace, dep.Name, *(dep.Spec.Replicas), dep.Spec.Selector))
+	_, err := c.AppsV1().Deployments(ns).Create(ctx, dep, metav1.CreateOptions{})
+	framework.ExpectNoError(err)
+	deployment, err := c.AppsV1().Deployments(ns).Get(ctx, dep.Name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = testutils.WaitForDeploymentComplete(c, deployment, framework.Logf, poll, pollTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+}
+
+func updateDeploymentImage(ns string, image string, deploymentName string) {
+	_, err := framework.RunKubectl(ns, "set", "image", fmt.Sprintf("deployment/%s", deploymentName), fmt.Sprintf("nginx=%s", image), "--record")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	waitErr := wait.Poll(healthStatusPollInterval, 1*time.Minute, func() (bool, error) {
+		framework.Logf("Waiting for deployment to take effect")
+		status, err := framework.RunKubectl(ns, "rollout", "status", fmt.Sprintf("deployment/%s", deploymentName))
+		if strings.Contains(status, "successfully rolled out") {
+			framework.Logf("Deployment successfully rolled out")
+			return true, nil
+		}
+		if err != nil {
+			return false, nil
+		}
+		return false, nil
+	})
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+}
+
 //getDefaultDatastore returns default datastore
 func getDefaultDatastore(ctx context.Context) *object.Datastore {
 	if defaultDatastore == nil {
@@ -2352,123 +2436,4 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 	} else {
 		framework.Logf("Cluster-distribution value is already as expected, no changes done. Value is %s", cfg.Global.ClusterDistribution)
 	}
-}
-
-// NewDeployment returns a deployment spec with the specified argument.
-func NewDeploymentwithVolume(deploymentName string, replicas int32, podLabels map[string]string, imageName, image string, pvclaims []*v1.PersistentVolumeClaim, strategyType appsv1.DeploymentStrategyType) *appsv1.Deployment {
-	zero := int64(0)
-	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
-	var volumes = make([]v1.Volume, len(pvclaims))
-
-	deploymentSpec := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   deploymentName,
-			Labels: podLabels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: strategyType,
-				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: int32(0)},
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: int32(1)},
-				},
-			},
-			Template: v1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
-				},
-				Spec: v1.PodSpec{
-					TerminationGracePeriodSeconds: &zero,
-					Containers: []v1.Container{
-						{
-							Name:            imageName,
-							Image:           image,
-							SecurityContext: &v1.SecurityContext{},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for index, pvclaim := range pvclaims {
-		volumename := fmt.Sprintf("volume%v", index+1)
-		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
-		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
-	}
-	deploymentSpec.Spec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
-	deploymentSpec.Spec.Template.Spec.Volumes = volumes
-
-	return deploymentSpec
-}
-
-// NewDeployment returns a deployment spec with the specified argument.
-func NewDeployment(deploymentName string, replicas int32, podLabels map[string]string, imageName, image string, strategyType appsv1.DeploymentStrategyType) *appsv1.Deployment {
-	zero := int64(0)
-	deploymentSpec := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   deploymentName,
-			Labels: podLabels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: strategyType,
-			},
-			Template: v1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
-				},
-				Spec: v1.PodSpec{
-					TerminationGracePeriodSeconds: &zero,
-					Containers: []v1.Container{
-						{
-							Name:            imageName,
-							Image:           image,
-							SecurityContext: &v1.SecurityContext{},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return deploymentSpec
-}
-
-//createDeployments will create deployments in the given namespace
-func createDeployments(ns string, dep *apps.Deployment, c clientset.Interface) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	framework.Logf(fmt.Sprintf("Creating Deployment %v/%v with %d replicas and selector %+v",
-		dep.Namespace, dep.Name, *(dep.Spec.Replicas), dep.Spec.Selector))
-	_, err := c.AppsV1().Deployments(ns).Create(ctx, dep, metav1.CreateOptions{})
-	framework.ExpectNoError(err)
-	deployment, err := c.AppsV1().Deployments(ns).Get(ctx, dep.Name, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = testutils.WaitForDeploymentComplete(c, deployment, framework.Logf, poll, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-}
-
-func updateDeploymentImage(ns string, image string, deploymentName string) {
-	_, err := framework.RunKubectl(ns, "set", "image", fmt.Sprintf("deployment/%s", deploymentName), fmt.Sprintf("nginx=%s", image), "--record")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	waitErr := wait.Poll(healthStatusPollInterval, 1*time.Minute, func() (bool, error) {
-		framework.Logf("Waiting for deployment to take effect")
-		status, err := framework.RunKubectl(ns, "rollout", "status", fmt.Sprintf("deployment/%s", deploymentName))
-		if strings.Contains(status, "successfully rolled out") {
-			framework.Logf("Deployment successfully rolled out")
-			return true, nil
-		}
-		if err != nil {
-			return false, nil
-		}
-		return false, nil
-	})
-	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
