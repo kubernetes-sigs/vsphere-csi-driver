@@ -63,12 +63,16 @@ type Manager interface {
 	DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error
 	// UpdateVolumeMetadata updates a volume metadata given its spec.
 	UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error
-	// QueryVolume returns volumes matching the given filter.
-	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// QueryVolumeInfo calls the CNS QueryVolumeInfo API and return a task, from which CnsQueryVolumeInfoResult is extracted
 	QueryVolumeInfo(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error)
 	// QueryAllVolume returns all volumes matching the given filter and selection.
 	QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// QueryVolumeAsync returns CnsQueryResult matching the given filter by using CnsQueryAsync API. QueryVolumeAsync takes querySelection spec
+	// which helps to specify which fields have to be returned for the query entities. All volume fields would be returned as part of the CnsQueryResult
+	// if the querySelection parameters are not specified
+	QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	// QueryVolume returns volumes matching the given filter.
+	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// RelocateVolume migrates volumes to their target datastore as specified in relocateSpecList
 	RelocateVolume(ctx context.Context, relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error)
 	// ExpandVolume expands a volume to a new size.
@@ -433,29 +437,29 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		// Call the CNS DetachVolume
 		task, err := m.virtualCenter.CnsClient.DetachVolume(ctx, cnsDetachSpecList)
 		if err != nil {
+			if cnsvsphere.IsManagedObjectNotFound(err, cnsDetachSpec.Vm) {
+				// Detach failed with managed object not found, marking detach as successful, as Node VM is deleted and not present in the vCenter inventory
+				log.Infof("Node VM: %v not found on the vCenter. Marking Detach for volume:%q successful. err: %v", vm, volumeID, err)
+				return nil
+			}
 			if cnsvsphere.IsNotFoundError(err) {
 				// Detach failed with NotFound error, check if the volume is already detached
 				log.Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
 				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
 				if err != nil {
-					log.Errorf("DetachVolume: CNS Detach has failed with err: %q. Unable to check if volume: %q is already detached from vm: %+v",
+					log.Errorf("DetachVolume: CNS Detach has failed with err: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						err, volumeID, vm)
 					return err
-				} else if diskUUID == "" {
-					log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
-						volumeID, vm)
-					return nil
-				} else {
-					msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
-					log.Error(msg)
-					return errors.New(msg)
 				}
-			} else {
-				log.Errorf("CNS DetachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-				return err
+				if diskUUID == "" {
+					log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached", volumeID, vm)
+					return nil
+				}
 			}
+			msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
+			log.Error(msg)
+			return errors.New(msg)
 		}
-
 		// Get the taskInfo
 		taskInfo, err := cns.GetTaskInfo(ctx, task)
 		if err != nil || taskInfo == nil {
@@ -476,21 +480,23 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
-			// Volume is already attached to VM
-			diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
-			if err != nil {
-				log.Errorf("DetachVolume: CNS Detach has failed with fault: %q. Unable to check if volume: %q is already detached from vm: %+v",
-					spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
-				return err
-			} else if diskUUID == "" {
-				log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached",
-					volumeID, vm)
-				return nil
-			} else {
-				msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. fault: %q, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-				log.Error(msg)
-				return errors.New(msg)
+			_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
+			if isNotFoundFault {
+				// check if volume is already detached from the VM
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				if err != nil {
+					log.Errorf("DetachVolume: CNS Detach has failed with fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
+						spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
+					return err
+				}
+				if diskUUID == "" {
+					log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming volume is already detached", volumeID, vm)
+					return nil
+				}
 			}
+			msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. fault: %+v, opId: %q", volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q", volumeID, taskInfo.ActivationId, vm.String())
 		return nil
@@ -1013,4 +1019,63 @@ func (m *defaultManager) RetrieveVStorageObject(ctx context.Context, volumeID st
 	log.Infof("Successfully retrieved vStorageObject object for volumeID: %q", volumeID)
 	log.Debugf("vStorageObject for volumeID: %q is %+v", volumeID, vStorageObject)
 	return vStorageObject, nil
+}
+
+// QueryVolumeAsync returns volumes matching the given filter by using CnsQueryAsync API. QueryVolumeAsync takes querySelection spec which helps to specify which fields
+// for the query entities to be returned. All volume fields would be returned as part of the CnsQueryResult if the querySelection parameters are not specified
+func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("validateManager failed with err: %+v", err)
+		return nil, err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return nil, err
+	}
+	isvSphere70U3orAbove, err := cnsvsphere.IsvSphereVersion70U3orAbove(ctx, m.virtualCenter.Client.ServiceContent.About)
+	if err != nil {
+		msg := fmt.Sprintf("Error while checking the vSphere Version %q to invoke QueryVolumeAsync, Error= %+v", m.virtualCenter.Client.ServiceContent.About.Version, err)
+		log.Errorf(msg)
+		return nil, errors.New(msg)
+	}
+	if !isvSphere70U3orAbove {
+		msg := fmt.Sprintf("QueryVolumeAsync is not supported in vSphere Version %q", m.virtualCenter.Client.ServiceContent.About.Version)
+		log.Warnf(msg)
+		return nil, cnsvsphere.ErrNotSupported
+	}
+
+	// Call the CNS QueryVolumeAsync
+	queryVolumeAsyncTask, err := m.virtualCenter.CnsClient.QueryVolumeAsync(ctx, queryFilter, querySelection)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
+	queryVolumeAsyncTaskInfo, err := cns.GetTaskInfo(ctx, queryVolumeAsyncTask)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed to get TaskInfo with err: %v", err)
+		return nil, err
+	}
+	queryVolumeAsyncTaskResult, err := cns.GetTaskResult(ctx, queryVolumeAsyncTaskInfo)
+	if err != nil {
+		log.Errorf("CNS QueryVolumeAsync failed to get TaskResult with err: %v", err)
+		return nil, err
+	}
+	if queryVolumeAsyncTaskResult == nil {
+		log.Errorf("TaskResult is empty for QueryVolumeAsync task: %q, opID: %q", queryVolumeAsyncTaskInfo.Task.Value, queryVolumeAsyncTaskInfo.ActivationId)
+		return nil, errors.New("taskResult is empty")
+	}
+	volumeOperationRes := queryVolumeAsyncTaskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		msg := fmt.Sprintf("failed to query volumes using CnsQueryVolumeAsync, fault: %q, opID: %q", spew.Sdump(volumeOperationRes.Fault), queryVolumeAsyncTaskInfo.ActivationId)
+		log.Error(msg)
+		return nil, errors.New(msg)
+	}
+	queryVolumeAsyncResult := interface{}(queryVolumeAsyncTaskResult).(*cnstypes.CnsAsyncQueryResult)
+	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
+	log.Debugf("QueryVolumeAsync returned CnsQueryResult: %+v", spew.Sdump(queryVolumeAsyncResult.QueryResult))
+	return &queryVolumeAsyncResult.QueryResult, nil
 }

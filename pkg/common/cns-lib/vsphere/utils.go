@@ -27,8 +27,17 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 )
 
-const vsanDType = "vsanD"
-const defaultVCClientTimeoutInMinutes = 5
+const (
+	vsanDType                       = "vsanD"
+	defaultVCClientTimeoutInMinutes = 5
+	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere version to use query volume async API
+	VSphere70u3Version int = 703
+)
+
+var (
+	// ErrNotSupported represents not supported error
+	ErrNotSupported = errors.New("not supported")
+)
 
 // IsInvalidCredentialsError returns true if error is of type InvalidLogin
 func IsInvalidCredentialsError(err error) bool {
@@ -63,13 +72,18 @@ func IsAlreadyExists(err error) (bool, string) {
 	return isAlreadyExistsError, objectName
 }
 
-// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault, if yes then returns true else return false
-func IsManagedObjectNotFound(err error) bool {
-	isNotFoundError := false
+// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault,
+// if yes then checks ManagedObjectNotFound thrown for the the intended object, if yes return true else return false
+func IsManagedObjectNotFound(err error, moRef types.ManagedObjectReference) bool {
 	if soap.IsSoapFault(err) {
-		_, isNotFoundError = soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
+		fault, isNotFoundError := soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
+		if isNotFoundError {
+			if fault.Obj.Type == moRef.Type && fault.Obj.Value == moRef.Value {
+				return true
+			}
+		}
 	}
-	return isNotFoundError
+	return false
 }
 
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject object from given parameters
@@ -181,10 +195,10 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
 		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
 		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
-			return nil, errors.New("Invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
+			return nil, errors.New("invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
 		}
 		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
-			err = errors.New("Non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
+			err = errors.New("non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
 			return nil, err
 		}
 	}
@@ -199,7 +213,7 @@ func GetVcenterIPs(cfg *config.Config) ([]string, error) {
 		vCenterIPs = append(vCenterIPs, key)
 	}
 	if len(vCenterIPs) == 0 {
-		err = errors.New("Unable get vCenter Hosts from VSphereConfig")
+		err = errors.New("unable get vCenter Hosts from VSphereConfig")
 	}
 	return vCenterIPs, err
 }
@@ -259,7 +273,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 	restClient := rest.NewClient(vc.Client.Client)
 	signer, err := signer(ctx, vc.Client.Client, vc.Config.Username, vc.Config.Password)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create the Signer. Error: %v", err)
+		return nil, fmt.Errorf("failed to create the Signer. Error: %v", err)
 	}
 	if signer == nil {
 		user := url.UserPassword(vc.Config.Username, vc.Config.Password)
@@ -268,7 +282,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 		err = restClient.LoginByToken(restClient.WithSigner(ctx, signer))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("Failed to login for the rest client. Error: %v", err)
+		return nil, fmt.Errorf("failed to login for the rest client. Error: %v", err)
 	}
 	tagManager := tags.NewManager(restClient)
 	if tagManager == nil {
@@ -284,16 +298,16 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	// get all the vsan direct datastore urls in this VC; and later filter in this cluster
 	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get vSAN Direct VMFS datastores. Err: %+v", err)
+		return nil, nil, fmt.Errorf("failed to get vSAN Direct VMFS datastores. Err: %+v", err)
 	}
 
 	// find datastores shared across all hosts in given cluster
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get hosts from VC. Err: %+v", err)
+		return nil, nil, fmt.Errorf("failed to get hosts from VC. Err: %+v", err)
 	}
 	if len(hosts) == 0 {
-		return nil, nil, fmt.Errorf("Empty List of hosts returned from VC")
+		return nil, nil, fmt.Errorf("empty List of hosts returned from VC")
 	}
 	sharedDatastores := make([]*DatastoreInfo, 0)
 	vsanDirectDatastores := make([]*DatastoreInfo, 0)
@@ -330,7 +344,7 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		}
 	}
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
-		return nil, nil, fmt.Errorf("No candidates datastores found in the Kubernetes cluster")
+		return nil, nil, fmt.Errorf("no candidates datastores found in the Kubernetes cluster")
 	}
 	return sharedDatastores, vsanDirectDatastores, nil
 }
@@ -390,4 +404,30 @@ func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host
 	}
 	log.Debugf("vCenter version is :%q", vc.Client.Version)
 	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
+}
+
+// IsvSphereVersion70U3orAbove checks if specified version is 7.0 Update 3 or higher
+// The method takes aboutInfo{} as input which contains details about
+// VC version, build number and so on.
+// If the version is 7.0 Update 3 or higher, the method returns true, else returns false
+// along with appropriate errors during failure cases
+func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.Version, ".")
+	version := strings.Join(items[:], "")
+	// Convert version string to string, Ex: "7.0.3" becomes 703, "7.0.3.1" becomes 703
+	if len(version) >= 3 {
+		vSphereVersionInt, err := strconv.Atoi(version[0:3])
+		if err != nil {
+			msg := fmt.Sprintf("error while converting version %q to integer, err %+v", version, err)
+			log.Errorf(msg)
+			return false, errors.New(msg)
+		}
+		// Check if the current vSphere version is 7.0.3 or higher
+		if vSphereVersionInt >= VSphere70u3Version {
+			return true, nil
+		}
+	}
+	// For all other versions
+	return false, nil
 }

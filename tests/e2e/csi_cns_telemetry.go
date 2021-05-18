@@ -127,8 +127,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] CNS-CSI Cluster 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(queryResult1.Volumes) > 0).To(gomega.BeTrue())
 
-		framework.Logf("Cluster-distribution value on CNS is %s", queryResult1.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
-		gomega.Expect(queryResult1.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(vanillaClusterDistribution), "Wrong/empty cluster-distribution name present on CNS")
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult1.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
+		gomega.Expect(queryResult1.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(gomega.Equal(vanillaClusterDistribution), "Wrong/empty cluster-distribution name present on CNS")
 
 		ginkgo.By("Setting the cluster-distribution value to empty")
 		setClusterDistribution(ctx, client, "")
@@ -167,8 +167,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] CNS-CSI Cluster 
 		gomega.Expect(len(queryResult2.Volumes) > 0).To(gomega.BeTrue())
 
 		ginkgo.By("Verifying cluster-distribution value specified in secret is honored")
-		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
-		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
+		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for full sync
 		framework.Logf("Sleeping full-sync interval for all the volumes Metadata to reflect the cluster-distribution value to = Empty")
@@ -183,33 +183,33 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] CNS-CSI Cluster 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(queryResult3.Volumes) > 0).To(gomega.BeTrue())
 
-		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
-		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
+		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
 
 		ginkgo.By("Setting the cluster-distribution value with escape character and special characters")
-		setClusterDistribution(ctx, client, vanillaClusterDirtributionWithSpecialChar)
+		setClusterDistribution(ctx, client, vanillaClusterDistributionWithSpecialChar)
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for full sync
-		framework.Logf("Sleeping full-sync interval for all the volumes Metadata to reflect the cluster-distribution value to = %s", vanillaClusterDirtributionWithSpecialChar)
+		framework.Logf("Sleeping full-sync interval for all the volumes Metadata to reflect the cluster-distribution value to = %s", vanillaClusterDistributionWithSpecialChar)
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
 		//Add additional safe wait time for cluster-distribution to reflect on metadata
-		framework.Logf("Sleeping for additional safe one min for volumes Metadata to reflect the cluster-distribution value to = %s", vanillaClusterDirtributionWithSpecialChar)
+		framework.Logf("Sleeping for additional safe one min for volumes Metadata to reflect the cluster-distribution value to = %s", vanillaClusterDistributionWithSpecialChar)
 		time.Sleep(time.Duration(pollTimeoutShort))
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult on PVC2 with VolumeID: %s", volHandle2))
 		queryResult2, err = e2eVSphere.queryCNSVolumeWithResult(volHandle2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(queryResult2.Volumes) > 0).To(gomega.BeTrue())
-		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
 
 		queryResult3, err = e2eVSphere.queryCNSVolumeWithResult(volHandle1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(queryResult3.Volumes) > 0).To(gomega.BeTrue())
-		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution)
+		framework.Logf("Cluster-distribution value on CNS is %s", queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
 
 		ginkgo.By("Verifying cluster-distribution value specified in secret is honored")
-		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(vanillaClusterDirtributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
-		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerCluster.ClusterDistribution).Should(gomega.Equal(vanillaClusterDirtributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
+		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(gomega.Equal(vanillaClusterDistributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
+		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(gomega.Equal(vanillaClusterDistributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
 	})
 })

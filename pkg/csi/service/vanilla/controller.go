@@ -40,10 +40,12 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 // NodeManagerInterface provides functionality to manage nodes.
@@ -211,6 +213,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
 		if err != nil {
 			log.Errorf("failed to get migration service. Err: %v", err)
+			return err
+		}
+	}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency) {
+		log.Infof("CSI Volume manager idempotency handling feature flag is enabled.")
+		// TODO: Assign VolumeOperationRequest object to a variable
+		_, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
 		}
 	}
@@ -764,9 +775,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				},
 			}
 			// Select only the backing object details.
-			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+				msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
 				log.Error(msg)
 				return nil, status.Error(codes.Internal, msg)
 			}
@@ -879,12 +890,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				},
 			}
 			// Select only the volume type.
-			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				msg := fmt.Sprintf("QueryVolume failed for volumeID: %q. %+v", req.VolumeId, err.Error())
+				msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
 				log.Error(msg)
 				return nil, status.Error(codes.Internal, msg)
 			}
+
 			if len(queryResult.Volumes) == 0 {
 				msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
 				log.Error(msg)
@@ -995,7 +1007,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB)
+	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 		log.Error(msg)

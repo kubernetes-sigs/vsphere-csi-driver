@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		pvcDeleted        bool
 		cmd               []string
 		svcClient         clientset.Interface
+		svNamespace       string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		//Set resource quota
 		ginkgo.By("Set Resource quota for GC")
-		svcClient, svNamespace := getSvcClientAndNamespace()
+		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 
 		// Create Storage class and PVC
@@ -119,7 +120,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcClient, svNamespace := getSvcClientAndNamespace()
+		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 	})
 
@@ -234,7 +235,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -428,7 +429,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -489,7 +490,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		Steps:
 		1. Create a SC with allowVolumeExpansion set to 'true'
 		2. create a PVC of 2Gi using the SC created in step 1 and wait for binding with PV
-		3. resize GC PVC to 4Gi and 5Gi in two seperate threads
+		3. resize GC PVC to 4Gi and 5Gi in two separate threads
 		4. Verify GC PVC reaches 5Gi "FilesystemResizePending" state
 		5. Check using CNS query that size of the volume is 5Gi
 		6. Verify size of PVs in SVC and GC are 5Gi
@@ -555,7 +556,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize3)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
@@ -657,7 +658,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -817,7 +818,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -919,7 +920,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1438,7 +1439,7 @@ func waitForPVCToReachFileSystemResizePendingCondition(client clientset.Interfac
 			}
 			gomega.Expect(inProgressConditions[0].Type == v1.PersistentVolumeClaimResizing).To(gomega.BeTrue(), fmt.Sprintf("PVC '%v' is not in 'Resizing' or 'FileSystemResizePending' status condition", pvcName))
 		} else {
-			return false, fmt.Errorf("Resize was not triggered on PVC '%v' or no status conditions related to resizing found on it", pvcName)
+			return false, fmt.Errorf("resize was not triggered on PVC '%v' or no status conditions related to resizing found on it", pvcName)
 		}
 		return false, nil
 	})
@@ -1456,13 +1457,13 @@ func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace strin
 
 	if len(inProgressConditions) == 0 {
 		if conditionsPresent {
-			return pvclaim, fmt.Errorf("No status conditions found on PVC: %v", pvcName)
+			return pvclaim, fmt.Errorf("no status conditions found on PVC: %v", pvcName)
 		}
 		return pvclaim, nil
 	}
 	expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status condition", pvcName))
 	if inProgressConditions[0].Type != condition {
-		return pvclaim, fmt.Errorf("Status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v'", pvcName, inProgressConditions[0].Type, condition)
+		return pvclaim, fmt.Errorf("status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v'", pvcName, inProgressConditions[0].Type, condition)
 	}
 	return pvclaim, nil
 }

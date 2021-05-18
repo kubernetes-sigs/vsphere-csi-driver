@@ -2,7 +2,10 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/client-go/tools/cache"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -12,9 +15,9 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 )
 
@@ -132,7 +135,7 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 // fullSyncGetQueryResults returns list of CnsQueryResult retrieved using
 // queryFilter with offset and limit to query volumes using pagination
 // if volumeIds is empty, then all volumes from CNS will be retrieved by pagination
-func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string, volumeManager volumes.Manager) ([]*cnstypes.CnsQueryResult, error) {
+func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string, volumeManager volumes.Manager, metadataSyncer *metadataSyncInformer) ([]*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s", volumeIds, clusterID)
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -148,10 +151,11 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 	var allQueryResults []*cnstypes.CnsQueryResult
 	for {
 		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
-		queryResult, err := volumeManager.QueryVolume(ctx, queryFilter)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			log.Errorf("failed to QueryVolume using filter: %+v", queryFilter)
-			return nil, err
+			msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 		if queryResult == nil {
 			log.Info("Observed empty queryResult")
@@ -205,13 +209,13 @@ func isValidvSphereVolumeClaim(ctx context.Context, pvcMetadata metav1.ObjectMet
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the PVC metadata
 	if annotation, annMigratedToFound := pvcMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
-		if annotation == types.Name && pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
-			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnMigratedTo, types.Name, pvcMetadata.Name)
+		if annotation == csitypes.Name && pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnMigratedTo, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	} else { // Checking if the PVC was provisioned by CSI
-		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == types.Name {
-			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnStorageProvisioner, types.Name, pvcMetadata.Name)
+		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == csitypes.Name {
+			log.Debugf("%v annotation found with value %q for PVC: %q", common.AnnStorageProvisioner, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	}
@@ -225,13 +229,13 @@ func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) boo
 	log := logger.GetLogger(ctx)
 	// Checking if the migrated-to annotation is found in the PV metadata
 	if annotation, annMigratedToFound := pvMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
-		if annotation == types.Name && pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
-			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnMigratedTo, types.Name, pvMetadata.Name)
+		if annotation == csitypes.Name && pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnMigratedTo, csitypes.Name, pvMetadata.Name)
 			return true
 		}
 	} else {
-		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == types.Name {
-			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnDynamicallyProvisioned, types.Name, pvMetadata.Name)
+		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == csitypes.Name {
+			log.Debugf("%v annotation found with value %q for PV: %q", common.AnnDynamicallyProvisioned, csitypes.Name, pvMetadata.Name)
 			return true
 		}
 	}

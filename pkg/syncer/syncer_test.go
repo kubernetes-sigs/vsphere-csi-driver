@@ -38,8 +38,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/unittestcommon"
@@ -80,7 +79,7 @@ var (
 	metadataSyncer       *metadataSyncInformer
 	k8sclient            clientset.Interface
 	dc                   []*cnsvsphere.Datacenter
-	volumeManager        volume.Manager
+	volumeManager        cnsvolumes.Manager
 	dsList               []vimtypes.ManagedObjectReference
 	cancel               context.CancelFunc
 )
@@ -191,14 +190,14 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager = volume.GetManager(ctx, virtualCenter)
+	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter)
 
 	// Initialize metadata syncer object
 	metadataSyncer = &metadataSyncInformer{}
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.volumeManager = volumes.GetManager(ctx, virtualCenter)
+	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter)
 	metadataSyncer.host = virtualCenter.Config.Host
 
 	// Create the kubernetes client from config or env

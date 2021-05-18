@@ -186,7 +186,7 @@ Before you deploy the vSphere CSI driver, refer to the [Compatibility](../compat
 - Get the deployment manifests pertaining to the version of vSphere CSI driver.
   - [v2.2.0](../releases/v2.2.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.2.0/manifests/v2.2.0
   - [v2.1.1](../releases/v2.1.1.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.1.1/manifests/v2.1.1
-  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.1.0
+  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0
 
   NOTE: Refer [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
 

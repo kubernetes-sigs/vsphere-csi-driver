@@ -50,7 +50,6 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
@@ -211,7 +210,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 		dcMoref = value[0]
 	}
 	// Get node VM by nodeUUID
-	var dc *vsphere.Datacenter
+	var dc *cnsvsphere.Datacenter
 	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
@@ -223,7 +222,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	dc = &vsphere.Datacenter{
+	dc = &cnsvsphere.Datacenter{
 		Datacenter: object.NewDatacenter(vcenter.Client.Client,
 			vimtypes.ManagedObjectReference{
 				Type:  "Datacenter",
@@ -376,7 +375,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
 		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
-			if vsphere.IsManagedObjectNotFound(detachErr) {
+			if cnsvsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -445,7 +444,7 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 		}
 	}
 	if len(vcdcMap) == 0 {
-		err = errors.New("Unable get vCenter datacenters from vsphere config")
+		err = errors.New("unable get vCenter datacenters from vsphere config")
 	}
 	return vcdcMap, err
 }

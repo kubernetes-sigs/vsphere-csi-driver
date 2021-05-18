@@ -50,7 +50,7 @@ else
     read -ra OPTS <<< "-v $GINKGO_OPTS"
 fi
 
-ginkgo "${OPTS[@]}" --focus="$FOCUS" tests/e2e
+ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?

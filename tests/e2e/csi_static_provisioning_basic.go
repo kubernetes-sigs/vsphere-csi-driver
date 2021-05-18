@@ -38,7 +38,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -232,7 +231,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		return restConfig, storageclass, profileID
 	}
 
-	testCleanUpUtil := func(ctx context.Context, restClientConfig *rest.Config, cnsRegistervolume *cnsregistervolumev1alpha1.CnsRegisterVolume, namespace string, pvcName string, pvName string) {
+	testCleanUpUtil := func(ctx context.Context, restClientConfig *restclient.Config, cnsRegistervolume *cnsregistervolumev1alpha1.CnsRegisterVolume, namespace string, pvcName string, pvName string) {
 		if guestCluster {
 			client, _ = getSvcClientAndNamespace()
 		}
@@ -751,7 +750,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			log.Infof("Delete storage clas")
+			log.Infof("Delete storage class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
@@ -1307,7 +1306,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, nonsharedDatastoreName, metav1.GetOptions{})
 		log.Infof("storageclass Name :%s", storageclass.GetName())
 
 		defer func() {

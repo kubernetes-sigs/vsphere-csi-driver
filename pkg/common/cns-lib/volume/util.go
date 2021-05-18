@@ -34,7 +34,7 @@ func validateManager(ctx context.Context, m *defaultManager) error {
 	if m.virtualCenter == nil {
 		log.Error(
 			"Virtual Center connection not established")
-		return errors.New("Virtual Center connection not established")
+		return errors.New("virtual Center connection not established")
 	}
 	return nil
 }
@@ -55,7 +55,7 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 				if virtualDisk.VDiskId != nil && virtualDisk.VDiskId.Id == volumeID {
 					virtualDevice := device.GetVirtualDevice()
 					if backing, ok := virtualDevice.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
-						log.Debugf("Found diskUUID %s for volume %s on vm %+v", backing.Uuid, volumeID, vm)
+						log.Infof("Found diskUUID %s for volume %s on vm %+v", backing.Uuid, volumeID, vm)
 						return backing.Uuid, nil
 					}
 				}

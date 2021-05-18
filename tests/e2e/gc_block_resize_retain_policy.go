@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		4. verify GC1 PVC is removed but SVC PV, PVC and GC1 PV still exist
 		5. delete GC1 PV.  SVC PV, PVC still exist
 		6. Create a new GC GC2
-		7. create SC in GC1 similar to the SC created in step 1 but with recalim policy set to delete
+		7. create SC in GC1 similar to the SC created in step 1 but with reclaim policy set to delete
 		8. Create new PV in GC2 using the SVC PVC from step 5 and SC created in step 7
 		9. create new  PVC in GC2 using PV created in step 8
 		10. verify a new PVC API object is created
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verifying disk size requested in volume expansion is honored")
 		newSizeInMb := convertGiStrToMibInt64(newSize)
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-			err = fmt.Errorf("Got wrong disk size after volume expansion")
+			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

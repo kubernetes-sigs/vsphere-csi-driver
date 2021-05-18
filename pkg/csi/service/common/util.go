@@ -216,7 +216,7 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string, csiM
 			} else if param == AttributeFsType {
 				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
 			} else {
-				return nil, fmt.Errorf("Invalid param: %q and value: %q", param, value)
+				return nil, fmt.Errorf("invalid param: %q and value: %q", param, value)
 			}
 		}
 	} else {
@@ -351,6 +351,10 @@ func ConvertVolumeHealthStatus(volHealthStatus string) (string, error) {
 	case string(pbmtypes.PbmHealthStatusForEntityUnknown):
 		return string(pbmtypes.PbmHealthStatusForEntityUnknown), nil
 	default:
-		return "", fmt.Errorf("cannot convert invalid volume health status %s", volHealthStatus)
+		// NOTE: volHealthStatus is not set by SPBM in this case.
+		// This implies the volume does not exist any more.
+		// Set health annotation to "Inaccessible" so that
+		// the caller can make appropriate reactions based on this status
+		return VolHealthStatusInaccessible, nil
 	}
 }

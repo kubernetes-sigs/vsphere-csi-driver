@@ -23,8 +23,7 @@ import (
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
-	"github.com/vmware/govmomi/vim25/types"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -46,7 +45,7 @@ type VsanClient struct {
 
 // Creates the vsan object identities instance. This is to be queried from vsan health.
 var (
-	VsanQueryObjectIdentitiesInstance = vimtypes.ManagedObjectReference{
+	VsanQueryObjectIdentitiesInstance = vim25types.ManagedObjectReference{
 		Type:  "VsanObjectSystem",
 		Value: "vsan-cluster-object-system",
 	}
@@ -105,7 +104,7 @@ func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*o
 }
 
 // getDatastoresMountedOnHost returns the datastore references of all the datastores mounted on the specified host
-func (vs *vSphere) getDatastoresMountedOnHost(ctx context.Context, host types.ManagedObjectReference) []types.ManagedObjectReference {
+func (vs *vSphere) getDatastoresMountedOnHost(ctx context.Context, host vim25types.ManagedObjectReference) []vim25types.ManagedObjectReference {
 	connect(ctx, vs)
 	var hostMo mo.HostSystem
 	err := vs.Client.RetrieveOne(ctx, host, []string{"datastore"}, &hostMo)
@@ -131,11 +130,11 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 		return vmMoRef, nil
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
-	return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
 }
 
 // getHostFromVMReference returns host object reference of the host on which the specified VM resides
-func (vs *vSphere) getHostFromVMReference(ctx context.Context, vm types.ManagedObjectReference) types.ManagedObjectReference {
+func (vs *vSphere) getHostFromVMReference(ctx context.Context, vm vim25types.ManagedObjectReference) vim25types.ManagedObjectReference {
 	connect(ctx, vs)
 	var vmMo mo.VirtualMachine
 	err := vs.Client.RetrieveOne(ctx, vm, []string{"summary.runtime.host"}, &vmMo)
@@ -171,7 +170,7 @@ func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context, vmUUID string, timeo
 			framework.Logf("vmuuid: %s still exists", vmMoRefForvmUUID)
 			continue
 		} else {
-			return nil, fmt.Errorf("Node VM with UUID:%s is not found", vmUUID)
+			return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
 		}
 	}
 	return vmMoRefForvmUUID, nil
@@ -410,20 +409,20 @@ func (vs *vSphere) waitForCNSVolumeToBeCreated(volumeID string) error {
 }
 
 // createFCD creates an FCD disk
-func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityInMB int64, dsRef types.ManagedObjectReference) (string, error) {
+func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
 	KeepAfterDeleteVM := false
-	spec := types.VslmCreateSpec{
+	spec := vim25types.VslmCreateSpec{
 		Name:              fcdname,
 		CapacityInMB:      diskCapacityInMB,
 		KeepAfterDeleteVm: &KeepAfterDeleteVM,
-		BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
-			VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+		BackingSpec: &vim25types.VslmCreateSpecDiskFileBackingSpec{
+			VslmCreateSpecBackingSpec: vim25types.VslmCreateSpecBackingSpec{
 				Datastore: dsRef,
 			},
-			ProvisioningType: string(types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
+			ProvisioningType: string(vim25types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
 		},
 	}
-	req := types.CreateDisk_Task{
+	req := vim25types.CreateDisk_Task{
 		This: *vs.Client.Client.ServiceContent.VStorageObjectManager,
 		Spec: spec,
 	}
@@ -436,30 +435,30 @@ func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityIn
 	if err != nil {
 		return "", err
 	}
-	fcdID := taskInfo.Result.(types.VStorageObject).Config.Id.Id
+	fcdID := taskInfo.Result.(vim25types.VStorageObject).Config.Id.Id
 	return fcdID, nil
 }
 
 // createFCD with valid storage policy
-func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string, profileID string, diskCapacityInMB int64, dsRef types.ManagedObjectReference) (string, error) {
+func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string, profileID string, diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
 	KeepAfterDeleteVM := false
-	spec := types.VslmCreateSpec{
+	spec := vim25types.VslmCreateSpec{
 		Name:              fcdname,
 		CapacityInMB:      diskCapacityInMB,
 		KeepAfterDeleteVm: &KeepAfterDeleteVM,
-		BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
-			VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+		BackingSpec: &vim25types.VslmCreateSpecDiskFileBackingSpec{
+			VslmCreateSpecBackingSpec: vim25types.VslmCreateSpecBackingSpec{
 				Datastore: dsRef,
 			},
-			ProvisioningType: string(types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
+			ProvisioningType: string(vim25types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
 		},
-		Profile: []types.BaseVirtualMachineProfileSpec{
-			&types.VirtualMachineDefinedProfileSpec{
+		Profile: []vim25types.BaseVirtualMachineProfileSpec{
+			&vim25types.VirtualMachineDefinedProfileSpec{
 				ProfileId: profileID,
 			},
 		},
 	}
-	req := types.CreateDisk_Task{
+	req := vim25types.CreateDisk_Task{
 		This: *vs.Client.Client.ServiceContent.VStorageObjectManager,
 		Spec: spec,
 	}
@@ -472,16 +471,16 @@ func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname stri
 	if err != nil {
 		return "", err
 	}
-	fcdID := taskInfo.Result.(types.VStorageObject).Config.Id.Id
+	fcdID := taskInfo.Result.(vim25types.VStorageObject).Config.Id.Id
 	return fcdID, nil
 }
 
 // deleteFCD deletes an FCD disk
-func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.ManagedObjectReference) error {
-	req := types.DeleteVStorageObject_Task{
+func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types.ManagedObjectReference) error {
+	req := vim25types.DeleteVStorageObject_Task{
 		This:      *vs.Client.Client.ServiceContent.VStorageObjectManager,
 		Datastore: dsRef,
-		Id:        types.ID{Id: fcdID},
+		Id:        vim25types.ID{Id: fcdID},
 	}
 	res, err := methods.DeleteVStorageObject_Task(ctx, vs.Client.Client, &req)
 	if err != nil {
@@ -496,20 +495,20 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef types.Mana
 }
 
 // relocateFCD relocates an FCD disk
-func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc types.ManagedObjectReference, dsRefDest types.ManagedObjectReference) error {
-	spec := types.VslmRelocateSpec{
-		VslmMigrateSpec: types.VslmMigrateSpec{
-			DynamicData: types.DynamicData{},
-			BackingSpec: &types.VslmCreateSpecDiskFileBackingSpec{
-				VslmCreateSpecBackingSpec: types.VslmCreateSpecBackingSpec{
+func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc vim25types.ManagedObjectReference, dsRefDest vim25types.ManagedObjectReference) error {
+	spec := vim25types.VslmRelocateSpec{
+		VslmMigrateSpec: vim25types.VslmMigrateSpec{
+			DynamicData: vim25types.DynamicData{},
+			BackingSpec: &vim25types.VslmCreateSpecDiskFileBackingSpec{
+				VslmCreateSpecBackingSpec: vim25types.VslmCreateSpecBackingSpec{
 					Datastore: dsRefDest,
 				},
 			},
 		},
 	}
-	req := types.RelocateVStorageObject_Task{
+	req := vim25types.RelocateVStorageObject_Task{
 		This:      *vs.Client.Client.ServiceContent.VStorageObjectManager,
-		Id:        types.ID{Id: fcdID},
+		Id:        vim25types.ID{Id: fcdID},
 		Datastore: dsRefSrc,
 		Spec:      spec,
 	}
@@ -589,7 +588,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 
 	err := json.Unmarshal([]byte(hostInfo), &result)
@@ -637,7 +636,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 //VsanQueryObjectIdentities return list of vsan uuids
 //example: For a PVC, It returns the vSAN object UUIDs to their identities
 //It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
-func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vimtypes.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
+func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
 		This:    VsanQueryObjectIdentitiesInstance,
 		Cluster: &cluster,
@@ -661,7 +660,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 	clusterComputeResource, _, err := getClusterName(ctx, vs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -678,12 +677,12 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 	value := ("ha-vsan-internal-system-" + hostValue[1])
 	framework.Logf("vsan internal system value %v", value)
 	var (
-		QueryVsanObjectsInstance = vimtypes.ManagedObjectReference{
+		QueryVsanObjectsInstance = vim25types.ManagedObjectReference{
 			Type:  "HostVsanInternalSystem",
 			Value: value,
 		}
 	)
-	req := types.QueryVsanObjects{
+	req := vim25types.QueryVsanObjects{
 		This:  QueryVsanObjectsInstance,
 		Uuids: uuids,
 	}

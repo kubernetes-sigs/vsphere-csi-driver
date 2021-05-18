@@ -27,8 +27,6 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -548,7 +546,6 @@ func waitForPvMigAnnotations(ctx context.Context, c clientset.Interface, pvName 
 func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName string, namespace string, isMigratedVol bool) (bool, *v1.PersistentVolumeClaim) {
 	pvc, err := c.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("PVC %v", spew.Sdump(pvc))
 	annotations := pvc.Annotations
 	isStorageProvisionerMatching := false
 	isMigratedToCsi := false
@@ -671,27 +668,7 @@ func generateNodeMap(ctx context.Context, config *e2eTestConfig, vs *vSphere, c 
 
 // fileExists checks whether the specified file exists on the shared datastore
 func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, error) {
-	finder := find.NewFinder(e2eVSphere.Client.Client, false)
-	dcList := strings.Split(testConfig.Global.Datacenters, ",")
-	var datacentersNameList []string
-	var datastore *object.Datastore
-	for _, dcStr := range dcList {
-		dcName := strings.TrimSpace(dcStr)
-		if dcName != "" {
-			datacentersNameList = append(datacentersNameList, dcName)
-		}
-	}
-	datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-	for _, dcName := range datacentersNameList {
-		datacenter, err := finder.Datacenter(ctx, dcName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		finder.SetDatacenter(datacenter)
-		datastore, err = getDatastoreByURL(ctx, datastoreURL, datacenter)
-		if err == nil {
-			break
-		}
-	}
-	gomega.Expect(datastore).NotTo(gomega.BeNil())
+	datastore := getDefaultDatastore(ctx)
 	b, err := datastore.Browser(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	spec := types.HostDatastoreBrowserSearchSpec{
@@ -730,7 +707,7 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context, crd *mi
 	return waitErr
 }
 
-// verifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
+// verifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) bool {
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -847,20 +824,6 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 						break
 					}
 				}
-				if pod.Labels == nil {
-					if entityMetadata.Labels != nil {
-						framework.Logf("Pod labels '%v' does not match pod labels in metadata '%v', for volume id %v", pod.Labels, entityMetadata.Labels, volumeID)
-						podEntryFound = false
-						break
-					}
-				} else {
-					labels := getLabelMap(entityMetadata.Labels)
-					if !(reflect.DeepEqual(labels, pv.Labels)) {
-						framework.Logf("Labels on pod '%v' are not matching with labels in pod metadata '%v' for volume id %v", pod.Labels, entityMetadata.Labels, volumeID)
-						podEntryFound = false
-						break
-					}
-				}
 				if entityMetadata.Namespace != pod.Namespace {
 					framework.Logf("Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v", pod.Namespace, entityMetadata.Namespace, volumeID)
 					podEntryFound = false
@@ -873,7 +836,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 	return pvEntryFound == verifyPvEntry && pvcEntryFound == verifyPvcEntry && podEntryFound == verifyPodEntry
 }
 
-// waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod infromation on given cns volume
+// waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) error {
 	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
 		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)

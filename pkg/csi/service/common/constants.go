@@ -234,6 +234,8 @@ const (
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check
 	CSIAuthCheck = "csi-auth-check"
+	// AsyncQueryVolume is feature flag for using async query volume API
+	AsyncQueryVolume = "async-query-volume"
 	// CSISVFeatureStateReplication is feature flag for SV feature state replication feature
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
 	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
@@ -244,4 +246,6 @@ const (
 	FakeAttach = "fake-attach"
 	// TriggerCSIFullSyync is feature flag to trigger full sync
 	TriggerCsiFullSync = "trigger-csi-fullsync"
+	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling in CSI volume manager
+	CSIVolumeManagerIdempotency = "csi-volume-manager-idempotency"
 )
