@@ -48,8 +48,8 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
@@ -264,7 +264,7 @@ func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName 
 		log.Errorf("failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
 		return "", err
 	}
-	k8sNodeUUID := common.GetUUIDFromProviderID(node.Spec.ProviderID)
+	k8sNodeUUID := cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
 	log.Infof("Retrieved node UUID: %q for the node: %q", k8sNodeUUID, nodeName)
 	return k8sNodeUUID, nil
 }
