@@ -2285,7 +2285,7 @@ func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef
 	return waitErr
 }
 
-// NewDeployment returns a deployment spec with the specified argument.
+// NewDeploymentwithVolume returns a deployment spec with the specified argument.
 func NewDeploymentwithVolume(deploymentName string, replicas int32, podLabels map[string]string, imageName, image string, pvclaims []*v1.PersistentVolumeClaim, strategyType appsv1.DeploymentStrategyType) *appsv1.Deployment {
 	zero := int64(0)
 	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
@@ -2350,6 +2350,7 @@ func createDeployments(ns string, dep *apps.Deployment, c clientset.Interface) {
 
 }
 
+//updateDeploymentImage updates the image in the deployment with the given image
 func updateDeploymentImage(ns string, image string, deploymentName string) {
 	_, err := framework.RunKubectl(ns, "set", "image", fmt.Sprintf("deployment/%s", deploymentName), fmt.Sprintf("nginx=%s", image), "--record")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
