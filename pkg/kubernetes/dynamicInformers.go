@@ -26,7 +26,6 @@ import (
 	"k8s.io/client-go/informers"
 	restclient "k8s.io/client-go/rest"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -82,27 +81,14 @@ func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, name
 // isInCluster should be set to true if the resource is present in the same
 // cluster, otherwise set false if the resource is present in the supervisor
 // cluster in TKG flavor.
-func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, namespace string, isInCluster bool) (informers.GenericInformer, error) {
+//
+// Takes an input configuration to create a client for the dynamic informer.
+// If isInCluster is set to true, the config contains credentials to the in
+// cluster API server. If isInCluster is set to false, config contains
+// credentials to the supervisor cluster.
+func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, namespace string, cfg *restclient.Config, isInCluster bool) (informers.GenericInformer, error) {
 	log := logger.GetLogger(ctx)
-	var (
-		cfg *restclient.Config
-		err error
-	)
-
-	if isInCluster {
-		cfg, err = GetKubeConfig(ctx)
-		if err != nil {
-			log.Errorf("failed to read config. Error: %+v", err)
-			return nil, err
-		}
-	} else {
-		cnsConfig, err := common.GetConfig(ctx)
-		if err != nil {
-			log.Errorf("failed to read config. Error: %+v", err)
-			return nil, err
-		}
-		cfg = GetRestClientConfigForSupervisor(ctx, cnsConfig.GC.Endpoint, cnsConfig.GC.Port)
-	}
+	var err error
 
 	dynamicInformerFactory, err := newDynamicInformerFactory(ctx, cfg, namespace, isInCluster)
 	if err != nil {
