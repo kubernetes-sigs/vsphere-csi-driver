@@ -903,6 +903,80 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 	})
 
+	/*
+		Verify in-line volume creation on the migrated node
+		Steps:
+		1.	Create vmdk1
+		2.	Create VCP SC1
+		3.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		4.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		5.	Create pod1 with inline volume wait for it to reach Running state
+		6.	Verify vmdk1 is registered as a CNS volume and pod metadata is added for the CNS volume
+		7.	Delete pod1
+		8.	Verify CNS volume for vmdk1 is removed
+		9.	Delete SC1
+		10.	Delete vmdk1
+		11.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		12.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Disable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+
+	*/
+	ginkgo.It("Verify in-line volume creation on the migrated node", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating vmdk1 on the shared datastore " + scParams[vcpScParamDatastoreName])
+		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
+		vmdk1, err := createVmdk(esxHost, "", "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vmdks = append(vmdks, vmdk1)
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		kubectlMigEnabled = true
+
+		ginkgo.By("Create pod1 with inline volume and wait for it to reach Running state")
+		pod1, err := createPodWithInlineVols(ctx, client, namespace, nil, []string{vmdk1})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podsToDelete = append(podsToDelete, pod1)
+
+		ginkgo.By("Verify vmdk1 is registered as a CNS volume and pod metadata is added for the CNS volume")
+		crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, getCanonicalPath(vmdk1))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, nil, nil, pod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Delete pod1")
+		err = fpod.DeletePodWithWait(client, pod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podsToDelete = []*v1.Pod{}
+
+		ginkgo.By("Verify CNS volume for vmdk1 is removed")
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(crd.Spec.VolumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx, crd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
 })
 
 //waitForCnsVSphereVolumeMigrationCrd waits for CnsVSphereVolumeMigration crd to be created for the given volume path
@@ -1093,4 +1167,34 @@ func getPvcPvFromPod(ctx context.Context, c clientset.Interface, namespace strin
 		pvs = append(pvs, pv)
 	}
 	return pvs, pvcs
+}
+
+//createPodWithInlineVols create a pod with the given volumes (vmdks) inline
+func createPodWithInlineVols(ctx context.Context, client clientset.Interface, namespace string, nodeSelector map[string]string, vmdks []string) (*v1.Pod, error) {
+	pod := fpod.MakePod(namespace, nodeSelector, nil, false, "")
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	var volumeMounts = make([]v1.VolumeMount, len(vmdks))
+	var volumes = make([]v1.Volume, len(vmdks))
+	for index, vmdk := range vmdks {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{VsphereVolume: &v1.VsphereVirtualDiskVolumeSource{VolumePath: getCanonicalPath(vmdk), FSType: ext4FSType}}}
+	}
+	pod.Spec.Containers[0].VolumeMounts = volumeMounts
+	pod.Spec.Volumes = volumes
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
 }
