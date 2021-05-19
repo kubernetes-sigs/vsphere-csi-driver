@@ -158,6 +158,7 @@ var (
 	migratedPluginAnnotation        = "storage.alpha.kubernetes.io/migrated-plugins"
 	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
+	scAnnotation4Statefulset        = "volume.beta.kubernetes.io/storage-class"
 	nodeMapper                      = &NodeMapper{}
 )
 

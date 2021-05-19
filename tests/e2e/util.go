@@ -50,6 +50,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
@@ -57,6 +58,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -2203,6 +2205,69 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	return pod, nil
 }
 
+// createDeployment create a deployment with 1 replica for given pvcs and node selector
+func createDeployment(ctx context.Context, client clientset.Interface, replicas int32, podLabels map[string]string, nodeSelector map[string]string, namespace string, pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool) (*appsv1.Deployment, error) {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	zero := int64(0)
+	deploymentName := "deployment-" + string(uuid.NewUUID())
+	deploymentSpec := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName,
+			Namespace: namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: podLabels,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
+				Spec: v1.PodSpec{
+					TerminationGracePeriodSeconds: &zero,
+					Containers: []v1.Container{
+						{
+							Name:    "write-pod",
+							Image:   busyBoxImageOnGcr,
+							Command: []string{"/bin/sh"},
+							Args:    []string{"-c", command},
+							SecurityContext: &v1.SecurityContext{
+								Privileged: &isPrivileged,
+							},
+						},
+					},
+					RestartPolicy: v1.RestartPolicyAlways,
+				},
+			},
+		},
+	}
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+	for index, pvclaim := range pvclaims {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	deploymentSpec.Spec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	deploymentSpec.Spec.Template.Spec.Volumes = volumes
+	if nodeSelector != nil {
+		deploymentSpec.Spec.Template.Spec.NodeSelector = nodeSelector
+	}
+	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
+	}
+	framework.Logf("Waiting deployment %q to complete", deploymentSpec.Name)
+	err = fdep.WaitForDeploymentComplete(client, deployment)
+	if err != nil {
+		return nil, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
+	}
+	return deployment, nil
+}
+
 // createPodForFSGroup helps create pod with fsGroup
 func createPodForFSGroup(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, fsGroup *int64, runAsUser *int64) (*v1.Pod, error) {
 	if len(command) == 0 {
@@ -2442,6 +2507,8 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context, client clientse
   }" >>` + kubeletConfigYaml
 	} else if result.Code == 0 && !shouldAdd {
 		sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+	} else {
+		return
 	}
 	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
 	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
