@@ -23,6 +23,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
@@ -47,7 +48,8 @@ func init() {
 func TestE2E(t *testing.T) {
 	handleFlags()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "CNS CSI Driver End-to-End Tests")
+	junitReporter := reporters.NewJUnitReporter("junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "CNS CSI Driver End-to-End Tests", []Reporter{junitReporter})
 }
 
 func handleFlags() {
