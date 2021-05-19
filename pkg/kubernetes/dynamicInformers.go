@@ -37,29 +37,28 @@ var (
 	supervisorDynamicInformerInitLock   = &sync.Mutex{}
 )
 
-// newDynamicInformerFactory creates a dynamic informer factory for a given namespace if it doesn't exist already
+// newDynamicInformerFactory creates a dynamic informer factory for a given
+// namespace if it doesn't exist already.
 func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, namespace string, isInCluster bool) (dynamicinformer.DynamicSharedInformerFactory, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		dynamicInformerFactory dynamicinformer.DynamicSharedInformerFactory
 		exists                 bool
 	)
-	// Check if dynamic informer factory exists for the given namespace
+	// Check if dynamic informer factory exists for the given namespace.
 	if isInCluster {
-		// Acquire lock
 		dynamicInformerInitLock.Lock()
 		defer dynamicInformerInitLock.Unlock()
 
 		dynamicInformerFactory, exists = dynamicInformerFactoryMap[namespace]
 	} else {
-		// Acquire lock
 		supervisorDynamicInformerInitLock.Lock()
 		defer supervisorDynamicInformerInitLock.Unlock()
 
 		dynamicInformerFactory, exists = supervisorDynamicInformerFactoryMap[namespace]
 	}
 	if !exists {
-		// Grab a dynamic interface to create informer
+		// Grab a dynamic interface to create informer.
 		dc, err := dynamic.NewForConfig(cfg)
 		if err != nil {
 			log.Errorf("could not generate dynamic client for config. InCluster: %t Error :%v", isInCluster, err)
@@ -77,9 +76,12 @@ func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, name
 	return dynamicInformerFactory, nil
 }
 
-// GetDynamicInformer returns informer for specified CRD group, version, name and namespace
-// isInCluster should be set to true if the resource is present in the same cluster,
-// otherwise set false if the resource is present in the supervisor cluster in TKG flavor
+// GetDynamicInformer returns informer for specified CRD group, version, name
+// and namespace.
+//
+// isInCluster should be set to true if the resource is present in the same
+// cluster, otherwise set false if the resource is present in the supervisor
+// cluster in TKG flavor.
 func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, namespace string, isInCluster bool) (informers.GenericInformer, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -99,18 +101,16 @@ func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, name
 			log.Errorf("failed to read config. Error: %+v", err)
 			return nil, err
 		}
-		// Get rest client config for supervisor
 		cfg = GetRestClientConfigForSupervisor(ctx, cnsConfig.GC.Endpoint, cnsConfig.GC.Port)
 	}
 
-	// Fetching dynamic informer factory for given namespace
 	dynamicInformerFactory, err := newDynamicInformerFactory(ctx, cfg, namespace, isInCluster)
 	if err != nil {
 		log.Errorf("could not retrieve dynamic informer factory for %q namespace. Error: %+v", namespace, err)
 		return nil, err
 	}
 
-	// Return informer from shared dynamic informer factory for input resource
+	// Return informer from shared dynamic informer factory for input resource.
 	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
 	return dynamicInformerFactory.ForResource(gvr), nil
 }
