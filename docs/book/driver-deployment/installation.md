@@ -47,6 +47,8 @@ Create a configuration file that will contain details to connect to vSphere.
 
 The default file to write these configuration details is the `csi-vsphere.conf` file. If you would like to use a file with another name, change the environment variable `VSPHERE_CSI_CONFIG` in the deployment YAMLs described in the section [Install vSphere CSI driver](#install) below.
 
+For deployment with zones refer to https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/deploying_csi_with_zones.html
+
 ### vSphere configuration file for block volumes <a id="vsphereconf_for_block"></a>
 
 Here is an example vSphere configuration file for block volumes, with dummy values:

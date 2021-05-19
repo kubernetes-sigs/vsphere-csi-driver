@@ -1,13 +1,14 @@
 <!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD024 -->
+<!-- markdownlint-disable MD034 -->
 # vSphere CSI Driver - Deployment with Topology
 
 - [Set Up Zones in the vSphere CNS Environment](#set_up_zones_in_vsphere)
-- [Enable Zones for the vSphere CPI and CSI Driver](#enable_zones_for_vsphere_cpi_and_csi)
+- [Enable Zones for the vSphere CSI Driver](#enable_zones_for_vsphere_csi)
 
 **Note:** Volume Topology and Availability Zone feature is **beta** in vSphere CSI Driver.
 
-When you deploy CPI and CSI in a vSphere environment that includes multiple data centers or host clusters, you can use zoning.
+When you deploy CSI in a vSphere environment that includes multiple data centers or host clusters, you can use zoning.
 
 Zoning enables orchestration systems, like Kubernetes, to integrate with vSphere storage resources that are not equally available to all nodes. As a result, the orchestration system can make intelligent decisions when dynamically provisioning volumes, and avoid situations such as those where a pod cannot start because the storage resource it needs is not accessible.
 
@@ -100,68 +101,13 @@ Make sure that you have appropriate tagging privileges that control your ability
     </tbody>
     </table>
 
-#### Enable Zones for the vSphere CPI and CSI Driver <a id="enable_zones_for_vsphere_cpi_and_csi"></a>
+#### Enable Zones for the vSphere CSI Driver <a id="enable_zones_for_vsphere_csi"></a>
 
-Install the vSphere CPI and the CSI driver using the zone and region entries.
+Install the vSphere CSI driver using the zone and region entries.
 
 ##### Procedure
 
-1. Create a config secret for vSphere CPI:
-
-   In the value fields of the configmap cloud-config file, specify region and zone.
-   Make sure to add the names of categories you defined in vSphere, such as k8s-region and k8s-zone.
-
-   ```bash
-   [Global]
-   insecure-flag = "true"
-
-   [VirtualCenter "vCenter Server IP address"]
-   user = "user"
-   password = "password"
-   port = "443"
-   datacenters = "datacenter"
-
-   [Network]
-   public-network = "VM Network"
-
-   [Labels]
-   region = k8s-region
-   zone = k8s-zone
-   ```
-
-   ```bash
-   cd /etc/kubernetes
-   kubectl create configmap cloud-config --from-file=vsphere.conf --namespace=kube-system
-   ```
-
-2. Create Roles, Roles Bindings, Service Account, Service and cloud-controller-manager Pod
-
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-roles.yaml
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/master/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
-   kubectl apply -f https://github.com/kubernetes/cloud-provider-vsphere/raw/master/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
-   ```
-
-3. Verify that your CCM installation is successful.
-
-   After installation, labels `failure-domain.beta.kubernetes.io/region` and `failure-domain.beta.kubernetes.io/zone` are applied to all nodes.
-
-   ```bash
-   kubectl get nodes -L failure-domain.beta.kubernetes.io/zone -L failure-domain.beta.kubernetes.io/region
-   NAME         STATUS   ROLES    AGE   VERSION   ZONE     REGION
-   k8s-master   Ready    master   32m   v1.14.2   zone-a   region-1
-   k8s-node1    Ready    <none>   18m   v1.14.2   zone-a   region-1
-   k8s-node2    Ready    <none>   18m   v1.14.2   zone-b   region-1
-   k8s-node3    Ready    <none>   18m   v1.14.2   zone-b   region-1
-   k8s-node4    Ready    <none>   18m   v1.14.2   zone-c   region-1
-   k8s-node5    Ready    <none>   18m   v1.14.2   zone-c   region-1
-   ```
-
-4. Install the CSI driver.
-
-   Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true` and `--strict-topology`.
-
-   In the credential secret file, add entries for region and zone.
+1. In the [vsphere config secret](https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/installation.html#create_csi_vsphereconf) file, add entries for region and zone.
 
    ```bash
    [Labels]
@@ -169,39 +115,35 @@ Install the vSphere CPI and the CSI driver using the zone and region entries.
    zone = k8s-zone
    ```
 
-   Make sure secret is mounted on all workload nodes as well. This is required to help node discover its topology.
+2. Make sure `external-provisioner` is deployed with the arguments `--feature-gates=Topology=true` and `--strict-topology`.
+   - Uncomment lines in the yaml file marked with `needed only for topology aware setup`. - https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-controller-deployment.yaml#L160-L161
 
-   ```yaml
-     containers:
-     - name: vsphere-csi-node
-     .
-     .
-       env:
-       - name: VSPHERE_CSI_CONFIG
-         value: "/etc/cloud/csi-vsphere.conf"
-     .
-     .
-       volumeMounts:
-       - name: vsphere-config-volume
-         mountPath: /etc/cloud
-         readOnly: true
-     .
-     .
-     volumes:
-     - name: vsphere-config-volume
-       secret:
-         secretName: vsphere-config-secret
-     .
-     .
-     ```
+3. Make sure secret is mounted on all workload nodes as well. This is required to help node discover its topology.
+   - Uncomment lines in the yaml file marked with `needed only for topology aware setup`.
+      - https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-node-ds.yaml#L67-L68
+      - https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-node-ds.yaml#L84-L86
+      - https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-node-ds.yaml#L121-L123
 
-5. Verify that your CSI driver installation is successful.
+4. After the installation, verify all `csinodes` objects has `topologyKeys`.
 
-   ```bash
-   kubectl get csinodes -o jsonpath='{range .items[*]}{.metadata.name} {.spec}{"\n"}{end}'
-   k8s-node1 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node1 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   k8s-node2 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node2 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   k8s-node3 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node3 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   k8s-node4 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node4 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   k8s-node5 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node5 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
-   ```
+      ```bash
+      kubectl get csinodes -o jsonpath='{range .items[*]}{.metadata.name} {.spec}{"\n"}{end}'
+      k8s-node1 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node1 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
+      k8s-node2 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node2 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
+      k8s-node3 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node3 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
+      k8s-node4 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node4 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
+      k8s-node5 map[drivers:[map[name:csi.vsphere.vmware.com nodeID:k8s-node5 topologyKeys:[failure-domain.beta.kubernetes.io/region failure-domain.beta.kubernetes.io/zone]]]]
+      ```
+
+5. Verify labels `failure-domain.beta.kubernetes.io/region` and `failure-domain.beta.kubernetes.io/zone` should be applied to all nodes.
+
+      ```bash
+         kubectl get nodes -L failure-domain.beta.kubernetes.io/zone -L failure-domain.beta.kubernetes.io/region
+         NAME         STATUS   ROLES    AGE   VERSION   ZONE     REGION
+         k8s-master   Ready    master   32m   v1.19.0   zone-a   region-1
+         k8s-node1    Ready    <none>   18m   v1.19.0   zone-a   region-1
+         k8s-node2    Ready    <none>   18m   v1.19.0   zone-b   region-1
+         k8s-node3    Ready    <none>   18m   v1.19.0   zone-b   region-1
+         k8s-node4    Ready    <none>   18m   v1.19.0   zone-c   region-1
+         k8s-node5    Ready    <none>   18m   v1.19.0   zone-c   region-1
+      ```
