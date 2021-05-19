@@ -40,13 +40,13 @@ import (
 const (
 	defaultClusterFlavor = cnstypes.CnsClusterFlavorVanilla
 
-	// UnixSocketPrefix is the prefix before the path on disk
+	// UnixSocketPrefix is the prefix before the path on disk.
 	UnixSocketPrefix = "unix://"
 )
 
 var (
 	// COInitParams stores the input params required for initiating the
-	// CO agnostic orchestrator for the controller as well as node containers
+	// CO agnostic orchestrator for the controller as well as node containers.
 	COInitParams  interface{}
 	clusterFlavor = defaultClusterFlavor
 	cfgPath       = cnsconfig.DefaultCloudConfigPath
@@ -65,13 +65,14 @@ type service struct {
 	cnscs csitypes.CnsController
 }
 
-// This works around a bug that if k8s node dies, this will clean up the sock file
-// left behind. This can't be done in BeforeServe because gocsi will already try to
-// bind and fail because the sock file already exists.
+// If k8s node died unexpectedly in an earlier run, the unix socket is left
+// behind. This method will clean up the sock file during initialization.
+// We cannot do this in BeforeServe, because gocsi will already try to
+// bind and fail if the sock file already exists.
 func init() {
 	sockPath := os.Getenv(gocsi.EnvVarEndpoint)
 	sockPath = strings.TrimPrefix(sockPath, UnixSocketPrefix)
-	if len(sockPath) > 1 { // minimal valid path length
+	if len(sockPath) > 1 { // Minimal valid path length.
 		os.Remove(sockPath)
 	}
 }
@@ -82,7 +83,7 @@ func New() Service {
 }
 
 func (s *service) GetController() csi.ControllerServer {
-	// check which controller type to use
+	// Check which controller type to use.
 	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
@@ -98,12 +99,12 @@ func (s *service) GetController() csi.ControllerServer {
 
 func (s *service) BeforeServe(
 	ctx context.Context, sp *gocsi.StoragePlugin, lis net.Listener) error {
-	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
-	logger.SetLoggerLevel(logType)
+	logger.SetLoggerLevel(logger.LogLevel(os.Getenv(logger.EnvLoggerLevel)))
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	defer func() {
-		log.Infof("configured: %q with clusterFlavor: %q and mode: %q", csitypes.Name, clusterFlavor, s.mode)
+		log.Infof("Configured: %q with clusterFlavor: %q and mode: %q",
+			csitypes.Name, clusterFlavor, s.mode)
 	}()
 
 	var (
@@ -111,8 +112,9 @@ func (s *service) BeforeServe(
 		cfg *cnsconfig.Config
 	)
 
-	// Initialize CO utility in Nodes
-	commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
+	// Initialize CO utility in Nodes.
+	commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(
+		ctx, common.Kubernetes, clusterFlavor, COInitParams)
 	if err != nil {
 		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
@@ -121,7 +123,7 @@ func (s *service) BeforeServe(
 	// Get the SP's operating mode.
 	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
 	if !strings.EqualFold(s.mode, "node") {
-		// Controller service is needed
+		// Controller service is needed.
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("failed to read config. Error: %+v", err)

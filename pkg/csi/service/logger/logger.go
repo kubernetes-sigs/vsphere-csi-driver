@@ -14,11 +14,11 @@ type LogLevel string
 const (
 	// ProductionLogLevel is the level for the production log.
 	ProductionLogLevel LogLevel = "PRODUCTION"
-	// DevelopmentLogLevel is the level for development log
+	// DevelopmentLogLevel is the level for development log.
 	DevelopmentLogLevel LogLevel = "DEVELOPMENT"
-	// EnvLoggerLevel is the level for the environment log
+	// EnvLoggerLevel is the environment variable name for log level.
 	EnvLoggerLevel = "LOGGER_LEVEL"
-	// LogCtxIDKey holds the TraceId for log
+	// LogCtxIDKey holds the TraceId for log.
 	LogCtxIDKey = "TraceId"
 )
 
