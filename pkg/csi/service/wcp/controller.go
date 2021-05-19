@@ -117,7 +117,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
 		authMgr, err := common.GetAuthorizationService(ctx, vc)
@@ -147,14 +146,32 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					return
 				}
 				log.Debugf("fsnotify event: %q", event.String())
-				if event.Op&fsnotify.Remove == fsnotify.Remove {
+				if event.Op&fsnotify.Remove == fsnotify.Remove && event.Name == cfgPath {
 					for {
-						reloadConfigErr := c.ReloadConfiguration()
+						reloadConfigErr := c.ReloadConfiguration(false)
 						if reloadConfigErr == nil {
 							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
 							break
 						}
 						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(5 * time.Second)
+					}
+				}
+				// Handling create event for reconnecting to VC when ca file is rotated
+				// In Supervisor cluster, ca file gets rotated at the path /etc/vmware/wcp/tls/vmca.pem
+				// WCP is handling ca file rotation by creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new contents
+				// and then renaming the file back to /etc/vmware/wcp/tls/vmca.pem.
+				// For such operations, fsnotify handles the event as a CREATE event
+				// The condition below also ensures that the event is for the expected ca file path
+				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
+					log.Infof("Observed ca file rotation at: %q", cnsconfig.SupervisorCAFilePath)
+					for {
+						reconnectVCErr := c.ReloadConfiguration(true)
+						if reconnectVCErr == nil {
+							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
+							break
+						}
+						log.Errorf("failed to re-establish VC connection. Will retry again in 5 seconds. err: %+v", reconnectVCErr)
 						time.Sleep(5 * time.Second)
 					}
 				}
@@ -172,6 +189,13 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	err = watcher.Add(cfgDirPath)
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
+	caFileDirPath := filepath.Dir(cnsconfig.SupervisorCAFilePath)
+	log.Infof("Adding watch on path: %q", caFileDirPath)
+	err = watcher.Add(caFileDirPath)
+	if err != nil {
+		log.Errorf("failed to watch on path: %q. err=%v", caFileDirPath, err)
 		return err
 	}
 	// Go module to keep the metrics http server running all the time.
@@ -192,7 +216,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's config cache
 // and VolumeManager's VC Config cache.
-func (c *controller) ReloadConfiguration() error {
+// The function takes a boolean reconnectToVCFromNewConfig as ainputs.
+// If reconnectToVCFromNewConfig is set to true, the function re-establishes connection with VC,
+// else based on the configuration data changed during reload, the function resets config, reloads VC connection
+// when credentials are changed and returns appropriate error
+func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
@@ -209,7 +237,7 @@ func (c *controller) ReloadConfiguration() error {
 		var vcenter *cnsvsphere.VirtualCenter
 		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
-			c.manager.VcenterConfig.Password != newVCConfig.Password {
+			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
 
 			// Verify if new configuration has valid credentials by connecting to vCenter.
 			// Proceed only if the connection succeeds, else return error.
