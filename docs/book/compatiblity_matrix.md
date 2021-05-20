@@ -21,6 +21,7 @@ Note:
   - Features added in the newer vSphere releases does not work on the older vSphere CSI driver. Refer to [feature matrix](supported_features_matrix.md) to learn about what features added in each release of vSphere and CSI driver.
 
 - vSphere CSI driver is not supported on Windows based vCenter.
+- vSphere CSI driver does not support Windows based nodes.
 - vSphere CSI driver is not supported on vSAN stretch cluster.
 - vSphere CSI driver does not support provisioning volumes on NFSv4 Datastore.
 - vSphere CSI driver does not currently support vCenter HA.
