@@ -84,11 +84,7 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *cnsconfig.Config, version string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
