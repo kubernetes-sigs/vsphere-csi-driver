@@ -26,7 +26,7 @@ import (
 // Version of the driver. This should be set via ldflags.
 var Version string
 
-func (s *service) Probe(
+func (driver *vsphereCSIDriver) Probe(
 	ctx context.Context,
 	req *csi.ProbeRequest) (
 	*csi.ProbeResponse, error) {
@@ -34,7 +34,7 @@ func (s *service) Probe(
 	return &csi.ProbeResponse{}, nil
 }
 
-func (s *service) GetPluginInfo(
+func (driver *vsphereCSIDriver) GetPluginInfo(
 	ctx context.Context,
 	req *csi.GetPluginInfoRequest) (
 	*csi.GetPluginInfoResponse, error) {
@@ -45,7 +45,7 @@ func (s *service) GetPluginInfo(
 	}, nil
 }
 
-func (s *service) GetPluginCapabilities(
+func (driver *vsphereCSIDriver) GetPluginCapabilities(
 	ctx context.Context,
 	req *csi.GetPluginCapabilitiesRequest) (
 	*csi.GetPluginCapabilitiesResponse, error) {

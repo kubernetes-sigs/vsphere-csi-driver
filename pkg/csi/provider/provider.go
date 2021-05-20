@@ -24,7 +24,7 @@ import (
 
 // New returns a new CSI Storage Plug-in Provider.
 func New() gocsi.StoragePluginProvider {
-	svc := service.New()
+	svc := service.NewDriver()
 	ctrl := svc.GetController()
 
 	return &gocsi.StoragePlugin{
