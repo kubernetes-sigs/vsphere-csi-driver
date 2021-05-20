@@ -372,7 +372,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(request reconcile.Request) (rec
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
 		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
-			if vsphere.IsManagedObjectNotFound(detachErr) {
+			if vsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
