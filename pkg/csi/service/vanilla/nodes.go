@@ -24,7 +24,6 @@ import (
 
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
@@ -62,7 +61,7 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 		log.Warnf("nodeAdd: unrecognized object %+v", obj)
 		return
 	}
-	err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
+	err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
 		log.Warnf("failed to register node:%q. err=%v", node.Name, err)
 	}
@@ -83,7 +82,7 @@ func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
 	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
 		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
 
-		err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
+		err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
 		if err != nil {
 			log.Warnf("nodeUpdate: Failed to register node:%q. err=%v", newNode.Name, err)
 		}
