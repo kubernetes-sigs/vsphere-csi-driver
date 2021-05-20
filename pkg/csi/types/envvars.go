@@ -31,4 +31,16 @@ const (
 
 	// EnvInClusterClientBurst is the Burst for all clients to the API server
 	EnvInClusterClientBurst = "INCLUSTER_CLIENT_BURST"
+
+	// EnvVarEndpoint specifies the CSI endpoint for CSI driver.
+	EnvVarEndpoint = "CSI_ENDPOINT"
+
+	// EnvVarMode is the name of the environment variable used to specify
+	// the service mode of the plugin. Valid values are:
+	// * controller
+	// * node
+	//
+	// Depending on the value, either controller and node service will be
+	// activated (The identity service is always activated).
+	EnvVarMode = "X_CSI_MODE"
 )

@@ -24,7 +24,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rexray/gocsi"
-	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -52,15 +51,16 @@ var (
 	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
 
-// Service is a CSI SP and idempotency.Provider.
-type Service interface {
+// Driver is a CSI SP and idempotency.Provider.
+type Driver interface {
 	csi.IdentityServer
 	csi.NodeServer
 	GetController() csi.ControllerServer
 	BeforeServe(context.Context, *gocsi.StoragePlugin, net.Listener) error
+	Run(ctx context.Context, endpoint string)
 }
 
-type service struct {
+type vsphereCSIDriver struct {
 	mode  string
 	cnscs csitypes.CnsController
 }
@@ -70,41 +70,42 @@ type service struct {
 // We cannot do this in BeforeServe, because gocsi will already try to
 // bind and fail if the sock file already exists.
 func init() {
-	sockPath := os.Getenv(gocsi.EnvVarEndpoint)
+	sockPath := os.Getenv(csitypes.EnvVarEndpoint)
 	sockPath = strings.TrimPrefix(sockPath, UnixSocketPrefix)
 	if len(sockPath) > 1 { // Minimal valid path length.
 		os.Remove(sockPath)
 	}
 }
 
-// New returns a new Service.
-func New() Service {
-	return &service{}
+// NewDriver returns a new Driver.
+func NewDriver() Driver {
+	return &vsphereCSIDriver{}
 }
 
-func (s *service) GetController() csi.ControllerServer {
+func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 	// Check which controller type to use.
 	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
-		s.cnscs = wcp.New()
+		driver.cnscs = wcp.New()
 	case cnstypes.CnsClusterFlavorGuest:
-		s.cnscs = wcpguest.New()
+		driver.cnscs = wcpguest.New()
 	default:
 		clusterFlavor = defaultClusterFlavor
-		s.cnscs = vanilla.New()
+		driver.cnscs = vanilla.New()
 	}
-	return s.cnscs
+	return driver.cnscs
 }
 
-func (s *service) BeforeServe(
+//BeforeServe defines the tasks needed before starting the driver.
+func (driver *vsphereCSIDriver) BeforeServe(
 	ctx context.Context, sp *gocsi.StoragePlugin, lis net.Listener) error {
 	logger.SetLoggerLevel(logger.LogLevel(os.Getenv(logger.EnvLoggerLevel)))
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	defer func() {
 		log.Infof("Configured: %q with clusterFlavor: %q and mode: %q",
-			csitypes.Name, clusterFlavor, s.mode)
+			csitypes.Name, clusterFlavor, driver.mode)
 	}()
 
 	var (
@@ -121,18 +122,34 @@ func (s *service) BeforeServe(
 	}
 
 	// Get the SP's operating mode.
-	s.mode = csictx.Getenv(ctx, gocsi.EnvVarMode)
-	if !strings.EqualFold(s.mode, "node") {
+	driver.mode = os.Getenv(csitypes.EnvVarMode)
+	if !strings.EqualFold(driver.mode, "node") {
 		// Controller service is needed.
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("failed to read config. Error: %+v", err)
 			return err
 		}
-		if err := s.cnscs.Init(cfg, Version); err != nil {
+		if err := driver.cnscs.Init(cfg, Version); err != nil {
 			log.Errorf("failed to init controller. Error: %+v", err)
 			return err
 		}
 	}
 	return nil
+}
+
+// Run starts a gRPC server that serves requests at the specified endpoint.
+func (driver *vsphereCSIDriver) Run(ctx context.Context, endpoint string) {
+	log := logger.GetLogger(ctx)
+	controllerServer := driver.GetController()
+
+	// Invoke BeforeServe function to perform any local initialization routines.
+	if err := driver.BeforeServe(ctx, nil, nil); err != nil {
+		log.Errorf("failed to run the driver. Err: +%v", err)
+		os.Exit(1)
+	}
+
+	//Start the nonblocking GRPC
+	grpc := NewNonBlockingGRPCServer()
+	grpc.Start(endpoint, driver, controllerServer, driver)
 }
