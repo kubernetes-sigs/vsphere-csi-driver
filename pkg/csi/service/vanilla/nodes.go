@@ -60,7 +60,8 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 		log.Warnf("nodeAdd: unrecognized object %+v", obj)
 		return
 	}
-	err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
+	err := nodes.cnsNodeManager.RegisterNode(ctx,
+		cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
 		log.Warnf("failed to register node:%q. err=%v", node.Name, err)
 	}
@@ -79,9 +80,11 @@ func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
 		return
 	}
 	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
-		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
+		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q",
+			oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
 
-		err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
+		err := nodes.cnsNodeManager.RegisterNode(ctx,
+			cnsvsphere.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
 		if err != nil {
 			log.Warnf("nodeUpdate: Failed to register node:%q. err=%v", newNode.Name, err)
 		}
@@ -104,14 +107,16 @@ func (nodes *Nodes) nodeDelete(obj interface{}) {
 // GetNodeByName returns VirtualMachine object for given nodeName.
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume
 // to perform attach and detach operations.
-func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error) {
+func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
+	*cnsvsphere.VirtualMachine, error) {
 	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
 // GetAllNodes returns VirtualMachine for all registered.
 // This is called by ControllerExpandVolume to check if volume is attached to
 // a node.
-func (nodes *Nodes) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error) {
+func (nodes *Nodes) GetAllNodes(ctx context.Context) (
+	[]*cnsvsphere.VirtualMachine, error) {
 	return nodes.cnsNodeManager.GetAllNodes(ctx)
 }
 
@@ -133,15 +138,24 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachi
 //
 // Return map datastoreTopologyMap looks like as below
 // map[ ds:///vmfs/volumes/5d119112-7b28fe05-f51d-02000b3a3f4b/:
-//         [map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east]]
+//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
 //      ds:///vmfs/volumes/e54abc3f-f6a5bb1f-0000-000000000000/:
-//         [map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east]]
+//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
 //      ds:///vmfs/volumes/vsan:524fae1aaca129a5-1ee55a87f26ae626/:
-//         [map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west]
-//         map[failure-domain.beta.kubernetes.io/region:k8s-region-us failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east]]]]
-func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager, zoneCategoryName string, regionCategoryName string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
+//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west ]
+//          map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]] ]
+func (nodes *Nodes) GetSharedDatastoresInTopology(
+	ctx context.Context, topologyRequirement *csi.TopologyRequirement,
+	tagManager *tags.Manager, zoneCategoryName string,
+	regionCategoryName string) (
+	[]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("GetSharedDatastoresInTopology: called with topologyRequirement: %+v, zoneCategoryName: %s, regionCategoryName: %s", topologyRequirement, zoneCategoryName, regionCategoryName)
+	log.Debugf("Get shared datastores with topologyRequirement: %+v, zone: %s, region: %s",
+		topologyRequirement, zoneCategoryName, regionCategoryName)
 	allNodes, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
 		log.Errorf("failed to get Nodes from nodeManager with err %+v", err)
@@ -154,13 +168,16 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	}
 	// getNodesInZoneRegion takes zone and region as parameter and returns list
 	// of node VMs which belongs to specified zone and region.
-	getNodesInZoneRegion := func(zoneValue string, regionValue string) ([]*cnsvsphere.VirtualMachine, error) {
-		log.Debugf("getNodesInZoneRegion: called with zoneValue: %s, regionValue: %s", zoneValue, regionValue)
+	getNodesInZoneRegion := func(zoneValue string, regionValue string) (
+		[]*cnsvsphere.VirtualMachine, error) {
+		log.Debugf("Get nodes in zone: %s, region: %s", zoneValue, regionValue)
 		var nodeVMsInZoneAndRegion []*cnsvsphere.VirtualMachine
 		for _, nodeVM := range allNodes {
-			isNodeInZoneRegion, err := nodeVM.IsInZoneRegion(ctx, zoneCategoryName, regionCategoryName, zoneValue, regionValue, tagManager)
+			isNodeInZoneRegion, err := nodeVM.IsInZoneRegion(ctx, zoneCategoryName,
+				regionCategoryName, zoneValue, regionValue, tagManager)
 			if err != nil {
-				log.Errorf("Error checking if node VM: %v belongs to zone [%s] and region [%s]. err: %+v", nodeVM, zoneValue, regionValue, err)
+				log.Errorf("Error checking if node VM %v belongs to zone [%s] and region [%s]. err: %+v",
+					nodeVM, zoneValue, regionValue, err)
 				return nil, err
 			}
 			if isNodeInZoneRegion {
@@ -173,7 +190,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	// getSharedDatastoresInTopology returns list of shared accessible datastores
 	// for requested topology along with the map of datastore URL and array of
 	// accessibleTopology map for each datastore returned from this function.
-	getSharedDatastoresInTopology := func(topologyArr []*csi.Topology) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
+	getSharedDatastoresInTopology := func(topologyArr []*csi.Topology) (
+		[]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 		log.Debugf("getSharedDatastoresInTopology: called with topologyArr: %+v", topologyArr)
 		var sharedDatastores []*cnsvsphere.DatastoreInfo
 		datastoreTopologyMap := make(map[string][]map[string]string)
@@ -184,16 +202,21 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 			log.Debugf("Getting list of nodeVMs for zone [%s] and region [%s]", zone, region)
 			nodeVMsInZoneRegion, err := getNodesInZoneRegion(zone, region)
 			if err != nil {
-				log.Errorf("failed to find Nodes in the zone: [%s] and region: [%s]. Error: %+v", zone, region, err)
+				log.Errorf("Failed to find nodes in zone [%s] and region [%s]. Error: %+v",
+					zone, region, err)
 				return nil, nil, err
 			}
-			log.Debugf("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]", nodeVMsInZoneRegion, zone, region)
-			sharedDatastoresInZoneRegion, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
+			log.Debugf("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]",
+				nodeVMsInZoneRegion, zone, region)
+			sharedDatastoresInZoneRegion, err :=
+				nodes.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
 			if err != nil {
-				log.Errorf("failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v", nodeVMsInZoneRegion, zone, region, err)
+				log.Errorf("Failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v",
+					nodeVMsInZoneRegion, zone, region, err)
 				return nil, nil, err
 			}
-			log.Debugf("Obtained shared datastores : %+v for topology: %+v", sharedDatastores, topology)
+			log.Debugf("Obtained shared datastores : %+v for topology: %+v",
+				sharedDatastores, topology)
 			for _, datastore := range sharedDatastoresInZoneRegion {
 				accessibleTopology := make(map[string]string)
 				if zone != "" {
@@ -202,7 +225,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 				if region != "" {
 					accessibleTopology[v1.LabelZoneRegion] = region
 				}
-				datastoreTopologyMap[datastore.Info.Url] = append(datastoreTopologyMap[datastore.Info.Url], accessibleTopology)
+				datastoreTopologyMap[datastore.Info.Url] =
+					append(datastoreTopologyMap[datastore.Info.Url], accessibleTopology)
 			}
 			sharedDatastores = append(sharedDatastores, sharedDatastoresInZoneRegion...)
 		}
@@ -213,17 +237,22 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	var datastoreTopologyMap = make(map[string][]map[string]string)
 	if topologyRequirement != nil && topologyRequirement.GetPreferred() != nil {
 		log.Debugf("Using preferred topology")
-		sharedDatastores, datastoreTopologyMap, err = getSharedDatastoresInTopology(topologyRequirement.GetPreferred())
+		sharedDatastores, datastoreTopologyMap, err =
+			getSharedDatastoresInTopology(topologyRequirement.GetPreferred())
 		if err != nil {
-			log.Errorf("Error occurred  while finding shared datastores from preferred topology: %+v", topologyRequirement.GetPreferred())
+			log.Errorf("Error finding shared datastores from preferred topology: %+v",
+				topologyRequirement.GetPreferred())
 			return nil, nil, err
 		}
 	}
-	if len(sharedDatastores) == 0 && topologyRequirement != nil && topologyRequirement.GetRequisite() != nil {
+	if len(sharedDatastores) == 0 && topologyRequirement != nil &&
+		topologyRequirement.GetRequisite() != nil {
 		log.Debugf("Using requisite topology")
-		sharedDatastores, datastoreTopologyMap, err = getSharedDatastoresInTopology(topologyRequirement.GetRequisite())
+		sharedDatastores, datastoreTopologyMap, err =
+			getSharedDatastoresInTopology(topologyRequirement.GetRequisite())
 		if err != nil {
-			log.Errorf("Error occurred  while finding shared datastores from requisite topology: %+v", topologyRequirement.GetRequisite())
+			log.Errorf("Error finding shared datastores from requisite topology: %+v",
+				topologyRequirement.GetRequisite())
 			return nil, nil, err
 		}
 	}
@@ -232,7 +261,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 
 // GetSharedDatastoresInK8SCluster returns list of DatastoreInfo objects for
 // datastores accessible to all kubernetes nodes in the cluster.
-func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error) {
+func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) (
+	[]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	nodeVMs, err := nodes.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
@@ -255,7 +285,9 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cns
 
 // GetSharedDatastoresForVMs returns shared datastores accessible to specified
 // nodeVMs list.
-func (nodes *Nodes) GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*cnsvsphere.VirtualMachine) ([]*cnsvsphere.DatastoreInfo, error) {
+func (nodes *Nodes) GetSharedDatastoresForVMs(
+	ctx context.Context, nodeVMs []*cnsvsphere.VirtualMachine) (
+	[]*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	log := logger.GetLogger(ctx)
 	for _, nodeVM := range nodeVMs {
