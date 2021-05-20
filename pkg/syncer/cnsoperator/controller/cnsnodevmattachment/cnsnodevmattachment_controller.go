@@ -284,7 +284,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 
 		log.Debugf("vSphere CSI driver is attaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
-		diskUUID, attachErr := volumes.GetManager(ctx, vcenter).AttachVolume(ctx, nodeVM, volumeID)
+		diskUUID, attachErr := volumes.GetManager(ctx, vcenter).AttachVolume(ctx, nodeVM, volumeID, false)
 
 		if attachErr != nil {
 			log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",

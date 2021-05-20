@@ -435,10 +435,10 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 // AttachVolumeUtil is the helper function to attach CNS volume to specified vm
 func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
-	volumeID string) (string, error) {
+	volumeID string, checkNVMeController bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is attaching volume: %q to vm: %q", volumeID, vm.String())
-	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID)
+	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
 	if err != nil {
 		log.Errorf("failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
 		return "", err

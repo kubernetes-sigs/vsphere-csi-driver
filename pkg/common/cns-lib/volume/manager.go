@@ -57,7 +57,7 @@ type Manager interface {
 	// CreateVolume creates a new volume given its spec.
 	CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error)
 	// AttachVolume attaches a volume to a virtual machine given the spec.
-	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) (string, error)
+	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error)
 	// DetachVolume detaches a volume from the virtual machine given the spec.
 	DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) error
 	// DeleteVolume deletes a volume given its spec.
@@ -352,7 +352,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 
 // AttachVolume attaches a volume to a virtual machine given the spec.
 func (m *defaultManager) AttachVolume(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine, volumeID string) (string, error) {
+	vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error) {
 	internalAttachVolume := func() (string, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -407,8 +407,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 			if isResourceInUseFault {
 				log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q", volumeID, vm.String())
-				// Check if volume is already attached to the requested node.
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				// check if volume is already attached to the requested node
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, checkNVMeController)
 				if err != nil {
 					return "", err
 				}
@@ -475,7 +475,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			if cnsvsphere.IsNotFoundError(err) {
 				// Detach failed with NotFound error, check if the volume is already detached.
 				log.Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 				if err != nil {
 					log.Errorf("DetachVolume err: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						err, volumeID, vm)
@@ -515,7 +515,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
 			if isNotFoundFault {
 				// check if volume is already detached from the VM
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 				if err != nil {
 					log.Errorf("DetachVolume fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
