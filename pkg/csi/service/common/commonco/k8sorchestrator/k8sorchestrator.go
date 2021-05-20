@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -268,8 +269,16 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 				log.Errorf("failed to retrieve supervisor cluster namespace from config. Error: %+v", err)
 				return err
 			}
+			cfg, err := common.GetConfig(ctx)
+			if err != nil {
+				log.Errorf("failed to read config. Error: %+v", err)
+				return err
+			}
+			// Get rest client config for supervisor
+			restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+
 			// Attempt to fetch the cnscsisvfeaturestate CR from the supervisor namespace of the TKG cluster
-			svFssCR, err := getSVFssCR(ctx)
+			svFssCR, err := getSVFssCR(ctx, restClientConfig)
 			if err != nil {
 				// If the cnscsisvfeaturestate CR is not yet registered in the supervisor cluster, we receive NoKindMatchError.
 				// In such cases log an info message and fallback to GCM replicated configmap approach
@@ -301,13 +310,13 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 				var dynInformer informers.GenericInformer
 				for range ticker.C {
 					// Check if cnscsisvfeaturestate CR exists, if not keep retrying
-					_, err = getSVFssCR(ctx)
+					_, err = getSVFssCR(ctx, restClientConfig)
 					if err != nil {
 						continue
 					}
 					// Create a dynamic informer for the cnscsisvfeaturestate CR
 					dynInformer, err = k8s.GetDynamicInformer(ctx, featurestates.CRDGroupName, internalapis.Version, featurestates.CRDPlural,
-						svNamespace, false)
+						svNamespace, restClientConfig, false)
 					if err != nil {
 						log.Errorf("failed to create dynamic informer for %s CR. Error: %+v", featurestates.CRDSingular, err)
 						continue
@@ -382,16 +391,12 @@ func getSvFssCRAvailability() bool {
 }
 
 // getSVFssCR retrieves the cnscsisvfeaturestate CR from the supervisor namespace
-// in the TKG cluster using the supervisor client
-func getSVFssCR(ctx context.Context) (*featurestatesv1alpha1.CnsCsiSvFeatureStates, error) {
+// in the TKG cluster using the supervisor client.
+// It takes the REST config to the cluster and creates a client using the config
+// to returns the svFssCR object.
+func getSVFssCR(ctx context.Context, restClientConfig *restclient.Config) (*featurestatesv1alpha1.CnsCsiSvFeatureStates, error) {
 	log := logger.GetLogger(ctx)
-	cfg, err := common.GetConfig(ctx)
-	if err != nil {
-		log.Errorf("failed to read config. Error: %+v", err)
-		return nil, err
-	}
-	// Get rest client config for supervisor
-	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+
 	// Get CNS operator client
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	if err != nil {

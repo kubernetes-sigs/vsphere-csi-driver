@@ -18,8 +18,11 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 )
+
+// TriggerCsiFullSyncCRName is the name of the instance
+// created to trigger full sync on demand.
+const TriggerCsiFullSyncCRName = "csifullsync"
 
 // TriggerCsiFullSyncSpec is the spec for TriggerCsiFullSync
 type TriggerCsiFullSyncSpec struct {
@@ -85,7 +88,7 @@ type TriggerCsiFullSyncList struct {
 func CreateTriggerCsiFullSyncInstance() *TriggerCsiFullSync {
 	return &TriggerCsiFullSync{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: common.TriggerCsiFullSyncCRName,
+			Name: TriggerCsiFullSyncCRName,
 		},
 		Spec: TriggerCsiFullSyncSpec{
 			TriggerSyncID: 0,
