@@ -740,8 +740,6 @@ func (m *defaultManager) QueryVolume(ctx context.Context, queryFilter cnstypes.C
 		if err != nil {
 			return nil, err
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		// Set up the VC connection
 		err = m.virtualCenter.ConnectCns(ctx)
 		if err != nil {

@@ -422,11 +422,7 @@ func getSVFssCR(ctx context.Context, restClientConfig *restclient.Config) (*feat
 
 // configMapAdded adds feature state switch values from configmap that has been created on K8s cluster
 func configMapAdded(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
 	if fssConfigMap == nil || !ok {
 		log.Warnf("configMapAdded: unrecognized object %+v", obj)
@@ -456,11 +452,7 @@ func configMapAdded(obj interface{}) {
 
 // configMapUpdated updates feature state switch values from configmap that has been created on K8s cluster
 func configMapUpdated(oldObj, newObj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	oldFssConfigMap, ok := oldObj.(*v1.ConfigMap)
 	if oldFssConfigMap == nil || !ok {
 		log.Warnf("configMapUpdated: unrecognized old object %+v", oldObj)
@@ -502,10 +494,7 @@ func configMapUpdated(oldObj, newObj interface{}) {
 
 // configMapDeleted clears the feature state switch values from the feature states map
 func configMapDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	_, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
 	if fssConfigMap == nil || !ok {
 		log.Warnf("configMapDeleted: unrecognized object %+v", obj)
@@ -533,11 +522,7 @@ func configMapDeleted(obj interface{}) {
 
 // fssCRAdded adds supervisor feature state switch values from the cnscsisvfeaturestate CR
 func fssCRAdded(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	var svFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &svFSSObject)
 	if err != nil {
@@ -558,11 +543,7 @@ func fssCRAdded(obj interface{}) {
 
 // fssCRUpdated updates supervisor feature state switch values from the cnscsisvfeaturestate CR
 func fssCRUpdated(oldObj, newObj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	var (
 		newSvFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
 		oldSvFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
@@ -596,11 +577,7 @@ func fssCRUpdated(oldObj, newObj interface{}) {
 
 // fssCRDeleted crashes the container if the cnscsisvfeaturestate CR object with name svfeaturestates is deleted
 func fssCRDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	var svFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &svFSSObject)
 	if err != nil {
@@ -659,11 +636,7 @@ func pvcAdded(obj interface{}) {}
 // pvAdded adds a volume to the volumeIDToPvcMap if it's already in Bound phase.
 // This ensures that all existing PVs in the cluster are added to the map, even across container restarts.
 func pvAdded(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		log.Warnf("pvAdded: unrecognized object %+v", obj)
@@ -685,11 +658,7 @@ func pvAdded(obj interface{}) {
 
 // pvUpdated updates the volumeIDToPvcMap when a PV goes to Bound phase
 func pvUpdated(oldObj, newObj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	// Get old and new PV objects
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
@@ -721,11 +690,7 @@ func pvUpdated(oldObj, newObj interface{}) {
 
 // pvDeleted deletes an entry from volumeIDToPvcMap when a PV gets deleted
 func pvDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		log.Warnf("PVDeleted: unrecognized object %+v", obj)
