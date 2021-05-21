@@ -25,6 +25,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/soap"
+	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -89,10 +90,23 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 		}
 		return err
 	}
-	taskInfo, err := task.WaitForResult(ctx)
+
+	var taskInfo *types.TaskInfo
+	taskFunc := func() (done bool, _ error) {
+		taskInfo, err = task.WaitForResult(ctx)
+		if err != nil {
+			log.Infof("Error while waiting for task result. Err: %v", err)
+			return false, err
+		}
+		return true, nil
+	}
+	baseDuration := time.Duration(3) * time.Second
+	thresholdDuration := time.Duration(10) * time.Second
+	_, err = ExponentialBackoff(taskFunc, baseDuration, thresholdDuration, 1.5, 3)
 	if err != nil {
 		return err
 	}
+
 	results := taskInfo.Result.(cnstypes.CnsVolumeOperationBatchResult)
 	for _, result := range results.VolumeResults {
 		fault := result.GetCnsVolumeOperationResult().Fault
