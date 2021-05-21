@@ -2401,7 +2401,7 @@ func NewDeploymentwithVolume(deploymentName string, replicas int32, podLabels ma
 }
 
 //createDeployments will create deployments in the given namespace
-func createDeployments(ns string, dep *apps.Deployment, c clientset.Interface) {
+func createDeployments(ns string, dep *appsv1.Deployment, c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	framework.Logf(fmt.Sprintf("Creating Deployment %v/%v with %d replicas and selector %+v",
