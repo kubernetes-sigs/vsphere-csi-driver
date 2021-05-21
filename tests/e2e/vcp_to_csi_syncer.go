@@ -28,16 +28,19 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
 )
 
@@ -77,6 +80,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
+
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		kubectlMigEnabled = false
+
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = false
@@ -243,7 +250,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		2. Create PVC1 using SC1 and wait for binding with PV (say PV1)
 		3. Add PVC1 and PV1 labels
 		4. Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		5. Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv. kubernetes. io/migrated-to": "csi. vsphere. vmware. com"
+		5. Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv. kubernetes. io/migrated-to": "csi. vsphere. vmware. com"
 		6. Verify cnsvspherevolumemigrations crd is created for the migrated volume
 		7. wait for labels to be present in CNS for PVC1 and PV1
 		8. Create PVC2 using SC1 and wait for binding with PV (say PV2)
@@ -266,7 +273,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		2.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
 		3.	Add PVC1 and PV1 labels
 		4.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		5.	Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		5.	Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
 		6.	Verify cnsvspherevolumemigrations crd is created for the migrated volume
 		7.	wait for labels to be present in CNS for PVC1 and PV1
 		8.	Create PVC2 using SC1 and wait for binding with PV (say PV2)
@@ -388,7 +395,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		4. Create PVC1 using SC1 and wait for binding with PV1
 		5. Add PVC1 and PV1 labels
 		6. Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		7. Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		7. Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
 		8. Verify cnsvspherevolumemigrations crd is created for the migrated volume
 		9. wait for labels to be present in CNS for PVC1 and PV1
 		10. Create PV2 using vmdk2 and SC1
@@ -399,7 +406,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		15. Delete PVC1, PVC2, PV1 and PV2 labels
 		16. wait for labels to get removed from CNS for PVC1, pVC2, PV1 and PV2
 		17. Delete PVC1 and PVC2
-		18. wait and verify PVC1, PVC2, PV1 and PV2 entries are deleted in CNS
+		18. wait and verify PVC1, PVC2, PV1 and PV2 entries are deleted in CNS
 		19. Verify cnsvspherevolumemigrations crds are removed for PVC1, PVC2, PV1 and PV2
 		20. Verify vmdk1 and vmdk2 are also deleted
 		21. Delete SC1
@@ -516,14 +523,14 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		1.	Create SC1 VCP SC
 		2.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
 		3.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		4.	Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		4.	Verify the PVC1 and PV1 provisioned in step 2 have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
 		5.	Verify cnsvspherevolumemigrations crd is created for the migrated volume
 		6.	Create PVC2 using SC1 and wait for binding with PV (say PV2)
 		7.	Verify cnsvspherevolumemigrations crd is created for PVC2 and PV2
 		8.	Repeat the following steps for all the nodes in the k8s cluster
 			a.	Drain and Cordon off the node
 			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
-			c.	verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			c.	verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
 			d.	Enable scheduling on the node
 		9.	Create pod1 using PVC1 and PVC2
 		10.	Verify pod name in CNS entries for PVC1 and PVC2
@@ -537,7 +544,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		18.	Repeat the following steps for all the nodes in the k8s cluster
 			a.	Drain and Cordon off the node
 			b.	Disable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
-			c.	verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			c.	verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
 			d.	Enable scheduling on the node
 		19.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
 	*/
@@ -607,6 +614,292 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
 		kubectlMigEnabled = false
+
+	})
+
+	/*
+		Statefulsets label and pod name updates
+		Steps:
+		1.Create SC1 VCP SC
+		2.Create nginx service
+		3.Create nginx statefulset SS1 using SC1 with 3 replicas
+		4.wait for all the replicas to come up
+		5.Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		6.Repeat the following steps for all the nodes in the k8s cluster
+			a.Drain and Cordon off the node
+			b.Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.Enable scheduling on the node
+		7.Verify all PV/PVCs used by SS1 and have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		8.Verify cnsvspherevolumemigrations crd is created for all PV/PVCs used by SS1
+		9.Verify CNS entries are present for all PV/PVCs used by SS1 and all PVCs have correct pod names
+		10.scale down SS1 to 1 replica
+		11.wait for replicas to die and pvcs to get detached
+		12.Verify CNS entries for the detached PVCs have pod names removed
+		13.scale up SS1 replicas to 4 replicas
+		14.wait for all replicas to come up
+		15.Verify all PV/PVCs used by SS1 and have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com" except for the 4th one
+		16.verify "pv.kubernetes.io/provisioned-by": "csi.vsphere.vmware.com " annotation on 4th pvc created post migration will
+		17.Verify cnsvspherevolumemigrations crd is created for all PV/PVCs used by SS1
+		18.Verify CNS entries are present for all PV/PVCs used by SS1 and all PVCs have correct pod names
+		19.scale down SS1 replicas to 0 replicas
+		20.Verify CNS entries for the detached PVCs have pod names removed
+		21.Delete SS1
+		22.Delete nginx service
+		23.Delete all PVCs
+		24.wait for PVs and respective vmdks to get deleted
+		25.Verify cnsvspherevolumemigrations crds are removed for all PV/PVCs used by SS1
+		26.Verify CNS entries are removed for all PVC used by SS1
+		27.Delete SC1
+		28.Repeat the following steps for all the nodes in the k8s cluster
+			a.Drain and Cordon off the node
+			b.Disable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.Enable scheduling on the node
+		29.Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+	*/
+	ginkgo.It("Statefulsets label and pod name updates", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		statefulset := GetStatefulSetFromManifest(namespace)
+		temp := statefulset.Spec.VolumeClaimTemplates
+		temp[0].Annotations[scAnnotation4Statefulset] = vcpSc.Name
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+		// Waiting for pods status to be Ready
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+		for _, pod := range ssPodsBeforeScaleDown.Items {
+			pvs, pvcs := getPvcPvFromPod(ctx, client, namespace, &pod)
+			vcpPvcsPreMig = append(vcpPvcsPreMig, pvcs...)
+			vcpPvsPreMig = append(vcpPvsPreMig, pvs...)
+		}
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		kubectlMigEnabled = true
+
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 1))
+		_, scaledownErr := fss.Scale(client, statefulset, 1)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
+		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc after statefulset scale down")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
+
+		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", 4))
+		_, scaledUpErr := fss.Scale(client, statefulset, 4)
+		gomega.Expect(scaledUpErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, 4)
+		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == 4).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+
+		pod := ssPodsAfterScaleUp.Items[3]
+		pvs, pvcs := getPvcPvFromPod(ctx, client, namespace, &pod)
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvcs...)
+		vcpPvsPostMig = append(vcpPvsPostMig, pvs...)
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc after statefulset scale down")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPostMig)
+
+		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 0))
+		_, scaledownErr2 := fss.Scale(client, statefulset, 0)
+		gomega.Expect(scaledownErr2).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
+		ssPodsAfterScaleDown2 := fss.GetPodList(client, statefulset)
+		gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+	})
+
+	/*
+		Verify label and pod name updates with Deployment
+		Steps:
+		1.	Create SC1 VCP SC
+		2.	Create nginx service
+		3.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
+		4.	Create nginx deployment DEP1 using PVC1 with 1 replica
+		5.	wait for all the replicas to come up
+		6.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+		7.	Repeat the following steps for all the nodes in the k8s cluster
+			a.Drain and Cordon off the node
+			b.Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.verify CSI node for the corresponding K8s node has the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.Enable scheduling on the node
+		8.	Verify all PVC1 and PV1 and have the following annotation -  "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com"
+		9.	Verify cnsvspherevolumemigrations crd is created for PVC1 and PV1
+		10.	Verify CNS entries are present for all PVC1 and PV1 and all PVCs has correct pod names
+		11.	Create PVC2 using SC1 and wait for binding with PV (say PV2)
+		12.	Verify cnsvspherevolumemigrations crd is created for PVC2 and PV2
+		13.	Patch DEP1 to use PVC2 as well
+		14.	Verify CNS entries are present for present for PV2 and PVC2
+		15.	Verify CNS entries for PVC1 and PVC2 have correct pod names
+		16.	scale down DEP1 replicas to 0 replicas and wait for PVC1 and PVC2 to detach
+		17.	Verify CNS entries for PVC1 and PVC2 have pod names removed
+		18.	Delete DEP1
+		19.	Delete nginx service
+		20.	Delete PVC1 and PVC2
+		21.	wait for PV1 and PV2 and respective vmdks to get deleted
+		22.	Verify cnsvspherevolumemigrations crds are removed for all PV1, PV2, PVC1 and PVC2
+		23.	Verify CNS entries are removed for PV1, PV2, PVC1 and PVC2
+		24.	Delete SC1
+		25.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Disable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node does not have the following annotation - storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		26.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
+	*/
+	ginkgo.It("Verify label and pod name updates with Deployment", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating VCP PVC pvc1 before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		labelsMap := make(map[string]string)
+		labelsMap["dep-lkey"] = "lval"
+		ginkgo.By("Creating a Deployment using pvc1")
+		dep1, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvc1}, "", false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods, err := fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod := pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		kubectlMigEnabled = true
+
+		ginkgo.By("Creating VCP PVC pvc2 post migration")
+		pvc2, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc2)
+
+		ginkgo.By("Waiting for all claims created post migration to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify annotations on PV/PVCs created post migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration along with their respective CnsVSphereVolumeMigration CRDs")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPostMig)
+
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod = pods.Items[0]
+		rep := dep1.Spec.Replicas
+		*rep = 0
+		dep1.Spec.Replicas = rep
+		ginkgo.By("Scale down deployment to 0 replica")
+		dep1, err = client.AppsV1().Deployments(namespace).Update(ctx, dep1, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pvclaims := []*v1.PersistentVolumeClaim{pvc1, pvc2}
+		var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+		var volumes = make([]v1.Volume, len(pvclaims))
+		for index, pvclaim := range pvclaims {
+			volumename := fmt.Sprintf("volume%v", index+1)
+			volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+			volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+		}
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dep1.Spec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+		dep1.Spec.Template.Spec.Volumes = volumes
+		*rep = 1
+		dep1.Spec.Replicas = rep
+		ginkgo.By("Update deployment to use pvc1 and pvc2")
+		dep1, err = client.AppsV1().Deployments(namespace).Update(ctx, dep1, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fdep.WaitForDeploymentComplete(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(pods.Items)).NotTo(gomega.BeZero())
+		pod = pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration along with their respective CnsVSphereVolumeMigration CRDs")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc1, pvc2})
+
+		ginkgo.By("Scale down deployment to 0 replica")
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		*rep = 0
+		dep1.Spec.Replicas = rep
+		_, err = client.AppsV1().Deployments(namespace).Update(ctx, dep1, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration along with their respective CnsVSphereVolumeMigration CRDs")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc1, pvc2})
 
 	})
 
@@ -778,4 +1071,26 @@ func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Inter
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod.Spec.NodeName))
 	}
+}
+
+//getPvcsPvsFromPod returns pvcs and pvs inturn used by the pod
+func getPvcPvFromPod(ctx context.Context, c clientset.Interface, namespace string, pod *v1.Pod) ([]*v1.PersistentVolume, []*v1.PersistentVolumeClaim) {
+	vols := pod.Spec.Volumes
+	var pvcs []*v1.PersistentVolumeClaim
+	var pvs []*v1.PersistentVolume
+	var pvcName string
+
+	for _, vol := range vols {
+		if vol.VolumeSource.PersistentVolumeClaim != nil {
+			pvcName = vol.VolumeSource.PersistentVolumeClaim.ClaimName
+		} else {
+			continue
+		}
+		pvc, err := c.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcs = append(pvcs, pvc)
+		pv := getPvFromClaim(c, namespace, pvcName)
+		pvs = append(pvs, pv)
+	}
+	return pvs, pvcs
 }

@@ -38,6 +38,7 @@ coverage_report.out
 
 # Test reports
 junit_check.xml
+/tests/e2e/junit.xml
 
 # binaries
 /vsphere-csi

@@ -153,7 +153,7 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 
 	// Create a dynamic informer for the cnscsisvfeaturestates CR
 	dynInformer, err := k8s.GetDynamicInformer(ctx, CRDGroupName, internalapis.SchemeGroupVersion.Version,
-		CRDPlural, metav1.NamespaceAll, true)
+		CRDPlural, metav1.NamespaceAll, config, true)
 	if err != nil {
 		log.Errorf("failed to create dynamic informer for %s CR. Error: %+v", CRDPlural, err)
 		return err

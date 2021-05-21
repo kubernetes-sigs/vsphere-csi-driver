@@ -24,7 +24,6 @@ import (
 
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
@@ -32,19 +31,18 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// Nodes is the type comprising cns node manager and kubernetes informer
+// Nodes comprises cns node manager and kubernetes informer.
 type Nodes struct {
 	cnsNodeManager cnsnode.Manager
 	informMgr      *k8s.InformerManager
 }
 
-// Initialize helps initialize node manager and node informer manager
+// Initialize helps initialize node manager and node informer manager.
 func (nodes *Nodes) Initialize(ctx context.Context) error {
-	log := logger.GetLogger(ctx)
 	nodes.cnsNodeManager = cnsnode.GetManager(ctx)
-	// Create the kubernetes client
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
+		log := logger.GetLogger(ctx)
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
@@ -62,7 +60,7 @@ func (nodes *Nodes) nodeAdd(obj interface{}) {
 		log.Warnf("nodeAdd: unrecognized object %+v", obj)
 		return
 	}
-	err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
+	err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
 	if err != nil {
 		log.Warnf("failed to register node:%q. err=%v", node.Name, err)
 	}
@@ -83,7 +81,7 @@ func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
 	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
 		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q", oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
 
-		err := nodes.cnsNodeManager.RegisterNode(ctx, common.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
+		err := nodes.cnsNodeManager.RegisterNode(ctx, cnsvsphere.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
 		if err != nil {
 			log.Warnf("nodeUpdate: Failed to register node:%q. err=%v", newNode.Name, err)
 		}
@@ -103,21 +101,27 @@ func (nodes *Nodes) nodeDelete(obj interface{}) {
 	}
 }
 
-// GetNodeByName returns VirtualMachine object for given nodeName
-// This is called by ControllerPublishVolume and ControllerUnpublishVolume to perform attach and detach operations.
+// GetNodeByName returns VirtualMachine object for given nodeName.
+// This is called by ControllerPublishVolume and ControllerUnpublishVolume
+// to perform attach and detach operations.
 func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error) {
 	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
 // GetAllNodes returns VirtualMachine for all registered.
-// This is called by ControllerExpandVolume to check if volume is attached to a node.
+// This is called by ControllerExpandVolume to check if volume is attached to
+// a node.
 func (nodes *Nodes) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error) {
 	return nodes.cnsNodeManager.GetAllNodes(ctx)
 }
 
-// GetSharedDatastoresInTopology returns shared accessible datastores for specified topologyRequirement along with the map of
-// datastore URL and array of accessibleTopology map for each datastore returned from this function.
-// Here in this function, argument topologyRequirement can be passed in following form
+// GetSharedDatastoresInTopology returns shared accessible datastores for
+// specified topologyRequirement along with the map of datastore URL and
+// array of accessibleTopology map for each datastore returned from this
+// function.
+//
+// Here in this function, argument topologyRequirement can be passed in
+// following form:
 // topologyRequirement [requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
 //                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
 //                      requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
@@ -148,8 +152,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 		log.Errorf(errMsg)
 		return nil, nil, fmt.Errorf(errMsg)
 	}
-	// getNodesInZoneRegion takes zone and region as parameter and returns list of node VMs which belongs to specified
-	// zone and region.
+	// getNodesInZoneRegion takes zone and region as parameter and returns list
+	// of node VMs which belongs to specified zone and region.
 	getNodesInZoneRegion := func(zoneValue string, regionValue string) ([]*cnsvsphere.VirtualMachine, error) {
 		log.Debugf("getNodesInZoneRegion: called with zoneValue: %s, regionValue: %s", zoneValue, regionValue)
 		var nodeVMsInZoneAndRegion []*cnsvsphere.VirtualMachine
@@ -166,8 +170,9 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 		return nodeVMsInZoneAndRegion, nil
 	}
 
-	// getSharedDatastoresInTopology returns list of shared accessible datastores for requested topology along with the map of datastore URL and array of accessibleTopology
-	// map for each datastore returned from this function.
+	// getSharedDatastoresInTopology returns list of shared accessible datastores
+	// for requested topology along with the map of datastore URL and array of
+	// accessibleTopology map for each datastore returned from this function.
 	getSharedDatastoresInTopology := func(topologyArr []*csi.Topology) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 		log.Debugf("getSharedDatastoresInTopology: called with topologyArr: %+v", topologyArr)
 		var sharedDatastores []*cnsvsphere.DatastoreInfo
@@ -225,8 +230,8 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(ctx context.Context, topologyR
 	return sharedDatastores, datastoreTopologyMap, nil
 }
 
-// GetSharedDatastoresInK8SCluster returns list of DatastoreInfo objects for datastores accessible to all
-// kubernetes nodes in the cluster.
+// GetSharedDatastoresInK8SCluster returns list of DatastoreInfo objects for
+// datastores accessible to all kubernetes nodes in the cluster.
 func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	nodeVMs, err := nodes.cnsNodeManager.GetAllNodes(ctx)
@@ -248,7 +253,8 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cns
 	return sharedDatastores, nil
 }
 
-// GetSharedDatastoresForVMs returns shared datastores accessible to specified nodeVMs list
+// GetSharedDatastoresForVMs returns shared datastores accessible to specified
+// nodeVMs list.
 func (nodes *Nodes) GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*cnsvsphere.VirtualMachine) ([]*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	log := logger.GetLogger(ctx)
@@ -263,9 +269,10 @@ func (nodes *Nodes) GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*cn
 		} else {
 			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
 			for _, sharedDs := range sharedDatastores {
-				// Check if sharedDatastores is found in accessibleDatastores
+				// Check if sharedDatastores is found in accessibleDatastores.
 				for _, accessibleDs := range accessibleDatastores {
-					// Intersection is performed based on the datastoreUrl as this uniquely identifies the datastore.
+					// Intersection is performed based on the datastoreUrl as this
+					// uniquely identifies the datastore.
 					if sharedDs.Info.Url == accessibleDs.Info.Url {
 						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
 						break
