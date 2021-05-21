@@ -806,7 +806,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		labelsMap := make(map[string]string)
 		labelsMap["dep-lkey"] = "lval"
 		ginkgo.By("Creating a Deployment using pvc1")
-		dep1, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvc1}, "", false)
+		dep1, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvc1}, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pods, err := fdep.GetPodsForDeployment(client, dep1)

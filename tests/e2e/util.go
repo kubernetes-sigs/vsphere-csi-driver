@@ -2206,7 +2206,8 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 }
 
 // createDeployment create a deployment with 1 replica for given pvcs and node selector
-func createDeployment(ctx context.Context, client clientset.Interface, replicas int32, podLabels map[string]string, nodeSelector map[string]string, namespace string, pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool) (*appsv1.Deployment, error) {
+//func createDeployment(ctx context.Context, client clientset.Interface, replicas int32, podLabels map[string]string, nodeSelector map[string]string, namespace string, pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string, maxSurge *intstr.IntOrString, maxUnavailable *intstr.IntOrString) (*appsv1.Deployment, error) {
+func createDeployment(ctx context.Context, client clientset.Interface, replicas int32, podLabels map[string]string, nodeSelector map[string]string, namespace string, pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
 	if len(command) == 0 {
 		command = "trap exit TERM; while true; do sleep 1; done"
 	}
@@ -2219,9 +2220,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
-			},
+			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels,
@@ -2231,7 +2230,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 					Containers: []v1.Container{
 						{
 							Name:    "write-pod",
-							Image:   busyBoxImageOnGcr,
+							Image:   image,
 							Command: []string{"/bin/sh"},
 							Args:    []string{"-c", command},
 							SecurityContext: &v1.SecurityContext{
@@ -2346,6 +2345,26 @@ func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string, dsRef
 		return true, nil
 	})
 	return waitErr
+}
+
+//updateDeploymentImage updates the image in the deployment with the given image
+func updateDeploymentImage(ns string, image string, deploymentName string, imageName string) {
+	_, err := framework.RunKubectl(ns, "set", "image", fmt.Sprintf("deployment/%s", deploymentName), fmt.Sprintf("%s=%s", imageName, image), "--record")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	waitErr := wait.Poll(healthStatusPollInterval, 1*time.Minute, func() (bool, error) {
+		framework.Logf("Waiting for deployment to take effect")
+		status, err := framework.RunKubectl(ns, "rollout", "status", fmt.Sprintf("deployment/%s", deploymentName))
+		if strings.Contains(status, "successfully rolled out") {
+			framework.Logf("Deployment successfully rolled out")
+			return true, nil
+		}
+		if err != nil {
+			return false, nil
+		}
+		return false, nil
+	})
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
 
 //getDefaultDatastore returns default datastore
