@@ -52,9 +52,43 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 		}
 	}
 	if !useQueryVolumeAsync || queryAsyncNotSupported {
-		queryResult, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
+		queryResult, err = m.QueryVolume(ctx, queryFilter)
 		if err != nil {
 			msg := fmt.Sprintf("QueryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	}
+	return queryResult, nil
+}
+
+// QueryAllVolumeUtil helps to invoke query volume API based on the feature state set for using query async volume.
+// If useQueryVolumeAsync is set to true, the function invokes CNS QueryVolumeAsync, otherwise it invokes synchronous QueryAllVolume API
+// The function also take volume manager instance, query filters, query selection as params
+// Returns queryResult when query volume succeeds, otherwise returns appropriate errors
+func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+	log := logger.GetLogger(ctx)
+	var queryAsyncNotSupported bool
+	var queryResult *cnstypes.CnsQueryResult
+	var err error
+	if useQueryVolumeAsync {
+		// AsyncQueryVolume feature switch is disabled
+		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
+		if err != nil {
+			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
+				log.Warn("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
+				queryAsyncNotSupported = true
+			} else { // Return for any other failures
+				msg := fmt.Sprintf("QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+		}
+	}
+	if !useQueryVolumeAsync || queryAsyncNotSupported {
+		queryResult, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
+		if err != nil {
+			msg := fmt.Sprintf("QueryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
