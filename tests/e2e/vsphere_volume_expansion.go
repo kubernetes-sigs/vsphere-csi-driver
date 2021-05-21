@@ -45,7 +45,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	storage_utils "k8s.io/kubernetes/test/e2e/storage/utils"
+	fvolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 )
 
@@ -1916,7 +1916,7 @@ func createStaticPVC(ctx context.Context, f *framework.Framework, client clients
 	volHandle := pv.Spec.CSI.VolumeHandle
 
 	// Wait for PV and PVC to Bind
-	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
+	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
 
 	return volHandle, pvc, pv, sc
 }
@@ -2638,7 +2638,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 	}()
 
 	// Wait for PV and PVC to Bind
-	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvc))
+	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
 
 	// Set deleteFCDRequired to false.
 	// After PV, PVC is in the bind state, Deleting PVC should delete container volume.
@@ -3010,7 +3010,7 @@ func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 	} else {
-		output, _, err = storage_utils.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
+		output, _, err = fvolume.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
 		if err != nil {
 			return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
 		}

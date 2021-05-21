@@ -703,7 +703,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(clientNewGc, namespaceNewGC, pvNew, pvcNew))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(clientNewGc, framework.NewTimeoutContextWithDefaults(), namespaceNewGC, pvNew, pvcNew))
 
 		// Create a new POD to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating a pod in GC2 with PVC created in GC2")

@@ -1116,3 +1116,8 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	log.Infof("ListSnapshots: called with args %+v", *req)
 	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshots")
 }
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
+	*csi.ControllerGetVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "")
+}
