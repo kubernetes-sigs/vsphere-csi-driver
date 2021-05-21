@@ -38,14 +38,13 @@ var (
 
 // NonBlockingGRPCServer defines non-blocking GRPC server interfaces.
 type NonBlockingGRPCServer interface {
-	// Start services at the endpoint
+	// Start services at the endpoint.
 	Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer)
 
-	// Stop stops the gRPC server. It immediately closes all open
-	// connections and listeners.
-	// It cancels all active RPCs on the server side and the corresponding
-	// pending RPCs on the client side will get notified by connection
-	// errors.
+	// Stop stops the gRPC server. It immediately closes all open connections
+	// and listeners. It cancels all active RPCs on the server side and the
+	// corresponding pending RPCs on the client side will get notified by
+	// connection errors.
 	Stop()
 
 	// GracefulStop stops the gRPC server gracefully. It stops the server
@@ -64,7 +63,8 @@ type nonBlockingGRPCServer struct {
 	server *grpc.Server
 }
 
-func (s *nonBlockingGRPCServer) Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer) {
+func (s *nonBlockingGRPCServer) Start(endpoint string, ids csi.IdentityServer,
+	cs csi.ControllerServer, ns csi.NodeServer) {
 	log := logger.GetLoggerWithNoContext()
 	if err := s.serve(endpoint, ids, cs, ns); err != nil {
 		log.Errorf("failed to start grpc server. Err: %v", err)
@@ -91,7 +91,8 @@ func (s *nonBlockingGRPCServer) Stop() {
 	})
 }
 
-func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer) error {
+func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
+	cs csi.ControllerServer, ns csi.NodeServer) error {
 	log := logger.GetLoggerWithNoContext()
 	u, err := url.Parse(endpoint)
 	if err != nil {
@@ -109,7 +110,7 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, c
 
 	addr := u.Path
 
-	// remove UNIX sock file if present.
+	// Remove UNIX sock file if present.
 	if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
 		msg := fmt.Sprintf("failed to remove %s. Err: %v", addr, err)
 		log.Error(msg)
@@ -140,7 +141,7 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, c
 	csi.RegisterIdentityServer(s.server, ids)
 	log.Info("identity service registered")
 
-	// Determine which of the controller/node services to register
+	// Determine which of the controller/node services to register.
 	mode := os.Getenv(csitypes.EnvVarMode)
 	if strings.EqualFold(mode, "controller") {
 		if cs == nil {
@@ -155,7 +156,8 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, c
 		csi.RegisterNodeServer(s.server, ns)
 		log.Info("node service registered")
 	} else {
-		msg := fmt.Sprintf("invalid value %q specified for %s. Expected values are 'node' or 'controller'", mode, csitypes.EnvVarMode)
+		msg := fmt.Sprintf("invalid value %q specified for %s, expecting 'node' or 'controller'",
+			mode, csitypes.EnvVarMode)
 		log.Error(msg)
 		return fmt.Errorf(msg)
 	}
