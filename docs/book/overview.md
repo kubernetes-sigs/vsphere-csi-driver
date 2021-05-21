@@ -14,12 +14,13 @@ The vSphere CSI driver includes the following components:
 ### vSphere CSI Controller<a id="vsphere_csi_controller"></a>
 
 The vSphere Container Storage Interface (CSI) Controller provides a CSI interface used by Container Orchestrators to manage the lifecycle of vSphere volumes.
-
-The vSphere CSI Controller is responsible for volume provisioning, attaching and detaching the volume to VMs, mounting, formatting and unmounting volumes from the pod within the node VM, and so on.
+The vSphere CSI Controller is responsible for creating, expanding and deleting volumes, attaching and detaching the volumes to Node VMs.
 
 ### vSphere CSI Node<a id="vsphere_csi_node"></a>
 
-The vSphere CSI Node is responsible for formatting, mounting the volumes to nodes, and using bind mounts for the volumes inside the pod. The vSphere CSI Node runs as a deamonset inside the cluster.
+The vSphere CSI Node is responsible for formatting, mounting the volumes to nodes, and using bind mounts for the volumes inside the pod.
+Before volume needs to be detached, CSI Node is helping to unmount volume from the node.
+The vSphere CSI Node runs as a daemonset inside the cluster.
 
 ### Syncer<a id="syncer"></a>
 
