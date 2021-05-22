@@ -410,7 +410,7 @@ func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDurat
 // as per the parameter provided to the function. Wait time starts from baseDuration and on each error wait time is
 // exponentially increased by the provided multiplier till maxBackoffDuration.
 // example input: RetryOnError(func() error { return vc.ConnectVsan(ctx) }, time.Duration(100) * time.Millisecond, time.Duration(10) * time.Second, 1.5)
-func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Duration, multiplier float64) {
+func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Duration, multiplier float64) error {
 	taskFunc := func() (done bool, _ error) {
 		err := task()
 		if err != nil {
@@ -418,5 +418,6 @@ func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Durat
 		}
 		return true, nil
 	}
-	_, _ = ExponentialBackoff(taskFunc, baseDuration, maxBackoffDuration, multiplier, math.MaxInt32)
+	_, err := ExponentialBackoff(taskFunc, baseDuration, maxBackoffDuration, multiplier, math.MaxInt32)
+	return err
 }
