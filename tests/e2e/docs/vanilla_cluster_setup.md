@@ -58,6 +58,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export USER=root
     export CLUSTER_FLAVOR="VANILLA"
+    export CSI_NAMESPACE="vmware-system-csi"
     # To run e2e test for block volume, need to set the following env variable
     export GINKGO_FOCUS="csi-block-vanilla"
     # To run e2e test for file volume, need to set the following env variable
