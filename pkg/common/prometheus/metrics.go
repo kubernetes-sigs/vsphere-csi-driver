@@ -17,6 +17,8 @@ limitations under the License.
 package prometheus
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -116,3 +118,18 @@ var (
 		// Possible status - "pass", "fail"
 		[]string{"optype", "status"})
 )
+
+// ObserveCsiControlOps adds an observation of a CSI operation of 'opType' on
+// a volume of 'volumeType', started at time 'start'. The CSI operation might
+// have failed, if 'err' is not null,
+func ObserveCsiControlOps(volumeType string, opType string, err error, start time.Time) {
+	var status string
+	if err != nil {
+		status = PrometheusFailStatus
+	} else {
+		status = PrometheusPassStatus
+	}
+
+	CsiControlOpsHistVec.WithLabelValues(volumeType, opType, status).
+		Observe(time.Since(start).Seconds())
+}
