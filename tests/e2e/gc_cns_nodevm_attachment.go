@@ -296,8 +296,8 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		}()
 
 		ginkgo.By("Create a Pod with PVC created in previous step mounted as a volume")
-
 		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -307,7 +307,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 
 		ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+		verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify Pod is still in ContainerCreating phase")
 		gomega.Expect(podContainerCreatingState == pod.Status.ContainerStatuses[0].State.Waiting.Reason).To(gomega.BeTrue())
@@ -341,7 +341,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 
 	})
 
@@ -740,9 +740,8 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod1.Spec.NodeName))
 
-		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
-		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, pod1.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		ginkgo.By("Waiting to allow CnsNodeVMAttachment controller to reconcile resource")
+		verifyCRDInSupervisorWithWait(ctx, f, pod1.Spec.NodeName+"-"+svcPVCName, crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 
 	})
 
