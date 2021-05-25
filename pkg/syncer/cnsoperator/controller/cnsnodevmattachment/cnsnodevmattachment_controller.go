@@ -74,10 +74,7 @@ var (
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsNodeVmAttachment Controller as its a non-WCP CSI deployment")
 		return nil
@@ -103,19 +100,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo, volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
+	ctx, _ := logger.GetNewContextWithLogger()
 	return &ReconcileCnsNodeVMAttachment{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, nodeManager: cnsnode.GetManager(ctx), recorder: recorder}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
 	// Create a new controller
 	c, err := controller.New("cnsnodevmattachment-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})

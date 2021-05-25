@@ -61,11 +61,7 @@ type cnsOperator struct {
 // InitCnsOperator initializes the Cns Operator
 func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-
 	log.Infof("Initializing CNS Operator")
 	cnsOperator := &cnsOperator{}
 	cnsOperator.configInfo = configInfo

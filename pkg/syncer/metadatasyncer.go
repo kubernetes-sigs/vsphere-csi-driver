@@ -540,11 +540,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated
 func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new pvc objects
 	oldPvc, ok := oldObj.(*v1.PersistentVolumeClaim)
 	if oldPvc == nil || !ok {
@@ -633,11 +629,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 
 // pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
 func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	pvc, ok := obj.(*v1.PersistentVolumeClaim)
 	if pvc == nil || !ok {
 		log.Warnf("PVCDeleted: unrecognized object %+v", obj)
@@ -681,11 +673,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 // pvUpdated updates volume metadata on VC when volume labels on K8S cluster have been updated
 func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new PV objects
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
@@ -763,11 +751,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 
 // pvDeleted deletes volume metadata on VC when volume has been deleted on K8s cluster
 func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		log.Warnf("PVDeleted: unrecognized object %+v", obj)
@@ -803,11 +787,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 // podUpdated updates pod metadata on VC when pod labels have been updated on K8s cluster
 func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new pod objects
 	oldPod, ok := oldObj.(*v1.Pod)
 	if oldPod == nil || !ok {
@@ -831,11 +811,7 @@ func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 
 // podDeleted deletes pod metadata on VC when pod has been deleted on K8s cluster
 func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get pod object
 	pod, ok := obj.(*v1.Pod)
 	if pod == nil || !ok {

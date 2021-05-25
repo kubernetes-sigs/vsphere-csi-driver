@@ -74,10 +74,7 @@ var (
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsFileAccessConfig Controller as its a non-WCP CSI deployment")
 		return nil
