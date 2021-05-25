@@ -47,7 +47,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 			string(cnstypes.QuerySelectionNameTypeHealthStatus),
 		},
 	}
-	queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, querySelection, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+	queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, querySelection, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 	if err != nil {
 		log.Error("csiGetVolumeHealthStatus: QueryVolume failed with err=%+v", err.Error())
 		return
