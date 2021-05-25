@@ -574,7 +574,7 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 
 	var currentSize int64
 	if len(queryResult.Volumes) > 0 {
-		currentSize = queryResult.Volumes[0].BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
+		currentSize = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
 	} else {
 		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
 		log.Error(msg)
