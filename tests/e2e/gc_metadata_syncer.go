@@ -1352,7 +1352,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvclaim = nil
 
 		ginkgo.By("verify crd in supervisor")
-		verifyCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
+		verifyCRDInSupervisorWithWait(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -1399,7 +1399,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By("verify crd in supervisor")
-		verifyCRDInSupervisor(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
+		verifyCRDInSupervisorWithWait(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvNewUID, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Delete the PV %s", pvNew.Name))
