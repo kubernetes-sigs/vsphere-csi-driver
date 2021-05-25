@@ -273,11 +273,7 @@ func (pendingCRUpdatesObj *pendingCRUpdates) enqueueFeatureStateUpdatesForWorklo
 
 // configMapAdded is called when configmap is created
 func configMapAdded(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
 	if fssConfigMap == nil || !ok {
 		log.Warnf("configMapAdded: unrecognized object %+v", obj)
@@ -304,11 +300,7 @@ func configMapAdded(obj interface{}) {
 
 // configMapUpdated is called when configmap is updated
 func configMapUpdated(oldObj, newObj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	newfssConfigMap, ok := newObj.(*v1.ConfigMap)
 	if newfssConfigMap == nil || !ok {
 		log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
@@ -344,11 +336,7 @@ func configMapUpdated(oldObj, newObj interface{}) {
 
 // configMapDeleted is called when config-map is deleted
 func configMapDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
 	if fssConfigMap == nil || !ok {
 		log.Warnf("configMapDeleted: unrecognized object %+v", obj)
@@ -363,11 +351,7 @@ func configMapDeleted(obj interface{}) {
 
 // namespaceAdded adds is called when new namespace is added on the k8s cluster.
 func namespaceAdded(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	namespace, ok := obj.(*v1.Namespace)
 	if namespace == nil || !ok {
 		log.Warnf("namespaceAdded: unrecognized object %+v", obj)
@@ -381,11 +365,7 @@ func namespaceAdded(obj interface{}) {
 
 // namespaceUpdated is called when namespace is updated
 func namespaceUpdated(oldObj, newObj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	oldNamespace, ok := oldObj.(*v1.Namespace)
 	if oldNamespace == nil || !ok {
 		log.Warnf("namespaceUpdated: unrecognized object %+v", oldObj)
@@ -415,11 +395,7 @@ func namespaceUpdated(oldObj, newObj interface{}) {
 
 // namespaceDeleted is called when namespace is deleted
 func namespaceDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	_, log := logger.GetNewContextWithLogger()
 	namespace, ok := obj.(*v1.Namespace)
 	if namespace == nil || !ok {
 		log.Warnf("namespaceDeleted: unrecognized object %+v", obj)
@@ -464,11 +440,7 @@ func getFeatureStates(ctx context.Context) ([]featurestatesv1alpha1.FeatureState
 
 // fssCRDeleted is called when cnscsisvfeaturestates is deleted
 func fssCRDeleted(obj interface{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	var fssObj featurestatesv1alpha1.CnsCsiSvFeatureStates
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &fssObj)
 	if err != nil {
