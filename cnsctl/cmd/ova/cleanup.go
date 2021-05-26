@@ -24,7 +24,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// cleanupCmd represents the cleanup command
+// cleanupCmd represents the cleanup command.
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Identifies orphan volume attachment CRs and deletes them",
@@ -40,9 +40,10 @@ var cleanupCmd = &cobra.Command{
 	},
 }
 
-// InitCleanup helps initialize cleanupCmd
+// InitCleanup helps initialize cleanupCmd.
 func InitCleanup() {
-	cleanupCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")
+	cleanupCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"),
+		"kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")
 	ovaCmd.AddCommand(cleanupCmd)
 }
 

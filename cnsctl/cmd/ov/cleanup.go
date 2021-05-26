@@ -24,7 +24,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// cleanupCmd represents the cleanup command
+// cleanupCmd represents the cleanup command.
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Identifies orphan volumes and deletes them",
@@ -36,14 +36,16 @@ var cleanupCmd = &cobra.Command{
 			fmt.Printf("error: no arguments allowed for cleanup\n")
 			os.Exit(1)
 		}
-		// TODO: Add implementation
+		// TODO: Add implementation.
 	},
 }
 
-// InitCleanup help initialize cleanupCmd
+// InitCleanup help initialize cleanupCmd.
 func InitCleanup() {
-	cleanupCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"), "comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
-	cleanupCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")
+	cleanupCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"),
+		"comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
+	cleanupCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"),
+		"kubeconfig file (alternatively use CNSCTL_KUBECONFIG env variable)")
 	cleanupCmd.PersistentFlags().BoolVarP(&forceDelete, "force", "f", false, "force delete the volumes")
 	ovCmd.AddCommand(cleanupCmd)
 }
