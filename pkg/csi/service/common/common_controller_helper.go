@@ -249,7 +249,7 @@ func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.Control
 // Returns an error if the volume is attached.
 func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
-	diskUUID, err := cnsvolume.IsDiskAttachedToVMs(ctx, volumeID, nodes)
+	diskUUID, err := cnsvolume.IsDiskAttachedToVMs(ctx, volumeID, nodes, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to check if volume %q is attached to any node with error: %+v", volumeID, err)
 		log.Error(msg)

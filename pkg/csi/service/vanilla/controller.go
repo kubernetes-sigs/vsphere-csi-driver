@@ -842,7 +842,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 			log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
-			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId, false)
 			if err != nil {
 				msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
 				log.Error(msg)
