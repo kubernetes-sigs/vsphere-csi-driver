@@ -630,7 +630,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 
 		// Attach the volume to the node
-		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId)
+		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId, true)
 		if err != nil {
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
 				log.Infof("Volume attachment failed. Checking if it can be fake attached")
