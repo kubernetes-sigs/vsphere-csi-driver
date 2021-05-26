@@ -172,6 +172,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		for {
 			log.Info("Starting the http server to expose Prometheus metrics..")
 			log.Info("New GC images has taken sucessully..")
+			log.Info("Second GC images has taken sucessully..")
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":2112", nil)
 			if err != nil {
