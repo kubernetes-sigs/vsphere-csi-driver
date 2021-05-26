@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// SpbmPolicyRule is an individual policy rule
+// SpbmPolicyRule is an individual policy rule.
 // Not all providers use Ns, CapID, PropID in the same way,
 // so one needs to look at each one individually.
 // Ns + CapID + PropID together are a unique key in all cases
@@ -38,12 +38,13 @@ type SpbmPolicyRule struct {
 	Value  string `json:"value,omitempty"`
 }
 
-// SpbmPolicySubProfile is a combination of rules which are ANDed to form a sub profile
+// SpbmPolicySubProfile is a combination of rules, which are ANDed to form
+// a sub profile.
 type SpbmPolicySubProfile struct {
 	Rules []SpbmPolicyRule `json:"rules"`
 }
 
-// SpbmPolicyContent corresponds to a single VC SPBM policy
+// SpbmPolicyContent corresponds to a single VC SPBM policy.
 // The various sub profilles are ORed. For vSAN there should only
 // be a single sub profile.
 type SpbmPolicyContent struct {
@@ -95,8 +96,10 @@ func (vc *VirtualCenter) GetStoragePolicyIDByName(ctx context.Context, storagePo
 	return storagePolicyID, nil
 }
 
-// PbmCheckCompatibility performs a compatibility check for the given profileID with the given datastores
-func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context, datastores []vimtypes.ManagedObjectReference, profileID string) (pbm.PlacementCompatibilityResult, error) {
+// PbmCheckCompatibility performs a compatibility check for the given profileID
+// with the given datastores.
+func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context,
+	datastores []vimtypes.ManagedObjectReference, profileID string) (pbm.PlacementCompatibilityResult, error) {
 	hubs := make([]pbmtypes.PbmPlacementHub, 0)
 	for _, ds := range datastores {
 		hubs = append(hubs, pbmtypes.PbmPlacementHub{
@@ -120,7 +123,7 @@ func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context, datastores [
 	return res.Returnval, nil
 }
 
-// PbmRetrieveContent fetches the policy content of all given policies from SPBM
+// PbmRetrieveContent fetches the policy content of all given policies from SPBM.
 func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []string) ([]SpbmPolicyContent, error) {
 	pbmPolicyIds := make([]pbmtypes.PbmProfileId, 0)
 	for _, policyID := range policyIds {
