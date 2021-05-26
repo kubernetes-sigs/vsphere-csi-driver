@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
-	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/storagepool"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -62,11 +61,7 @@ type cnsOperator struct {
 // InitCnsOperator initializes the Cns Operator
 func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-
 	log.Infof("Initializing CNS Operator")
 	cnsOperator := &cnsOperator{}
 	cnsOperator.configInfo = configInfo
@@ -174,7 +169,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	log.Info("Registering Components for Cns Operator")
 
 	// Setup Scheme for all resources for external APIs
-	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := cnsoperatorv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
 		return err
 	}

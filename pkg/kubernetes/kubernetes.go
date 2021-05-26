@@ -48,11 +48,12 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
+	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 const (
@@ -61,14 +62,15 @@ const (
 	manifestPath = "/config"
 )
 
-// GetKubeConfig helps retrieve Kubernetes Config
+// GetKubeConfig helps retrieve Kubernetes Config.
 func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	var err error
 	kubecfgPath := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
-	if flag.Lookup("kubeconfig") != nil {
-		kubecfgPath = flag.Lookup("kubeconfig").Value.(flag.Getter).Get().(string)
+	kubecfgFlag := flag.Lookup("kubeconfig")
+	if kubecfgFlag != nil {
+		kubecfgPath = kubecfgFlag.Value.(flag.Getter).Get().(string)
 	}
 	if kubecfgPath != "" {
 		log.Infof("k8s client using kubeconfig from %s", kubecfgPath)
@@ -89,7 +91,7 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	return config, nil
 }
 
-// NewClient creates a newk8s client based on a service account
+// NewClient creates a newk8s client based on a service account.
 func NewClient(ctx context.Context) (clientset.Interface, error) {
 	log := logger.GetLogger(ctx)
 	config, err := GetKubeConfig(ctx)
@@ -100,7 +102,8 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 	return clientset.NewForConfig(config)
 }
 
-// GetRestClientConfigForSupervisor returns restclient config for given endpoint, port, certificate and token
+// GetRestClientConfigForSupervisor returns restclient config for given
+// endpoint, port, certificate and token.
 func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port string) *restclient.Config {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
@@ -127,7 +130,7 @@ func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port
 	return config
 }
 
-// NewSupervisorClient creates a new supervisor client for given restClient config
+// NewSupervisorClient creates a new supervisor client for given restClient config.
 func NewSupervisorClient(ctx context.Context, config *restclient.Config) (clientset.Interface, error) {
 	log := logger.GetLogger(ctx)
 	log.Info("Connecting to supervisor cluster using the certs/token in Guest Cluster config")
@@ -171,6 +174,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
+		err = cnsvolumeoperationrequestv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
 	}
 	client, err := client.New(config, client.Options{
 		Scheme: scheme,
@@ -182,7 +190,8 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 }
 
-// NewCnsFileAccessConfigWatcher creates a new ListWatch for VirtualMachines given rest client config
+// NewCnsFileAccessConfigWatcher creates a new ListWatch for VirtualMachines
+// given rest client config.
 func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
 	var err error
 	log := logger.GetLogger(ctx)
@@ -206,7 +215,8 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 	return cache.NewListWatchFromClient(client, cnsfileaccessconfigKind, namespace, fields.Everything()), nil
 }
 
-// NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given rest client config
+// NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given
+// rest client config.
 func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
 	var err error
 	log := logger.GetLogger(ctx)
@@ -230,7 +240,7 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, na
 	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil
 }
 
-// CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file
+// CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file.
 func CreateKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interface, error) {
 
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
@@ -245,7 +255,7 @@ func CreateKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 	return client, nil
 }
 
-// GetNodeVMUUID returns vSphere VM UUID set by CCM on the Kubernetes Node
+// GetNodeVMUUID returns vSphere VM UUID set by CCM on the Kubernetes Node.
 func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("GetNodeVMUUID called for the node: %q", nodeName)
@@ -254,7 +264,7 @@ func GetNodeVMUUID(ctx context.Context, k8sclient clientset.Interface, nodeName 
 		log.Errorf("failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
 		return "", err
 	}
-	k8sNodeUUID := common.GetUUIDFromProviderID(node.Spec.ProviderID)
+	k8sNodeUUID := cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
 	log.Infof("Retrieved node UUID: %q for the node: %q", k8sNodeUUID, nodeName)
 	return k8sNodeUUID, nil
 }
@@ -295,8 +305,8 @@ func getClientThroughput(ctx context.Context, isSupervisorClient bool) (float32,
 	return qps, burst
 }
 
-// CreateCustomResourceDefinitionFromSpec creates the custom resource definition from given spec
-// If there is error, function will do the clean up
+// CreateCustomResourceDefinitionFromSpec creates the custom resource definition
+// from given spec. If there is error, function will do the clean up.
 func CreateCustomResourceDefinitionFromSpec(ctx context.Context, crdName string, crdSingular string, crdPlural string,
 	crdKind string, crdGroup string, crdVersion string, crdScope apiextensionsv1beta1.ResourceScope) error {
 	crdSpec := &apiextensionsv1beta1.CustomResourceDefinition{
@@ -322,8 +332,8 @@ func CreateCustomResourceDefinitionFromSpec(ctx context.Context, crdName string,
 	return createCustomResourceDefinition(ctx, crdSpec)
 }
 
-// CreateCustomResourceDefinitionFromManifest creates custom resource definition spec from
-// manifest file
+// CreateCustomResourceDefinitionFromManifest creates custom resource definition
+// spec from manifest file.
 func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName string) error {
 	log := logger.GetLogger(ctx)
 	manifestcrd, err := getCRDFromManifest(ctx, fileName)
@@ -335,10 +345,11 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName st
 
 }
 
-// createCustomResourceDefinition takes a custom resource definition spec and creates it on the API server
+// createCustomResourceDefinition takes a custom resource definition spec and
+// creates it on the API server.
 func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1beta1.CustomResourceDefinition) error {
 	log := logger.GetLogger(ctx)
-	// Get a config to talk to the apiserver
+	// Get a config to talk to the apiserver.
 	cfg, err := GetKubeConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
@@ -360,7 +371,7 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 		}
 		log.Infof("%q CRD created successfully", crdName)
 	} else {
-		// Update the existing CRD with new CRD
+		// Update the existing CRD with new CRD.
 		crd.Spec = newCrd.Spec
 		crd.Status = newCrd.Status
 		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Update(ctx, crd, metav1.UpdateOptions{})
@@ -372,14 +383,14 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 		return nil
 	}
 
-	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crd.Name)
+	err = waitForCustomResourceToBeEstablished(ctx, apiextensionsClientSet, crdName)
 	if err != nil {
-		log.Errorf("CRD %q created but failed to establish. Err: %+v", crd.Name, err)
+		log.Errorf("CRD %q created but failed to establish. Err: %+v", crdName, err)
 	}
 	return err
 }
 
-// waitForCustomResourceToBeEstablished waits until the CRD status is Established
+// waitForCustomResourceToBeEstablished waits until the CRD status is Established.
 func waitForCustomResourceToBeEstablished(ctx context.Context,
 	clientSet apiextensionsclientset.Interface, crdName string) error {
 	log := logger.GetLogger(ctx)

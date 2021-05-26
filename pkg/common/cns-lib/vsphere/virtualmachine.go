@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/vmware/govmomi/vapi/tags"
@@ -111,6 +112,9 @@ const (
 	// dcBufferSize is the buffer size for the channel that is used to
 	// asynchronously receive *Datacenter instances.
 	dcBufferSize = poolSize * 10
+	//ProviderPrefix is the prefix used for the ProviderID set on the node
+	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
+	providerPrefix = "vsphere://"
 )
 
 // GetVirtualMachineByUUID returns virtual machine given its UUID in entire VC.
@@ -317,4 +321,9 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 		return true, nil
 	}
 	return false, nil
+}
+
+// GetUUIDFromProviderID Returns VM UUID from Node's providerID
+func GetUUIDFromProviderID(providerID string) string {
+	return strings.TrimPrefix(providerID, providerPrefix)
 }

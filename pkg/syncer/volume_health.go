@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
@@ -46,10 +47,9 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 			string(cnstypes.QuerySelectionNameTypeHealthStatus),
 		},
 	}
-
-	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, querySelection, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 	if err != nil {
-		log.Errorf("csiGetVolumeHealthStatus: failed to queryAllVolume with err %+v", err)
+		log.Error("csiGetVolumeHealthStatus: QueryVolume failed with err=%+v", err.Error())
 		return
 	}
 
@@ -77,7 +77,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		}
 	}
 
-	for _, vol := range queryAllResult.Volumes {
+	for _, vol := range queryResult.Volumes {
 		log.Debugf("Volume %q Health Status %q", vol.VolumeId.Id, vol.HealthStatus)
 
 		if pvc, ok := volumeHandleToPvcMap[vol.VolumeId.Id]; ok {

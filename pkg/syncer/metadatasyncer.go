@@ -49,6 +49,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -207,12 +208,29 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
 					for {
-						reloadConfigErr := ReloadConfiguration(metadataSyncer)
+						reloadConfigErr := ReloadConfiguration(metadataSyncer, false)
 						if reloadConfigErr == nil {
 							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
 							break
 						}
 						log.Errorf("failed to reload configuration will retry again in 5 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(5 * time.Second)
+					}
+				}
+				// Handling create event for reconnecting to VC when ca file is rotated
+				// In Supervisor cluster, ca file gets rotated at the path /etc/vmware/wcp/tls/vmca.pem
+				// WCP is handling ca file rotation by creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new contents
+				// and then renaming the file back to /etc/vmware/wcp/tls/vmca.pem.
+				// For such operations, fsnotify handles the event as a CREATE event
+				// The conditions below also ensures that the event is for the expected ca file path
+				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
+					for {
+						reconnectVCErr := ReloadConfiguration(metadataSyncer, true)
+						if reconnectVCErr == nil {
+							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
+							break
+						}
+						log.Errorf("failed to re-establish VC connection. Will retry again in 5 seconds. err: %+v", reconnectVCErr)
 						time.Sleep(5 * time.Second)
 					}
 				}
@@ -231,6 +249,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if err != nil {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
+	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		caFileDirPath := filepath.Dir(cnsconfig.SupervisorCAFilePath)
+		log.Infof("Adding watch on path: %q", caFileDirPath)
+		err = watcher.Add(caFileDirPath)
+		if err != nil {
+			log.Errorf("failed to watch on path: %q. err=%v", caFileDirPath, err)
+			return err
+		}
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -426,7 +453,11 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 }
 
 // ReloadConfiguration reloads configuration from the secret, and update controller's cached configs
-func ReloadConfiguration(metadataSyncer *metadataSyncInformer) error {
+// The function takes metadatasyncerInformer and reconnectToVCFromNewConfig as parameters.
+// If reconnectToVCFromNewConfig is set to true, the function re-establishes connection with VC,
+// else based on the configuration data changed during reload, the function resets config, reloads VC connection
+// when credentials are changed and returns appropriate error
+func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
@@ -462,7 +493,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer) error {
 			var vcenter *cnsvsphere.VirtualCenter
 			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host ||
 				metadataSyncer.configInfo.Cfg.Global.User != newVCConfig.Username ||
-				metadataSyncer.configInfo.Cfg.Global.Password != newVCConfig.Password {
+				metadataSyncer.configInfo.Cfg.Global.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
 
 				// Verify if new configuration has valid credentials by connecting to vCenter.
 				// Proceed only if the connection succeeds, else return error.
@@ -509,11 +540,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer) error {
 
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated
 func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new pvc objects
 	oldPvc, ok := oldObj.(*v1.PersistentVolumeClaim)
 	if oldPvc == nil || !ok {
@@ -602,11 +629,7 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 
 // pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
 func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	pvc, ok := obj.(*v1.PersistentVolumeClaim)
 	if pvc == nil || !ok {
 		log.Warnf("PVCDeleted: unrecognized object %+v", obj)
@@ -650,11 +673,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 // pvUpdated updates volume metadata on VC when volume labels on K8S cluster have been updated
 func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new PV objects
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
@@ -732,11 +751,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 
 // pvDeleted deletes volume metadata on VC when volume has been deleted on K8s cluster
 func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		log.Warnf("PVDeleted: unrecognized object %+v", obj)
@@ -772,11 +787,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 // podUpdated updates pod metadata on VC when pod labels have been updated on K8s cluster
 func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new pod objects
 	oldPod, ok := oldObj.(*v1.Pod)
 	if oldPod == nil || !ok {
@@ -800,11 +811,7 @@ func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 
 // podDeleted deletes pod metadata on VC when pod has been deleted on K8s cluster
 func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get pod object
 	pod, ok := obj.(*v1.Pod)
 	if pod == nil || !ok {
@@ -855,9 +862,9 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
 			}
 			// Query with empty selection. CNS returns only the volume ID from it's cache.
-			queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+			queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				log.Warnf("PVCUpdated: Failed to query volume metadata for volume %q with error %+v", volumeHandle, err)
+				log.Errorf("PVCUpdated: QueryVolume failed with err=%+v", err.Error())
 				return false, err
 			}
 			if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
@@ -998,9 +1005,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
 		// QueryAll with no selection will return only the volume ID.
-		queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			log.Errorf("PVUpdated: QueryVolume failed. error: %+v", err)
+			log.Errorf("PVUpdated: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
 		if len(queryResult.Volumes) == 0 {
@@ -1107,9 +1114,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				},
 			},
 		}
-		queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			log.Errorf("PVDeleted: Failed to query volume metadata for volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
+			log.Error("PVDeleted: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
 		if queryResult != nil && len(queryResult.Volumes) == 1 && len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {

@@ -47,6 +47,8 @@ Create a configuration file that will contain details to connect to vSphere.
 
 The default file to write these configuration details is the `csi-vsphere.conf` file. If you would like to use a file with another name, change the environment variable `VSPHERE_CSI_CONFIG` in the deployment YAMLs described in the section [Install vSphere CSI driver](#install) below.
 
+For deployment with zones refer to https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/deploying_csi_with_zones.html
+
 ### vSphere configuration file for block volumes <a id="vsphereconf_for_block"></a>
 
 Here is an example vSphere configuration file for block volumes, with dummy values:
@@ -186,7 +188,7 @@ Before you deploy the vSphere CSI driver, refer to the [Compatibility](../compat
 - Get the deployment manifests pertaining to the version of vSphere CSI driver.
   - [v2.2.0](../releases/v2.2.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.2.0/manifests/v2.2.0
   - [v2.1.1](../releases/v2.1.1.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.1.1/manifests/v2.1.1
-  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/manifests/v2.1.0
+  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0
 
   NOTE: Refer [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
 

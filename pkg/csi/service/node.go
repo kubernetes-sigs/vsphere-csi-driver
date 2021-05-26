@@ -28,7 +28,6 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	csictx "github.com/rexray/gocsi/context"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"golang.org/x/net/context"
@@ -52,9 +51,10 @@ import (
 )
 
 const (
-	devDiskID   = "/dev/disk/by-id"
-	blockPrefix = "wwn-0x"
-	dmiDir      = "/sys/class/dmi"
+	devDiskID                     = "/dev/disk/by-id"
+	blockPrefix                   = "wwn-0x"
+	dmiDir                        = "/sys/class/dmi"
+	maxAllowedBlockVolumesPerNode = 59
 )
 
 type nodeStageParams struct {
@@ -87,7 +87,7 @@ type nodePublishParams struct {
 	ro bool
 }
 
-func (s *service) NodeStageVolume(
+func (driver *vsphereCSIDriver) NodeStageVolume(
 	ctx context.Context,
 	req *csi.NodeStageVolumeRequest) (
 	*csi.NodeStageVolumeResponse, error) {
@@ -233,7 +233,7 @@ func nodeStageBlockVolume(
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
-func (s *service) NodeUnstageVolume(
+func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	ctx context.Context,
 	req *csi.NodeUnstageVolumeRequest) (
 	*csi.NodeUnstageVolumeResponse, error) {
@@ -337,7 +337,7 @@ func isBlockVolumeMounted(
 	return true, nil
 }
 
-func (s *service) NodePublishVolume(
+func (driver *vsphereCSIDriver) NodePublishVolume(
 	ctx context.Context,
 	req *csi.NodePublishVolumeRequest) (
 	*csi.NodePublishVolumeResponse, error) {
@@ -395,7 +395,7 @@ func (s *service) NodePublishVolume(
 	return publishFileVol(ctx, req, params)
 }
 
-func (s *service) NodeUnpublishVolume(
+func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	ctx context.Context,
 	req *csi.NodeUnpublishVolumeRequest) (
 	*csi.NodeUnpublishVolumeResponse, error) {
@@ -495,7 +495,7 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 	return true, nil
 }
 
-func (s *service) NodeGetVolumeStats(
+func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	ctx context.Context,
 	req *csi.NodeGetVolumeStatsRequest) (
 	*csi.NodeGetVolumeStatsResponse, error) {
@@ -578,7 +578,7 @@ func getMetrics(path string) (*k8svol.Metrics, error) {
 	return metrics, nil
 }
 
-func (s *service) NodeGetCapabilities(
+func (driver *vsphereCSIDriver) NodeGetCapabilities(
 	ctx context.Context,
 	req *csi.NodeGetCapabilitiesRequest) (
 	*csi.NodeGetCapabilitiesResponse, error) {
@@ -617,7 +617,7 @@ func (s *service) NodeGetCapabilities(
 	by inspecting SCSI controllers of the VM, but for file volume, this is not deterministic.
 	We can not set this limit on MaxVolumesPerNode, since single driver is used for both block and file volumes.
 */
-func (s *service) NodeGetInfo(
+func (driver *vsphereCSIDriver) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
 	*csi.NodeGetInfoResponse, error) {
@@ -631,16 +631,39 @@ func (s *service) NodeGetInfo(
 	if nodeID == "" {
 		return nil, status.Error(codes.Internal, "ENV NODE_NAME is not set")
 	}
+	var maxVolumesPerNode int64
+	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
+		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if value < 0 {
+				msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is less than 0", v)
+				log.Errorf(msg)
+				return nil, status.Error(codes.Internal, msg)
+			} else if value > maxAllowedBlockVolumesPerNode {
+				msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is more than %v", v, maxAllowedBlockVolumesPerNode)
+				log.Errorf(msg)
+				return nil, status.Error(codes.Internal, msg)
+			} else {
+				maxVolumesPerNode = value
+				log.Infof("NodeGetInfo: MAX_VOLUMES_PER_NODE is set to %v", maxVolumesPerNode)
+			}
+		} else {
+			msg := fmt.Sprintf("NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is invalid", v)
+			log.Errorf(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	}
+
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		nodeInfoResponse = &csi.NodeGetInfoResponse{
 			NodeId:             nodeID,
+			MaxVolumesPerNode:  maxVolumesPerNode,
 			AccessibleTopology: &csi.Topology{},
 		}
 		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 		return nodeInfoResponse, nil
 	}
 	var cfg *cnsconfig.Config
-	cfgPath = csictx.Getenv(ctx, cnsconfig.EnvVSphereCSIConfig)
+	cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
 	if cfgPath == "" {
 		cfgPath = cnsconfig.DefaultCloudConfigPath
 	}
@@ -649,7 +672,8 @@ func (s *service) NodeGetInfo(
 		if os.IsNotExist(err) {
 			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
 			nodeInfoResponse = &csi.NodeGetInfoResponse{
-				NodeId: nodeID,
+				NodeId:            nodeID,
+				MaxVolumesPerNode: maxVolumesPerNode,
 			}
 			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 			return nodeInfoResponse, nil
@@ -736,13 +760,14 @@ func (s *service) NodeGetInfo(
 	}
 	nodeInfoResponse = &csi.NodeGetInfoResponse{
 		NodeId:             nodeID,
+		MaxVolumesPerNode:  maxVolumesPerNode,
 		AccessibleTopology: topology,
 	}
 	log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 	return nodeInfoResponse, nil
 }
 
-func (s *service) NodeExpandVolume(
+func (driver *vsphereCSIDriver) NodeExpandVolume(
 	ctx context.Context,
 	req *csi.NodeExpandVolumeRequest) (
 	*csi.NodeExpandVolumeResponse, error) {

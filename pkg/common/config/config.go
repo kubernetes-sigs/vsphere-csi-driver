@@ -43,6 +43,9 @@ const (
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
 	// DefaultGCConfigPath is the default path of GC config file
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
+	// SupervisorCAFilePath is the file path of certificate in Supervisor Clusters
+	// This is needed to establish VC connection
+	SupervisorCAFilePath = "/etc/vmware/wcp/tls/vmca.pem"
 	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
 	// EnvGCConfig contains the path to the CSI GC Config

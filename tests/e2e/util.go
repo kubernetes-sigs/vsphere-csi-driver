@@ -50,12 +50,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -1045,7 +1048,7 @@ func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, e
 	return nil
 }
 
-//verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisior
+//verifyIsAttachedInSupervisor verifies the crd instance is attached in supervisor
 func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
 	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
@@ -1055,7 +1058,7 @@ func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework, e
 	gomega.Expect(instance).NotTo(gomega.BeNil())
 }
 
-//verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisior
+//verifyIsDetachedInSupervisor verifies the crd instance is detached from supervisor
 func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdVersion string, crdGroup string) {
 	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 	if instance != nil {
@@ -1712,7 +1715,7 @@ func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
 }
 
 //psodHostWithPv methods finds the esx host where pv is residing and psods it.
-//It uses VsanObjIndentities and QueryVsanObjects apis to acheive it and returns the host ip
+//It uses VsanObjIndentities and QueryVsanObjects apis to achieve it and returns the host ip
 func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 	ginkgo.By("VsanObjIndentities")
 	framework.Logf("pvName %v", pvName)
@@ -1753,7 +1756,7 @@ func VsanObjIndentities(ctx context.Context, vs *vSphere, pvName string) string 
 		} else if supervisorCluster {
 			computeCluster = "wcp-app-platform-sanity-cluster"
 		}
-		framework.Logf("Default cluster is choosen for test")
+		framework.Logf("Default cluster is chosen for test")
 	}
 	clusterComputeResource, vsanHealthClient = getClusterComputeResource(ctx, vs)
 
@@ -2075,7 +2078,7 @@ func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var k8sMasterIP string
 	for _, node := range nodes.Items {
-		if strings.Contains(node.Name, "master") {
+		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
 				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
@@ -2141,6 +2144,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, 
 	return err
 }
 
+//sshExec runs a command on the host via ssh
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
 	result := fssh.Result{Host: host, Cmd: cmd}
 	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
@@ -2199,6 +2203,69 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return pod, fmt.Errorf("pod Get API error: %v", err)
 	}
 	return pod, nil
+}
+
+// createDeployment create a deployment with 1 replica for given pvcs and node selector
+func createDeployment(ctx context.Context, client clientset.Interface, replicas int32, podLabels map[string]string, nodeSelector map[string]string, namespace string, pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool) (*appsv1.Deployment, error) {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	zero := int64(0)
+	deploymentName := "deployment-" + string(uuid.NewUUID())
+	deploymentSpec := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName,
+			Namespace: namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: podLabels,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
+				Spec: v1.PodSpec{
+					TerminationGracePeriodSeconds: &zero,
+					Containers: []v1.Container{
+						{
+							Name:    "write-pod",
+							Image:   busyBoxImageOnGcr,
+							Command: []string{"/bin/sh"},
+							Args:    []string{"-c", command},
+							SecurityContext: &v1.SecurityContext{
+								Privileged: &isPrivileged,
+							},
+						},
+					},
+					RestartPolicy: v1.RestartPolicyAlways,
+				},
+			},
+		},
+	}
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+	for index, pvclaim := range pvclaims {
+		volumename := fmt.Sprintf("volume%v", index+1)
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	deploymentSpec.Spec.Template.Spec.Containers[0].VolumeMounts = volumeMounts
+	deploymentSpec.Spec.Template.Spec.Volumes = volumes
+	if nodeSelector != nil {
+		deploymentSpec.Spec.Template.Spec.NodeSelector = nodeSelector
+	}
+	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
+	}
+	framework.Logf("Waiting deployment %q to complete", deploymentSpec.Name)
+	err = fdep.WaitForDeploymentComplete(client, deployment)
+	if err != nil {
+		return nil, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
+	}
+	return deployment, nil
 }
 
 // createPodForFSGroup helps create pod with fsGroup
@@ -2299,9 +2366,11 @@ func getDefaultDatastore(ctx context.Context) *object.Datastore {
 			defaultDatacenter, err := finder.Datacenter(ctx, dc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
+			framework.Logf("Looking for default datastore in DC: " + dc)
 			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			if err == nil {
+				framework.Logf("Datstore found for DS URL:" + datastoreURL)
 				break
 			}
 		}
@@ -2339,7 +2408,7 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 		_, err := client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//Adding a explict wait of one min for the Cluster-distribution to refect latest value
+		//Adding a explicit wait of one min for the Cluster-distribution to reflect latest value
 		time.Sleep(time.Duration(pollTimeoutShort))
 
 		framework.Logf("Cluster distribution value is now set to = %s", clusterDistribution)
@@ -2347,4 +2416,125 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 	} else {
 		framework.Logf("Cluster-distribution value is already as expected, no changes done. Value is %s", cfg.Global.ClusterDistribution)
 	}
+}
+
+//toggleCSIMigrationFeatureGatesOnK8snodes to toggle CSI migration feature gates on kublets for worker nodes
+func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool) {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, node := range nodes.Items {
+		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+			continue
+		}
+		dh := drain.Helper{
+			Ctx:                 ctx,
+			Client:              client,
+			Force:               true,
+			IgnoreAllDaemonSets: true,
+			Out:                 ginkgo.GinkgoWriter,
+			ErrOut:              ginkgo.GinkgoWriter,
+		}
+		ginkgo.By("Cordoning of node: " + node.Name)
+		err = drain.RunCordonOrUncordon(&dh, &node, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Draining of node: " + node.Name)
+		err = drain.RunNodeDrain(&dh, node.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Modifying feature gates in kubelet config yaml of node: " + node.Name)
+		nodeIP := getK8sNodeIP(&node)
+		toggleCSIMigrationFeatureGatesOnkublet(ctx, client, nodeIP, shouldEnable)
+		ginkgo.By("Wait for feature gates update on the k8s CSI node: " + node.Name)
+		err = waitForCSIMigrationFeatureGatesToggleOnkublet(ctx, client, node.Name, shouldEnable)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Uncordoning of node: " + node.Name)
+		err = drain.RunCordonOrUncordon(&dh, &node, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+//waitForCSIMigrationFeatureGatesToggleOnkublet wait for CSIMigration Feature Gates toggle result on the csinode
+func waitForCSIMigrationFeatureGatesToggleOnkublet(ctx context.Context, client clientset.Interface, nodeName string, added bool) error {
+	var found bool
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		csinode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		found = false
+		for annotation, value := range csinode.Annotations {
+			if annotation == migratedPluginAnnotation && value == vcpProvisionerName {
+				found = true
+				break
+			}
+		}
+		if added && found {
+			return true, nil
+		}
+		if !added && !found {
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+//toggleCSIMigrationFeatureGatesOnkublet adds/remove CSI migration feature gates to kubelet config yaml in given k8s node
+func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context, client clientset.Interface, nodeIP string, shouldAdd bool) {
+	grepCmd := "grep CSIMigration " + kubeletConfigYaml
+	framework.Logf("Invoking command '%v' on host %v", grepCmd, nodeIP)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("ca$hc0w"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	result, err := sshExec(sshClientConfig, nodeIP, grepCmd)
+	if err != nil {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", grepCmd, nodeIP))
+	}
+
+	var sshCmd string
+	if result.Code != 0 && shouldAdd {
+		// please don't change alignment in below assignment
+		sshCmd = `echo "featureGates:
+  {
+    "CSIMigration": true,
+	"CSIMigrationvSphere": true
+  }" >>` + kubeletConfigYaml
+	} else if result.Code == 0 && !shouldAdd {
+		sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+	} else {
+		return
+	}
+	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
+	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, nodeIP))
+	}
+	restartKubeletCmd := "systemctl daemon-reload && systemctl restart kubelet"
+	framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
+	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, nodeIP))
+	}
+}
+
+// getK8sNodeIP returns the IP for the given k8s node
+func getK8sNodeIP(node *v1.Node) string {
+	var address string
+	addrs := node.Status.Addresses
+	for _, addr := range addrs {
+		if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+			address = addr.Address
+			break
+		}
+	}
+	gomega.Expect(address).NotTo(gomega.BeNil(), "Unable to find IP for node: "+node.Name)
+	return address
 }

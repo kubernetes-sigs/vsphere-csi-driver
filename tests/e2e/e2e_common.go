@@ -35,6 +35,7 @@ const (
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
+	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
@@ -89,6 +90,7 @@ const (
 	kubeAPIfile                                = "kube-apiserver.yaml"
 	kubeAPIRecoveryTime                        = 1 * time.Minute
 	kubeSystemNamespace                        = "kube-system"
+	kubeletConfigYaml                          = "/var/lib/kubelet/config.yaml"
 	nfs4FSType                                 = "nfs4"
 	objOrItemNotFoundErr                       = "The object or item referred to could not be found"
 	passorwdFilePath                           = "/etc/vmware/wcp/.storageUser"
@@ -116,11 +118,13 @@ const (
 	startOperation                             = "start"
 	stopOperation                              = "stop"
 	supervisorClusterOperationsTimeout         = 3 * time.Minute
+	svClusterDistribution                      = "SupervisorCluster"
 	svOperationTimeout                         = 240 * time.Second
 	svStorageClassName                         = "SVStorageClass"
 	totalResizeWaitPeriod                      = 10 * time.Minute
+	tkgClusterDistribution                     = "TKGService"
 	vanillaClusterDistribution                 = "CSI-Vanilla"
-	vanillaClusterDirtributionWithSpecialChar  = "CSI-\tVanilla-#Test"
+	vanillaClusterDistributionWithSpecialChar  = "CSI-\tVanilla-#Test"
 	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
 	vmUUIDLabel                                = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
@@ -152,8 +156,10 @@ var (
 	vcpScParamPolicyName            = "storagePolicyName"
 	vcpScParamFstype                = "fstype"
 	migratedToAnnotation            = "pv.kubernetes.io/migrated-to"
+	migratedPluginAnnotation        = "storage.alpha.kubernetes.io/migrated-plugins"
 	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
+	scAnnotation4Statefulset        = "volume.beta.kubernetes.io/storage-class"
 	nodeMapper                      = &NodeMapper{}
 )
 

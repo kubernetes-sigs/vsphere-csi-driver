@@ -76,10 +76,7 @@ var (
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	// Initializes kubernetes client
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsVolumeMetadata Controller as its a non-WCP CSI deployment")
 		return nil
@@ -109,11 +106,7 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx)
 	// Create a new controller
 	c, err := controller.New("cnsvolumemetadata-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})

@@ -84,11 +84,7 @@ func New() csitypes.CnsController {
 
 // Init is initializing controller struct
 func (c *controller) Init(config *cnsconfig.Config, version string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
+	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
@@ -391,31 +387,47 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 // volume id and node name is retrieved from ControllerPublishVolumeRequest
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
 
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerPublishVolume: called with args %+v", *req)
-	// Check whether the request is for a block or file volume
-	isFileVolumeRequest := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})
+	controllerPublishVolumeInternal := func() (
+		*csi.ControllerPublishVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerPublishVolume: called with args %+v", *req)
+		// Check whether the request is for a block or file volume
+		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})
 
-	err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-
-	// File volumes support
-	if isFileVolumeRequest {
-		// Check the feature state for file volume support
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-			// Feature is disabled on the cluster
-			return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+		err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
 		}
-		return controllerPublishForFileVolume(ctx, req, c)
+
+		// File volumes support
+		if isFileVolumeRequest {
+			volumeType = prometheus.PrometheusFileVolumeType
+			// Check the feature state for file volume support
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+				// Feature is disabled on the cluster
+				return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+			}
+			return controllerPublishForFileVolume(ctx, req, c)
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+		// Block volumes support
+		return controllerPublishForBlockVolume(ctx, req, c)
 	}
-	// Block volumes support
-	return controllerPublishForBlockVolume(ctx, req, c)
+	resp, err := controllerPublishVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 // controllerPublishForBlockVolume is a helper mthod for handling ControllerPublishVolume request for Block volumes
@@ -682,38 +694,54 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 // volume id and node name is retrieved from ControllerUnpublishVolumeRequest
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
 
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-	err := validateGuestClusterControllerUnpublishVolumeRequest(ctx, req)
-	if err != nil {
-		msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
+	controllerUnpublishVolumeInternal := func() (
+		*csi.ControllerUnpublishVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+		err := validateGuestClusterControllerUnpublishVolumeRequest(ctx, req)
+		if err != nil {
+			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, err
+		}
 
-	// Retrieve Supervisor PVC
-	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, req.VolumeId, metav1.GetOptions{})
+		// Retrieve Supervisor PVC
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, req.VolumeId, metav1.GetOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", req.VolumeId, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
+		}
+		var isFileVolume bool
+		for _, accessMode := range svPVC.Spec.AccessModes {
+			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
+				isFileVolume = true
+			}
+		}
+		if isFileVolume {
+			volumeType = prometheus.PrometheusFileVolumeType
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+				return controllerUnpublishForFileVolume(ctx, req, c)
+			}
+			// Feature is disabled on the cluster
+			return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+		return controllerUnpublishForBlockVolume(ctx, req, c)
+	}
+	resp, err := controllerUnpublishVolumeInternal()
 	if err != nil {
-		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", req.VolumeId, c.supervisorNamespace, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	var isFileVolume bool
-	for _, accessMode := range svPVC.Spec.AccessModes {
-		if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-			isFileVolume = true
-		}
-	}
-	if isFileVolume {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-			return controllerUnpublishForFileVolume(ctx, req, c)
-		}
-		// Feature is disabled on the cluster
-		return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
-	}
-	return controllerUnpublishForBlockVolume(ctx, req, c)
+	return resp, err
 }
 
 // controllerUnpublishForBlockVolume is helper method to handle ControllerPublishVolume for Block volumes
@@ -924,113 +952,130 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 // volume id and size is retrieved from ControllerExpandVolumeRequest
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
-		msg := "ExpandVolume feature is disabled on the cluster."
-		log.Warn(msg)
-		return nil, status.Error(codes.Unimplemented, msg)
-	}
-	log.Infof("ControllerExpandVolume: called with args %+v", *req)
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
 
-	err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	volumeID := req.GetVolumeId()
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
-		vmList := &vmoperatortypes.VirtualMachineList{}
-		err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
-		if err != nil {
-			msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+	controllerExpandVolumeInternal := func() (
+		*csi.ControllerExpandVolumeResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
+			msg := "ExpandVolume feature is disabled on the cluster."
+			log.Warn(msg)
+			return nil, status.Error(codes.Unimplemented, msg)
 		}
+		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
-		for _, vmInstance := range vmList.Items {
-			for _, vmVolume := range vmInstance.Status.Volumes {
-				if vmVolume.Name == volumeID && vmVolume.Attached {
-					msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
-					log.Error(msg)
-					return nil, status.Error(codes.FailedPrecondition, msg)
+		err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		// Only block volume expand is allowed. Update this when file volume expand is also supported.
+		volumeType = prometheus.PrometheusBlockVolumeType
+
+		volumeID := req.GetVolumeId()
+		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
+			vmList := &vmoperatortypes.VirtualMachineList{}
+			err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
+			if err != nil {
+				msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+
+			for _, vmInstance := range vmList.Items {
+				for _, vmVolume := range vmInstance.Status.Volumes {
+					if vmVolume.Name == volumeID && vmVolume.Attached {
+						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
+						log.Error(msg)
+						return nil, status.Error(codes.FailedPrecondition, msg)
+					}
 				}
 			}
 		}
-	}
 
-	// Retrieve Supervisor PVC
-	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
-	if err != nil {
-		msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
-	}
-
-	waitForSvPvcCondition := true
-	gcPvcRequestSize := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
-	svPvcRequestSize := svPVC.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
-	// Check if GC PVC request size is greater than SV PVC request size
-	switch (gcPvcRequestSize).Cmp(svPvcRequestSize) {
-	case 1:
-		// Update requested storage in SV PVC spec
-		svPvcClone := svPVC.DeepCopy()
-		svPvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
-
-		// Make an update call to SV API server
-		log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
-		svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPvcClone, metav1.UpdateOptions{})
+		// Retrieve Supervisor PVC
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
 		if err != nil {
-			msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
 			log.Error(msg)
 			return nil, status.Error(codes.Internal, msg)
 		}
-	case 0:
-		// GC PVC request size is equal to SV PVC request size
-		log.Infof("Skipping resize call for supervisor PVC %s in namespace %s as it is already at the requested size", volumeID, c.supervisorNamespace)
 
-		// SV PVC is already in FileSystemResizePending condition indicates that SV PV has already been expanded to required size
-		if checkPVCCondition(ctx, svPVC, corev1.PersistentVolumeClaimFileSystemResizePending) {
-			waitForSvPvcCondition = false
-		} else {
-			// SV PVC is not in FileSystemResizePending condition and GC PVC request size is equal to SV PVC capacity
-			// indicates that SV PVC is already at required size
-			if (gcPvcRequestSize).Cmp(svPVC.Status.Capacity[corev1.ResourceName(corev1.ResourceStorage)]) == 0 {
+		waitForSvPvcCondition := true
+		gcPvcRequestSize := resource.NewQuantity(volSizeBytes, resource.Format(resource.BinarySI))
+		svPvcRequestSize := svPVC.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)]
+		// Check if GC PVC request size is greater than SV PVC request size
+		switch (gcPvcRequestSize).Cmp(svPvcRequestSize) {
+		case 1:
+			// Update requested storage in SV PVC spec
+			svPvcClone := svPVC.DeepCopy()
+			svPvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
+
+			// Make an update call to SV API server
+			log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
+			svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPvcClone, metav1.UpdateOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
+			}
+		case 0:
+			// GC PVC request size is equal to SV PVC request size
+			log.Infof("Skipping resize call for supervisor PVC %s in namespace %s as it is already at the requested size", volumeID, c.supervisorNamespace)
+
+			// SV PVC is already in FileSystemResizePending condition indicates that SV PV has already been expanded to required size
+			if checkPVCCondition(ctx, svPVC, corev1.PersistentVolumeClaimFileSystemResizePending) {
 				waitForSvPvcCondition = false
+			} else {
+				// SV PVC is not in FileSystemResizePending condition and GC PVC request size is equal to SV PVC capacity
+				// indicates that SV PVC is already at required size
+				if (gcPvcRequestSize).Cmp(svPVC.Status.Capacity[corev1.ResourceName(corev1.ResourceStorage)]) == 0 {
+					waitForSvPvcCondition = false
+				}
+			}
+		default:
+			// GC PVC request size is lesser than SV PVC request size
+			msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s which is greater than the requested size of %s",
+				volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
+			log.Error(msg)
+			return nil, status.Error(codes.InvalidArgument, msg)
+		}
+
+		if waitForSvPvcCondition {
+			// Wait for Supervisor PVC to change status to FilesystemResizePending
+			err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, svPVC,
+				corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
+			if err != nil {
+				msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, status.Error(codes.Internal, msg)
 			}
 		}
-	default:
-		// GC PVC request size is lesser than SV PVC request size
-		msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s which is greater than the requested size of %s",
-			volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
-		log.Error(msg)
-		return nil, status.Error(codes.InvalidArgument, msg)
-	}
 
-	if waitForSvPvcCondition {
-		// Wait for Supervisor PVC to change status to FilesystemResizePending
-		err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, svPVC,
-			corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
-		if err != nil {
-			msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+		nodeExpansionRequired := true
+		// Set NodeExpansionRequired to false for raw block volumes
+		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+			log.Infof("Node Expansion not supported for raw block volume ID %q in namespace %s of supervisor", volumeID, c.supervisorNamespace)
+			nodeExpansionRequired = false
 		}
+		resp := &csi.ControllerExpandVolumeResponse{
+			CapacityBytes:         volSizeBytes,
+			NodeExpansionRequired: nodeExpansionRequired,
+		}
+		return resp, nil
 	}
-
-	nodeExpansionRequired := true
-	// Set NodeExpansionRequired to false for raw block volumes
-	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-		log.Infof("Node Expansion not supported for raw block volume ID %q in namespace %s of supervisor", volumeID, c.supervisorNamespace)
-		nodeExpansionRequired = false
+	resp, err := controllerExpandVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	resp := &csi.ControllerExpandVolumeResponse{
-		CapacityBytes:         volSizeBytes,
-		NodeExpansionRequired: nodeExpansionRequired,
-	}
-	return resp, nil
+	return resp, err
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.

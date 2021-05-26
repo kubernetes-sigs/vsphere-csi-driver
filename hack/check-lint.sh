@@ -44,6 +44,7 @@ lintout_filtered=$(sed '/generate/d; /pb/d; /proto/d; /CnsNodeVmAttachment/d ' <
 if [ -z "$lintout_filtered" ]; then
 	exit 0
 else
+	echo "$lintout_filtered"
 	exit 1
 fi
 

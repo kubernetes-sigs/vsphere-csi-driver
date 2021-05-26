@@ -147,7 +147,13 @@ func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructur
 	}
 	log.Debugf("Migrating volume %v to SP %v", volumeID, targetSP.GetName())
 
-	err = m.relocateCNSVolume(ctx, volumeID, targetSPName)
+	// retry the relocateCNSVolume() if we face connectivity issues with VC
+	relocateFn := func() error {
+		return m.relocateCNSVolume(ctx, volumeID, targetSPName)
+	}
+	initBackoff := time.Duration(100) * time.Millisecond
+	maxBackoff := time.Duration(60) * time.Second
+	err = RetryOnError(relocateFn, initBackoff, maxBackoff, 1.5, 16)
 	if err != nil {
 		log.Errorf("Could not migrate PVC %v to StoragePool %v. Error: %v", pvcName, targetSPName, err)
 		return false, err

@@ -39,6 +39,8 @@ const (
 	PrometheusAttachVolumeOpType = "attach-volume"
 	// PrometheusDetachVolumeOpType represents the DetachVolume operation.
 	PrometheusDetachVolumeOpType = "detach-volume"
+	// PrometheusExpandVolumeOpType represents the ExpandVolume operation.
+	PrometheusExpandVolumeOpType = "expand-volume"
 
 	// CNS operation types
 
