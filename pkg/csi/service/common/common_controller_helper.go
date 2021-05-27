@@ -26,7 +26,6 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -40,17 +39,15 @@ func ValidateCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeReque
 	// Volume Name
 	volName := req.GetName()
 	if len(volName) == 0 {
-		msg := "Volume name is a required parameter."
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume name is a required parameter")
 	}
 	// Validate Volume Capabilities
 	volCaps := req.GetVolumeCapabilities()
 	if len(volCaps) == 0 {
-		return status.Error(codes.InvalidArgument, "Volume capabilities not provided")
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities not provided")
 	}
 	if err := IsValidVolumeCapabilities(ctx, volCaps); err != nil {
-		return status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
 	}
 	return nil
 }
@@ -62,9 +59,7 @@ func ValidateDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeReque
 	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
-		msg := "Volume ID is a required parameter."
-		log.Error(msg)
-		return status.Errorf(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is a required parameter")
 	}
 	return nil
 }
@@ -76,21 +71,17 @@ func ValidateControllerPublishVolumeRequest(ctx context.Context, req *csi.Contro
 	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
-		msg := "Volume ID is a required parameter."
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is a required parameter")
 	} else if len(req.NodeId) == 0 {
-		msg := "Node ID is a required parameter."
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "node ID is a required parameter")
 	}
 	volCap := req.GetVolumeCapability()
 	if volCap == nil {
-		return status.Error(codes.InvalidArgument, "Volume capability not provided")
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := IsValidVolumeCapabilities(ctx, caps); err != nil {
-		return status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
 	}
 	return nil
 }
@@ -102,13 +93,9 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 	log := logger.GetLogger(ctx)
 	//check for required parameters
 	if len(req.VolumeId) == 0 {
-		msg := "Volume ID is a required parameter."
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is a required parameter")
 	} else if len(req.NodeId) == 0 {
-		msg := "Node ID is a required parameter."
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "node ID is a required parameter")
 	}
 	return nil
 }
@@ -214,31 +201,22 @@ func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.Control
 	log := logger.GetLogger(ctx)
 	// check for required parameters
 	if len(req.GetVolumeId()) == 0 {
-		msg := "volume id is a required parameter"
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume id is a required parameter")
 	} else if req.GetCapacityRange() == nil {
-		msg := "capacity range is a required parameter"
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity range is a required parameter")
 	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
-		msg := "capacity ranges values cannot be negative"
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity ranges values cannot be negative")
 	}
 	// Validate Volume Capabilities
 	volCaps := req.GetVolumeCapability()
 	if volCaps == nil {
-		msg := "volume capabilities is a required parameter"
-		log.Error(msg)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
 	}
 
 	// TODO: Remove this restriction when volume expansion is supported for File Volumes
 	if IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCaps}) {
-		msg := "volume expansion is only supported for block volume type"
-		log.Error(msg)
-		return status.Error(codes.Unimplemented, msg)
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"volume expansion is only supported for block volume type")
 	}
 
 	return nil
@@ -251,13 +229,12 @@ func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere
 	log := logger.GetLogger(ctx)
 	diskUUID, err := cnsvolume.IsDiskAttachedToVMs(ctx, volumeID, nodes, false)
 	if err != nil {
-		msg := fmt.Sprintf("failed to check if volume %q is attached to any node with error: %+v", volumeID, err)
-		log.Error(msg)
-		return status.Errorf(codes.Internal, msg)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if volume %q is attached to any node with error: %+v", volumeID, err)
 	} else if diskUUID != "" {
-		msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to node. Online volume expansion is not supported in this version", volumeID)
-		log.Error(msg)
-		return status.Errorf(codes.FailedPrecondition, msg)
+		return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"failed to expand volume: %q. Volume is attached to node. Online volume expansion is not supported in this version",
+			volumeID)
 	}
 
 	return nil
