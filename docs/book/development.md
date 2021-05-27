@@ -31,7 +31,6 @@
   ``` sh
   make check
   hack/check-format.sh
-  hack/check-lint.sh
   hack/check-mdlint.sh
   hack/check-shell.sh
   hack/check-staticcheck.sh
