@@ -98,7 +98,8 @@ func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) 
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
 // map maps datastore url to datastore info which need to be used when creating
 // block volume.
-func (authManager *AuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
+func (authManager *AuthManager) GetDatastoreMapForBlockVolumes(
+	ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
 	datastoreMapForBlockVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
 	authManager.rwMutex.RLock()
 	defer authManager.rwMutex.RUnlock()
@@ -110,7 +111,8 @@ func (authManager *AuthManager) GetDatastoreMapForBlockVolumes(ctx context.Conte
 
 // GetFsEnabledClusterToDsMap returns a map of cluster ID with vSAN file
 // services enabled to its datastore info objects.
-func (authManager *AuthManager) GetFsEnabledClusterToDsMap(ctx context.Context) map[string][]*cnsvsphere.DatastoreInfo {
+func (authManager *AuthManager) GetFsEnabledClusterToDsMap(
+	ctx context.Context) map[string][]*cnsvsphere.DatastoreInfo {
 	fsEnabledClusterToDsMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	authManager.rwMutex.RLock()
 	defer authManager.rwMutex.RUnlock()
@@ -185,7 +187,8 @@ func ComputeFSEnabledClustersToDsMap(authManager *AuthManager, authCheckInterval
 // GenerateDatastoreMapForBlockVolumes scans all datastores in Vcenter and do
 // privilege check on those datastoes. It will return datastores which has the
 // privileges for creating block volume.
-func GenerateDatastoreMapForBlockVolumes(ctx context.Context, vc *cnsvsphere.VirtualCenter) (map[string]*cnsvsphere.DatastoreInfo, error) {
+func GenerateDatastoreMapForBlockVolumes(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter) (map[string]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	// Get all datastores from VC.
 	dcList, err := vc.GetDatacenters(ctx)
@@ -224,7 +227,8 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context, vc *cnsvsphere.Vir
 // check on them. It will return a map of cluster id to the list of datastore
 // objects. The key is cluster moid with vSAN FS enabled and Host.Config.Storage
 // privilege. The value is a list of vSAN datastoreInfo objects for the cluster.
-func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *cnsvsphere.VirtualCenter) (map[string][]*cnsvsphere.DatastoreInfo, error) {
+func GenerateFSEnabledClustersToDsMap(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter) (map[string][]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	clusterToDsInfoListMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 
@@ -275,7 +279,8 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context, vc *cnsvsphere.Virtua
 
 // IsFileServiceEnabled checks if file service is enabled on the specified
 // datastoreUrls.
-func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
+func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string,
+	vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
 	// Compute this map during controller init. Re use the map every other time.
 	log := logger.GetLogger(ctx)
 	err := vc.Connect(ctx)
@@ -322,7 +327,8 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string, vc *cnsvs
 // getDatastoresWithBlockVolumePrivs gets datastores with required priv for CSI
 // user.
 func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.VirtualCenter,
-	dsURLs []string, dsInfos []*cnsvsphere.DatastoreInfo, entities []vim25types.ManagedObjectReference) (map[string]*cnsvsphere.DatastoreInfo, error) {
+	dsURLs []string, dsInfos []*cnsvsphere.DatastoreInfo,
+	entities []vim25types.ManagedObjectReference) (map[string]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("auth manager: file - dsURLs %v dsInfos %v", dsURLs, dsInfos)
 	// dsURLToInfoMap will store a list of vSAN datastores with vSAN FS enabled
@@ -339,7 +345,9 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 		log.Errorf("auth manager: failed to check privilege %v on entities %v for user %s", privIds, entities, userName)
 		return nil, err
 	}
-	log.Debugf("auth manager: HasUserPrivilegeOnEntities returns %v when checking privileges %v on entities %v for user %s", result, privIds, entities, userName)
+	log.Debugf(
+		"auth manager: HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v for user %s",
+		result, privIds, entities, userName)
 	for index, entityPriv := range result {
 		hasPriv := true
 		privAvails := entityPriv.PrivAvailability
@@ -352,7 +360,8 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 		}
 		if hasPriv {
 			dsURLToInfoMap[dsURLs[index]] = dsInfos[index]
-			log.Debugf("auth manager: datastore with URL %s and name %s has privileges and is added to dsURLToInfoMap", dsInfos[index].Info.Name, dsURLs[index])
+			log.Debugf("auth manager: datastore with URL %s and name %s has privileges and is added to dsURLToInfoMap",
+				dsInfos[index].Info.Name, dsURLs[index])
 		}
 	}
 	return dsURLToInfoMap, nil
@@ -362,7 +371,8 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 // Since only datastores belonging to clusters with vSAN FS enabled and
 // Host.Config.Storage privileges are returned, file service enabled status
 // will be true for them.
-func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
+func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the cluster to file service status (enabled/disabled) map.")
 
@@ -394,7 +404,8 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCen
 // Creates a map of cluster id to datastore urls. The key is cluster moid with
 // vSAN FS enabled and Host.Config.Storage privilege. The value is a list of
 // vSAN datastore URLs for each cluster.
-func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string][]string, error) {
+func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	datacenters []*cnsvsphere.Datacenter) (map[string][]string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the map for vSAN FS enabled clusters to datastore URLS.")
 
@@ -426,7 +437,8 @@ func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *cnsvsphere.VirtualC
 
 // Returns a list of clusters with Host.Config.Storage privilege and vSAN file
 // services enabled.
-func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) ([]*object.ClusterComputeResource, error) {
+func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	datacenters []*cnsvsphere.Datacenter) ([]*object.ClusterComputeResource, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Computing the clusters with vSAN file services enabled and Host.Config.Storage privileges")
 	// Get clusters from datacenters.
@@ -463,7 +475,9 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 		log.Errorf("auth manager: failed to check privilege %v on entities %v for user %s", privIds, entities, userName)
 		return nil, err
 	}
-	log.Debugf("auth manager: HasUserPrivilegeOnEntities returns %v when checking privileges %v on entities %v for user %s", result, privIds, entities, userName)
+	log.Debugf(
+		"auth manager: HasUserPrivilegeOnEntities returns %v when checking privileges %v on entities %v for user %s",
+		result, privIds, entities, userName)
 	clusterComputeResourceWithPriv := []*object.ClusterComputeResource{}
 	for _, entityPriv := range result {
 		hasPriv := true
@@ -476,7 +490,8 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 			}
 		}
 		if hasPriv {
-			clusterComputeResourceWithPriv = append(clusterComputeResourceWithPriv, clusterComputeResourcesMap[entityPriv.Entity.Value])
+			clusterComputeResourceWithPriv = append(clusterComputeResourceWithPriv,
+				clusterComputeResourcesMap[entityPriv.Entity.Value])
 		}
 	}
 	log.Debugf("Clusters with priv: %s are : %+v", HostConfigStoragePriv, clusterComputeResourceWithPriv)
