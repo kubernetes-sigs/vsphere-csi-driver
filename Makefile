@@ -362,14 +362,11 @@ test-e2e:
 ################################################################################
 ##                                 LINTING                                    ##
 ################################################################################
-.PHONY: check fmt lint mdlint shellcheck vet
-check: fmt lint mdlint shellcheck staticcheck vet golangci-lint
+.PHONY: check fmt mdlint shellcheck vet
+check: fmt mdlint shellcheck staticcheck vet golangci-lint
 
 fmt:
 	hack/check-format.sh
-
-lint:
-	hack/check-lint.sh
 
 mdlint:
 	hack/check-mdlint.sh

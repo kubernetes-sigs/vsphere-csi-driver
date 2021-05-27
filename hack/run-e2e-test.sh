@@ -20,7 +20,7 @@ set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
-if ! (go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo)
+if ! (go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo@v1.16.2)
 then
     echo "go mod vendor or go get ginkgo error"
     exit 1
