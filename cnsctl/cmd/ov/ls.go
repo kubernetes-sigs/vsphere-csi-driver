@@ -27,7 +27,7 @@ import (
 var datastores, cfgFile string
 var all, long bool
 
-// lsCmd represents the ls command
+// lsCmd represents the ls command.
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List Orphan volumes",
@@ -35,14 +35,16 @@ var lsCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		validateOvFlags()
 		validateLsFlags()
-		// TODO: Add implementation
+		// TODO: Add implementation.
 	},
 }
 
-// InitLs helps initialize lsCmd
+// InitLs helps initialize lsCmd.
 func InitLs() {
-	lsCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"), "comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
-	lsCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"), "comma-separated kubeconfig file(s) (alternatively use CNSCTL_KUBECONFIG env variable)")
+	lsCmd.PersistentFlags().StringVarP(&datastores, "datastores", "d", viper.GetString("datastores"),
+		"comma-separated datastore names (alternatively use CNSCTL_DATASTORES env variable)")
+	lsCmd.PersistentFlags().StringVarP(&cfgFile, "kubeconfig", "k", viper.GetString("kubeconfig"),
+		"comma-separated kubeconfig file(s) (alternatively use CNSCTL_KUBECONFIG env variable)")
 	lsCmd.PersistentFlags().BoolVarP(&all, "all", "a", false, "Show orphan and used volumes")
 	lsCmd.PersistentFlags().BoolVarP(&long, "long-list", "l", false, "Show additional details of the volumes")
 	ovCmd.AddCommand(lsCmd)
