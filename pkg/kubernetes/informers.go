@@ -63,7 +63,8 @@ func NewInformer(client clientset.Interface) *InformerManager {
 }
 
 // AddNodeListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddNodeListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddNodeListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.nodeInformer == nil {
 		im.nodeInformer = im.informerFactory.Core().V1().Nodes().Informer()
 	}
@@ -76,7 +77,8 @@ func (im *InformerManager) AddNodeListener(add func(obj interface{}), update fun
 }
 
 // AddPVCListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPVCListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPVCListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.pvcInformer == nil {
 		im.pvcInformer = im.informerFactory.Core().V1().PersistentVolumeClaims().Informer()
 	}
@@ -90,7 +92,8 @@ func (im *InformerManager) AddPVCListener(add func(obj interface{}), update func
 }
 
 // AddPVListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPVListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.pvInformer == nil {
 		im.pvInformer = im.informerFactory.Core().V1().PersistentVolumes().Informer()
 	}
@@ -104,7 +107,8 @@ func (im *InformerManager) AddPVListener(add func(obj interface{}), update func(
 }
 
 // AddNamespaceListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddNamespaceListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddNamespaceListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.namespaceInformer == nil {
 		im.namespaceInformer = im.informerFactory.Core().V1().Namespaces().Informer()
 	}
@@ -118,9 +122,12 @@ func (im *InformerManager) AddNamespaceListener(add func(obj interface{}), updat
 }
 
 // AddConfigMapListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddConfigMapListener(ctx context.Context, client clientset.Interface, namespace string, add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddConfigMapListener(
+	ctx context.Context, client clientset.Interface, namespace string,
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.configMapInformer == nil {
-		im.configMapInformer = v1.NewFilteredConfigMapInformer(client, namespace, resyncPeriodConfigMapInformer, cache.Indexers{}, nil)
+		im.configMapInformer = v1.NewFilteredConfigMapInformer(client, namespace,
+			resyncPeriodConfigMapInformer, cache.Indexers{}, nil)
 	}
 	im.configMapSynced = im.configMapInformer.HasSynced
 
@@ -136,7 +143,8 @@ func (im *InformerManager) AddConfigMapListener(ctx context.Context, client clie
 }
 
 // AddPodListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPodListener(add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPodListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
 	if im.podInformer == nil {
 		im.podInformer = im.informerFactory.Core().V1().Pods().Informer()
 	}
