@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 7. Delete PVC.
 	// 8. Verify PV is deleted automatically.
 
-	ginkgo.It("[csi-block-vanilla] Verify volume expansion is not supported for static provisioning", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion is not supported for PVC using vSAN-Default-Storage-Policy", func() {
 		invokeTestForInvalidVolumeExpansionStaticProvision(f, client, namespace, storagePolicyName, profileID)
 	})
 

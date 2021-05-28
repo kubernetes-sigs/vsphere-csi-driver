@@ -616,15 +616,20 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 		ginkgo.By("Creating statefulset")
 		statefulset := fss.CreateStatefulSet(f.ClientSet, manifestPath, namespace)
+
 		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
 			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
+
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
+
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas)
