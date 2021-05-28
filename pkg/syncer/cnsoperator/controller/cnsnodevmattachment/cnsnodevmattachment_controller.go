@@ -26,8 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -43,7 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
@@ -52,6 +49,8 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/types"
 )
 
@@ -284,7 +283,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 
 		log.Debugf("vSphere CSI driver is attaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
-		diskUUID, attachErr := volumes.GetManager(ctx, vcenter).AttachVolume(ctx, nodeVM, volumeID, false)
+		diskUUID, attachErr := r.volumeManager.AttachVolume(ctx, nodeVM, volumeID, false)
 
 		if attachErr != nil {
 			log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q. Err: %+v",
@@ -364,7 +363,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context, request re
 		}
 		log.Debugf("vSphere CSI driver is detaching volume: %q to nodevm: %+v for CnsNodeVmAttachment request with name: %q on namespace: %q",
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
-		detachErr := volumes.GetManager(ctx, vcenter).DetachVolume(ctx, nodeVM, cnsVolumeID)
+		detachErr := r.volumeManager.DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
 			if cnsvsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)

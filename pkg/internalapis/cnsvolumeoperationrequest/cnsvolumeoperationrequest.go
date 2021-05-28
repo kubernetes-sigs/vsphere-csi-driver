@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
@@ -58,46 +59,67 @@ type operationRequestStore struct {
 	k8sclient client.Client
 }
 
+var (
+	operationRequestStoreInstance *operationRequestStore
+	operationStoreInitLock        = &sync.Mutex{}
+)
+
 // InitVolumeOperationRequestInterface creates the CnsVolumeOperationRequest
 // definition on the API server and returns an implementation of
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
 // This function is not thread safe. Multiple serial calls to this function will
 // return multiple new instances of the VolumeOperationRequest interface.
-// TODO: Make this thread-safe and a singleton.
 func InitVolumeOperationRequestInterface(ctx context.Context) (VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
-	// Create CnsVolumeOperationRequest definition on API server
-	log.Info("Creating cnsvolumeoperationrequest definition on API server")
-	err := k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdName, crdSingular, crdPlural,
-		reflect.TypeOf(cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{}).Name(), cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group, cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
-	if err != nil {
-		log.Errorf("failed to create cnsvolumeoperationrequest CRD with error: %v", err)
+
+	operationStoreInitLock.Lock()
+	defer operationStoreInitLock.Unlock()
+	if operationRequestStoreInstance == nil {
+		// Create CnsVolumeOperationRequest definition on API server.
+		log.Info(
+			"Creating CnsVolumeOperationRequest definition on API server and initializing VolumeOperationRequest instance",
+		)
+		err := k8s.CreateCustomResourceDefinitionFromSpec(
+			ctx,
+			crdName,
+			crdSingular,
+			crdPlural,
+			reflect.TypeOf(cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{}).
+				Name(),
+			cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group,
+			cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Version,
+			apiextensionsv1beta1.NamespaceScoped,
+		)
+		if err != nil {
+			log.Errorf("failed to create CnsVolumeOperationRequest CRD with error: %v", err)
+			return nil, err
+		}
+
+		// Get in cluster config for client to API server.
+		config, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to get kubeconfig with error: %v", err)
+			return nil, err
+		}
+
+		// Create client to API server.
+		k8sclient, err := k8s.NewClientForGroup(ctx, config, cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("failed to create k8sClient with error: %v", err)
+			return nil, err
+		}
+
+		// Initialize the operationRequestStoreOnETCD implementation of
+		// VolumeOperationRequest interface.
+		// NOTE: Currently there is only a single implementation of this
+		// interface. Future implementations will need modify this step.
+		operationRequestStoreInstance = &operationRequestStore{
+			k8sclient: k8sclient,
+		}
 	}
 
-	// Get in cluster config for client to API server
-	config, err := k8s.GetKubeConfig(ctx)
-	if err != nil {
-		log.Errorf("failed to get kubeconfig with error: %v", err)
-		return nil, err
-	}
-
-	// Create client to API server
-	k8sclient, err := k8s.NewClientForGroup(ctx, config, cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group)
-	if err != nil {
-		log.Errorf("failed to create k8sClient with error: %v", err)
-		return nil, err
-	}
-
-	// Initialize the operationRequestStore implementation of VolumeOperationRequest
-	// interface.
-	// NOTE: Currently there is only a single implementation of this interface.
-	// Future implementations will need modify this step.
-	operationRequestStore := &operationRequestStore{
-		k8sclient: k8sclient,
-	}
-
-	return operationRequestStore, nil
+	return operationRequestStoreInstance, nil
 }
 
 // GetRequestDetails returns the details of the operation on the volume
@@ -107,7 +129,10 @@ func InitVolumeOperationRequestInterface(ctx context.Context) (VolumeOperationRe
 // Returns an error if any error is encountered while attempting to
 // read the previously persisted information from the API server.
 // Callers need to differentiate NotFound errors if required.
-func (or *operationRequestStore) GetRequestDetails(ctx context.Context, name string) (*VolumeOperationRequestDetails, error) {
+func (or *operationRequestStore) GetRequestDetails(
+	ctx context.Context,
+	name string,
+) (*VolumeOperationRequestDetails, error) {
 	log := logger.GetLogger(ctx)
 	instanceKey := client.ObjectKey{Name: name, Namespace: csiconfig.DefaultCSINamespace}
 	log.Debugf("Getting CnsVolumeOperationRequest instance with name %s/%s", instanceKey.Namespace, instanceKey.Name)
@@ -136,7 +161,10 @@ func (or *operationRequestStore) GetRequestDetails(ctx context.Context, name str
 // place on the volume by storing it on the API server.
 // Returns an error if any error is encountered. Clients must assume
 // that the attempt to persist the information failed if an error is returned.
-func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operationToStore *VolumeOperationRequestDetails) error {
+func (or *operationRequestStore) StoreRequestDetails(
+	ctx context.Context,
+	operationToStore *VolumeOperationRequestDetails,
+) error {
 	log := logger.GetLogger(ctx)
 	if operationToStore == nil {
 		msg := "cannot store empty operation"
@@ -151,7 +179,9 @@ func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operat
 
 	if err := or.k8sclient.Get(ctx, instanceKey, instance); err != nil {
 		if apierrors.IsNotFound(err) {
-			// Create new instance on API server if it doesnt exist. Implies that this is the first time this object is being stored.
+			// Create new instance on API server if it doesnt exist.
+			// Implies that this is the first time this object is
+			// being stored.
 			newInstance := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      instanceKey.Name,
@@ -172,13 +202,28 @@ func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operat
 			}
 			err = or.k8sclient.Create(ctx, newInstance)
 			if err != nil {
-				log.Errorf("failed to create CnsVolumeOperationRequest instance %s/%s with error: %v", instanceKey.Namespace, instanceKey.Name, err)
+				log.Errorf(
+					"failed to create CnsVolumeOperationRequest instance %s/%s with error: %v",
+					instanceKey.Namespace,
+					instanceKey.Name,
+					err,
+				)
 				return err
 			}
-			log.Debugf("Created CnsVolumeOperationRequest instance %s/%s with latest information for task with ID: %s", instanceKey.Namespace, instanceKey.Name, operationDetailsToStore.TaskID)
+			log.Debugf(
+				"Created CnsVolumeOperationRequest instance %s/%s with latest information for task with ID: %s",
+				instanceKey.Namespace,
+				instanceKey.Name,
+				operationDetailsToStore.TaskID,
+			)
 			return nil
 		}
-		log.Errorf("failed to get CnsVolumeOperationRequest instance %s/%s with error: %v", instanceKey.Namespace, instanceKey.Name, err)
+		log.Errorf(
+			"failed to get CnsVolumeOperationRequest instance %s/%s with error: %v",
+			instanceKey.Namespace,
+			instanceKey.Name,
+			err,
+		)
 		return err
 	}
 
@@ -190,17 +235,19 @@ func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operat
 	updatedInstance.Status.SnapshotID = operationToStore.SnapshotID
 	updatedInstance.Status.Capacity = operationToStore.Capacity
 
-	// Modify FirstOperationDetails only if it doesnt exist or TaskID's match.
+	// Modify FirstOperationDetails only if TaskID's match.
 	firstOp := instance.Status.FirstOperationDetails
-	if firstOp.TaskID == "" || firstOp.TaskID == operationToStore.OperationDetails.TaskID {
+	if firstOp.TaskStatus == TaskInvocationStatusInProgress && firstOp.TaskID == operationToStore.OperationDetails.TaskID {
 		updatedInstance.Status.FirstOperationDetails = *operationDetailsToStore
 	}
 
 	operationExistsInList := false
-	// If the task details already exist in the status, update it with the latest information.
+	// If the task details already exist in the status, update it with the
+	// latest information.
 	for index := len(instance.Status.LatestOperationDetails) - 1; index >= 0; index-- {
 		operationDetail := instance.Status.LatestOperationDetails[index]
-		if operationDetailsToStore.TaskID == operationDetail.TaskID {
+		if operationDetail.TaskStatus == TaskInvocationStatusInProgress &&
+			operationDetailsToStore.TaskID == operationDetail.TaskID {
 			updatedInstance.Status.LatestOperationDetails[index] = *operationDetailsToStore
 			operationExistsInList = true
 			break
@@ -208,8 +255,13 @@ func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operat
 	}
 
 	if !operationExistsInList {
-		// Append the latest task details to the local instance and ensure length of LatestOperationDetails is not greater than 10.
-		updatedInstance.Status.LatestOperationDetails = append(updatedInstance.Status.LatestOperationDetails, *operationDetailsToStore)
+		// Append the latest task details to the local instance and
+		// ensure length of LatestOperationDetails is not greater
+		// than 10.
+		updatedInstance.Status.LatestOperationDetails = append(
+			updatedInstance.Status.LatestOperationDetails,
+			*operationDetailsToStore,
+		)
 		if len(updatedInstance.Status.LatestOperationDetails) > maxEntriesInLatestOperationDetails {
 			updatedInstance.Status.LatestOperationDetails = updatedInstance.Status.LatestOperationDetails[1:]
 		}
@@ -218,9 +270,19 @@ func (or *operationRequestStore) StoreRequestDetails(ctx context.Context, operat
 	// Store the local instance on the API server.
 	err := or.k8sclient.Update(ctx, updatedInstance)
 	if err != nil {
-		log.Errorf("failed to update CnsVolumeOperationRequest instance %s/%s with error: %v", instanceKey.Namespace, instanceKey.Name, err)
+		log.Errorf(
+			"failed to update CnsVolumeOperationRequest instance %s/%s with error: %v",
+			instanceKey.Namespace,
+			instanceKey.Name,
+			err,
+		)
 		return err
 	}
-	log.Debugf("Updated CnsVolumeOperationRequest instance %s/%s with latest information for task with ID: %s", instanceKey.Namespace, instanceKey.Name, operationDetailsToStore.TaskID)
+	log.Debugf(
+		"Updated CnsVolumeOperationRequest instance %s/%s with latest information for task with ID: %s",
+		instanceKey.Namespace,
+		instanceKey.Name,
+		operationDetailsToStore.TaskID,
+	)
 	return nil
 }

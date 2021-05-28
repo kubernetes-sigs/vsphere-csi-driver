@@ -93,7 +93,8 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 			}),
 		VirtualCenterHost: vc.Config.Host,
 	}
-	volManager := volume.GetManager(ctx, &vc)
+
+	volManager := volume.GetManager(ctx, &vc, nil, false)
 
 	volumes, _, err := k8scloudoperator.GetVolumesOnStoragePool(ctx, k8sClient, storagePoolName)
 	if err != nil {

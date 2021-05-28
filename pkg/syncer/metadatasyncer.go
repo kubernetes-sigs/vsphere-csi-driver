@@ -32,29 +32,27 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
-
-	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/storagepool"
 )
@@ -168,7 +166,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return err
 		}
 		metadataSyncer.host = vCenter.Config.Host
-		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter)
+		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false)
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
@@ -524,7 +522,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				vcenter.Config = newVCConfig
 			}
 			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
-			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter)
+			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter, nil, false)
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 				storagepool.ResetVC(ctx, vcenter)
 			}

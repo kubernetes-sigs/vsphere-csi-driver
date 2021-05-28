@@ -26,12 +26,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	k8stypes "k8s.io/apimachinery/pkg/types"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
@@ -72,7 +72,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		if err != nil {
 			return err
 		}
-		volumeManager = volumes.GetManager(ctx, vCenter)
+		volumeManager = volumes.GetManager(ctx, vCenter, nil, false)
 	}
 
 	// Get a config to talk to the apiserver

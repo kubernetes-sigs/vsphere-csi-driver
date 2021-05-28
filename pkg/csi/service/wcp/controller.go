@@ -89,10 +89,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
+	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.CSIVolumeManagerIdempotency)
+	if idempotencyHandlingEnabled {
+		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
+		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return err
+		}
+	}
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
 		VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 	}
 
@@ -263,9 +274,20 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			}
 			vcenter.Config = newVCConfig
 		}
+		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.CSIVolumeManagerIdempotency)
+		if idempotencyHandlingEnabled {
+			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
+			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+				return err
+			}
+		}
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
 		if c.authMgr != nil {
 			c.authMgr.ResetvCenterInstance(ctx, vcenter)
 			log.Debugf("Updated vCenter in auth manager")
