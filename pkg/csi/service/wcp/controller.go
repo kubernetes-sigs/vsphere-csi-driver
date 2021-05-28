@@ -142,7 +142,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					return
 				}
 				log.Debugf("fsnotify event: %q", event.String())
-				if event.Op&fsnotify.Remove == fsnotify.Remove && event.Name == cfgPath {
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
 					for {
 						reloadConfigErr := c.ReloadConfiguration(false)
 						if reloadConfigErr == nil {
