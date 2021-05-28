@@ -281,7 +281,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, nil, false),
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 

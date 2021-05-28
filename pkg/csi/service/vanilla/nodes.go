@@ -20,15 +20,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/vapi/tags"
+	v1 "k8s.io/api/core/v1"
 
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
-
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	v1 "k8s.io/api/core/v1"
 )
 
 // Nodes comprises cns node manager and kubernetes informer.
