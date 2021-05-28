@@ -156,6 +156,7 @@ spec:
             - "--enable-hostlocal-placement=true"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--default-fstype=ext4"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
