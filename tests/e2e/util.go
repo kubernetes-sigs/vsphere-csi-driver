@@ -530,6 +530,36 @@ func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pv
 	return pvc
 }
 
+func getPersistentVolumeClaimSpecForRMX(namespace string, labels map[string]string, pvName string) *v1.PersistentVolumeClaim {
+	var (
+		pvc *v1.PersistentVolumeClaim
+	)
+	sc := ""
+	pvc = &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteMany,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &sc,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
 // function to create PV volume spec with given FCD ID, Reclaim Policy and labels
 func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string) *v1.PersistentVolume {
 	var (
@@ -563,6 +593,54 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 			PersistentVolumeSource: pvConfig.PVSource,
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteOnce,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: "",
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
+	pv.Annotations = annotations
+	return pv
+}
+
+// function to create PV volume spec with given FCD ID, Reclaim Policy and labels
+func getPersistentVolumeSpecForRWX(fcdID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIDriverName,
+				VolumeHandle: fcdID,
+				ReadOnly:     false,
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse("5Gi"),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteMany,
 			},
 			ClaimRef:         claimRef,
 			StorageClassName: "",
