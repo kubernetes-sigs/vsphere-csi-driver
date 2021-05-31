@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -81,6 +83,8 @@ var (
 	hosts                  []*object.HostSystem
 	defaultDatastore       *object.Datastore
 	restConfig             *rest.Config
+	pvclaims               []*v1.PersistentVolumeClaim
+	pvclaimsToDelete       []*v1.PersistentVolumeClaim
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -316,6 +320,63 @@ func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels ma
 	pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 	return pvclaim, err
+}
+
+// createPVC helps creates pvc with given namespace and labels using given storage class
+func scaleCreatePVC(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string, ds string, storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
+	ginkgo.By(fmt.Sprintf("Creating PVC using the Storage Class %s with disk size %s and labels: %+v accessMode: %+v", storageclass.Name, ds, pvclaimlabels, accessMode))
+	pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+	pvclaims = append(pvclaims, pvclaim)
+
+}
+
+// scaleCreateDeletePVC helps create and delete pvc with given namespace and labels using given storage class (envWorkerPerRoutine * envNumberOfGoRoutines) times
+// Create and Delete PVC happens synchronously
+// PVC is picked randomly for deletion
+func scaleCreateDeletePVC(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string, ds string, storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, wg *sync.WaitGroup, lock *sync.Mutex, worker int) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var totalPVCDeleted int = 0
+	defer cancel()
+	defer wg.Done()
+	for index := 1; index <= worker; index++ {
+		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
+		ginkgo.By(fmt.Sprintf("Creating PVC using the Storage Class %s with disk size %s and labels: %+v accessMode: %+v", storageclass.Name, ds, pvclaimlabels, accessMode))
+		pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+
+		lock.Lock()
+		pvclaims = append(pvclaims, pvclaim)
+		pvclaimToDelete := randomPickPVC()
+		lock.Unlock()
+
+		//check if volume is present or not
+		pvclaimToDelete, err = client.CoreV1().PersistentVolumeClaims(pvclaimToDelete.Namespace).Get(ctx, pvclaimToDelete.Name, metav1.GetOptions{})
+
+		if err == nil {
+			// Waiting for PVC to be bound
+			pvclaimsToDelete := append(pvclaimsToDelete, pvclaimToDelete)
+			_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaimsToDelete, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaimToDelete.Name, pvcnamespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			totalPVCDeleted++
+		}
+	}
+	framework.Logf("Total number of deleted PVCs %v", totalPVCDeleted)
+}
+
+//randomPickPVC returns randomly picked PVC from list of PVCs
+func randomPickPVC() *v1.PersistentVolumeClaim {
+	index := rand.Intn(len(pvclaims))
+	pvclaims[len(pvclaims)-1], pvclaims[index] = pvclaims[index], pvclaims[len(pvclaims)-1]
+	pvclaimToDelete := pvclaims[len(pvclaims)-1]
+	pvclaims = pvclaims[:len(pvclaims)-1]
+	framework.Logf("pvc to delete %v", pvclaimToDelete.Name)
+	return pvclaimToDelete
 }
 
 // createStatefulSetWithOneReplica helps create a stateful set with one replica
