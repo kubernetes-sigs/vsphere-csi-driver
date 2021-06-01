@@ -41,24 +41,25 @@ import (
 var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	f := framework.NewDefaultFramework("e2e-guest-cluster-cnsvolumemetadata")
 	var (
-		client            clientset.Interface
-		namespace         string
-		svNamespace       string
-		scParameters      map[string]string
-		storagePolicyName string
-		svcPVCName        string // PVC Name in the Supervisor Cluster
-		labelKey          string
-		labelValue        string
-		gcClusterID       string
-		pvcUID            string
-		manifestPath      = "tests/e2e/testing-manifests/statefulset/nginx"
-		pvclabelKey       string
-		pvclabelValue     string
-		pvlabelKey        string
-		pvlabelValue      string
-		pvclaim           *v1.PersistentVolumeClaim
-		clientNewGc       clientset.Interface
-		pvc               *v1.PersistentVolumeClaim
+		client                     clientset.Interface
+		namespace                  string
+		svNamespace                string
+		scParameters               map[string]string
+		storagePolicyName          string
+		svcPVCName                 string // PVC Name in the Supervisor Cluster
+		labelKey                   string
+		labelValue                 string
+		gcClusterID                string
+		pvcUID                     string
+		manifestPath               = "tests/e2e/testing-manifests/statefulset/nginx"
+		pvclabelKey                string
+		pvclabelValue              string
+		pvlabelKey                 string
+		pvlabelValue               string
+		pvclaim                    *v1.PersistentVolumeClaim
+		clientNewGc                clientset.Interface
+		pvc                        *v1.PersistentVolumeClaim
+		isVsanhealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -86,6 +87,14 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		if isVsanhealthServiceStopped {
+			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
 	})
 
 	/*
@@ -886,6 +895,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isVsanhealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
@@ -907,6 +917,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanhealthServiceStopped = false
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
 		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
@@ -963,6 +974,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isVsanhealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
@@ -1025,6 +1037,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanhealthServiceStopped = false
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", pvcLabels, pvc.Name, pvc.Namespace))
 		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvcLabels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)

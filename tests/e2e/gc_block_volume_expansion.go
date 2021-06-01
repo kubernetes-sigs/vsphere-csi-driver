@@ -48,22 +48,23 @@ import (
 var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	f := framework.NewDefaultFramework("gc-volume-expansion")
 	var (
-		client              clientset.Interface
-		pandoraSyncWaitTime int
-		namespace           string
-		storagePolicyName   string
-		storageclass        *storagev1.StorageClass
-		pvclaim             *v1.PersistentVolumeClaim
-		err                 error
-		volHandle           string
-		svcPVCName          string
-		pv                  *v1.PersistentVolume
-		pvcDeleted          bool
-		cmd                 []string
-		svcClient           clientset.Interface
-		svNamespace         string
-		defaultDatastore    *object.Datastore
-		restConfig          *restclient.Config
+		client                     clientset.Interface
+		pandoraSyncWaitTime        int
+		namespace                  string
+		storagePolicyName          string
+		storageclass               *storagev1.StorageClass
+		pvclaim                    *v1.PersistentVolumeClaim
+		err                        error
+		volHandle                  string
+		svcPVCName                 string
+		pv                         *v1.PersistentVolume
+		pvcDeleted                 bool
+		cmd                        []string
+		svcClient                  clientset.Interface
+		svNamespace                string
+		defaultDatastore           *object.Datastore
+		restConfig                 *restclient.Config
+		isVsanhealthServiceStopped bool
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -122,6 +123,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		if isVsanhealthServiceStopped {
+			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
 		if !pvcDeleted {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -596,15 +605,16 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		vsanDown := true
+		isVsanhealthServiceStopped := true
 		defer func() {
-			if vsanDown {
+			if isVsanhealthServiceStopped {
 				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
 				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+				isVsanhealthServiceStopped = false
 			}
 		}()
 
@@ -638,7 +648,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		vsanDown = false
+		isVsanhealthServiceStopped = false
 
 		ginkgo.By("Waiting for controller volume resize to finish")
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
@@ -700,15 +710,16 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		vsanDown := true
+		isVsanhealthServiceStopped := true
 		defer func() {
-			if vsanDown {
+			if isVsanhealthServiceStopped {
 				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
 				vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+				isVsanhealthServiceStopped = false
 			}
 		}()
 
@@ -745,7 +756,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		vsanDown = false
+		isVsanhealthServiceStopped = false
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
@@ -842,15 +853,15 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		Steps:
 		1. Create StorageClass with allowVolumeExpansion set to true.
 		2. Create a GC PVC with 1 Gi and wait for it bound in the GC
-		3. Extend the GC PVC to 2Gi, verify GC PVC and SVC PVC remains 1Gi and have FileSystemResizePending condition , GC PV  and SVC PV change to 2Gi.
+		3. Extend the GC PVC to 2Gi, verify GC PVC and SVC PVC remains 1Gi and have FileSystemResizePending condition , GC PV  and SVC PV change to 2Gi.
 		4. Create a pod in GC with PVC created in step 2, wait for the pod to reach running state
-		5. verify GC PVC and SVC PVC size change to 2 Gi and FileSystemResizePending condition is removed.
+		5. verify GC PVC and SVC PVC size change to 2 Gi and FileSystemResizePending condition is removed.
 		6. Extend GC PVC to 3Gi
 		7. verify error message indicating that we don't support online expansion.
 		8. Delete the pod created in step 4
-		9. Resize triggered in step 6 finishes and GC and SVC PVCs remain at 2Gi and have FileSystemResizePending condition, GC and SVC PVs change to 3Gi.
+		9. Resize triggered in step 6 finishes and GC and SVC PVCs remain at 2Gi and have FileSystemResizePending condition, GC and SVC PVs change to 3Gi.
 		10. Create a pod with PVC created in step 2, wait for the pod to reach running state
-		11. verify GC PVC and SVC PVC size change to 3 Gi and FileSystemResizePending condition is removed.
+		11. verify GC PVC and SVC PVC size change to 3 Gi and FileSystemResizePending condition is removed.
 		12. delete pod created in step 10
 		13. delete PVC created in step 2
 		14. delete SC created in step 1
