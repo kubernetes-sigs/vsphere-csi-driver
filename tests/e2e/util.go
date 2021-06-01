@@ -2538,3 +2538,22 @@ func getK8sNodeIP(node *v1.Node) string {
 	gomega.Expect(address).NotTo(gomega.BeNil(), "Unable to find IP for node: "+node.Name)
 	return address
 }
+
+//expectedAnnotation polls for the given annotation in pvc and returns error if its not present
+func expectedAnnotation(ctx context.Context, client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, annotation string) error {
+	framework.Logf("Waiting for health annotation for pvclaim %v", pvclaim.Name)
+	waitErr := wait.Poll(healthStatusPollInterval, pollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", healthStatusPollInterval)
+		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		for pvcAnnotation := range pvc.Annotations {
+			if pvcAnnotation == annotation {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	return waitErr
+}
