@@ -103,6 +103,14 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
+	if volCap == nil {
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
+	}
+	caps := []*csi.VolumeCapability{volCap}
+	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+	}
+
 	var err error
 	params := nodeStageParams{
 		volID: volumeID,
@@ -356,10 +364,21 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	if params.stagingTarget == "" {
 		return nil, status.Errorf(codes.FailedPrecondition, "staging target path %q not set", params.stagingTarget)
 	}
+	if params.target == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "target path %q not set", params.target)
+	}
+
+	volCap := req.GetVolumeCapability()
+	if volCap == nil {
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
+	}
+	caps := []*csi.VolumeCapability{volCap}
+	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+	}
 
 	// Check if this is a MountVolume or BlockVolume
-	volCap := req.GetVolumeCapability()
-	if !common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCap}) {
+	if !common.IsFileVolumeRequest(ctx, caps) {
 		params.diskID, err = getDiskID(req.GetPublishContext())
 		if err != nil {
 			log.Errorf("error fetching DiskID. Parameters: %v", params)
@@ -405,6 +424,10 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 
 	volID := req.GetVolumeId()
 	target := req.GetTargetPath()
+
+	if target == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "target path %q not set", target)
+	}
 
 	// Verify if the path exists
 	// NOTE: For raw block volumes, this path is a file. In all other cases, it is a directory
