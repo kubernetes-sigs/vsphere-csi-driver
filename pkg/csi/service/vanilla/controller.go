@@ -33,7 +33,6 @@ import (
 	"github.com/vmware/govmomi/units"
 	"github.com/vmware/govmomi/vapi/tags"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -357,9 +356,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
-		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.InvalidArgument, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"Parsing storage class parameters failed with error: %+v", err)
 	}
 
 	if csiMigrationFeatureState && scParams.CSIMigration == "true" {
@@ -368,23 +366,20 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// Get vCenter.
 			vCenter, err := cnsvsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get vCenter. err: %+v", err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. err: %+v", err)
 			}
 			dcList, err := vCenter.GetDatacenters(ctx)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get datacenter list. err: %+v", err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get datacenter list. err: %+v", err)
 			}
 			foundDatastoreURL := false
 			for _, dc := range dcList {
 				dsURLTodsInfoMap, err := dc.GetAllDatastores(ctx)
 				if err != nil {
-					msg := fmt.Sprintf("failed to get dsURLTodsInfoMap. err: %+v", err)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get dsURLTodsInfoMap. err: %+v", err)
 				}
 				for dsURL, dsInfo := range dsURLTodsInfoMap {
 					if dsInfo.Info.Name == scParams.Datastore {
@@ -399,9 +394,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 			}
 			if !foundDatastoreURL {
-				msg := fmt.Sprintf("failed to find datastoreURL for datastore name: %q", scParams.Datastore)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
 			}
 		}
 	}
@@ -422,21 +416,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
 			// If zone and region label (vSphere category names) not specified in
 			// the config secret, then return NotFound error.
-			errMsg := "Zone/Region vsphere category names not specified in the vsphere config secret"
-			log.Errorf(errMsg)
-			return nil, status.Error(codes.NotFound, errMsg)
+			return nil, logger.LogNewErrorCode(log, codes.NotFound,
+				"Zone/Region vsphere category names not specified in the vsphere config secret")
 		}
 		vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to get vCenter. Err: %v", err)
-			log.Errorf(errMsg)
-			return nil, status.Error(codes.NotFound, errMsg)
+			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+				"Failed to get vCenter. Err: %v", err)
 		}
 		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to get tagManager. Err: %v", err)
-			log.Errorf(errMsg)
-			return nil, status.Error(codes.NotFound, errMsg)
+			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+				"Failed to get tagManager. Err: %v", err)
 		}
 		defer func() {
 			err := tagManager.Logout(ctx)
@@ -446,9 +437,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}()
 		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
-			log.Error(msg)
-			return nil, status.Error(codes.NotFound, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+				"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 		}
 		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
 		if createVolumeSpec.ScParams.DatastoreURL != "" {
@@ -462,19 +452,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 			}
 			if !isDataStoreAccessible {
-				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
+				return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
 					createVolumeSpec.ScParams.DatastoreURL, topologyRequirement)
-				log.Errorf(errMsg)
-				return nil, status.Error(codes.InvalidArgument, errMsg)
 			}
 		}
 
 	} else {
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
-			msg := fmt.Sprintf("failed to get shared datastores in kubernetes cluster. Error: %+v", err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get shared datastores in kubernetes cluster. Error: %+v", err)
 		}
 	}
 
@@ -484,9 +472,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
-		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create volume. Error: %+v", err)
 	}
 
 	attributes := make(map[string]string)
@@ -501,9 +488,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// Return InitialVolumeFilepath in the response for TranslateCSIPVToInTree.
 		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeInfo.VolumeID.Id)
 		if err != nil {
-			msg := fmt.Sprintf("failed to get volume path for volume id: %q. Error: %+v", volumeInfo.VolumeID.Id, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get volume path for volume id: %q. Error: %+v", volumeInfo.VolumeID.Id, err)
 		}
 		attributes[common.AttributeInitialVolumeFilepath] = volumePath
 	}
@@ -531,23 +517,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
 			if err != nil {
-				log.Errorf("QueryVolume failed for volumeID: %s", volumeInfo.VolumeID.Id)
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolume failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err.Error())
 			}
 			if len(queryResult.Volumes) > 0 {
 				// Find datastore topology from the retrieved datastoreURL.
 				if queryResult.Volumes[0].DatastoreUrl == "" {
-					msg := fmt.Sprintf("could not retrieve datastore of volume: %q", volumeInfo.VolumeID.Id)
-					log.Error(msg)
-					return nil, status.Error(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"could not retrieve datastore of volume: %q", volumeInfo.VolumeID.Id)
 				}
 				datastoreAccessibleTopology = datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
 				datastoreURL = queryResult.Volumes[0].DatastoreUrl
 				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
 			} else {
-				msg := fmt.Sprintf("QueryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
 			}
 		} else {
 			// Retrieve datastoreURL from placementResults.
@@ -591,9 +575,8 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
-		msg := fmt.Sprintf("Parsing storage class parameters failed with error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.InvalidArgument, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"Parsing storage class parameters failed with error: %+v", err)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
@@ -612,23 +595,20 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 
 		if len(filteredDatastores) == 0 {
-			msg := "no datastores found to create file volume"
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCode(log, codes.Internal,
+				"no datastores found to create file volume")
 		}
 		volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 			c.manager, &createVolumeSpec, filteredDatastores)
 		if err != nil {
-			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
 		}
 	} else {
 		volumeID, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
 		if err != nil {
-			msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
 		}
 	}
 
@@ -659,19 +639,19 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		log.Infof("CreateVolume: called with args %+v", *req)
 		volumeCapabilities := req.GetVolumeCapabilities()
 		if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
+			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"Volume capability not supported. Err: %+v", err)
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx, c.manager.VcenterConfig.Host)
 			if err != nil {
-				log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to verify if vSAN file services is supported or not. Error:%+v", err)
 			}
 			if !isvSANFileServicesSupported {
-				msg := "fileshare volume creation is not supported on vSAN 67u3 release"
-				log.Error(msg)
-				return nil, status.Error(codes.FailedPrecondition, msg)
+				return nil, logger.LogNewErrorCode(log, codes.FailedPrecondition,
+					"fileshare volume creation is not supported on vSAN 67u3 release")
 			}
 			return c.createFileVolume(ctx, req)
 		}
@@ -711,9 +691,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			// In-tree volume support.
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled.
-				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			}
 			// Migration feature switch is enabled.
 			volumePath = req.VolumeId
@@ -725,27 +704,24 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			}
 			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId})
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
 		// TODO: Add code to determine the volume type and set volumeType for
 		// Prometheus metric accordingly.
 		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
-			msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		}
 		// Migration feature switch is enabled and volumePath is set.
 		if volumePath != "" {
 			// Delete VolumePath to VolumeID mapping.
 			err = volumeMigrationService.DeleteVolumeInfo(ctx, req.VolumeId)
 			if err != nil {
-				msg := fmt.Sprintf("failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
 			}
 		}
 		return &csi.DeleteVolumeResponse{}, nil
@@ -776,9 +752,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
 		err := validateVanillaControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		publishInfo := make(map[string]string)
 		// Check whether its a block or file volume.
@@ -796,14 +771,12 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			// Select only the backing object details.
 			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolume failed with err=%+v", err.Error())
 			}
 			if len(queryResult.Volumes) == 0 {
-				msg := fmt.Sprintf("volumeID %s not found in QueryVolume", req.VolumeId)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"volumeID %s not found in QueryVolume", req.VolumeId)
 			}
 
 			vSANFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
@@ -817,10 +790,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 			}
 			if !nfsv4AccessPointFound {
-				msg := fmt.Sprintf("failed to get NFSv4 access point for volume: %q."+
-					" Returned vSAN file backing details : %+v", req.VolumeId, vSANFileBackingDetails)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get NFSv4 access point for volume: %q. Returned vSAN file backing details: %+v",
+					req.VolumeId, vSANFileBackingDetails)
 			}
 		} else {
 			// Block Volume.
@@ -829,9 +801,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				// In-tree volume support.
 				if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 					// Migration feature switch is disabled.
-					msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 				}
 				// Migration feature switch is enabled.
 				storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
@@ -844,23 +815,20 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
 				if err != nil {
-					msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				}
 			}
 			node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 			if err != nil {
-				msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			}
 			log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
 			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId, false)
 			if err != nil {
-				msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
 			}
 			publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 			publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
@@ -895,9 +863,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
 		err := validateVanillaControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		if !strings.Contains(req.VolumeId, ".vmdk") {
 			// Check if volume is block or file, skip detach for file volume.
@@ -912,15 +879,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			// Select only the volume type.
 			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
-				msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolume failed with err=%+v", err.Error())
 			}
 
 			if len(queryResult.Volumes) == 0 {
-				msg := fmt.Sprintf("volumeID %q not found in QueryVolume", req.VolumeId)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"volumeID %q not found in QueryVolume", req.VolumeId)
 			}
 			if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
 				volumeType = prometheus.PrometheusFileVolumeType
@@ -932,9 +897,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			volumeType = prometheus.PrometheusBlockVolumeType
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled.
-				msg := fmt.Sprintf("volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"volume-migration feature switch is disabled. Cannot use volume with vmdk path: %q", req.VolumeId)
 			}
 			// Migration feature switch is enabled.
 			//
@@ -955,24 +919,21 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			}
 			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath})
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
 		// Block Volume.
 		volumeType = prometheus.PrometheusBlockVolumeType
 		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		if err != nil {
-			msg := fmt.Sprintf("failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 		}
 		err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 		if err != nil {
-			msg := fmt.Sprintf("failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
 		}
 		log.Infof("ControllerUnpublishVolume successful for volume ID: %s", req.VolumeId)
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
@@ -997,27 +958,25 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
 	if strings.Contains(req.VolumeId, ".vmdk") {
-		msg := fmt.Sprintf("Cannot expand migrated vSphere volume. :%q", req.VolumeId)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Unimplemented, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"Cannot expand migrated vSphere volume. :%q", req.VolumeId)
 	}
 
 	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
 	if err != nil {
-		log.Errorf("failed to verify if extend volume is supported or not. Error: %+v", err)
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to verify if extend volume is supported or not. Error: %+v", err)
 	}
 	if !isExtendSupported {
-		msg := "Volume Expansion is not supported in this vSphere release. Kindly upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support."
-		log.Error(msg)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, logger.LogNewErrorCode(log, codes.Internal,
+			"Volume Expansion is not supported in this vSphere release. "+
+				"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
 	}
 
 	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
 	if err != nil {
-		msg := fmt.Sprintf("failed to check if online expansion is supported due to error: %v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if online expansion is supported due to error: %v", err)
 	}
 	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 	err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
@@ -1033,9 +992,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 	if err != nil {
-		msg := fmt.Sprintf("failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 	}
 
 	// Always set nodeExpansionRequired to true, even if requested size is equal
@@ -1077,7 +1035,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1085,7 +1043,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
 }
 
 // initVolumeMigrationService is a helper method to initialize
@@ -1101,9 +1059,8 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	var err error
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig, false)
 	if err != nil {
-		msg := fmt.Sprintf("failed to get migration service. Err: %v", err)
-		log.Error(msg)
-		return status.Errorf(codes.Internal, msg)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get migration service. Err: %v", err)
 	}
 	return nil
 }
@@ -1139,7 +1096,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
@@ -1147,7 +1104,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
@@ -1155,5 +1112,5 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
 }
