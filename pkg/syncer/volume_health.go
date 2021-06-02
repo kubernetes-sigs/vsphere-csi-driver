@@ -77,58 +77,79 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		}
 	}
 
+	// volumeIdToHealthStatusMap maps vol.VolumeId.Id to vol.HealthStatus
+	volumeIdToHealthStatusMap := make(volumeIdHealthStatusMap, len(queryResult.Volumes))
+
 	for _, vol := range queryResult.Volumes {
-		log.Debugf("Volume %q Health Status %q", vol.VolumeId.Id, vol.HealthStatus)
+		volumeIdToHealthStatusMap[vol.VolumeId.Id] = vol.HealthStatus
+	}
 
-		if pvc, ok := volumeHandleToPvcMap[vol.VolumeId.Id]; ok {
-			log.Debugf("csiGetVolumeHealthStatus: Found pvc %q for volume %q", pvc, vol.VolumeId.Id)
-
+	for volID, pvc := range volumeHandleToPvcMap {
+		if volHealthStatus, ok := volumeIdToHealthStatusMap[volID]; ok {
 			// only update PVC health annotation if the HealthStatus of volume is not "unknown"
-			if vol.HealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-				volHealthStatus, err := common.ConvertVolumeHealthStatus(vol.HealthStatus)
+			if volHealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
+				volHealthStatusAnn, err := common.ConvertVolumeHealthStatus(volHealthStatus)
 				if err != nil {
-					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", vol.HealthStatus, vol.VolumeId.Id)
+					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", volHealthStatus, volID)
 				}
-				val, found := pvc.Annotations[annVolumeHealth]
-				_, foundAnnHealthTS := pvc.Annotations[annVolumeHealthTS]
-				if !found || val != volHealthStatus || !foundAnnHealthTS {
-					// VolumeHealth annotation on pvc is changed, set it to new value
-					log.Debugf("csiGetVolumeHealthStatus: update volume health annotation for pvc %s/%s from old value %s to new value %s",
-						pvc.Namespace, pvc.Name, val, volHealthStatus)
-					metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
-					metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealthTS, time.Now().Format(time.UnixDate))
-					log.Infof("csiGetVolumeHealthStatus: set annotation for health to %s at time %s for pvc %s/%s", volHealthStatus, time.Now().Format(time.UnixDate), pvc.Namespace, pvc.Name)
-					_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-					if err != nil {
-						if apierrors.IsConflict(err) {
-							log.Debugf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
-								pvc.Namespace, pvc.Name, err)
-							// pvc get from pvcLister may be stale, try to get updated pvc which bound to pv from API server
-							newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
-							if err == nil {
-								log.Infof("csiGetVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
-									"get from API server from old value %s to new value %s at time %s",
-									newPvc.Namespace, newPvc.Name, val, volHealthStatus, time.Now().Format(time.UnixDate))
-								metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
-								metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, time.Now().Format(time.UnixDate))
-								_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx, newPvc, metav1.UpdateOptions{})
-								if err != nil {
-									log.Errorf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
-										newPvc.Namespace, newPvc.Name, err)
-								}
-							} else {
-								log.Errorf("csiGetVolumeHealthStatus: volume health annotation for pvc %s/%s is not updated because "+
-									"failed to get pvc from API server. err=%+v",
-									pvc.Namespace, pvc.Name, err)
-							}
-						} else {
-							log.Errorf("csiGetVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
-								pvc.Namespace, pvc.Name, err)
-						}
-					}
-				}
+				updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
 			}
+		} else {
+			// Set volume health status as "Inaccessible" when PVC is not found in CNS.
+			// When a Datastore is removed from VC (like vSAN direct disk decommisson with noAction does), the CNS Volumes
+			// on that Datastore are eventually removed from CNS DB, but the PVCs still remain in the K8S cluster.
+			// We are making the design choice of reflecting the CNS cached status of health on the PVC's health annotation
+			// at any given point of time. The vDPp operators are advised to look at the health change timestamp and wait
+			// "long enough" (like an hour) before taking any corrective actions. So if the PVC health is getting updated
+			// every 5 mins, wait for an hour or so before taking any corrective actions. This is an acceptable level
+			// of eventual consistency.
+			updateVolumeHealthStatus(ctx, k8sclient, pvc, common.VolHealthStatusInaccessible)
 		}
 	}
 	log.Infof("GetVolumeHealthStatus: end")
+}
+
+func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface, pvc *v1.PersistentVolumeClaim, volHealthStatus string) {
+	log := logger.GetLogger(ctx)
+
+	val, found := pvc.Annotations[annVolumeHealth]
+	_, foundAnnHealthTS := pvc.Annotations[annVolumeHealthTS]
+	if !found || val != volHealthStatus || !foundAnnHealthTS {
+		// VolumeHealth annotation on pvc is changed, set it to new value
+		log.Debugf("updateVolumeHealthStatus: update volume health annotation for pvc %s/%s from old value %s to new value %s",
+			pvc.Namespace, pvc.Name, val, volHealthStatus)
+		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
+		timeNow := time.Now().Format(time.UnixDate)
+		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealthTS, timeNow)
+		log.Debugf("updateVolumeHealthStatus: set annotation for health to %s at time %s for pvc %s/%s", volHealthStatus, timeNow, pvc.Namespace, pvc.Name)
+		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				log.Debugf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
+					pvc.Namespace, pvc.Name, err)
+				// pvc get from pvcLister may be stale, try to get updated pvc which bound to pv from API server
+				newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+				if err == nil {
+					timeUpdate := time.Now().Format(time.UnixDate)
+					log.Debugf("updateVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
+						"get from API server from old value %s to new value %s at time %s",
+						newPvc.Namespace, newPvc.Name, val, volHealthStatus, timeUpdate)
+					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
+					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, timeUpdate)
+					_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx, newPvc, metav1.UpdateOptions{})
+					if err != nil {
+						log.Errorf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
+							newPvc.Namespace, newPvc.Name, err)
+					}
+				} else {
+					log.Errorf("updateVolumeHealthStatus: volume health annotation for pvc %s/%s is not updated because "+
+						"failed to get pvc from API server. err=%+v",
+						pvc.Namespace, pvc.Name, err)
+				}
+			} else {
+				log.Errorf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
+					pvc.Namespace, pvc.Name, err)
+			}
+		}
+	}
 }
