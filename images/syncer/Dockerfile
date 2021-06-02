@@ -41,14 +41,16 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+RUN go test -v -c -coverpkg=./... ./cmd/syncer/ -o /build/vsphere-syncer.test
+#RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${BASE_IMAGE}
 
-COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
+#COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
+COPY --from=builder /build/vsphere-syncer.test /bin/vsphere-syncer.test
 
 RUN mkdir -p config
 
@@ -60,4 +62,5 @@ ADD pkg/internalapis/cnsoperator/config/cnsfilevolumeclient_crd.yaml /config/
 
 ADD pkg/internalapis/cnsoperator/config/triggercsifullsync_crd.yaml /config/
 
-ENTRYPOINT ["/bin/vsphere-syncer"]
+#ENTRYPOINT ["/bin/vsphere-syncer"]
+ENTRYPOINT ["/bin/vsphere-syncer.test", "-test.coverprofile=/tmp/cloud/syncer.out"]
