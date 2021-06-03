@@ -103,7 +103,7 @@ var (
 	ErrMissingTanzuKubernetesClusterUID = errors.New("no Tanzu Kubernetes Cluster UID defined in Guest Cluster config")
 
 	// ErrInvalidNetPermission is returned when the value of Permission in
-	// NetPermissions is not among the  ones listed.
+	// NetPermissions is not among the ones listed.
 	ErrInvalidNetPermission = errors.New("invalid value for Permissions under NetPermission Config")
 )
 
@@ -466,7 +466,7 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// validateGCConfig validates the Guest Cluster config contains all the
+// validateGCConfig validates that Guest Cluster config contains all the
 // necessary fields.
 func validateGCConfig(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
