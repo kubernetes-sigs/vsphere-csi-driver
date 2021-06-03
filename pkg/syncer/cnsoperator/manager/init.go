@@ -43,6 +43,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller"
 )
@@ -82,6 +84,14 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		return err
 	}
 
+	// Initialize the k8s orchestrator interface.
+	cnsOperator.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes,
+		clusterFlavor, coInitParams)
+	if err != nil {
+		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
+		return err
+	}
+
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 	// Create CRD's for WCP flavor
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
@@ -110,13 +120,6 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsregistervolume_crd.yaml")
 		if err != nil {
 			log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsRegisterVolumePlural, err)
-			return err
-		}
-
-		// Initialize the k8s orchestrator interface
-		cnsOperator.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, coInitParams)
-		if err != nil {
-			log.Errorf("failed to create CO agnostic interface. Err: %v", err)
 			return err
 		}
 
@@ -153,6 +156,18 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				}
 			}
 		}()
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+			// Create CSINodeTopology CRD.
+			csiNodeTopologyCRDName := csinodetopology.CRDPlural + "." + csinodetopologyv1alpha1.GroupName
+			err := k8s.CreateCustomResourceDefinitionFromSpec(ctx, csiNodeTopologyCRDName, csinodetopology.CRDSingular,
+				csinodetopology.CRDPlural, reflect.TypeOf(csinodetopologyv1alpha1.CSINodeTopology{}).Name(),
+				csinodetopologyv1alpha1.GroupName, csinodetopologyv1alpha1.Version, apiextensionsv1beta1.ClusterScoped)
+			if err != nil {
+				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
+				return err
+			}
+		}
 	}
 
 	// Create a new operator to provide shared dependencies and start components
