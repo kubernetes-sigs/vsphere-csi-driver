@@ -50,6 +50,9 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsvolumeoperationrequests"]
+    verbs: ["create", "get", "list", "update", "delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
