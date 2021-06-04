@@ -248,7 +248,6 @@ func isStaticallyProvisioned(spec *cnstypes.CnsVolumeCreateSpec) bool {
 func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (cnstypes.BaseCnsVolumeOperationResult,
 	error) {
 	log := logger.GetLogger(ctx)
-
 	// Get the taskResult.
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 

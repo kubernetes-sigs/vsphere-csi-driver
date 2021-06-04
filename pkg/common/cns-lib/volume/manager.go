@@ -641,6 +641,7 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
 		if err != nil {
+			log.Errorf("failed to validate manager with error: %v", err)
 			return err
 		}
 		// Set up the VC connection.
@@ -649,52 +650,10 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 			log.Errorf("ConnectCns failed with err: %+v", err)
 			return err
 		}
-		// Construct the CNS VolumeId list.
-		var cnsVolumeIDList []cnstypes.CnsVolumeId
-		cnsVolumeID := cnstypes.CnsVolumeId{
-			Id: volumeID,
+		if m.idempotencyHandlingEnabled {
+			return m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, deleteDisk)
 		}
-		// Call the CNS DeleteVolume.
-		cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
-		task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
-		if err != nil {
-			if cnsvsphere.IsNotFoundError(err) {
-				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
-				return nil
-			}
-			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-			return err
-		}
-		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
-		if err != nil || taskInfo == nil {
-			log.Errorf("failed to get DeleteVolume taskInfo from vCenter %q with err: %v",
-				m.virtualCenter.Config.Host, err)
-			return err
-		}
-		log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
-		// Get the task results for the given task.
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-		if err != nil {
-			log.Errorf("unable to find DeleteVolume task result from vCenter %q with taskID %s and deleteResults %v",
-				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
-			return err
-		}
-		if taskResult == nil {
-			log.Errorf("taskResult is empty for DeleteVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-			return errors.New("taskResult is empty")
-		}
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
-				volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
-		}
-		log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
-			volumeID, taskInfo.ActivationId)
-		return nil
+		return m.deleteVolume(ctx, volumeID, deleteDisk)
 	}
 	start := time.Now()
 	err := internalDeleteVolume()
@@ -706,6 +665,170 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// deleteVolume attempts to delete the volume on CNS. CNS task information is not persisted.
+func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error {
+	log := logger.GetLogger(ctx)
+	// Construct the CNS VolumeId list.
+	var cnsVolumeIDList []cnstypes.CnsVolumeId
+	cnsVolumeID := cnstypes.CnsVolumeId{
+		Id: volumeID,
+	}
+	// Call the CNS DeleteVolume.
+	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+	task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+	if err != nil {
+		if cnsvsphere.IsNotFoundError(err) {
+			log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
+			return nil
+		}
+		log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get DeleteVolume taskInfo from vCenter %q with err: %v",
+			m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get DeleteVolume task result with error: %v", err)
+		return err
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		return logger.LogNewErrorf(log, "failed to delete volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+	}
+	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
+		volumeID, taskInfo.ActivationId)
+	return nil
+}
+
+// deleteVolumeWithImprovedIdempotency attempts to delete the volume on CNS. CNS task information is persisted
+// by leveraging the VolumeOperationRequest interface.
+func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context, volumeID string, deleteDisk bool) error {
+	log := logger.GetLogger(ctx)
+	var (
+		// Reference to the DeleteVolume task on CNS.
+		task *object.Task
+		// Name of the CnsVolumeOperationRequest instance.
+		instanceName = "delete-" + volumeID
+		// Local instance of DeleteVolume details that needs to
+		// be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+	)
+	if m.operationStore == nil {
+		return logger.LogNewError(log, "operation store cannot be nil")
+	}
+	// Determine if CNS needs to be invoked.
+	volumeOperationDetails, err := m.operationStore.GetRequestDetails(ctx, instanceName)
+	switch {
+	case err == nil:
+		if volumeOperationDetails.OperationDetails != nil {
+			// Validate if previous attempt was
+			// successful.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
+				return nil
+			}
+			// Validate if previous operation is
+			// pending.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
+				volumeOperationDetails.OperationDetails.TaskID != "" {
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				task = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+			}
+		}
+	case apierrors.IsNotFound(err):
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
+			"", "", taskInvocationStatusInProgress, "")
+	default:
+		return err
+	}
+
+	defer func() {
+		// Persist the operation details before returning. Only success or error needs to be stored as
+		// InProgress details are stored when the task is created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store DeleteVolume operation details with error: %v", err)
+			}
+		}
+	}()
+
+	if task == nil {
+		// The task object is nil in two cases:
+		// - No previous CreateVolume task for this volume was retrieved from the persistent store.
+		// - The previous CreateVolume task failed.
+		// In both cases, invoke CNS CreateVolume again.
+		var cnsVolumeIDList []cnstypes.CnsVolumeId
+		cnsVolumeID := cnstypes.CnsVolumeId{
+			Id: volumeID,
+		}
+		// Call the CNS DeleteVolume.
+		cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+		task, err = m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+		if err != nil {
+			if cnsvsphere.IsNotFoundError(err) {
+				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+					metav1.Now(), "", "", taskInvocationStatusSuccess, "")
+				return nil
+			}
+			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+				metav1.Now(), "", "", taskInvocationStatusError, err.Error())
+			return err
+		}
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
+			task.Reference().Value, "", taskInvocationStatusInProgress, "")
+		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+		if err != nil {
+			log.Warnf("failed to store DeleteVolume details with error: %v", err)
+		}
+	}
+
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+
+	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("unable to find DeleteVolume task result from vCenter %q with taskID %s and deleteResults %v",
+			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
+		return err
+	}
+
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+			task.Reference().Value, taskInfo.ActivationId, taskInvocationStatusError, msg)
+		return logger.LogNewError(log, msg)
+	}
+	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
+		volumeID, taskInfo.ActivationId)
+	volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+		taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+	return nil
 }
 
 // UpdateVolume updates a volume given its spec.
