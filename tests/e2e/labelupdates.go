@@ -410,6 +410,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		defer func() {
+			ginkgo.By("Deleting the Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
 		ginkgo.By("Creating PVC")
 		pvc, err := createPVC(client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -466,10 +472,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
 		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
 			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Deleting the Storage Class")
-		err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -646,6 +648,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -662,9 +665,18 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
+
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			deleteAllStatefulSets(client, namespace)
+		}()
+
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas)
@@ -705,7 +717,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+2))
-		_, scaleupErr := fss.Scale(f.ClientSet, statefulset, replicas+2)
+		_, scaleupErr := scaleSts(f.ClientSet, statefulset, replicas+2)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(f.ClientSet, statefulset, replicas+2)
 		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas+2)
@@ -736,7 +748,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 0))
-		_, scaledownErr := fss.Scale(f.ClientSet, statefulset, 0)
+		_, scaledownErr := scaleSts(f.ClientSet, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, 0)
 		ssPodsAfterScaleDown := fss.GetPodList(f.ClientSet, statefulset)

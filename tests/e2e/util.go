@@ -53,6 +53,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
@@ -60,12 +61,14 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubectl/pkg/drain"
+	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
@@ -831,9 +834,9 @@ func replacePasswordRotationTime(file, host string) error {
 }
 
 // writeToFile will take two parameters:
-// 1. the absolute path of the file(including filename) to be created.
-// 2. data content to be written into the file.
-// Returns nil on Success and error on failure.
+// 1. the absolute path of the file(including filename) to be created
+// 2. data content to be written into the file
+// Returns nil on Success and error on failure
 func writeToFile(filePath, data string) error {
 	if filePath == "" {
 		return fmt.Errorf("invalid filename")
@@ -857,38 +860,28 @@ func writeToFile(filePath, data string) error {
 	return nil
 }
 
-// invokeVCenterChangePassword invokes `dir-cli password reset` command on the
-// given vCenter host over SSH, thereby resetting the currentPassword of the
-// `user` to the `newPassword`.
+// invokeVCenterChangePassword invokes `dir-cli password reset` command on the given vCenter host over SSH
+// thereby resetting the currentPassword of the `user` to the `newPassword`
 func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) error {
-	// Create an input file and write passwords into it.
+	// create an input file and write passwords into it
 	path := "input.txt"
 	data := fmt.Sprintf("%s\n%s\n", adminPassword, newPassword)
 	err := writeToFile(path, data)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		// Delete the input file containing passwords.
+		// delete the input file containing passwords
 		err = os.Remove(path)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
-	// Remote copy this input file to VC.
-	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
-		path, e2eVSphere.Config.Global.VCenterHostname)
+
+	// remote copy this input file to VC
+	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'", path, e2eVSphere.Config.Global.VCenterHostname)
 	fmt.Printf("Executing the command: %s\n", copyCmd)
 	_, err = exec.Command("/bin/sh", "-c", copyCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	defer func() {
-		// Remove the input_copy.txt file from VC.
-		removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
-			e2eVSphere.Config.Global.VCenterHostname)
-		_, err = exec.Command("/bin/sh", "-c", removeCmd).Output()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
-
-	sshCmd :=
-		fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
+	sshCmd := fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
@@ -896,7 +889,7 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
-		framework.Logf("failed to change the password for user %s: %s", user, result.Stdout)
+		framework.Logf("Failed to change the password for user %s: %s", user, result.Stdout)
 		return err
 	}
 	framework.Logf("password changed successfully for user: %s", user)
@@ -3026,4 +3019,230 @@ func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.S
 	ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[v1.ResourceStorage] = newSize
 
 	return ss, nil
+}
+
+// writeConfigToSecretString takes in a structured config data and serializes that into a string
+func writeConfigToSecretStringInWCP(cfg e2eTestConfig) (string, error) {
+	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\nca-file = \"%s\"\ncluster-id = \"%s\"\ncnsregistervolumes-cleanup-intervalinmin = \"%d\"\ncluster-distribution = \"%s\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\ntargetvSANFileShareClusters = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.CaFile, cfg.Global.ClusterID, cfg.Global.CnsRegisterVolumesCleanupIntervalInMin, cfg.Global.ClusterDistribution, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Global.TargetvSANFileShareClusters)
+	return result, nil
+}
+
+// simulatePasswordRotation invokes password roation happens immediately
+// on the given vCenter host over SSH, vmon-cli is used to restart the wcp service after changing the time
+func simulatePasswordRotation(file, host string) error {
+	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		framework.Logf("Result : %s", result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	ginkgo.By("Waiting for 30 seconds for wcp service to restart and perform password rotation")
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		framework.Logf("Result : %s", result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
+// Scale scales ss to count replicas. we are using customized methods from framework due to uncustomizable timeouts in framework.
+func scaleSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+	name := ss.Name
+	ns := ss.Namespace
+
+	framework.Logf("Scaling statefulset %s to %d", name, count)
+	ss = update(c, ns, name, func(ss *appsv1.StatefulSet) { *(ss.Spec.Replicas) = count })
+
+	var statefulPodList *v1.PodList
+	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+		statefulPodList = fss.GetPodList(c, ss)
+		if int32(len(statefulPodList.Items)) == count {
+			return true, nil
+		}
+		return false, nil
+	})
+	if pollErr != nil {
+		unhealthy := []string{}
+		for _, statefulPod := range statefulPodList.Items {
+			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase, podutils.IsPodReady(&statefulPod)
+			if delTs != nil || phase != v1.PodRunning || !readiness {
+				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v", statefulPod.Name, delTs, phase, readiness))
+			}
+		}
+		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
+	}
+	return ss, nil
+}
+
+// udpate updates a statefulset, and it is only used within rest.go
+func update(c clientset.Interface, ns, name string, update func(ss *appsv1.StatefulSet)) *appsv1.StatefulSet {
+	for i := 0; i < 3; i++ {
+		ss, err := c.AppsV1().StatefulSets(ns).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			framework.Failf("failed to get statefulset %q: %v", name, err)
+		}
+		update(ss)
+		ss, err = c.AppsV1().StatefulSets(ns).Update(context.TODO(), ss, metav1.UpdateOptions{})
+		if err == nil {
+			return ss
+		}
+		if !apierrors.IsConflict(err) && !apierrors.IsServerTimeout(err) {
+			framework.Failf("failed to update statefulset %q: %v", name, err)
+		}
+	}
+	framework.Failf("too many retries draining statefulset %q", name)
+	return nil
+}
+
+// DeleteAllStatefulSets deletes all StatefulSet API Objects in Namespace ns.
+func deleteAllStatefulSets(c clientset.Interface, ns string) {
+	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+	framework.ExpectNoError(err)
+
+	// Scale down each statefulset, then delete it completely.
+	// Deleting a pvc without doing this will leak volumes, #25101.
+	errList := []string{}
+	for i := range ssList.Items {
+		ss := &ssList.Items[i]
+		var err error
+		if ss, err = scaleSts(c, ss, 0); err != nil {
+			errList = append(errList, fmt.Sprintf("%v", err))
+		}
+		fss.WaitForStatusReplicas(c, ss, 0)
+		framework.Logf("Deleting statefulset %v", ss.Name)
+		// Use OrphanDependents=false so it's deleted synchronously.
+		// We already made sure the Pods are gone inside ScaleSts().
+		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name, metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
+			errList = append(errList, fmt.Sprintf("%v", err))
+		}
+	}
+
+	// pvs are global, so we need to wait for the exact ones bound to the statefulset pvcs.
+	pvNames := sets.NewString()
+	// TODO: Don't assume all pvcs in the ns belong to a statefulset
+	pvcPollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+		pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+		if err != nil {
+			framework.Logf("WARNING: Failed to list pvcs, retrying %v", err)
+			return false, nil
+		}
+		for _, pvc := range pvcList.Items {
+			pvNames.Insert(pvc.Spec.VolumeName)
+			// TODO: Double check that there are no pods referencing the pvc
+			framework.Logf("Deleting pvc: %v with volume %v", pvc.Name, pvc.Spec.VolumeName)
+			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(), pvc.Name, metav1.DeleteOptions{}); err != nil {
+				return false, nil
+			}
+		}
+		return true, nil
+	})
+	if pvcPollErr != nil {
+		errList = append(errList, "timeout waiting for pvc deletion.")
+	}
+
+	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+		pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+		if err != nil {
+			framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
+			return false, nil
+		}
+		waitingFor := []string{}
+		for _, pv := range pvList.Items {
+			if pvNames.Has(pv.Name) {
+				waitingFor = append(waitingFor, fmt.Sprintf("%v: %+v", pv.Name, pv.Status))
+			}
+		}
+		if len(waitingFor) == 0 {
+			return true, nil
+		}
+		framework.Logf("Still waiting for pvs of statefulset to disappear:\n%v", strings.Join(waitingFor, "\n"))
+		return false, nil
+	})
+	if pollErr != nil {
+		errList = append(errList, "timeout waiting for pv provisioner to delete pvs, this might mean the test leaked pvs.")
+	}
+	if len(errList) != 0 {
+		framework.ExpectNoError(fmt.Errorf("%v", strings.Join(errList, "\n")))
+	}
+}
+
+/*
+	readConfigFromSecretString takes input string of the form:
+		[Global]
+		insecure-flag = "true"
+		ca-file = "/etc/vmware/wcp/tls/vmca.pem"
+		cluster-id = "domain-c1047"
+		cluster-distribution = "CSI-Vanilla"
+		[VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
+		user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
+		password = "qd?\\/\"K=O_<ZQw~s4g(S"
+		datacenters = "datacenter-1033"
+		port = "443"
+		targetvSANFileShareClusters = ""
+	Returns a de-serialized structured config data
+*/
+func readConfigFromSecretStringInWCP(cfg string) (e2eTestConfig, error) {
+	var config e2eTestConfig
+	key, value := "", ""
+	lines := strings.Split(cfg, "\n")
+	for index, line := range lines {
+		if index == 0 {
+			// Skip [Global]
+			continue
+		}
+		words := strings.Split(line, " = ")
+		if len(words) == 1 {
+			// case VirtualCenter
+			words = strings.Split(line, " ")
+			if strings.Contains(words[0], "VirtualCenter") {
+				value = words[1]
+				// Remove trailing '"]' characters from value
+				value = strings.TrimSuffix(value, "]")
+				config.Global.VCenterHostname = trimQuotes(value)
+				fmt.Printf("Key: VirtualCenter, Value: %s\n", value)
+			}
+			continue
+		}
+		key = words[0]
+		value = trimQuotes(words[1])
+		var strconvErr error
+		switch key {
+		case "insecure-flag":
+			if strings.Contains(value, "true") {
+				config.Global.InsecureFlag = true
+			} else {
+				config.Global.InsecureFlag = false
+			}
+		case "ca-file":
+			config.Global.CaFile = value
+		case "cluster-id":
+			config.Global.ClusterID = value
+		case "cluster-distribution":
+			config.Global.ClusterDistribution = value
+		case "user":
+			config.Global.User = value
+		case "password":
+			config.Global.Password = value
+		case "datacenters":
+			config.Global.Datacenters = value
+		case "port":
+			config.Global.VCenterPort = value
+		case "cnsregistervolumes-cleanup-intervalinmin":
+			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "targetvSANFileShareClusters":
+			config.Global.TargetvSANFileShareClusters = value
+		default:
+			return config, fmt.Errorf("unknown key %s in the input string", key)
+		}
+	}
+	framework.Logf(" Config secret string : %s", config)
+	return config, nil
 }

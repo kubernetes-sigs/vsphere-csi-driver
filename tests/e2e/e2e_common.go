@@ -149,6 +149,8 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
+	StatefulSetPoll                           = 20 * time.Second
+	StatefulSetTimeout                        = 15 * time.Minute
 )
 
 // The following variables are required to know cluster type to run common e2e
