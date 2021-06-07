@@ -52,6 +52,10 @@ type e2eTestConfig struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// Cafile specifies the ca certificate .pem file path
+		CaFile string `gcfg:"ca-file"`
+		// TargetvSANFileShareClusters specifies the vSAN fileshare cluster
+		TargetvSANFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
