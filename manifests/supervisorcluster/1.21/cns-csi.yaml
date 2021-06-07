@@ -342,6 +342,7 @@ data:
   "fake-attach": "true"
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
+  "block-volume-snapshot": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

@@ -422,6 +422,7 @@ data:
   "online-volume-extend": "true"
   "file-volume": "false"
   "csi-sv-feature-states-replication": "false"
+  "block-volume-snapshot": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
