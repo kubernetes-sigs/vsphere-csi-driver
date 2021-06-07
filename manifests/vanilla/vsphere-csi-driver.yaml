@@ -104,7 +104,7 @@ data:
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
   "async-query-volume": "false"
-  "csi-volume-manager-idempotency": "false"
+  "improved-csi-idempotency": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
