@@ -42,7 +42,7 @@ import (
 // 8. Delete the storage class.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
-	"CNS-CSI Cluster Distribution for StatefulSets", func() {
+	"[csi-block-vanilla-parallelized] CNS-CSI Cluster Distribution for StatefulSets", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	var (
 		namespace         string
@@ -56,7 +56,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
-		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageclassname, metav1.GetOptions{})
+		scName := "nginx-sc-telemtery"
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).
 				NotTo(gomega.HaveOccurred())
@@ -116,7 +117,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		}
 
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
+		scName := "nginx-sc-telemtery"
+		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -126,6 +128,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.

@@ -56,7 +56,8 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
+var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] label-updates", func() {
+
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
 	var (
 		client              clientset.Interface
@@ -625,6 +626,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		11. Delete SC
 	*/
 	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful set.", func() {
+		scName := "nginx-sc-label-updates"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// decide which test setup is available to run
@@ -636,10 +638,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storageclassname)
+			createResourceQuota(client, namespace, rqLimit, scName)
 		}
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -648,21 +650,19 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		}()
 
 		ginkgo.By("Creating statefulset")
-		statefulset := fss.CreateStatefulSet(f.ClientSet, manifestPath, namespace)
-
+		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
 			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
-
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
-		}()
-
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas)

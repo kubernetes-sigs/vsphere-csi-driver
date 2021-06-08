@@ -61,6 +61,7 @@ import (
 //    the file system executable file on the node.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func() {
+
 	f := framework.NewDefaultFramework("volume-fstype")
 	var (
 		client            clientset.Interface
@@ -79,15 +80,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		}
 	})
 
-	ginkgo.It("CSI - verify fstype - ext3 formatted volume", func() {
+	ginkgo.It("[csi-block-vanilla-serialized] CSI - verify fstype - ext3 formatted volume", func() {
 		invokeTestForFstype(f, client, namespace, ext3FSType, ext3FSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("CSI - verify fstype - default value should be ext4", func() {
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - default value should be ext4", func() {
 		invokeTestForFstype(f, client, namespace, "", ext4FSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("CSI - verify invalid fstype", func() {
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify invalid fstype", func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
 })
@@ -126,7 +127,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, _ := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv := persistentvolumes[0]

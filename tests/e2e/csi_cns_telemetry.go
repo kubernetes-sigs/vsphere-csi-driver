@@ -34,7 +34,9 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] CNS-CSI Cluster Distribution Telemetry", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanilla-parallelized] "+
+	"CNS-CSI Cluster Distribution Telemetry", func() {
+
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	var (
 		client       clientset.Interface
