@@ -87,6 +87,8 @@ type (
 	podMap = map[string][]*v1.Pod
 	// Maps K8s PV's Spec.CSI.VolumeHandle to corresponding PVC object
 	volumeHandlePVCMap = map[string]*v1.PersistentVolumeClaim
+	// Maps CnsVolume's VolumeId.Id to vol.HealthStatus
+	volumeIdHealthStatusMap = map[string]string
 )
 
 type metadataSyncInformer struct {
