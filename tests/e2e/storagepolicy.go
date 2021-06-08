@@ -48,7 +48,8 @@ import (
    8. Delete PVC, PV and Storage Class
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisioning", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Storage Policy Based Volume Provisioning", func() {
+
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	var (
 		client    clientset.Interface

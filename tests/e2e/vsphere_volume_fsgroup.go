@@ -50,7 +50,8 @@ Steps
 
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] Volume Filesystem Group Test", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest]  [csi-block-vanilla-parallelized] [csi-supervisor] Volume Filesystem Group Test", func() {
+
 	f := framework.NewDefaultFramework("volume-fsgroup")
 	var (
 		client            clientset.Interface
