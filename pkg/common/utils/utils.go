@@ -18,11 +18,9 @@ package utils
 
 import (
 	"context"
-	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -45,18 +43,16 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 				log.Warn("QueryVolumeAsync is not supported. Invoking QueryVolume API")
 				queryAsyncNotSupported = true
 			} else { // Return for any other failures
-				msg := fmt.Sprintf("QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
 		}
 	}
 	if !useQueryVolumeAsync || queryAsyncNotSupported {
 		queryResult, err = m.QueryVolume(ctx, queryFilter)
 		if err != nil {
-			msg := fmt.Sprintf("QueryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"QueryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 		}
 	}
 	return queryResult, nil
@@ -79,18 +75,16 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 				log.Warn("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
 				queryAsyncNotSupported = true
 			} else { // Return for any other failures
-				msg := fmt.Sprintf("QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
 		}
 	}
 	if !useQueryVolumeAsync || queryAsyncNotSupported {
 		queryResult, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
 		if err != nil {
-			msg := fmt.Sprintf("QueryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"QueryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 		}
 	}
 	return queryResult, nil
