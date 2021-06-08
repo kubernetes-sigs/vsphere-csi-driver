@@ -105,6 +105,7 @@ data:
   "trigger-csi-fullsync": "false"
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
+  "improved-volume-topology": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
