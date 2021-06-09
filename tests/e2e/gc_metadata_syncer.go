@@ -951,6 +951,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
+		svcPVCName := volumeID
 		svcVolumeID := getVolumeIDFromSupervisorCluster(volumeID)
 		gomega.Expect(svcVolumeID).NotTo(gomega.BeEmpty())
 		ginkgo.By(fmt.Sprintf("SVC volume ID for claim %s is %s", volumeID, svcVolumeID))
@@ -961,12 +962,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		pvSVC := getPvFromClaim(svcClient, svNamespace, svcPVCName)
+		framework.Logf("volume name %v", pv.Name)
+
+		//PSOD the host
+		hostIP := psodHostWithPv(ctx, &e2eVSphere, pvSVC.Name)
 
 		pvLabels := make(map[string]string)
 		pvLabels["pvlabelKey"] = pvlabelValue
@@ -1003,28 +1004,19 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		// check pv label update in CRD
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, volumeID, true, pvLabels, true)
 
-		/*
-			TODO:
-			Since we are bringing vsan-health service down to simulate data store being in-accessible to CNS. It brings down CNS as well.
-			Hence commenting the steps below until we have a better way to make the datastore inaccessible.
-
-			ginkgo.By(fmt.Sprintf("Sleeping for %v minutes and verifying labels are not updated on CNS", pollTimeout))
-			time.Sleep(pollTimeout)
-			ginkgo.By("Checking PVC labels via CNS")
-			cnsLabels, err := e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
-			ginkgo.By("Checking PV labels via CNS")
-			cnsLabels, err = e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
-		*/
-
-		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes and verifying labels are not updated on CNS", pollTimeoutShort))
+		time.Sleep(pollTimeoutShort)
+		ginkgo.By("Checking PVC labels via CNS")
+		cnsLabels, err := e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
+		ginkgo.By("Checking PV labels via CNS")
+		cnsLabels, err = e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
+
+		err = waitForHostToBeUp(hostIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", pvcLabels, pvc.Name, pvc.Namespace))
 		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvcLabels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
