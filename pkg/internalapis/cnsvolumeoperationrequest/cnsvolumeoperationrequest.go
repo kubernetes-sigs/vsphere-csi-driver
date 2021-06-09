@@ -317,7 +317,9 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Minute)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("CnsVolumeOperationRequest clean up interval is set to %d minutes", cleanupInterval)
-	for range ticker.C {
+	for ; true; <-ticker.C {
+		log.Infof("Cleaning up stale CnsVolumeOperationRequest instances.")
+
 		instanceMap := make(map[string]bool)
 
 		cnsVolumeOperationRequestList := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestList{}
@@ -325,20 +327,20 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		if err != nil {
 			log.Errorf("failed to list CnsVolumeOperationRequests with error %v. Abandoning"+
 				"CnsVolumeOperationRequests clean up ...", err)
-			return
+			continue
 		}
 
 		k8sclient, err := k8s.NewClient(ctx)
 		if err != nil {
 			log.Errorf("failed to get k8sclient with error: %v. Abandoning CnsVolumeOperationRequests"+
 				"clean up ...", err)
-			return
+			continue
 		}
 		pvList, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 		if err != nil {
 			log.Errorf("failed to list PersistentVolumes with error %v. Abandoning"+
 				"CnsVolumeOperationRequests clean up ...", err)
-			return
+			continue
 		}
 
 		for _, pv := range pvList.Items {
@@ -372,5 +374,6 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				}
 			}
 		}
+		log.Infof("Clean up of stale CnsVolumeOperationRequest complete.")
 	}
 }
