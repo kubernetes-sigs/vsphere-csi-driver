@@ -79,6 +79,7 @@ var (
 	clusterComputeResource []*object.ClusterComputeResource
 	hosts                  []*object.HostSystem
 	defaultDatastore       *object.Datastore
+	restConfig             *rest.Config
 )
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage class parameters
@@ -1835,7 +1836,7 @@ func connectESX(username string, addr string, cmd string) (string, error) {
 }
 
 // getPersistentVolumeSpecWithStorageclass is to create PV volume spec with given FCD ID, Reclaim Policy and labels
-func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string, labels map[string]string) *v1.PersistentVolume {
+func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string, labels map[string]string, sizeOfDisk string) *v1.PersistentVolume {
 	var (
 		pvConfig fpv.PersistentVolumeConfig
 		pv       *v1.PersistentVolume
@@ -1862,7 +1863,7 @@ func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolu
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
 			Capacity: v1.ResourceList{
-				v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse(sizeOfDisk),
 			},
 			PersistentVolumeSource: pvConfig.PVSource,
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -1884,7 +1885,7 @@ func getPersistentVolumeSpecWithStorageclass(volumeHandle string, persistentVolu
 }
 
 // getPVCSpecWithPVandStorageClass is to create PVC spec with given PV , storage class and label details
-func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels map[string]string, pvName string, storageclass string) *v1.PersistentVolumeClaim {
+func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels map[string]string, pvName string, storageclass string, sizeOfDisk string) *v1.PersistentVolumeClaim {
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: pvcName,
@@ -1896,7 +1897,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 			},
 			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
-					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(sizeOfDisk),
 				},
 			},
 			VolumeName:       pvName,
@@ -1912,7 +1913,6 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 
 //waitForEvent waits for and event with specified message substr for a given object name
 func waitForEvent(ctx context.Context, client clientset.Interface, namespace string, substr string, name string) error {
-	log := logger.GetLogger(ctx)
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
 		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
 		if err != nil {
@@ -1920,7 +1920,7 @@ func waitForEvent(ctx context.Context, client clientset.Interface, namespace str
 		}
 		for _, item := range eventList.Items {
 			if strings.Contains(item.Message, substr) {
-				log.Infof("Found event %v", item)
+				framework.Logf("Found event %v", item)
 				return true, nil
 			}
 		}
@@ -2044,7 +2044,6 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		flag := cnsRegisterVolume.Status.Registered
 		if !flag {
-			framework.Logf("cnsRegisterVolume %s found and Registered status is  =%s (%v)", cnsRegisterVolumeName, flag, time.Since(start))
 			continue
 		} else {
 			return nil
@@ -2556,4 +2555,17 @@ func expectedAnnotation(ctx context.Context, client clientset.Interface, pvclaim
 		return false, nil
 	})
 	return waitErr
+}
+
+//getRestConfigClient returns  rest config client
+func getRestConfigClient() *rest.Config {
+	// Get restConfig
+	var err error
+	if restConfig == nil {
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+	return restConfig
 }

@@ -1621,13 +1621,13 @@ func createStaticPVC(ctx context.Context, f *framework.Framework, client clients
 	staticPVLabels["fcd-id"] = fcdID
 
 	ginkgo.By("Creating PV")
-	pv := getPersistentVolumeSpecWithStorageclass(fcdID, v1.PersistentVolumeReclaimDelete, sc.Name, nil)
+	pv := getPersistentVolumeSpecWithStorageclass(fcdID, v1.PersistentVolumeReclaimDelete, sc.Name, nil, strconv.FormatInt(diskSizeInMb, 10))
 	pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pvName := pv.GetName()
 
 	ginkgo.By("Creating PVC")
-	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name)
+	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name, strconv.FormatInt(diskSizeInMb, 10))
 	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
