@@ -1132,6 +1132,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanhealthServiceStopped = false
 
 		ginkgo.By("Wait for some time for the CRD to create PV , PVC")
 		time.Sleep(time.Duration(60) * time.Second)
@@ -1216,6 +1217,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isSPSserviceStopped = false
 
 		ginkgo.By("Wait for some time for the updated CRD to create PV , PVC")
 		time.Sleep(time.Duration(60) * time.Second)
