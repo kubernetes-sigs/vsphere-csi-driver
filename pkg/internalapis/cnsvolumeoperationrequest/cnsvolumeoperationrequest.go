@@ -325,20 +325,20 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		cnsVolumeOperationRequestList := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestList{}
 		err := or.k8sclient.List(ctx, cnsVolumeOperationRequestList)
 		if err != nil {
-			log.Errorf("failed to list CnsVolumeOperationRequests with error %v. Abandoning"+
+			log.Errorf("failed to list CnsVolumeOperationRequests with error %v. Abandoning "+
 				"CnsVolumeOperationRequests clean up ...", err)
 			continue
 		}
 
 		k8sclient, err := k8s.NewClient(ctx)
 		if err != nil {
-			log.Errorf("failed to get k8sclient with error: %v. Abandoning CnsVolumeOperationRequests"+
+			log.Errorf("failed to get k8sclient with error: %v. Abandoning CnsVolumeOperationRequests "+
 				"clean up ...", err)
 			continue
 		}
 		pvList, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 		if err != nil {
-			log.Errorf("failed to list PersistentVolumes with error %v. Abandoning"+
+			log.Errorf("failed to list PersistentVolumes with error %v. Abandoning "+
 				"CnsVolumeOperationRequests clean up ...", err)
 			continue
 		}
