@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -33,9 +34,12 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	mount "k8s.io/mount-utils"
@@ -47,13 +51,17 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 const (
-	devDiskID                     = "/dev/disk/by-id"
-	blockPrefix                   = "wwn-0x"
-	dmiDir                        = "/sys/class/dmi"
-	maxAllowedBlockVolumesPerNode = 59
+	devDiskID                            = "/dev/disk/by-id"
+	blockPrefix                          = "wwn-0x"
+	dmiDir                               = "/sys/class/dmi"
+	maxAllowedBlockVolumesPerNode        = 59
+	defaultTopologyCRWatcherTimeoutInMin = 1
+	maxTopologyCRWatcherTimeoutInMin     = 2
 )
 
 type nodeStageParams struct {
@@ -646,10 +654,12 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var nodeInfoResponse *csi.NodeGetInfoResponse
 
-	nodeID := os.Getenv("NODE_NAME")
-	if nodeID == "" {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
 		return nil, logger.LogNewErrorCode(log, codes.Internal, "ENV NODE_NAME is not set")
 	}
+	nodeID := nodeName
+
 	var maxVolumesPerNode int64
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
 		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -679,99 +689,40 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 		return nodeInfoResponse, nil
 	}
-	var cfg *cnsconfig.Config
-	cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-			nodeInfoResponse = &csi.NodeGetInfoResponse{
-				NodeId:            nodeID,
-				MaxVolumesPerNode: maxVolumesPerNode,
-			}
-			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-			return nodeInfoResponse, nil
-		}
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to read cnsconfig. err: %v", err)
-	}
-	var accessibleTopology map[string]string
-	topology := &csi.Topology{}
 
-	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
-		log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get VirtualCenterConfig from cns config. err: %v", err)
+	var (
+		accessibleTopology map[string]string
+		err                error
+	)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+		accessibleTopology, err = fetchTopologyLabelsUsingCR(ctx, nodeName, nodeID)
+	} else {
+		var cfg *cnsconfig.Config
+		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultCloudConfigPath
 		}
-		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
-		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to register vcenter with virtualCenterManager. err: %v", err)
-		}
-		defer func() {
-			if vcManager != nil {
-				err = vcManager.UnregisterAllVirtualCenters(ctx)
-				if err != nil {
-					log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
+			if os.IsNotExist(err) {
+				log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+				nodeInfoResponse = &csi.NodeGetInfoResponse{
+					NodeId:            nodeID,
+					MaxVolumesPerNode: maxVolumesPerNode,
 				}
+				log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+				return nodeInfoResponse, nil
 			}
-		}()
-		//Connect to vCenter
-		err = vcenter.Connect(ctx)
-		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to connect to vcenter host: %s. err: %v", vcenter.Config.Host, err)
+				"failed to read CNS config. Error: %v", err)
 		}
-		// Get VM UUID
-		uuid, err := getSystemUUID(ctx)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get system uuid for node VM. err: %v", err)
-		}
-		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
-		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-		if err != nil || nodeVM == nil {
-			log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			uuid, err = convertUUID(uuid)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"convertUUID failed with error: %v", err)
-			}
-			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-			if err != nil || nodeVM == nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			}
-		}
-		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create tagManager. err: %v", err)
-		}
-		defer func() {
-			err := tagManager.Logout(ctx)
-			if err != nil {
-				log.Errorf("failed to logout tagManager. err: %v", err)
-			}
-		}()
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
-		}
-		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
-		if zone != "" && region != "" {
-			accessibleTopology = make(map[string]string)
-			accessibleTopology[v1.LabelZoneRegion] = region
-			accessibleTopology[v1.LabelZoneFailureDomain] = zone
-		}
+		accessibleTopology, err = fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	topology := &csi.Topology{}
 	if len(accessibleTopology) > 0 {
 		topology.Segments = accessibleTopology
 	}
@@ -782,6 +733,237 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	}
 	log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 	return nodeInfoResponse, nil
+}
+
+// fetchTopologyLabelsUsingCR uses the CSINodeTopology CR to retrieve topology information of a node.
+func fetchTopologyLabelsUsingCR(ctx context.Context, nodeName, nodeID string) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get kube config.
+	config, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to fetch kubeconfig. Error: %+v", err)
+	}
+	// Create controller runtime client.
+	controllerRuntimeClient, err := k8s.NewClientForGroup(ctx, config, csinodetopologyv1alpha1.GroupName)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create controllerRuntimeClient. Error: %+v", err)
+	}
+
+	// Fetch node object to set owner ref.
+	nodeObj, err := getNodeObject(ctx, nodeName)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	// Create spec for CSINodeTopology.
+	csiNodeTopologySpec := &csinodetopologyv1alpha1.CSINodeTopology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "v1",
+					Kind:       "Node",
+					Name:       nodeObj.Name,
+					UID:        nodeObj.UID,
+				},
+			},
+		},
+		Spec: csinodetopologyv1alpha1.CSINodeTopologySpec{
+			NodeID: nodeID,
+		},
+	}
+	// Create CSINodeTopology CR for the node.
+	err = controllerRuntimeClient.Create(ctx, csiNodeTopologySpec)
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create CSINodeTopology CR. Error: %+v", err)
+		}
+	} else {
+		log.Infof("Successfully created a CSINodeTopology instance for NodeName: %q", nodeName)
+	}
+
+	// Watch on the CSINodeTopology CR.
+	csiNodeTopologyWatcher, err := k8s.NewCSINodeTopologyWatcher(ctx, config)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create a watcher for CSINodeTopology CR. Error: %+v", err)
+	}
+	timeoutSeconds := int64((time.Duration(getCSINodeTopologyWatchTimeoutInMin(ctx)) * time.Minute).Seconds())
+	watchCSINodeTopology, err := csiNodeTopologyWatcher.Watch(metav1.ListOptions{
+		FieldSelector:  fields.SelectorFromSet(fields.Set{"metadata.name": nodeID}).String(),
+		TimeoutSeconds: &timeoutSeconds,
+		Watch:          true,
+	})
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to watch on CSINodeTopology instance with name %q. Error: %+v", nodeName, err)
+	}
+	defer watchCSINodeTopology.Stop()
+
+	// Check if status gets updated in the instance within the given timeout seconds.
+	for event := range watchCSINodeTopology.ResultChan() {
+		csiNodeTopologyInstance, ok := event.Object.(*csinodetopologyv1alpha1.CSINodeTopology)
+		if !ok {
+			log.Debugf("Received unidentified object - %+v", event.Object)
+			continue
+		}
+		switch csiNodeTopologyInstance.Status.Status {
+		case csinodetopologyv1alpha1.CSINodeTopologySuccess:
+			accessibleTopology := make(map[string]string)
+			topologyLabels := csiNodeTopologyInstance.Status.TopologyLabels
+			for _, label := range topologyLabels {
+				accessibleTopology[label.Key] = label.Value
+			}
+			return accessibleTopology, nil
+		case csinodetopologyv1alpha1.CSINodeTopologyError:
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve topology information for Node: %q. Error: %q", nodeID,
+				csiNodeTopologyInstance.Status.ErrorMessage)
+		}
+	}
+	return nil, logger.LogNewErrorCodef(log, codes.Internal,
+		"timed out while waiting for topology labels in CSINodeTopology instance with name %q to be updated.",
+		nodeID)
+}
+
+// getNodeObject fetches the node instance given the nodeName
+func getNodeObject(ctx context.Context, nodeName string) (*v1.Node, error) {
+	log := logger.GetLogger(ctx)
+
+	// Create the kubernetes client.
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to create K8s client. Error: %v", err)
+		return nil, err
+	}
+	// Fetch node object.
+	nodeObj, err := k8sClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to fetch node object with name %q. Error: %v", nodeName, err)
+		return nil, err
+	}
+	return nodeObj, nil
+}
+
+// getCSINodeTopologyWatchTimeoutInMin returns the timeout for watching
+// on CSINodeTopology instances for any updates.
+// If environment variable NODEGETINFO_WATCH_TIMEOUT_MINUTES is set and
+// has a valid value between [1, 2], return the interval value read
+// from environment variable. Otherwise, use the default timeout of 1 min.
+func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	watcherTimeoutInMin := defaultTopologyCRWatcherTimeoutInMin
+	if v := os.Getenv("NODEGETINFO_WATCH_TIMEOUT_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			switch {
+			case value <= 0:
+				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is equal or "+
+					"less than 0, will use the default timeout of %d minute(s)", v, watcherTimeoutInMin)
+			case value > maxTopologyCRWatcherTimeoutInMin:
+				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is equal or "+
+					"less than 0, will use the default timeout of %d minute(s)", v, watcherTimeoutInMin)
+			default:
+				watcherTimeoutInMin = value
+				log.Infof("Timeout is set to %d minute(s)", watcherTimeoutInMin)
+			}
+		} else {
+			log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is invalid, "+
+				"using the default timeout of %d minute(s)", v, watcherTimeoutInMin)
+		}
+	}
+	return watcherTimeoutInMin
+}
+
+// fetchTopologyLabelsUsingVCCreds retrieves topology information of the nodes
+// using VC credentials mounted on the nodes. This approach will be deprecated soon.
+func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cnsconfig.Config) (
+	map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// If zone or region are empty, return.
+	if cfg.Labels.Zone == "" || cfg.Labels.Region == "" {
+		return nil, nil
+	}
+
+	log.Infof("Config file provided to node daemonset contains zone and region info. " +
+		"Assuming topology aware cluster.")
+	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get VirtualCenterConfig from cns config. err: %v", err)
+	}
+	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to register vcenter with virtualCenterManager. err: %v", err)
+	}
+	defer func() {
+		if vcManager != nil {
+			err = vcManager.UnregisterAllVirtualCenters(ctx)
+			if err != nil {
+				log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
+			}
+		}
+	}()
+
+	// Connect to vCenter.
+	err = vcenter.Connect(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to connect to vcenter host: %s. err: %v", vcenter.Config.Host, err)
+	}
+	// Get VM UUID.
+	uuid, err := getSystemUUID(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get system uuid for node VM. err: %v", err)
+	}
+	log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
+	nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
+	if err != nil || nodeVM == nil {
+		log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+		uuid, err = convertUUID(uuid)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"convertUUID failed with error: %v", err)
+		}
+		nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
+		if err != nil || nodeVM == nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+		}
+	}
+	// Get a tag manager instance.
+	tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create tagManager. err: %v", err)
+	}
+	defer func() {
+		err := tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
+
+	// Fetch zone and region for given node.
+	zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
+	}
+	log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
+
+	if zone != "" && region != "" {
+		accessibleTopology := make(map[string]string)
+		accessibleTopology[v1.LabelZoneRegionStable] = region
+		accessibleTopology[v1.LabelZoneFailureDomainStable] = zone
+		return accessibleTopology, nil
+	}
+	return nil, nil
 }
 
 func (driver *vsphereCSIDriver) NodeExpandVolume(

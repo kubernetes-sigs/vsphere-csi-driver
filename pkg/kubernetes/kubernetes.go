@@ -27,6 +27,7 @@ import (
 	"time"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -54,6 +55,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
 const (
@@ -179,6 +182,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
+		err = csinodetopologyv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add CSINodeTopology to scheme with error: %+v", err)
+			return nil, err
+		}
 	}
 	client, err := client.New(config, client.Options{
 		Scheme: scheme,
@@ -238,6 +246,32 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, na
 		return nil, err
 	}
 	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil
+}
+
+// NewCSINodeTopologyWatcher creates a new ListWatch for CSINodeTopology objects given
+// rest client config.
+func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (*cache.ListWatch, error) {
+	var err error
+	log := logger.GetLogger(ctx)
+
+	scheme := runtime.NewScheme()
+	err = csinodetopologyv1alpha1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("failed to add to scheme with err: %+v", err)
+		return nil, err
+	}
+	gvk := schema.GroupVersionKind{
+		Group:   csinodetopologyv1alpha1.GroupName,
+		Version: csinodetopologyv1alpha1.Version,
+		Kind:    csinodetopology.CRDPlural,
+	}
+
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	if err != nil {
+		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csinodetopology.CRDSingular, err)
+		return nil, err
+	}
+	return cache.NewListWatchFromClient(client, csinodetopology.CRDPlural, v1.NamespaceAll, fields.Everything()), nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file.

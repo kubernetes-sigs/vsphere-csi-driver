@@ -73,6 +73,31 @@ metadata:
   name: vsphere-csi-node
   namespace: vmware-system-csi
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-role
+rules:
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csinodetopologies"]
+    verbs: ["create", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: vsphere-csi-node
+    namespace: vmware-system-csi
+roleRef:
+  kind: ClusterRole
+  name: vsphere-csi-node-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
