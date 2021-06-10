@@ -357,7 +357,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"Parsing storage class parameters failed with error: %+v", err)
+			"parsing storage class parameters failed with error: %+v", err)
 	}
 
 	if csiMigrationFeatureState && scParams.CSIMigration == "true" {
@@ -422,12 +422,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
-				"Failed to get vCenter. Err: %v", err)
+				"failed to get vCenter. Err: %v", err)
 		}
 		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
-				"Failed to get tagManager. Err: %v", err)
+				"failed to get tagManager. Err: %v", err)
 		}
 		defer func() {
 			err := tagManager.Logout(ctx)
@@ -518,7 +518,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolume failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err.Error())
+					"queryVolume failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err)
 			}
 			if len(queryResult.Volumes) > 0 {
 				// Find datastore topology from the retrieved datastoreURL.
@@ -576,7 +576,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"Parsing storage class parameters failed with error: %+v", err)
+			"parsing storage class parameters failed with error: %+v", err)
 	}
 
 	var createVolumeSpec = common.CreateVolumeSpec{
@@ -640,7 +640,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		volumeCapabilities := req.GetVolumeCapabilities()
 		if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"Volume capability not supported. Err: %+v", err)
+				"volume capability not supported. Err: %+v", err)
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -753,7 +753,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		err := validateVanillaControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+				"validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		publishInfo := make(map[string]string)
 		// Check whether its a block or file volume.
@@ -772,7 +772,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolume failed with err=%+v", err.Error())
+					"queryVolume failed with err=%+v", err)
 			}
 			if len(queryResult.Volumes) == 0 {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -864,7 +864,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		err := validateVanillaControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+				"validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		if !strings.Contains(req.VolumeId, ".vmdk") {
 			// Check if volume is block or file, skip detach for file volume.
@@ -880,7 +880,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolume failed with err=%+v", err.Error())
+					"queryVolume failed with err=%+v", err)
 			}
 
 			if len(queryResult.Volumes) == 0 {
@@ -959,7 +959,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 	if strings.Contains(req.VolumeId, ".vmdk") {
 		return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
-			"Cannot expand migrated vSphere volume. :%q", req.VolumeId)
+			"cannot expand migrated vSphere volume. :%q", req.VolumeId)
 	}
 
 	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
@@ -969,7 +969,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	if !isExtendSupported {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"Volume Expansion is not supported in this vSphere release. "+
+			"volume Expansion is not supported in this vSphere release. "+
 				"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
 	}
 
