@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
@@ -31,6 +33,7 @@ import (
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
@@ -70,7 +73,7 @@ var (
 // details to read and persist volume operation details.
 // This function is not thread safe. Multiple serial calls to this function will
 // return multiple new instances of the VolumeOperationRequest interface.
-func InitVolumeOperationRequestInterface(ctx context.Context) (VolumeOperationRequest, error) {
+func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int) (VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 
 	operationStoreInitLock.Lock()
@@ -117,6 +120,7 @@ func InitVolumeOperationRequestInterface(ctx context.Context) (VolumeOperationRe
 		operationRequestStoreInstance = &operationRequestStore{
 			k8sclient: k8sclient,
 		}
+		go operationRequestStoreInstance.cleanupStaleInstances(cleanupInterval)
 	}
 
 	return operationRequestStoreInstance, nil
@@ -285,4 +289,91 @@ func (or *operationRequestStore) StoreRequestDetails(
 		operationDetailsToStore.TaskID,
 	)
 	return nil
+}
+
+// deleteRequestDetails deletes the input CnsVolumeOperationRequest instance from the operationRequestStore.
+func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Deleting CnsVolumeOperationRequest instance with name %s/%s", csiconfig.DefaultCSINamespace, name)
+	err := or.k8sclient.Delete(ctx, &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: csiconfig.DefaultCSINamespace,
+		},
+	})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Errorf("failed to delete CnsVolumeOperationRequest instance %s/%s with error: %v",
+				csiconfig.DefaultCSINamespace, name, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// cleanupStaleInstances cleans up CnsVolumeOperationRequest instances for volumes that are no longer present in the
+// kubernetes cluster.
+func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
+	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Minute)
+	ctx, log := logger.GetNewContextWithLogger()
+	log.Infof("CnsVolumeOperationRequest clean up interval is set to %d minutes", cleanupInterval)
+	for ; true; <-ticker.C {
+		log.Infof("Cleaning up stale CnsVolumeOperationRequest instances.")
+
+		instanceMap := make(map[string]bool)
+
+		cnsVolumeOperationRequestList := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestList{}
+		err := or.k8sclient.List(ctx, cnsVolumeOperationRequestList)
+		if err != nil {
+			log.Errorf("failed to list CnsVolumeOperationRequests with error %v. Abandoning "+
+				"CnsVolumeOperationRequests clean up ...", err)
+			continue
+		}
+
+		k8sclient, err := k8s.NewClient(ctx)
+		if err != nil {
+			log.Errorf("failed to get k8sclient with error: %v. Abandoning CnsVolumeOperationRequests "+
+				"clean up ...", err)
+			continue
+		}
+		pvList, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.Errorf("failed to list PersistentVolumes with error %v. Abandoning "+
+				"CnsVolumeOperationRequests clean up ...", err)
+			continue
+		}
+
+		for _, pv := range pvList.Items {
+			if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+				instanceMap[pv.Name] = true
+				instanceMap[pv.Spec.CSI.VolumeHandle] = true
+			}
+		}
+
+		for _, instance := range cnsVolumeOperationRequestList.Items {
+			latestOperationDetailsLength := len(instance.Status.LatestOperationDetails)
+			if latestOperationDetailsLength != 0 &&
+				instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].TaskStatus ==
+					TaskInvocationStatusInProgress {
+				continue
+			}
+			var trimmedName string
+			switch {
+			case strings.HasPrefix(instance.Name, "pvc"):
+				trimmedName = instance.Name
+			case strings.HasPrefix(instance.Name, "delete"):
+				trimmedName = strings.TrimPrefix(instance.Name, "delete-")
+			case strings.HasPrefix(instance.Name, "extend"):
+				trimmedName = strings.TrimPrefix(instance.Name, "extend-")
+			}
+			if _, ok := instanceMap[trimmedName]; !ok {
+				err = or.deleteRequestDetails(ctx, instance.Name)
+				if err != nil {
+					log.Errorf("failed to delete CnsVolumeOperationRequest instance %s with error %v",
+						instance.Name, err)
+				}
+			}
+		}
+		log.Infof("Clean up of stale CnsVolumeOperationRequest complete.")
+	}
 }
