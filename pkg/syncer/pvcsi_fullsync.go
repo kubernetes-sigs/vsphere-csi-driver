@@ -199,8 +199,9 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 // compareCnsVolumeMetadatas compares input cnsvolumemetadata objects
 // and returns false if their labels are not deeply equal
 func compareCnsVolumeMetadatas(guestObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec, supervisorObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec) bool {
-	if !reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels) {
+	if !reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels) || !reflect.DeepEqual(guestObject.ClusterDistribution, supervisorObject.ClusterDistribution) {
 		supervisorObject.Labels = guestObject.Labels
+		supervisorObject.ClusterDistribution = guestObject.ClusterDistribution
 		return false
 	}
 	return true
