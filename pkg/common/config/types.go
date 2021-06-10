@@ -57,6 +57,9 @@ type Config struct {
 
 		//CSIAuthCheckIntervalInMin specifies the interval that the auth check for datastores will be trigger
 		CSIAuthCheckIntervalInMin int `gcfg:"csi-auth-check-intervalinmin"`
+		// CnsVolumeOperationRequestCleanupIntervalInMin specifies the interval after which
+		// stale CnsVolumeOperationRequest instances will be cleaned up.
+		CnsVolumeOperationRequestCleanupIntervalInMin int `gcfg:"cnsvolumeoperationrequest-cleanup-intervalinmin"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares

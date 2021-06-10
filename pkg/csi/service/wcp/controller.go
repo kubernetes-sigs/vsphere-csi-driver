@@ -94,7 +94,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+			c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin)
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -135,15 +136,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		// TODO: Invoke similar method for block volumes
 		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency) {
-		log.Infof("CSI Volume manager idempotency handling feature flag is enabled.")
-		// TODO: Assign VolumeOperationRequest object to a variable
-		_, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
-		if err != nil {
-			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-			return err
-		}
-	}
+
 	go func() {
 		for {
 			log.Debugf("Waiting for event on fsnotify watcher")
@@ -279,7 +272,8 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			common.CSIVolumeManagerIdempotency)
 		if idempotencyHandlingEnabled {
 			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin)
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
