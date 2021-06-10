@@ -178,8 +178,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
 							break
 						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 5 seconds. err: %+v", reconnectVCErr)
-						time.Sleep(5 * time.Second)
+						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v", reconnectVCErr)
+						time.Sleep(60 * time.Second)
 					}
 				}
 			case err, ok := <-watcher.Errors:

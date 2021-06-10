@@ -228,8 +228,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
 							break
 						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 5 seconds. err: %+v", reconnectVCErr)
-						time.Sleep(5 * time.Second)
+						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v", reconnectVCErr)
+						time.Sleep(60 * time.Second)
 					}
 				}
 			case err, ok := <-watcher.Errors:
@@ -489,10 +489,9 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		}
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
-			if metadataSyncer.configInfo.Cfg.Global.VCenterIP != newVCConfig.Host ||
-				metadataSyncer.configInfo.Cfg.Global.User != newVCConfig.Username ||
-				metadataSyncer.configInfo.Cfg.Global.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
-
+			if metadataSyncer.host != newVCConfig.Host ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password || reconnectToVCFromNewConfig {
 				// Verify if new configuration has valid credentials by connecting to vCenter.
 				// Proceed only if the connection succeeds, else return error.
 				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
