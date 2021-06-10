@@ -927,56 +927,11 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 			log.Errorf("ConnectCns failed with err: %+v", err)
 			return err
 		}
-		// Construct the CNS ExtendSpec list.
-		var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
-		cnsExtendSpec := cnstypes.CnsVolumeExtendSpec{
-			VolumeId: cnstypes.CnsVolumeId{
-				Id: volumeID,
-			},
-			CapacityInMb: size,
+		if m.idempotencyHandlingEnabled {
+			return m.expandVolumeWithImprovedIdempotency(ctx, volumeID, size)
 		}
-		cnsExtendSpecList = append(cnsExtendSpecList, cnsExtendSpec)
-		// Call the CNS ExtendVolume.
-		log.Infof("Calling CnsClient.ExtendVolume: VolumeID [%q] Size [%d] cnsExtendSpecList [%#v]",
-			volumeID, size, cnsExtendSpecList)
-		task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
-		if err != nil {
-			if cnsvsphere.IsNotFoundError(err) {
-				log.Errorf("VolumeID: %q, not found. Cannot expand volume.", volumeID)
-				return errors.New("volume not found")
-			}
-			log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-			return err
-		}
-		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
-		if err != nil || taskInfo == nil {
-			log.Errorf("failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v",
-				m.virtualCenter.Config.Host, err)
-			return err
-		}
-		log.Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
-		// Get the task results for the given task.
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-		if err != nil {
-			log.Errorf("Unable to find ExtendVolume task result from vCenter %q: taskID %s and result %v",
-				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
-			return err
-		}
-		if taskResult == nil {
-			log.Errorf("TaskResult is empty for ExtendVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-			return errors.New("taskResult is empty")
-		}
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to extend volume: %q, fault: %q, opID: %q",
-				volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
-		}
-		log.Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
-		return nil
+		return m.expandVolume(ctx, volumeID, size)
+
 	}
 	start := time.Now()
 	err := internalExpandVolume()
@@ -988,6 +943,186 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// createVolumeWithoutIdempotency invokes CNS ExpandVolume.
+func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size int64) error {
+	log := logger.GetLogger(ctx)
+	// Construct the CNS ExtendSpec list.
+	var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
+	cnsExtendSpec := cnstypes.CnsVolumeExtendSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volumeID,
+		},
+		CapacityInMb: size,
+	}
+	cnsExtendSpecList = append(cnsExtendSpecList, cnsExtendSpec)
+	// Call the CNS ExtendVolume.
+	log.Infof("Calling CnsClient.ExtendVolume: VolumeID [%q] Size [%d] cnsExtendSpecList [%#v]",
+		volumeID, size, cnsExtendSpecList)
+	task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
+	if err != nil {
+		if cnsvsphere.IsNotFoundError(err) {
+			return logger.LogNewErrorf(log, "volume %q not found. Cannot expand volume.", volumeID)
+		}
+		log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v",
+			m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for ExtendVolume task %s with error: %v",
+			task.Reference().Value, err)
+		return err
+	}
+	if taskResult == nil {
+		return logger.LogNewErrorf(log, "TaskResult is empty for ExtendVolume task: %q, opID: %q",
+			taskInfo.Task.Value, taskInfo.ActivationId)
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		return logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+	}
+	log.Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	return nil
+}
+
+// expandVolumeWithImprovedIdempotency leverages the VolumeOperationRequest interface to persist CNS task information.
+// It uses this persisted information to handle idempotency of ExpandVolume callbacks to CNS for the same volume.
+func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context, volumeID string, size int64) error {
+	log := logger.GetLogger(ctx)
+	var (
+		// Reference to the ExtendVolume task.
+		task *object.Task
+		// Details to be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+		// CnsVolumeOperationRequest instance name.
+		instanceName = "expand-" + volumeID
+		err          error
+	)
+
+	if m.operationStore == nil {
+		return logger.LogNewError(log, "operation store cannot be nil")
+	}
+
+	volumeOperationDetails, err = m.operationStore.GetRequestDetails(ctx, instanceName)
+	switch {
+	case err == nil:
+		if volumeOperationDetails.OperationDetails != nil {
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
+				volumeOperationDetails.Capacity >= size {
+				log.Infof("Volume with ID %s already expanded to size %s", volumeID, size)
+				return nil
+			}
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
+				volumeOperationDetails.OperationDetails.TaskID != "" {
+				log.Infof("Volume with ID %s has ExtendVolume task %s pending on CNS.",
+					volumeID,
+					volumeOperationDetails.OperationDetails.TaskID)
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				task = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+			}
+		}
+	case apierrors.IsNotFound(err):
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(), "", "", "", "")
+	default:
+		return err
+	}
+	defer func() {
+		// Persist the operation details before returning.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store ExpandVolume details with error: %v", err)
+			}
+		}
+	}()
+
+	if task == nil {
+		// The task object is nil in two cases:
+		// - No previous ExtendVolume task for this volume was retrieved from the persistent store.
+		// - The previous ExtendVolume task failed.
+		// In both cases, invoke CNS ExtendVolume.
+		var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
+		cnsExtendSpec := cnstypes.CnsVolumeExtendSpec{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: volumeID,
+			},
+			CapacityInMb: size,
+		}
+		cnsExtendSpecList = append(cnsExtendSpecList, cnsExtendSpec)
+		// Call the CNS ExtendVolume.
+		log.Infof("Calling CnsClient.ExtendVolume: VolumeID [%q] Size [%d] cnsExtendSpecList [%#v]",
+			volumeID, size, cnsExtendSpecList)
+		task, err = m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
+		if err != nil {
+			if cnsvsphere.IsNotFoundError(err) {
+				return logger.LogNewErrorf(log, "volume %q not found. Cannot expand volume.", volumeID)
+			}
+			log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v",
+				m.virtualCenter.Config.Host, err)
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(),
+				"", "", taskInvocationStatusError, err.Error())
+			return err
+		}
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(),
+			task.Reference().Value, "", taskInvocationStatusInProgress, "")
+		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+		if err != nil {
+			log.Warnf("failed to store ExpandVolume details with error: %v", err)
+		}
+	}
+
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v",
+			m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for task %s and volume ID %s with error: %v",
+			task.Reference().Value, volumeID, err)
+		return err
+	}
+
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+			taskInfo.ActivationId, taskInvocationStatusError, err.Error())
+		return logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+	}
+
+	log.Infof("ExpandVolume: Volume expanded successfully to size %d. volumeID: %q, opId: %q",
+		volumeOperationDetails.Capacity, volumeID, taskInfo.ActivationId)
+	volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+		taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+	if volumeOperationDetails.Capacity >= size {
+		return nil
+	}
+	// Return an error if the new size is less than the requested size.
+	// The volume will be expanded again on a retry.
+	return logger.LogNewErrorf(log, "volume expanded to size %d but requested size is %d",
+		volumeOperationDetails.Capacity, size)
 }
 
 // QueryVolume returns volumes matching the given filter.
