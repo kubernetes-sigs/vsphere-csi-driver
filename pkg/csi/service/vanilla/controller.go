@@ -88,10 +88,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
+	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.CSIVolumeManagerIdempotency)
+	if idempotencyHandlingEnabled {
+		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
+		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return err
+		}
+	}
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(ctx, vcenter),
+		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
 		VcenterManager: vcManager,
 	}
 
@@ -214,15 +225,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency) {
-		log.Infof("CSI Volume manager idempotency handling feature flag is enabled.")
-		// TODO: Assign VolumeOperationRequest object to a variable.
-		_, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
-		if err != nil {
-			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-			return err
-		}
-	}
+
 	// Go module to keep the metrics http server running all the time.
 	go func() {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
@@ -289,9 +292,20 @@ func (c *controller) ReloadConfiguration() error {
 			}
 			vcenter.Config = newVCConfig
 		}
+		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.CSIVolumeManagerIdempotency)
+		if idempotencyHandlingEnabled {
+			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
+			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+				return err
+			}
+		}
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter)
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled)
 		// Re-Initialize Node Manager to cache latest vCenter config.
 		c.nodeMgr = &Nodes{}
 		err = c.nodeMgr.Initialize(ctx)
@@ -842,7 +856,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				return nil, status.Errorf(codes.Internal, msg)
 			}
 			log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
-			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+			diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, node, req.VolumeId, false)
 			if err != nil {
 				msg := fmt.Sprintf("failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
 				log.Error(msg)

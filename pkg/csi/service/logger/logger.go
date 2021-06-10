@@ -2,10 +2,14 @@ package logger
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // LogLevel represents the level for the log.
@@ -90,4 +94,28 @@ func newLogger() *zap.Logger {
 // Returned logger is not associated with any context.
 func GetLoggerWithNoContext() *zap.SugaredLogger {
 	return newLogger().Sugar()
+}
+
+// LogNewError logs an error msg, and returns error with msg.
+func LogNewError(log *zap.SugaredLogger, msg string) error {
+	log.Error(msg)
+	return errors.New(msg)
+}
+
+// LogNewErrorf logs a formated msg, and returns error with msg.
+func LogNewErrorf(log *zap.SugaredLogger, format string, a ...interface{}) error {
+	msg := fmt.Sprintf(format, a...)
+	return LogNewError(log, msg)
+}
+
+// LogNewErrorCode logs an error msg, and returns error with code and msg.
+func LogNewErrorCode(log *zap.SugaredLogger, c codes.Code, msg string) error {
+	log.Error(msg)
+	return status.Error(c, msg)
+}
+
+// LogNewErrorCodef logs a formated msg, and returns error with code and msg.
+func LogNewErrorCodef(log *zap.SugaredLogger, c codes.Code, format string, a ...interface{}) error {
+	msg := fmt.Sprintf(format, a...)
+	return LogNewErrorCode(log, c, msg)
 }

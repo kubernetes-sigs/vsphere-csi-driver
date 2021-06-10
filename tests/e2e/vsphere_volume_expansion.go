@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 7. Delete PVC.
 	// 8. Verify PV is deleted automatically.
 
-	ginkgo.It("[csi-block-vanilla] Verify volume expansion is not supported for static provisioning", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion is not supported for PVC using vSAN-Default-Storage-Policy", func() {
 		invokeTestForInvalidVolumeExpansionStaticProvision(f, client, namespace, storagePolicyName, profileID)
 	})
 
@@ -1621,13 +1621,13 @@ func createStaticPVC(ctx context.Context, f *framework.Framework, client clients
 	staticPVLabels["fcd-id"] = fcdID
 
 	ginkgo.By("Creating PV")
-	pv := getPersistentVolumeSpecWithStorageclass(fcdID, v1.PersistentVolumeReclaimDelete, sc.Name, nil)
+	pv := getPersistentVolumeSpecWithStorageclass(fcdID, v1.PersistentVolumeReclaimDelete, sc.Name, nil, strconv.FormatInt(diskSizeInMb, 10))
 	pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pvName := pv.GetName()
 
 	ginkgo.By("Creating PVC")
-	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name)
+	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name, strconv.FormatInt(diskSizeInMb, 10))
 	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

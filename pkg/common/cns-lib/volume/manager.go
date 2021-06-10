@@ -23,19 +23,19 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/property"
-	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (
@@ -50,6 +50,11 @@ const (
 
 	// maxLengthOfVolumeNameInCNS is the maximum length of CNS volume name.
 	maxLengthOfVolumeNameInCNS = 80
+
+	// Alias for TaskInvocationStatus constants.
+	taskInvocationStatusInProgress = cnsvolumeoperationrequest.TaskInvocationStatusInProgress
+	taskInvocationStatusSuccess    = cnsvolumeoperationrequest.TaskInvocationStatusSuccess
+	taskInvocationStatusError      = cnsvolumeoperationrequest.TaskInvocationStatusError
 )
 
 // Manager provides functionality to manage volumes.
@@ -57,7 +62,7 @@ type Manager interface {
 	// CreateVolume creates a new volume given its spec.
 	CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error)
 	// AttachVolume attaches a volume to a virtual machine given the spec.
-	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) (string, error)
+	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error)
 	// DetachVolume detaches a volume from the virtual machine given the spec.
 	DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) error
 	// DeleteVolume deletes a volume given its spec.
@@ -106,6 +111,8 @@ var (
 	// read/write on manager instance.
 	managerInstanceLock sync.Mutex
 	volumeTaskMap       = make(map[string]*createVolumeTaskDetails)
+	// Alias for CreateVolumeOperationRequestDetails function declaration.
+	createRequestDetails = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails
 )
 
 // createVolumeTaskDetails contains taskInfo object and expiration time.
@@ -116,24 +123,30 @@ type createVolumeTaskDetails struct {
 }
 
 // GetManager returns the Manager instance.
-func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter) Manager {
+func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
+	idempotencyHandlingEnabled bool) Manager {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	if managerInstance != nil {
-		log.Infof("Retrieving existing volume.defaultManager...")
+		log.Infof("Retrieving existing defaultManager...")
 		return managerInstance
 	}
-	log.Infof("Initializing new volume.defaultManager...")
+	log.Infof("Initializing new defaultManager...")
 	managerInstance = &defaultManager{
-		virtualCenter: vc,
+		virtualCenter:              vc,
+		operationStore:             operationStore,
+		idempotencyHandlingEnabled: idempotencyHandlingEnabled,
 	}
 	return managerInstance
 }
 
 // DefaultManager provides functionality to manage volumes.
 type defaultManager struct {
-	virtualCenter *cnsvsphere.VirtualCenter
+	virtualCenter              *cnsvsphere.VirtualCenter
+	operationStore             cnsvolumeoperationrequest.VolumeOperationRequest
+	idempotencyHandlingEnabled bool
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -162,16 +175,14 @@ func ClearTaskInfoObjects() {
 	}
 }
 
-// ResetManager helps set new manager instance and VC configuration.
+// ResetManager helps set manager instance with new VC configuration.
 func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	if vcenter.Config.Host != managerInstance.virtualCenter.Config.Host {
-		log.Infof("Re-initializing volume.defaultManager")
-		managerInstance = &defaultManager{
-			virtualCenter: vcenter,
-		}
+		log.Infof("Re-initializing defaultManager.virtualCenter")
+		managerInstance.virtualCenter = vcenter
 	}
 	m.virtualCenter.Config = vcenter.Config
 	if m.virtualCenter.Client != nil {
@@ -181,161 +192,237 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 	log.Infof("Done resetting volume.defaultManager")
 }
 
-// CreateVolume creates a new volume given its spec.
-func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error) {
-	internalCreateVolume := func() (*CnsVolumeInfo, error) {
-		log := logger.GetLogger(ctx)
-		err := validateManager(ctx, m)
-		if err != nil {
-			return nil, err
-		}
-		// Set up the VC connection.
-		err = m.virtualCenter.ConnectCns(ctx)
-		if err != nil {
-			log.Errorf("ConnectCns failed with err: %+v", err)
-			return nil, err
-		}
-		// If the VSphereUser in the CreateSpec is different from session user,
-		// update the CreateSpec.
-		s, err := m.virtualCenter.Client.SessionManager.UserSession(ctx)
-		if err != nil {
-			log.Errorf("failed to get usersession with err: %v", err)
-			return nil, err
-		}
-		if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
-			log.Debugf("Update VSphereUser from %s to %s", spec.Metadata.ContainerCluster.VSphereUser, s.UserName)
-			spec.Metadata.ContainerCluster.VSphereUser = s.UserName
-		}
+// createVolumeWithImprovedIdempotency leverages the VolumeOperationRequest interface to persist CNS task
+// information. It uses this persisted information to handle idempotency of CreateVolume callbacks to CNS
+// for the same volume.
+func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (
+	*CnsVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+	var (
+		// Store the volume name passed in by input spec, this
+		// name may exceed 80 characters.
+		volNameFromInputSpec = spec.Name
+		// Reference to the CreateVolume task on CNS.
+		task *object.Task
+		// Local instance of CreateVolume details that needs to
+		// be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+	)
 
-		// Construct the CNS VolumeCreateSpec list.
-		var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
-		var task *object.Task
-		var taskInfo *vim25types.TaskInfo
-		// Store the volume name passed in by input spec, this name may exceed 80 characters.
-		volNameFromInputSpec := spec.Name
-		// Call the CNS CreateVolume.
-		taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
-		if ok {
-			task = taskDetailsInMap.task
-			log.Infof("CreateVolume task still pending for Volume: %q, with taskInfo: %+v",
-				volNameFromInputSpec, task)
-		} else {
-			// Truncate the volume name to make sure the name is within 80 characters before calling CNS.
-			if len(spec.Name) > maxLengthOfVolumeNameInCNS {
-				volNameAfterTruncate := spec.Name[0 : maxLengthOfVolumeNameInCNS-1]
-				spec.Name = volNameAfterTruncate
-				log.Infof("Create Volume with name %s is too long, truncate it to %s", volNameFromInputSpec, spec.Name)
-				log.Debugf("CNS Create Volume is called with %v", spew.Sdump(*spec))
-			}
-			cnsCreateSpecList = append(cnsCreateSpecList, *spec)
-			task, err = m.virtualCenter.CnsClient.CreateVolume(ctx, cnsCreateSpecList)
-			if err != nil {
-				log.Errorf("CNS CreateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-				return nil, err
-			}
-			var isStaticallyProvisionedBlockVolume bool
-			var isStaticallyProvisionedFileVolume bool
-			if spec.VolumeType == string(cnstypes.CnsVolumeTypeBlock) {
-				blockBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
-				if ok && (blockBackingDetails.BackingDiskId != "" || blockBackingDetails.BackingDiskUrlPath != "") {
-					isStaticallyProvisionedBlockVolume = true
-				}
-			}
-			if spec.VolumeType == string(cnstypes.CnsVolumeTypeFile) {
-				fileBackingDetails, ok := spec.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
-				if ok && fileBackingDetails.BackingFileId != "" {
-					isStaticallyProvisionedFileVolume = true
-				}
-			}
-			// Add the task details to volumeTaskMap only for dynamically
-			// provisioned volumes. For static volume provisioning we need not
-			// store the taskDetails as it doesn't result in orphaned volumes.
-			if !isStaticallyProvisionedBlockVolume && !isStaticallyProvisionedFileVolume {
-				var taskDetails createVolumeTaskDetails
-				// Store task details and expiration time in volumeTaskMap.
-				taskDetails.task = task
-				taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(defaultOpsExpirationTimeInHours))
-				volumeTaskMap[volNameFromInputSpec] = &taskDetails
-			}
-		}
-		// Get the taskInfo.
-		taskInfo, err = cns.GetTaskInfo(ctx, task)
-		if err != nil || taskInfo == nil {
-			log.Errorf("failed to get taskInfo for CreateVolume task from vCenter %q with err: %v",
-				m.virtualCenter.Config.Host, err)
-			return nil, err
-		}
-		log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
-		// Get the taskResult.
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if m.operationStore == nil {
+		return nil, logger.LogNewError(log, "operation store cannot be nil")
+	}
 
-		if err != nil {
-			log.Errorf("failed to get CreateVolume result from vCenter %q, taskID: %q, opId: %q result: %+v",
-				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
-			return nil, err
-		}
-
-		if taskResult == nil {
-			log.Errorf("taskResult is empty for CreateVolume task: %q", taskInfo.ActivationId)
-			return nil, errors.New("taskResult is empty")
-		}
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
-			fault, ok := volumeOperationRes.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
-			if ok {
-				log.Infof("Volume is already registered with CNS. VolumeName: %q, volumeID: %q, opId: %q",
-					spec.Name, fault.VolumeId.Id, taskInfo.ActivationId)
+	// Determine if CNS CreateVolume needs to be invoked.
+	volumeOperationDetails, err := m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
+	switch {
+	case err == nil:
+		if volumeOperationDetails.OperationDetails != nil {
+			// Validate if previous attempt was successful.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
+				volumeOperationDetails.VolumeID != "" {
+				log.Infof("Volume with name %q and id %q is already created on CNS with opId: %q.",
+					volNameFromInputSpec, volumeOperationDetails.VolumeID,
+					volumeOperationDetails.OperationDetails.OpID)
 				return &CnsVolumeInfo{
 					DatastoreURL: "",
-					VolumeID:     fault.VolumeId,
+					VolumeID: cnstypes.CnsVolumeId{
+						Id: volumeOperationDetails.VolumeID,
+					},
 				}, nil
 			}
+			// Validate if previous operation is pending.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
+				volumeOperationDetails.OperationDetails.TaskID != "" {
+				log.Infof("Volume with name %s has CreateVolume task %s pending on CNS.",
+					volNameFromInputSpec,
+					volumeOperationDetails.OperationDetails.TaskID)
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				task = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+			}
+		}
+	case apierrors.IsNotFound(err):
+		// Instance doesn't exist. This is likely the
+		// first attempt to create the volume.
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0, metav1.Now(), "", "",
+			taskInvocationStatusInProgress, "")
+	default:
+		return nil, err
+	}
+	defer func() {
+		// Persist the operation details before returning. Only success or error needs to be stored as
+		// InProgress details are stored when the task is created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store CreateVolume details with error: %v", err)
+			}
+		}
+	}()
+	if task == nil {
+		// The task object is nil in two cases:
+		// - No previous CreateVolume task for this volume was retrieved from the persistent store.
+		// - The previous CreateVolume task failed.
+		// In both cases, invoke CNS CreateVolume again.
+		task, err = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
+		if err != nil {
+			log.Errorf("failed to create volume with error: %v", err)
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "",
+				taskInvocationStatusError, err.Error())
+			return nil, err
+		}
+		if !isStaticallyProvisioned(spec) {
+			// Persist task details only for dynamically provisioned volumes.
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+				task.Reference().Value, "", taskInvocationStatusInProgress, "")
+			err = m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				// Don't return if CreateVolume details can't be stored.
+				log.Warnf("failed to store CreateVolume details with error: %v", err)
+			}
+		}
+	}
+
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for CreateVolume task with err: %v", err)
+		return nil, err
+	}
+
+	log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for task %s and volume name %s with error: %v",
+			task.Reference().Value, volNameFromInputSpec, err)
+		return nil, err
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		// Validate if the volume is already registered.
+		resp, err := validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
+		if err != nil {
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+				taskInfo.ActivationId, taskInvocationStatusError, err.Error())
+		} else {
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
+				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+				taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+		}
+		return resp, err
+	}
+	// Extract the CnsVolumeInfo from the taskResult.
+	resp, err := getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec,
+		volumeOperationRes.VolumeId, taskResult)
+	if err != nil {
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+			taskInfo.ActivationId, taskInvocationStatusError, err.Error())
+	} else {
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+			taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+	}
+	return resp, err
+
+}
+
+// createVolume invokes CNS CreateVolume. It stores task information in an in-memory map to handle idempotency
+// of CreateVolume calls for the same volume.
+func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+	var (
+		// Reference to the CreateVolume task on CNS.
+		task *object.Task
+		err  error
+		// Store the volume name passed in by input spec, this
+		// name may exceed 80 characters.
+		volNameFromInputSpec = spec.Name
+	)
+
+	task = getPendingCreateVolumeTaskFromMap(ctx, volNameFromInputSpec)
+	if task == nil {
+		task, err = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
+		if err != nil {
+			return nil, err
+		}
+		if !isStaticallyProvisioned(spec) {
+			var taskDetails createVolumeTaskDetails
+			// Store task details and expiration time in volumeTaskMap.
+			taskDetails.task = task
+			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(
+				defaultOpsExpirationTimeInHours))
+			volumeTaskMap[volNameFromInputSpec] = &taskDetails
+		}
+	}
+
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for CreateVolume task with err: %v", err)
+		return nil, err
+	}
+
+	log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for task %s and volume name %s with error: %v",
+			task.Reference().Value, volNameFromInputSpec, err)
+		return nil, err
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		// Validate if the volume is already registered.
+		resp, err := validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
+		if err != nil {
 			// Remove the taskInfo object associated with the volume name when the
 			// current task fails. This is needed to ensure the sub-sequent create
 			// volume call from the external provisioner invokes Create Volume.
 			taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
 			if ok {
 				taskDetailsInMap.Lock()
-				log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed", volNameFromInputSpec)
+				log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
+					volNameFromInputSpec)
 				delete(volumeTaskMap, volNameFromInputSpec)
 				taskDetailsInMap.Unlock()
 			}
-			msg := fmt.Sprintf("failed to create cns volume %s. createSpec: %q, fault: %q, opId: %q",
-				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault),
-				taskInfo.ActivationId)
-			log.Error(msg)
-			return nil, errors.New(msg)
+			log.Errorf("failed to create cns volume %s. createSpec: %q, fault: %q",
+				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault))
 		}
-		var datastoreURL string
-		volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
-		if volumeCreateResult.PlacementResults != nil {
-			var datastoreMoRef vim25types.ManagedObjectReference
-			for _, placementResult := range volumeCreateResult.PlacementResults {
-				// For the datastore which the volume is provisioned, placementFaults will not be set.
-				if len(placementResult.PlacementFaults) == 0 {
-					datastoreMoRef = placementResult.Datastore
-					break
-				}
-			}
-			var dsMo mo.Datastore
-			pc := property.DefaultCollector(m.virtualCenter.Client.Client)
-			err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
-			if err != nil {
-				msg := fmt.Sprintf("failed to retrieve datastore summary property: %v", err)
-				log.Error(msg)
-				return nil, errors.New(msg)
-			}
-			datastoreURL = dsMo.Summary.Url
-		}
+		return resp, err
+	}
 
-		log.Infof("Volume created successfully. VolumeName: %q, opId: %q, volumeID: %q",
-			volNameFromInputSpec, taskInfo.ActivationId, volumeOperationRes.VolumeId.Id)
-		log.Debugf("CreateVolume volumeId %q is placed on datastore %q",
-			volumeOperationRes.VolumeId.Id, datastoreURL)
-		return &CnsVolumeInfo{
-			DatastoreURL: datastoreURL,
-			VolumeID:     volumeOperationRes.VolumeId,
-		}, nil
+	// Reeturn CnsVolumeInfo from the taskResult.
+	return getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec, volumeOperationRes.VolumeId,
+		taskResult)
+}
+
+// CreateVolume creates a new volume given its spec.
+func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error) {
+	internalCreateVolume := func() (*CnsVolumeInfo, error) {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			log.Errorf("failed to validate manager with error: %v", err)
+			return nil, err
+		}
+		err = setupConnection(ctx, m.virtualCenter, spec)
+		if err != nil {
+			log.Errorf("failed to setup connection to CNS with error: %v", err)
+			return nil, err
+		}
+		// Call CreateVolume implementation based on FSS value.
+		if m.idempotencyHandlingEnabled {
+			return m.createVolumeWithImprovedIdempotency(ctx, spec)
+		}
+		return m.createVolume(ctx, spec)
 	}
 	start := time.Now()
 	resp, err := internalCreateVolume()
@@ -352,7 +439,7 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 
 // AttachVolume attaches a volume to a virtual machine given the spec.
 func (m *defaultManager) AttachVolume(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine, volumeID string) (string, error) {
+	vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error) {
 	internalAttachVolume := func() (string, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -407,8 +494,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 			if isResourceInUseFault {
 				log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q", volumeID, vm.String())
-				// Check if volume is already attached to the requested node.
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				// check if volume is already attached to the requested node
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, checkNVMeController)
 				if err != nil {
 					return "", err
 				}
@@ -475,7 +562,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			if cnsvsphere.IsNotFoundError(err) {
 				// Detach failed with NotFound error, check if the volume is already detached.
 				log.Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 				if err != nil {
 					log.Errorf("DetachVolume err: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						err, volumeID, vm)
@@ -515,7 +602,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
 			if isNotFoundFault {
 				// check if volume is already detached from the VM
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID)
+				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 				if err != nil {
 					log.Errorf("DetachVolume fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
@@ -554,6 +641,7 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
 		if err != nil {
+			log.Errorf("failed to validate manager with error: %v", err)
 			return err
 		}
 		// Set up the VC connection.
@@ -562,52 +650,10 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 			log.Errorf("ConnectCns failed with err: %+v", err)
 			return err
 		}
-		// Construct the CNS VolumeId list.
-		var cnsVolumeIDList []cnstypes.CnsVolumeId
-		cnsVolumeID := cnstypes.CnsVolumeId{
-			Id: volumeID,
+		if m.idempotencyHandlingEnabled {
+			return m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, deleteDisk)
 		}
-		// Call the CNS DeleteVolume.
-		cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
-		task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
-		if err != nil {
-			if cnsvsphere.IsNotFoundError(err) {
-				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
-				return nil
-			}
-			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
-			return err
-		}
-		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
-		if err != nil || taskInfo == nil {
-			log.Errorf("failed to get DeleteVolume taskInfo from vCenter %q with err: %v",
-				m.virtualCenter.Config.Host, err)
-			return err
-		}
-		log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
-		// Get the task results for the given task.
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-		if err != nil {
-			log.Errorf("unable to find DeleteVolume task result from vCenter %q with taskID %s and deleteResults %v",
-				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
-			return err
-		}
-		if taskResult == nil {
-			log.Errorf("taskResult is empty for DeleteVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-			return errors.New("taskResult is empty")
-		}
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
-				volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
-		}
-		log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
-			volumeID, taskInfo.ActivationId)
-		return nil
+		return m.deleteVolume(ctx, volumeID, deleteDisk)
 	}
 	start := time.Now()
 	err := internalDeleteVolume()
@@ -619,6 +665,170 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// deleteVolume attempts to delete the volume on CNS. CNS task information is not persisted.
+func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error {
+	log := logger.GetLogger(ctx)
+	// Construct the CNS VolumeId list.
+	var cnsVolumeIDList []cnstypes.CnsVolumeId
+	cnsVolumeID := cnstypes.CnsVolumeId{
+		Id: volumeID,
+	}
+	// Call the CNS DeleteVolume.
+	cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+	task, err := m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+	if err != nil {
+		if cnsvsphere.IsNotFoundError(err) {
+			log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
+			return nil
+		}
+		log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get DeleteVolume taskInfo from vCenter %q with err: %v",
+			m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get DeleteVolume task result with error: %v", err)
+		return err
+	}
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		return logger.LogNewErrorf(log, "failed to delete volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+	}
+	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
+		volumeID, taskInfo.ActivationId)
+	return nil
+}
+
+// deleteVolumeWithImprovedIdempotency attempts to delete the volume on CNS. CNS task information is persisted
+// by leveraging the VolumeOperationRequest interface.
+func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context, volumeID string, deleteDisk bool) error {
+	log := logger.GetLogger(ctx)
+	var (
+		// Reference to the DeleteVolume task on CNS.
+		task *object.Task
+		// Name of the CnsVolumeOperationRequest instance.
+		instanceName = "delete-" + volumeID
+		// Local instance of DeleteVolume details that needs to
+		// be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+	)
+	if m.operationStore == nil {
+		return logger.LogNewError(log, "operation store cannot be nil")
+	}
+	// Determine if CNS needs to be invoked.
+	volumeOperationDetails, err := m.operationStore.GetRequestDetails(ctx, instanceName)
+	switch {
+	case err == nil:
+		if volumeOperationDetails.OperationDetails != nil {
+			// Validate if previous attempt was
+			// successful.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
+				return nil
+			}
+			// Validate if previous operation is
+			// pending.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
+				volumeOperationDetails.OperationDetails.TaskID != "" {
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				task = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+			}
+		}
+	case apierrors.IsNotFound(err):
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
+			"", "", taskInvocationStatusInProgress, "")
+	default:
+		return err
+	}
+
+	defer func() {
+		// Persist the operation details before returning. Only success or error needs to be stored as
+		// InProgress details are stored when the task is created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store DeleteVolume operation details with error: %v", err)
+			}
+		}
+	}()
+
+	if task == nil {
+		// The task object is nil in two cases:
+		// - No previous CreateVolume task for this volume was retrieved from the persistent store.
+		// - The previous CreateVolume task failed.
+		// In both cases, invoke CNS CreateVolume again.
+		var cnsVolumeIDList []cnstypes.CnsVolumeId
+		cnsVolumeID := cnstypes.CnsVolumeId{
+			Id: volumeID,
+		}
+		// Call the CNS DeleteVolume.
+		cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
+		task, err = m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+		if err != nil {
+			if cnsvsphere.IsNotFoundError(err) {
+				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+					metav1.Now(), "", "", taskInvocationStatusSuccess, "")
+				return nil
+			}
+			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+				metav1.Now(), "", "", taskInvocationStatusError, err.Error())
+			return err
+		}
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
+			task.Reference().Value, "", taskInvocationStatusInProgress, "")
+		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+		if err != nil {
+			log.Warnf("failed to store DeleteVolume details with error: %v", err)
+		}
+	}
+
+	// Get the taskInfo.
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil || taskInfo == nil {
+		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		return err
+	}
+
+	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
+	// Get the task results for the given task.
+	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("unable to find DeleteVolume task result from vCenter %q with taskID %s and deleteResults %v",
+			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
+		return err
+	}
+
+	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if volumeOperationRes.Fault != nil {
+		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
+			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+			task.Reference().Value, taskInfo.ActivationId, taskInvocationStatusError, msg)
+		return logger.LogNewError(log, msg)
+	}
+	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
+		volumeID, taskInfo.ActivationId)
+	volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+		taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+	return nil
 }
 
 // UpdateVolume updates a volume given its spec.

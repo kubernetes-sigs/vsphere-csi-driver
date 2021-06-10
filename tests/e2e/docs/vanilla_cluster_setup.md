@@ -22,6 +22,7 @@ The section outlines how to set the env variable for running e2e test.
 
     [Global]
     insecure-flag = "true"
+    cluster-id = "<cluster-id>"
     hostname = "<VC_IP>"
     user = "<USER>"
     password = "<PASSWORD>"
@@ -34,6 +35,8 @@ The section outlines how to set the env variable for running e2e test.
 * `targetvSANFileShareDatastoreURLs` is an optional parameter. It contains a comma separated
 list of datastore URLs where you want to deploy file share volumes. Retrieve this value from the
  secret named `vsphere-config-secret` in your testbed.
+* `cluster-id` field is optional for block vanilla tests but required for file vanilla static provisioning tests.
+`cluster-id` is name of the cluster as seen in VC.
 
 ### Copy contents of ~/.kube/config from master node to your e2e test environment
 

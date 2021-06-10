@@ -71,11 +71,11 @@ type VirtualCenter struct {
 }
 
 var (
-	// VirtualCenter instance
+	// VCenter instance. It is a singleton.
 	vCenterInstance *VirtualCenter
-	// Ensure vcenter is a singleton
+	// Has the vCenter instance been initialized?
 	vCenterInitialized bool
-	// vCenterInstanceLock is used for handling race conditions while initializing a vCenter instance
+	// vCenterInstanceLock makes sure only one vCenter instance be initialized.
 	vCenterInstanceLock = &sync.RWMutex{}
 )
 
@@ -99,22 +99,25 @@ type VirtualCenterConfig struct {
 	// Specifies whether to verify the server's certificate chain. Set to true to
 	// skip verification.
 	Insecure bool
-	// Specifies the path to a CA certificate in PEM format. This has no effect if
-	// Insecure is enabled. Optional; if not configured, the system's CA
+	// Specifies the path to a CA certificate in PEM format. This has no effect
+	// if Insecure is enabled. Optional; if not configured, the system's CA
 	// certificates will be used.
 	CAFile string
-	// Thumbprint specifies the certificate thumbprint to use
-	// This has no effect if InsecureFlag is enabled.
+	// Thumbprint specifies the certificate thumbprint to use. This has no effect
+	// if InsecureFlag is enabled.
 	Thumbprint string
-	// RoundTripperCount is the SOAP round tripper count. (retries = RoundTripperCount - 1)
+	// RoundTripperCount is the SOAP round tripper count.
+	// retries = RoundTripperCount - 1
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
 	DatacenterPaths []string
-	// TargetDatastoreUrlsForFile represents URLs of file service enabled vSAN datastores in the virtual center.
+	// TargetvSANFileShareDatastoreURLs represents URLs of file service enabled
+	// vSAN datastores in the virtual center.
 	TargetvSANFileShareDatastoreURLs []string
-	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
+	// TargetvSANFileShareClusters represents file service enabled vSAN clusters
+	// on which file volumes can be created.
 	TargetvSANFileShareClusters []string
-	// VCClientTimeout is the time limit in minutes for requests made by vCenter client
+	// VCClientTimeout is the limit in minutes for requests made by vCenter client.
 	VCClientTimeout int
 }
 
@@ -153,7 +156,7 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	}
 	err = vimClient.UseServiceVersion("vsan")
 	if err != nil && vc.Config.Host != "127.0.0.1" {
-		// skipping error for simulator connection for unit tests
+		// Skipping error for simulator connection for unit tests.
 		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
 		return nil, err
 	}
@@ -177,19 +180,21 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
 	}
-	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
+	client.RoundTripper = vim25.Retry(client.RoundTripper,
+		vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
 	return client, nil
 }
 
-// login calls SessionManager.LoginByToken if certificate and private key are configured,
-// otherwise calls SessionManager.Login with user and password.
+// login calls SessionManager.LoginByToken if certificate and private key are
+// configured. Otherwise, calls SessionManager.Login with user and password.
 func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) error {
 	log := logger.GetLogger(ctx)
 	var err error
 
 	b, _ := pem.Decode([]byte(vc.Config.Username))
 	if b == nil {
-		return client.SessionManager.Login(ctx, neturl.UserPassword(vc.Config.Username, vc.Config.Password))
+		return client.SessionManager.Login(ctx,
+			neturl.UserPassword(vc.Config.Username, vc.Config.Password))
 	}
 
 	cert, err := tls.X509KeyPair([]byte(vc.Config.Username), []byte(vc.Config.Password))
@@ -218,16 +223,16 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 	return client.SessionManager.LoginByToken(client.Client.WithHeader(ctx, header))
 }
 
-// Connect establishes a new connection with vSphere with updated credentials
+// Connect establishes a new connection with vSphere with updated credentials.
 // If credentials are invalid then it fails the connection.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-	// Set up the vc connection
+	// Set up the vc connection.
 	err := vc.connect(ctx, false)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
-		// Logging out of the current session to make sure we
-		// retry creating a new client in the next attempt
+		// Logging out of the current session to make sure the retry create
+		// a new client in the next attempt.
 		defer func() {
 			if vc.Client != nil {
 				logoutErr := vc.Client.Logout(ctx)
@@ -257,8 +262,9 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	if !requestNewSession {
 		// If session hasn't expired, nothing to do.
 		sessionMgr := session.NewManager(vc.Client.Client)
-		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's CurrentSession field
-		// Nil is returned if the session is not authenticated or timed out.
+		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
+		// CurrentSession field. Nil is returned if the session is not
+		// authenticated or timed out.
 		if userSession, err := sessionMgr.UserSession(ctx); err != nil {
 			log.Errorf("failed to obtain user session with err: %v", err)
 			return err
@@ -267,33 +273,35 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		}
 	}
 	// If session has expired, create a new instance.
-	log.Warnf("Creating a new client session as the existing session isn't valid or not authenticated")
+	log.Warnf("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Client, err = vc.newClient(ctx); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		return err
 	}
-	// Recreate PbmClient If created using timed out VC Client
+	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
 	}
-	// Recreate CNSClient If created using timed out VC Client
+	// Recreate CNSClient if created using timed out VC Client.
 	if vc.CnsClient != nil {
 		if vc.CnsClient, err = NewCnsClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("failed to create CNS client on vCenter host %v with err: %v", vc.Config.Host, err)
+			log.Errorf("failed to create CNS client on vCenter host %v with err: %v",
+				vc.Config.Host, err)
 			return err
 		}
 	}
-	// Recreate VslmClient If created using timed out VC Client
+	// Recreate VslmClient if created using timed out VC Client.
 	if vc.VslmClient != nil {
 		if vc.VslmClient, err = NewVslmClient(ctx, vc.Client.Client); err != nil {
-			log.Errorf("failed to create Vslm client on vCenter host %v with err: %v", vc.Config.Host, err)
+			log.Errorf("failed to create Vslm client on vCenter host %v with err: %v",
+				vc.Config.Host, err)
 			return err
 		}
 	}
-	// Recreate VSAN client if created using timed out VC Client
+	// Recreate VSAN client if created using timed out VC Client.
 	if vc.VsanClient != nil {
 		if vc.VsanClient, err = vsan.NewClient(ctx, vc.Client.Client); err != nil {
 			log.Errorf("failed to create vsan client with err: %v", err)
@@ -304,7 +312,8 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 }
 
 // ListDatacenters returns all Datacenters.
-func (vc *VirtualCenter) ListDatacenters(ctx context.Context) ([]*Datacenter, error) {
+func (vc *VirtualCenter) ListDatacenters(ctx context.Context) (
+	[]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(vc.Client.Client, false)
 	dcList, err := finder.DatacenterList(ctx, "*")
@@ -322,7 +331,8 @@ func (vc *VirtualCenter) ListDatacenters(ctx context.Context) ([]*Datacenter, er
 }
 
 // getDatacenters returns Datacenter instances given their paths.
-func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) ([]*Datacenter, error) {
+func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
+	[]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(vc.Client.Client, false)
 	var dcs []*Datacenter
@@ -371,7 +381,8 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 }
 
 // GetHostsByCluster return hosts inside the cluster using cluster moref.
-func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValue string) ([]*HostSystem, error) {
+func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context,
+	clusterMorefValue string) ([]*HostSystem, error) {
 	log := logger.GetLogger(ctx)
 	if err := vc.Connect(ctx); err != nil {
 		log.Errorf("failed to connect to vCenter. err: %v", err)
@@ -384,7 +395,8 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 	clusterComputeResourceMo := mo.ClusterComputeResource{}
 	err := vc.Client.RetrieveOne(ctx, clusterMoref, []string{"host"}, &clusterComputeResourceMo)
 	if err != nil {
-		log.Errorf("failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
+		log.Errorf("failed to fetch hosts from cluster given clusterMorefValue %s with err: %v",
+			clusterMorefValue, err)
 		return nil, err
 	}
 	var hostObjList []*HostSystem
@@ -397,9 +409,10 @@ func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context, clusterMorefValu
 	return hostObjList, nil
 }
 
-// GetVsanDatastores returns all the datastore URL to DatastoreInfo map for all the
-// vSAN datastores in the VC.
-func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context, datacenters []*Datacenter) (map[string]*DatastoreInfo, error) {
+// GetVsanDatastores returns all the datastore URL to DatastoreInfo map for all
+// the vSAN datastores in the VC.
+func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context,
+	datacenters []*Datacenter) (map[string]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	if err := vc.Connect(ctx); err != nil {
 		log.Errorf("failed to connect to vCenter. err: %v", err)
@@ -444,8 +457,9 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context, datacenters []*D
 	return vsanDsURLInfoMap, nil
 }
 
-// GetDatastoresByCluster return datastores inside the cluster using cluster moref.
-func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMorefValue string) ([]*DatastoreInfo, error) {
+// GetDatastoresByCluster return datastores inside the cluster using its moref.
+func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context,
+	clusterMorefValue string) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	if err := vc.Connect(ctx); err != nil {
 		log.Errorf("failed to connect to vCenter. err: %v", err)
@@ -458,7 +472,8 @@ func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMore
 	clusterComputeResourceMo := mo.ClusterComputeResource{}
 	err := vc.Client.RetrieveOne(ctx, clusterMoref, []string{"host"}, &clusterComputeResourceMo)
 	if err != nil {
-		log.Errorf("Failed to fetch hosts from cluster given clusterMorefValue %s with err: %v", clusterMorefValue, err)
+		log.Errorf("Failed to fetch hosts from cluster given clusterMorefValue %s with err: %v",
+			clusterMorefValue, err)
 		return nil, err
 	}
 
@@ -478,11 +493,13 @@ func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context, clusterMore
 }
 
 // GetVirtualCenterInstance returns the vcenter object singleton.
-// It is thread safe.
-// Takes in a boolean paramater reloadConfig.
-// If reinitialize is true, the vcenter object is instantiated again and the old object becomes eligible for garbage collection.
-// If reinitialize is false and instance was already initialized, the previous instance is returned.
-func GetVirtualCenterInstance(ctx context.Context, config *config.ConfigurationInfo, reinitialize bool) (*VirtualCenter, error) {
+// It is thread safe. Takes in a boolean paramater reloadConfig.
+// If reinitialize is true, the vcenter object is instantiated again and the
+// old object becomes eligible for garbage collection.
+// If reinitialize is false and instance was already initialized, the previous
+// instance is returned.
+func GetVirtualCenterInstance(ctx context.Context,
+	config *config.ConfigurationInfo, reinitialize bool) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	vCenterInstanceLock.Lock()
 	defer vCenterInstanceLock.Unlock()
@@ -497,26 +514,27 @@ func GetVirtualCenterInstance(ctx context.Context, config *config.ConfigurationI
 			return nil, err
 		}
 
-		// Initialize the virtual center manager
+		// Initialize the virtual center manager.
 		virtualcentermanager := GetVirtualCenterManager(ctx)
 
-		//Unregister all VCs from virtual center manager
+		// Unregister all VCs from virtual center manager.
 		if err = virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
 			log.Errorf("failed to unregister vcenter with virtualCenterManager.")
 			return nil, err
 		}
 
-		// Register with virtual center manager
+		// Register with virtual center manager.
 		vCenterInstance, err = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
 		if err != nil {
 			log.Errorf("failed to register VirtualCenter . Err: %+v", err)
 			return nil, err
 		}
 
-		// Connect to VC
+		// Connect to VC.
 		err = vCenterInstance.Connect(ctx)
 		if err != nil {
-			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v",
+				vcconfig.Host, err)
 			return nil, err
 		}
 

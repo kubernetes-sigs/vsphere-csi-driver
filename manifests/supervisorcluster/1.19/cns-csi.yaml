@@ -69,6 +69,9 @@ rules:
   - apiGroups: ["netoperator.vmware.com"]
     resources: ["networkinterfaces"]
     verbs: ["get"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsvolumeoperationrequests"]
+    verbs: ["create", "get", "list", "update", "delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -165,6 +168,7 @@ spec:
             - "--enable-hostlocal-placement=true"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--default-fstype=ext4"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -179,7 +183,7 @@ spec:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v3.1.0_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v3.2.1_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -197,7 +201,7 @@ spec:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.1.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.2.0_vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
@@ -257,7 +261,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.2.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.3.0_vmware.1
           args:
             - "--csi-address=$(ADDRESS)"
           env:
@@ -337,7 +341,7 @@ data:
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
   "async-query-volume": "false"
-  "csi-volume-manager-idempotency": "false"
+  "improved-csi-idempotency": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

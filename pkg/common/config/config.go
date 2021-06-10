@@ -39,35 +39,38 @@ const (
 	DefaultVCenterPort string = "443"
 	// DefaultGCPort is the default port used to access Supervisor Cluster.
 	DefaultGCPort string = "6443"
-	// DefaultCloudConfigPath is the default path of csi config file
+	// DefaultCloudConfigPath is the default path of csi config file.
 	DefaultCloudConfigPath = "/etc/cloud/csi-vsphere.conf"
-	// DefaultGCConfigPath is the default path of GC config file
+	// DefaultGCConfigPath is the default path of GC config file.
 	DefaultGCConfigPath = "/etc/cloud/pvcsi-config/cns-csi.conf"
-	// SupervisorCAFilePath is the file path of certificate in Supervisor Clusters
-	// This is needed to establish VC connection
+	// SupervisorCAFilePath is the file path of certificate in Supervisor
+	// Clusters. This is needed to establish VC connection.
 	SupervisorCAFilePath = "/etc/vmware/wcp/tls/vmca.pem"
-	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config
+	// EnvVSphereCSIConfig contains the path to the CSI vSphere Config.
 	EnvVSphereCSIConfig = "VSPHERE_CSI_CONFIG"
-	// EnvGCConfig contains the path to the CSI GC Config
+	// EnvGCConfig contains the path to the CSI GC Config.
 	EnvGCConfig = "GC_CONFIG"
-	// DefaultpvCSIProviderPath is the default path of pvCSI provider config
+	// DefaultpvCSIProviderPath is the default path of pvCSI provider config.
 	DefaultpvCSIProviderPath = "/etc/cloud/pvcsi-provider"
-	// DefaultSupervisorFSSConfigMapName is the default name of Feature states config map in Supervisor cluster
-	// This configmap is also replicated by the supervisor unto any TKGS deployed on it
+	// DefaultSupervisorFSSConfigMapName is the default name of Feature states
+	// config map in Supervisor cluster. This configmap is also replicated by
+	// the supervisor unto any TKGS deployed on it.
 	DefaultSupervisorFSSConfigMapName = "csi-feature-states"
-	// DefaultInternalFSSConfigMapName is the default name of feature states config map used in pvCSI and Vanilla drivers
+	// DefaultInternalFSSConfigMapName is the default name of feature states
+	// config map used in pvCSI and Vanilla drivers.
 	DefaultInternalFSSConfigMapName = "internal-feature-states.csi.vsphere.vmware.com"
-	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers
+	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers.
 	DefaultCSINamespace = "vmware-system-csi"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
 	DefaultCnsRegisterVolumesCleanupIntervalInMin = 720
-	// DefaultVolumeMigrationCRCleanupIntervalInMin is the default time
-	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
-	// Current default value is set to 2 hours
+	// DefaultVolumeMigrationCRCleanupIntervalInMin is the default time interval
+	// after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
+	// Current default value is set to 2 hours.
 	DefaultVolumeMigrationCRCleanupIntervalInMin = 120
-	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh DatastoreMap
+	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh
+	// DatastoreMap.
 	DefaultCSIAuthCheckIntervalInMin = 5
 )
 
@@ -95,11 +98,12 @@ var (
 	// define any endpoints.
 	ErrMissingEndpoint = errors.New("no Supervisor Cluster endpoint defined in Guest Cluster config")
 
-	// ErrMissingTanzuKubernetesClusterUID is returned when the provided configuration does not
-	// define any TanzuKubernetesClusterUID.
+	// ErrMissingTanzuKubernetesClusterUID is returned when the provided
+	// configuration does not define any TanzuKubernetesClusterUID.
 	ErrMissingTanzuKubernetesClusterUID = errors.New("no Tanzu Kubernetes Cluster UID defined in Guest Cluster config")
 
-	// ErrInvalidNetPermission is returned when the value of Permission in NetPermissions is not among the  ones listed
+	// ErrInvalidNetPermission is returned when the value of Permission in
+	// NetPermissions is not among the ones listed.
 	ErrInvalidNetPermission = errors.New("invalid value for Permissions under NetPermission Config")
 )
 
@@ -139,12 +143,12 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("config object cannot be nil")
 	}
 	log := logger.GetLogger(ctx)
-	//Init
+	// Init.
 	if cfg.VirtualCenter == nil {
 		cfg.VirtualCenter = make(map[string]*VirtualCenterConfig)
 	}
 
-	//Globals
+	// Globals.
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
 		cfg.Global.VCenterIP = v
 	}
@@ -174,7 +178,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("VSPHERE_LABEL_ZONE"); v != "" {
 		cfg.Labels.Zone = v
 	}
-	//Build VirtualCenter from ENVs
+	// Build VirtualCenter from ENVs.
 	for _, e := range os.Environ() {
 		pair := strings.Split(e, "=")
 
@@ -246,11 +250,11 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 
 func validateConfig(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
-	//Fix default global values
+	// Fix default global values.
 	if cfg.Global.VCenterPort == "" {
 		cfg.Global.VCenterPort = DefaultVCenterPort
 	}
-	// Must have at least one vCenter defined
+	// Must have at least one vCenter defined.
 	if len(cfg.VirtualCenter) == 0 {
 		log.Error(ErrMissingVCenter)
 		return ErrMissingVCenter
@@ -299,7 +303,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		return err
 	}
 	if cfg.NetPermissions == nil {
-		// If no net permissions are given, assume default
+		// If no net permissions are given, assume default.
 		log.Info("No Net Permissions given in Config. Using default permissions.")
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 			cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
@@ -333,7 +337,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 }
 
 // ReadConfig parses vSphere cloud config file and stores it into VSphereConfig.
-// Environment variables are also checked
+// Environment variables are also checked.
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	if config == nil {
@@ -344,22 +348,22 @@ func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 		log.Errorf("error while reading config file: %+v", err)
 		return nil, err
 	}
-	// Env Vars should override config file entries if present
+	// Env Vars should override config file entries if present.
 	if err := FromEnv(ctx, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
-// GetCnsconfig returns Config from specified config file path
+// GetCnsconfig returns Config from specified config file path.
 func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("GetCnsconfig called with cfgPath: %s", cfgPath)
 	var cfg *Config
-	//Read in the vsphere.conf if it exists
+	// Read in the vsphere.conf if it exists.
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		log.Infof("Could not stat %s, reading config params from env", cfgPath)
-		// config from Env var only
+		// Config from Env var only.
 		cfg = &Config{}
 		if fromEnvErr := FromEnv(ctx, cfg); fromEnvErr != nil {
 			log.Errorf("Failed to get config params from env. Err: %v", fromEnvErr)
@@ -415,7 +419,7 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 }
 
 // ReadGCConfig parses gc config file and stores it into GCConfig.
-// Environment variables are also checked
+// Environment variables are also checked.
 func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
 		return nil, fmt.Errorf("guest cluster config file is not present")
@@ -424,20 +428,20 @@ func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
 		return nil, err
 	}
-	// Env Vars should override config file entries if present
+	// Env Vars should override config file entries if present.
 	if err := FromEnvToGC(ctx, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
-// GetGCconfig returns Config from specified config file path
+// GetGCconfig returns Config from specified config file path.
 func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Get Guest Cluster config called with cfgPath: %s", cfgPath)
 	var cfg *Config
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		// config from Env var only
+		// Config from Env var only.
 		cfg = &Config{}
 		if err := FromEnvToGC(ctx, cfg); err != nil {
 			log.Errorf("Error reading guest cluster configuration file. Err: %v", err)
@@ -455,14 +459,15 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 			return cfg, err
 		}
 	}
-	// Set default GCPort if Port is still empty
+	// Set default GCPort if Port is still empty.
 	if cfg.GC.Port == "" {
 		cfg.GC.Port = DefaultGCPort
 	}
 	return cfg, nil
 }
 
-// validateGCConfig validates the Guest Cluster config contains all the necessary fields
+// validateGCConfig validates that Guest Cluster config contains all the
+// necessary fields.
 func validateGCConfig(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
 	if cfg.GC.Endpoint == "" {
@@ -477,7 +482,7 @@ func validateGCConfig(ctx context.Context, cfg *Config) error {
 }
 
 // GetSupervisorNamespace returns the supervisor namespace in which this guest
-// cluster is deployed
+// cluster is deployed.
 func GetSupervisorNamespace(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	const (
@@ -491,15 +496,18 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 	return string(namespace), nil
 }
 
-// GetClusterFlavor returns the cluster flavor based on the env variable set in the driver deployment file
+// GetClusterFlavor returns the cluster flavor based on the env variable set in
+// the driver deployment file.
 func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	log := logger.GetLogger(ctx)
 	// CLUSTER_FLAVOR is defined only in Supervisor and Guest cluster deployments.
-	// If it is empty, it is implied that cluster flavor is Vanilla K8S
+	// If it is empty, it is implied that cluster flavor is Vanilla K8S.
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv("CLUSTER_FLAVOR"))
 	if strings.TrimSpace(string(clusterFlavor)) == "" {
 		return cnstypes.CnsClusterFlavorVanilla, nil
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest || clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest ||
+		clusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
+		clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		return clusterFlavor, nil
 	}
 	errMsg := "unrecognized value set for CLUSTER_FLAVOR"

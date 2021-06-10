@@ -39,22 +39,24 @@ import (
 )
 
 var (
-	// Mutex used to serialize PVC placement requests
+	// Mutex used to serialize PVC placement requests.
 	pvcPlacementMutex sync.Mutex
 )
 
 const (
-	// StoragePoolAnnotationKey is a PVC annotation to specify the StoragePool on which PV should be placed.
+	// StoragePoolAnnotationKey is a PVC annotation to specify the StoragePool
+	// on which PV should be placed.
 	StoragePoolAnnotationKey = "failure-domain.beta.vmware.com/storagepool"
-	// ScNameAnnotationKey is a PVC annotation to specify storage class from which PV should be provisioned
+	// ScNameAnnotationKey is a PVC annotation to specify storage class from
+	// which PV should be provisioned.
 	ScNameAnnotationKey = "volume.beta.kubernetes.io/storage-class"
-	// AntiAffinityPreferred placement policy for storagepool
+	// AntiAffinityPreferred placement policy for storagepool.
 	spPolicyAntiPreferred = "placement.beta.vmware.com/storagepool_antiAffinityPreferred"
-	// AntiAffinityRequired placement policy for storagepool
+	// AntiAffinityRequired placement policy for storagepool.
 	spPolicyAntiRequired = "placement.beta.vmware.com/storagepool_antiAffinityRequired"
-	//resource name to get storage class
+	// Resource name to get storage class.
 	resourceName = "storagepools"
-	// storagePool type name for vsan-direct
+	// StoragePool type name for vsan-direct.
 	vsanDirect       = "vsanD"
 	invalidParamsErr = "FAILED_PLACEMENT-InvalidParams"
 	genericErr       = "FAILED_PLACEMENT-Generic"
@@ -63,27 +65,27 @@ const (
 	vsanSna          = "vsan-sna"
 )
 
-// StoragePoolInfo is abstraction of a storage pool list
-// XXX Change all usage of this into a map
+// StoragePoolInfo is abstraction of a storage pool list.
+// XXX Change all usage of this into a map.
 type StoragePoolInfo struct {
 	Name                  string
 	AllocatableCapInBytes int64
 }
 
-// byCombination uses several different property to rank storage pools
+// byCombination uses several different property to rank storage pools.
 type byCOMBINATION []StoragePoolInfo
 
-// Length func for ranked storage pool list
+// Length func for ranked storage pool list.
 func (p byCOMBINATION) Len() int {
 	return len(p)
 }
 
-// swap func for ranked storage pool list
+// Swap func for ranked storage pool list.
 func (p byCOMBINATION) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
 
-// compare func for ranked storage pool list
+// Compare func for ranked storage pool list.
 func (p byCOMBINATION) Less(i, j int) bool {
 	if p[i].AllocatableCapInBytes > p[j].AllocatableCapInBytes {
 		return true
@@ -94,7 +96,7 @@ func (p byCOMBINATION) Less(i, j int) bool {
 	return false
 }
 
-// VolumeInfo bundles up PVC info along with its bounded PV info (if any)
+// VolumeInfo bundles up PVC info along with its bounded PV info (if any).
 type VolumeInfo struct {
 	PVC         v1.PersistentVolumeClaim
 	PVName      string
@@ -105,10 +107,12 @@ type migrationPlanner interface {
 	getMigrationPlan(ctx context.Context, client kubernetes.Interface) (map[string]string, error)
 }
 
-// relaxed fit decreasing also called as WFD offers appreciable approximation guarantees (measures closeness to optimal soln)
-// and also outputs svMotion plan which results in an even free space distribution across datastores.
-// In relaxed fit algorithm a volume is placed into a datastore having maximum free space available, contrary to tight fit algorithms
-// where an item is placed in bin with minimum appropriate free space.
+// Relaxed fit decreasing also called as WFD offers appreciable approximation
+// guarantees (measures closeness to optimal soln) and also outputs svMotion
+// plan which results in an even free space distribution across datastores.
+// In relaxed fit algorithm a volume is placed into a datastore having maximum
+// free space available, contrary to tight fit algorithms, where an item is
+// placed in bin with minimum appropriate free space.
 type relaxedFitMigrationPlanner struct {
 	volumeList      []VolumeInfo
 	storagePoolList []unstructured.Unstructured
@@ -116,7 +120,8 @@ type relaxedFitMigrationPlanner struct {
 	sourceHostNames []string
 }
 
-func newRelaxedFitMigrationPlanner(volumeList []VolumeInfo, spList []unstructured.Unstructured, allPVCList []v1.PersistentVolumeClaim, accessibleNodeNames []string) migrationPlanner {
+func newRelaxedFitMigrationPlanner(volumeList []VolumeInfo, spList []unstructured.Unstructured,
+	allPVCList []v1.PersistentVolumeClaim, accessibleNodeNames []string) migrationPlanner {
 	return relaxedFitMigrationPlanner{
 		volumeList:      volumeList,
 		storagePoolList: spList,
@@ -125,12 +130,15 @@ func newRelaxedFitMigrationPlanner(volumeList []VolumeInfo, spList []unstructure
 	}
 }
 
-// Uses Relaxed Fit Decreasing (also called WFD) bin packaging algorithm to assign for each pvc a target storage-pool for storage vMotion
-// It tries to place a volume into a disk with maximum free space. Hence it tries to decrease the free space variance after migration.
-func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client kubernetes.Interface) (map[string]string, error) {
+// Uses Relaxed Fit Decreasing (also called WFD) bin packaging algorithm to
+// assign for each pvc a target storage-pool for storage vMotion.
+// It tries to place a volume into a disk with maximum free space. Hence it
+// tries to decrease the free space variance after migration.
+func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
+	client kubernetes.Interface) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	volumeToSPMap := make(map[string]string)
-	// sort volumes in decreasing order of size
+	// Sort volumes in decreasing order of size.
 	sort.Slice(b.volumeList, func(i, j int) bool {
 		return b.volumeList[i].SizeInBytes > b.volumeList[j].SizeInBytes
 	})
@@ -142,20 +150,25 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client
 			b.sourceHostNames, b.pvcList, vsanDirectType, false)
 		if err != nil {
 			log.Errorf("Failed to assign SP to PVC %v. Error: %v", pvcName, err)
-			return nil, fmt.Errorf("PVC %v could not be migrated due to volume placement constraints or lack of free capacity in accessible datastores", pvcName)
+			return nil, fmt.Errorf("PVC %v could not be migrated due to placement constraints "+
+				"or lack of capacity in accessible datastores", pvcName)
 		}
 
-		// map the volume with SP with highest free space. Update free space in assigned SP for more accurate placement.
+		// Map the volume with SP with highest free space. Update free space in
+		// assigned SP for more accurate placement.
 		assignedSPName := assignedSp.Name
 		volumeToSPMap[vol.PVName] = assignedSPName
 		for idx, sp := range b.storagePoolList {
 			if sp.GetName() == assignedSPName {
-				curAllocatableCap, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "allocatableSpace")
+				curAllocatableCap, found, err := unstructured.NestedInt64(sp.Object,
+					"status", "capacity", "allocatableSpace")
 				if !found || err != nil {
-					log.Warnf("Could not get current allocatable capacity for SP %v. Found: %v. Error: %v.", sp.GetName(), found, err)
+					log.Warnf("Could not get current allocatable capacity for SP %v. Found: %v. Error: %v.",
+						sp.GetName(), found, err)
 					break
 				}
-				err = unstructured.SetNestedField(b.storagePoolList[idx].Object, curAllocatableCap-vol.SizeInBytes, "status", "capacity", "allocatableSpace")
+				err = unstructured.SetNestedField(b.storagePoolList[idx].Object,
+					curAllocatableCap-vol.SizeInBytes, "status", "capacity", "allocatableSpace")
 				if err != nil {
 					log.Warnf("Could not update allocatable space for SP %v. Error: %v", sp.GetName(), err)
 				}
@@ -163,7 +176,8 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client
 			}
 		}
 
-		// update storagePool info in namespaceToPVCsMap so that in next loop anti-affinity filter is aware of this migration
+		// Update storagePool info in namespaceToPVCsMap so that in next loop
+		// anti-affinity filter is aware of this migration.
 		for index, pvc := range b.pvcList {
 			if pvc.Name == pvcName {
 				curAnnotations := pvc.GetAnnotations()
@@ -177,7 +191,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context, client
 	return volumeToSPMap, nil
 }
 
-// isSPInList checks if a name already lies in the given list
+// isSPInList checks if a name already lies in the given list.
 func isSPInList(name string, spList []StoragePoolInfo) bool {
 	for _, sp := range spList {
 		if name == sp.Name {
@@ -187,8 +201,10 @@ func isSPInList(name string, spList []StoragePoolInfo) bool {
 	return false
 }
 
-// GetVolumesOnStoragePool returns volume information of all PVCs present on the given StoragePool
-func GetVolumesOnStoragePool(ctx context.Context, client kubernetes.Interface, StoragePoolName string) ([]VolumeInfo, []v1.PersistentVolumeClaim, error) {
+// GetVolumesOnStoragePool returns volume information of all PVCs present
+// on the given StoragePool.
+func GetVolumesOnStoragePool(ctx context.Context, client kubernetes.Interface,
+	StoragePoolName string) ([]VolumeInfo, []v1.PersistentVolumeClaim, error) {
 	log := logger.GetLogger(ctx)
 	volumeInfoList := []VolumeInfo{}
 
@@ -213,14 +229,15 @@ func GetVolumesOnStoragePool(ctx context.Context, client kubernetes.Interface, S
 			return volumeInfoList, pvcs.Items, err
 		}
 
-		// verify that this pv is indeed bounded to PVC.
+		// Verify that this pv is indeed bounded to PVC.
 		claimRef := pv.Spec.ClaimRef
 		if claimRef == nil || claimRef.Name != pvc.Name {
 			log.Infof("PV %v is not bounded to PVC %v.", pvName, pvc.Name)
 			continue
 		}
 
-		// pv size can be more than requested size mentioned in PVC (in general they will be the same).
+		// pv size can be more than requested size mentioned in PVC (in general
+		// they will be the same).
 		volumeSize := pv.Spec.Capacity.Storage()
 		volumeInfoList = append(volumeInfoList, VolumeInfo{
 			PVC:         pvc,
@@ -231,13 +248,18 @@ func GetVolumesOnStoragePool(ctx context.Context, client kubernetes.Interface, S
 	return volumeInfoList, pvcs.Items, nil
 }
 
-// GetSVMotionPlan when decommissioning a SP, maps all the volumes present on the given SP to a suitable SP to migrate into.
-// To reduce the friction to onboard new partners, the workflow for disk deconmmission does not involve partner participation.
-// for eg. decommissioning a disk with "ensureAccessibility" MM, information of which volume can remain on the disk while ensuring
-// accessibility is present only with the partner operator. Hence the svMotion plan generated is same for all maintenance mode
-// provided and equivalent to "evacuateAll" MM. Once we move towards more deep integration between our partner and PSP, we will
-// be able to communicate with partner to get only the necessary migrations for a given MM (for eg. "ensureAccessibility").
-func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePoolName string, maintenanceMode string) (map[string]string, error) {
+// GetSVMotionPlan when decommissioning a SP, maps all the volumes present on
+// the given SP to a suitable SP to migrate into. To reduce the friction to
+// onboard new partners, the workflow for disk deconmmission does not involve
+// partner participation. Eg. decommissioning a disk with "ensureAccessibility"
+// MM, information of which volume can remain on the disk while ensuring
+// accessibility is present only with the partner operator. Hence the svMotion
+// plan generated is same for all maintenance mode provided and equivalent to
+// "evacuateAll" MM. Once we move towards more deep integration between our
+// partner and PSP, we will be able to communicate with partner to get only
+// the necessary migrations for a given MM (for eg. "ensureAccessibility").
+func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
+	storagePoolName string, maintenanceMode string) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	volumesToSPMap := make(map[string]string)
 
@@ -271,11 +293,13 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePo
 		return nil, fmt.Errorf("could not get accessible host information from StoragePool %v", storagePoolName)
 	}
 	if len(accessibleNodes) != 1 {
-		log.Warnf("Unexpected number of accessible nodes found for storage pool %v. Expected 1 found %v", storagePoolName, len(accessibleNodes))
+		log.Warnf("Unexpected number of accessible nodes found for storage pool %v. Expected 1 found %v",
+			storagePoolName, len(accessibleNodes))
 		if len(accessibleNodes) == 0 {
-			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. Maybe its unmounted or host is under maintenance mode")
+			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. " +
+				"Maybe its unmounted or host is under maintenance mode")
 		}
-		// if datastore is accessible from multiple host, ignore the error.
+		// If datastore is accessible from multiple host, ignore the error.
 	}
 
 	volumeInfoList, allPVCList, err := GetVolumesOnStoragePool(ctx, client, storagePoolName)
@@ -287,7 +311,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface, storagePo
 		return volumesToSPMap, nil
 	}
 
-	// for each volume assign a target sp for storage vMotion
+	// For each volume assign a target sp for storage vMotion.
 	rfMigrationPlanner := newRelaxedFitMigrationPlanner(volumeInfoList, spList.Items, allPVCList, accessibleNodes)
 	volumesToSPMap, err = rfMigrationPlanner.getMigrationPlan(ctx, client)
 
@@ -344,9 +368,11 @@ func getSPForPVCPlacement(ctx context.Context,
 				continue
 			}
 
-			// update SP usage based on any unbound PVCs placed on this SP. These are still in pipeline and hence
-			// the usage of SP will not be updated yet. There is always a race where the usage is already updated but
-			// the PVC is not yet in bound state but we will rather be conservative and try the placement again later
+			// Update SP usage based on any unbound PVCs placed on this SP. These
+			// are still in pipeline and hence the usage of SP will not be updated
+			// yet. There is always a race where the usage is already updated but
+			// the PVC is not yet in bound state but we will rather be conservative
+			// and try the placement again later.
 			capacity := pvcItem.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 			spRemoved := false
 			_, spRemoved, spList = updateSPCapacityUsage(spList, spName, capacity.Value(), volSizeBytes)
@@ -356,7 +382,8 @@ func getSPForPVCPlacement(ctx context.Context,
 			}
 		}
 	}
-	log.Infof("%d StoragePool(s) removed because of lack of capacity after considering usage based on any unbound PVCs: %v", len(xCapPendingSet), xCapPendingSet)
+	log.Infof("%d StoragePool(s) removed due to lack of capacity after considering any unbound PVC usage: %v",
+		len(xCapPendingSet), xCapPendingSet)
 
 	sort.Sort(byCOMBINATION(spList))
 
@@ -374,7 +401,8 @@ func getSPForPVCPlacement(ctx context.Context,
 	return assignedSP, nil
 }
 
-func stampPVCWithError(ctx context.Context, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim, errAnnotation string) {
+func stampPVCWithError(ctx context.Context, client kubernetes.Interface,
+	curPVC *v1.PersistentVolumeClaim, errAnnotation string) {
 	log := logger.GetLogger(ctx)
 	err := setPVCAnnotation(ctx, errAnnotation, client, curPVC)
 	if err != nil {
@@ -382,19 +410,22 @@ func stampPVCWithError(ctx context.Context, client kubernetes.Interface, curPVC 
 	}
 }
 
-// PlacePVConStoragePool selects target storage pool to place the given PVC based on its profile and the topology information.
-// If the placement is successful, the PVC will be annotated with the selected storage pool and PlacePVConStoragePool nil that means no error
-// For unsuccessful placement, PlacePVConStoragePool returns error that cause the failure
-func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim, spType string) error {
+// PlacePVConStoragePool selects target storage pool to place the given PVC
+// based on its profile and the topology information. If the placement is
+// successful, the PVC will be annotated with the selected storage pool and
+// PlacePVConStoragePool nil that means no error. For unsuccessful placement,
+// PlacePVConStoragePool returns error that cause the failure.
+func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
+	tops *csi.TopologyRequirement, curPVC *v1.PersistentVolumeClaim, spType string) error {
 	log := logger.GetLogger(ctx)
 
-	// Validate accessibility requirements
+	// Validate accessibility requirements.
 	if tops == nil {
 		stampPVCWithError(ctx, client, curPVC, invalidParamsErr)
 		return fmt.Errorf("invalid accessibility requirements input provided")
 	}
 
-	// Get all StoragePool list
+	// Get all StoragePool list.
 	sps, err := getStoragePoolList(ctx)
 	if err != nil {
 		log.Errorf("Fail to get StoragePool list with %+v", err)
@@ -403,7 +434,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	}
 
 	if len(sps.Items) == 0 {
-		//there is no available storage pools
+		// There is no available storage pools.
 		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		return fmt.Errorf("fail to find any storage pool")
 	}
@@ -419,13 +450,14 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	capacity := curPVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
 	volSizeBytes := capacity.Value()
 
-	// Sequence placement operations beyond this point to avoid race conditions
-	// To protect the storage pool snapshot unpopulated for placement of PVCs with the same label
-	// TODO optimization of lock scope by both persistence service and node name
+	// Sequence placement operations beyond this point to avoid race conditions.
+	// To protect the storage pool snapshot unpopulated for placement of PVCs
+	// with the same label.
+	// TODO Optimization of lock scope by both persistence service and node name.
 	pvcPlacementMutex.Lock()
 	defer pvcPlacementMutex.Unlock()
 
-	// We require list of PVC for placement guided by anti-affinity labels
+	// We require list of PVC for placement guided by anti-affinity labels.
 	pvcList, err := client.CoreV1().PersistentVolumeClaims(v1.NamespaceAll).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed to retrieve PVCs from all namespace from API server")
@@ -433,10 +465,11 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 		return err
 	}
 
-	assignedSP, err := getSPForPVCPlacement(ctx, client, curPVC, volSizeBytes, sps.Items, hostNames, pvcList.Items, spType, true)
+	assignedSP, err := getSPForPVCPlacement(ctx, client, curPVC, volSizeBytes,
+		sps.Items, hostNames, pvcList.Items, spType, true)
 	if err != nil {
 		log.Errorf("Failed to find any SP to place PVC %v. Error :%v", curPVC.Name, err)
-		// we have already stamped PVC with corresponding error.
+		// We have already stamped PVC with corresponding error.
 		return err
 	}
 
@@ -449,7 +482,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface, top
 	return nil
 }
 
-// getStoragePoolList get all storage pool list
+// getStoragePoolList get all storage pool list.
 func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, error) {
 	log := logger.GetLogger(ctx)
 
@@ -467,7 +500,8 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 
 	spResource := schema.GroupVersion{Group: apis.GroupName, Version: apis.Version}.WithResource(resourceName)
 
-	// TODO enable label on each storage pool and use label as filter storage pool list
+	// TODO Enable label on each storage pool and use label as filter storage
+	// pool list.
 	sps, err := spClient.Resource(spResource).List(ctx, metav1.ListOptions{
 		LabelSelector: spTypeLabelKey,
 	})
@@ -478,9 +512,12 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 	return sps, err
 }
 
-// preFilterSPList filter out candidate storage pool list through topology and capacity
-// XXX TODO add health of storage pools together as a filter when related metrics available
-func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
+// preFilterSPList filter out candidate storage pool list through topology and
+// capacity.
+// XXX TODO Add health of storage pools together as a filter when related
+// metrics available.
+func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured,
+	storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
 	spList := []StoragePoolInfo{}
 
@@ -500,7 +537,7 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 			continue
 		}
 
-		//sc compatible filter
+		// sc compatible filter.
 		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
 		if !found || err != nil {
 			nonSCComp++
@@ -534,14 +571,14 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 			continue
 		}
 
-		// the storage pool capacity is expressed in raw bytes
+		// The storage pool capacity is expressed in raw bytes.
 		spSize, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "allocatableSpace")
 		if !found || err != nil {
 			notEnoughCapacity++
 			continue
 		}
 
-		if spSize > volSizeBytes { //filter by capacity
+		if spSize > volSizeBytes { // Filter by capacity.
 			spList = append(spList, StoragePoolInfo{
 				Name:                  spName,
 				AllocatableCapInBytes: spSize,
@@ -553,11 +590,12 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured, stora
 
 	log.Infof("TotalPools:%d, Usable:%d. Pools removed because not local:%d, SC mis-match:%d, "+
 		"Unhealthy: %d, topology mis-match: %d, under disk decommission: %d, out of capacity: %d",
-		totalStoragePools, len(spList), nonVsanDirectOrSna, nonSCComp, unhealthy, topology, underDiskDecomm, notEnoughCapacity)
+		totalStoragePools, len(spList), nonVsanDirectOrSna, nonSCComp, unhealthy, topology,
+		underDiskDecomm, notEnoughCapacity)
 	return spList, nil
 }
 
-// isStoragePoolHealthy checks if the datastores in given StoragePool is healthy
+// isStoragePoolHealthy checks if the datastores in StoragePool 'sp' is healthy.
 func isStoragePoolHealthy(ctx context.Context, sp unstructured.Unstructured) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
@@ -589,14 +627,15 @@ func isStoragePoolInDiskDecommission(ctx context.Context, sp unstructured.Unstru
 	return true
 }
 
-// isStoragePoolAccessibleByNodes filter out accessible storage pools from a given list of candidate nodes
+// isStoragePoolAccessibleByNodes filter out accessible storage pools from
+// a given list of candidate nodes.
 func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstructured, hostNames []string) bool {
 	nodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
 		return false
 	}
 
-	for _, host := range hostNames { //filter by node candidate list
+	for _, host := range hostNames { // filter by node candidate list.
 		for _, node := range nodes {
 			if node == host {
 				return true
@@ -606,7 +645,7 @@ func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstruc
 	return false
 }
 
-// remove the sp from the given list
+// Remove the sp from the given list.
 func removeSPFromList(spList []StoragePoolInfo, spName string) []StoragePoolInfo {
 	for i, sp := range spList {
 		if sp.Name == spName {
@@ -617,9 +656,11 @@ func removeSPFromList(spList []StoragePoolInfo, spName string) []StoragePoolInfo
 	return spList
 }
 
-// update used capacity of the storage pool based on the volume size of the pending PVC on it. also if this
-// ends up removing the sp from the list if its free capacity falls to 0
-func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVBytes int64, curPVBytes int64) (bool, bool, []StoragePoolInfo) {
+// Update used capacity of the storage pool based on the volume size of the
+// pending PVC on it. Also, if this ends up removing the sp from the list if
+// its free capacity falls to 0.
+func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVBytes int64,
+	curPVBytes int64) (bool, bool, []StoragePoolInfo) {
 	usageUpdated := false
 	spRemoved := false
 	for i := range spList {
@@ -643,9 +684,12 @@ func updateSPCapacityUsage(spList []StoragePoolInfo, spName string, pendingPVByt
 	return usageUpdated, spRemoved, spList
 }
 
-// handleUsedStoragePools finds all storage pools that have been used by other PVCs on the same node and either removes them if
-// if they dont satisfy the anti-affinity rules and/or updates their usage based on any pending PVs against the sp.
-func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, volSizeBytes int64, spList []StoragePoolInfo, pvcList []v1.PersistentVolumeClaim, spType string) []StoragePoolInfo {
+// handleUsedStoragePools finds all storage pools that have been used by other
+// PVCs on the same node and either removes them if they dont satisfy the
+// anti-affinity rules and/or updates their usage based on any pending PVs
+// against the sp.
+func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, volSizeBytes int64,
+	spList []StoragePoolInfo, pvcList []v1.PersistentVolumeClaim, spType string) []StoragePoolInfo {
 	log := logger.GetLogger(ctx)
 
 	var requiredAntiAffinityValue, preferredAntiAffinityValue string
@@ -669,7 +713,7 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 			continue
 		}
 
-		// Is this even a SP we care about anyway
+		// Is this even a SP we care about anyway?
 		if !isSPInList(spName, spList) {
 			continue
 		}
@@ -678,7 +722,8 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 			continue
 		}
 
-		// is required anti-affinity is set of the PVC then remove any SPs that are already used
+		// If required anti-affinity is set of the PVC, remove any SPs that are
+		// already used.
 		if required {
 			antiAffinityValue, setRequired := pvcItem.Annotations[spPolicyAntiRequired]
 			if setRequired && antiAffinityValue == requiredAntiAffinityValue {
@@ -688,7 +733,8 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 			}
 		}
 
-		// if preferred antiaffinity is set of the PVC then make a list of SPs that are already used.
+		// If preferred antiaffinity is set of the PVC, make a list of SPs that
+		// are already used.
 		if preferred && !isSPInList(spName, usedSPList) {
 			antiAffinityValue, setPreferred := pvcItem.Annotations[spPolicyAntiPreferred]
 			if setPreferred && antiAffinityValue == preferredAntiAffinityValue {
@@ -701,10 +747,11 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 
 	}
 
-	log.Infof("Removed because of: affinity rules:%d. Usable Pools:%d, Pools already used at least once:%d", xAffinity, len(spList), len(usedSPList))
+	log.Infof("Removed because of: affinity rules:%d. Usable Pools:%d, Pools already used at least once:%d",
+		xAffinity, len(spList), len(usedSPList))
 
-	// if we have any unused SPs then we can just remove all used SPs from the
-	// list. This gives us a small set of unused SPs that we can re-sort below
+	// If we have any unused SPs then we can just remove all used SPs from the
+	// list. This gives us a small set of unused SPs that we can re-sort below.
 	if len(spList) > len(usedSPList) {
 		for _, sp := range usedSPList {
 			spList = removeSPFromList(spList, sp.Name)
@@ -714,8 +761,9 @@ func handleUsedStoragePools(ctx context.Context, pvc *v1.PersistentVolumeClaim, 
 	return spList
 }
 
-// setPVCAnnotation add annotation of selected storage pool to targeted PVC
-func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface, curPVC *v1.PersistentVolumeClaim) error {
+// setPVCAnnotation add annotation of selected storage pool to targeted PVC.
+func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Interface,
+	curPVC *v1.PersistentVolumeClaim) error {
 	log := logger.GetLogger(ctx)
 
 	if spName == "" {
@@ -739,7 +787,8 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 		return err
 	}
 
-	curPVC, err = client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).Patch(ctx, curPVC.Name, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+	curPVC, err = client.CoreV1().PersistentVolumeClaims(curPVC.Namespace).Patch(ctx, curPVC.Name,
+		k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Fail to update PVC %+v", err)
 		return err
@@ -749,7 +798,7 @@ func setPVCAnnotation(ctx context.Context, spName string, client kubernetes.Inte
 	return nil
 }
 
-// GetSCNameFromPVC gets name of the storage class from provided PVC
+// GetSCNameFromPVC gets name of the storage class from provided PVC.
 func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
 	scName := pvc.Spec.StorageClassName
 	if scName == nil || *scName == "" {
@@ -762,7 +811,7 @@ func GetSCNameFromPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
 	return *scName, nil
 }
 
-// getHostNamesFromTopology get all candidate hosts from topology requirements
+// getHostNamesFromTopology get all candidate hosts from topology requirements.
 func getHostNamesFromTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement) []string {
 	log := logger.GetLogger(ctx)
 
@@ -787,23 +836,26 @@ func getHostNamesFromTopology(ctx context.Context, topologyRequirement *csi.Topo
 	return hostNames
 }
 
-// getHostCandidates returns the hostnames where the placement can be done. Returns error if there is a misconfiguration
+// getHostCandidates returns the hostnames where the placement can be done.
+// Returns error if there is a misconfiguration.
 func getHostCandidates(ctx context.Context, curPVC *v1.PersistentVolumeClaim, tops *csi.TopologyRequirement) ([]string, error) {
 	log := logger.GetLogger(ctx)
 	candidateHostsFromTopology := getHostNamesFromTopology(ctx, tops)
 
 	if affineToHostName, present := curPVC.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; present {
 		log.Infof("Got affinity parameter host name: %s", affineToHostName)
-		// Abort placement if the affineToHostName is not present in the topology requirement
+		// Abort placement if the affineToHostName is not present in the topology
+		// requirement.
 		if !isHostPresentInTopology(affineToHostName, candidateHostsFromTopology) {
-			return nil, fmt.Errorf("invalid configuration - the PVC nodeAffinity annotation conflicts with Pod topology requirement")
+			return nil, fmt.Errorf("invalid configuration - PVC nodeAffinity conflicts with Pod topology requirement")
 		}
 		return []string{affineToHostName}, nil
 	}
 	return candidateHostsFromTopology, nil
 }
 
-// isHostPresentInTopology checks if the affinityHost present in the list of hostnames specified in the topology requirement
+// isHostPresentInTopology checks if the affinityHost present in the list of
+// hostnames specified in the topology requirement.
 func isHostPresentInTopology(affinityHost string, topologyHosts []string) bool {
 	for _, host := range topologyHosts {
 		if strings.EqualFold(affinityHost, host) {

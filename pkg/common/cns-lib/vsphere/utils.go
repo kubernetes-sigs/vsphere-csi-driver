@@ -30,16 +30,17 @@ import (
 const (
 	vsanDType                       = "vsanD"
 	defaultVCClientTimeoutInMinutes = 5
-	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere version to use query volume async API
+	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere
+	// version to use query volume async API.
 	VSphere70u3Version int = 703
 )
 
 var (
-	// ErrNotSupported represents not supported error
+	// ErrNotSupported represents not supported error.
 	ErrNotSupported = errors.New("not supported")
 )
 
-// IsInvalidCredentialsError returns true if error is of type InvalidLogin
+// IsInvalidCredentialsError returns true if error is of type InvalidLogin.
 func IsInvalidCredentialsError(err error) bool {
 	isInvalidCredentialsError := false
 	if soap.IsSoapFault(err) {
@@ -48,7 +49,7 @@ func IsInvalidCredentialsError(err error) bool {
 	return isInvalidCredentialsError
 }
 
-// IsNotFoundError checks if err is the NotFound fault, if yes then returns true else return false
+// IsNotFoundError checks if err is the NotFound fault.
 func IsNotFoundError(err error) bool {
 	isNotFoundError := false
 	if soap.IsSoapFault(err) {
@@ -57,9 +58,9 @@ func IsNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
-// IsAlreadyExists checks if err is the AlreadyExists fault, if no then returns false
-// If the error is AlreadyExists fault, the method return true along with the
-// name of the managed object
+// IsAlreadyExists checks if err is the AlreadyExists fault.
+// If the error is AlreadyExists fault, the method returns true along with the
+// name of the managed object. Otherwise, returns false.
 func IsAlreadyExists(err error) (bool, string) {
 	isAlreadyExistsError := false
 	objectName := ""
@@ -72,23 +73,23 @@ func IsAlreadyExists(err error) (bool, string) {
 	return isAlreadyExistsError, objectName
 }
 
-// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault,
-// if yes then checks ManagedObjectNotFound thrown for the the intended object, if yes return true else return false
+// IsManagedObjectNotFound checks if err is the ManagedObjectNotFound fault.
+// Returns true, if 'err' is a MnagedObjectNotFound fault for the intended
+// 'moRef' object. Otherwise, return false.
 func IsManagedObjectNotFound(err error, moRef types.ManagedObjectReference) bool {
 	if soap.IsSoapFault(err) {
 		fault, isNotFoundError := soap.ToSoapFault(err).VimFault().(types.ManagedObjectNotFound)
-		if isNotFoundError {
-			if fault.Obj.Type == moRef.Type && fault.Obj.Value == moRef.Value {
-				return true
-			}
-		}
+		return isNotFoundError && fault.Obj.Type == moRef.Type && fault.Obj.Value == moRef.Value
 	}
 	return false
 }
 
-// GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject object from given parameters
-func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string, deleteFlag bool, entityType string, namespace string, clusterID string, referredEntity []cnstypes.CnsKubernetesEntityReference) *cnstypes.CnsKubernetesEntityMetadata {
-	// Create new metadata spec
+// GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject
+// object from given parameters.
+func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
+	deleteFlag bool, entityType string, namespace string, clusterID string,
+	referredEntity []cnstypes.CnsKubernetesEntityReference) *cnstypes.CnsKubernetesEntityMetadata {
+	// Create new metadata spec.
 	var newLabels []types.KeyValue
 	for labelKey, labelVal := range labels {
 		newLabels = append(newLabels, types.KeyValue{
@@ -110,8 +111,9 @@ func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
 	return entityMetadata
 }
 
-// GetContainerCluster creates ContainerCluster object from given parameters
-func GetContainerCluster(clusterid string, username string, clusterflavor cnstypes.CnsClusterFlavor, clusterdistribution string) cnstypes.CnsContainerCluster {
+// GetContainerCluster creates ContainerCluster object from given parameters.
+func GetContainerCluster(clusterid string, username string, clusterflavor cnstypes.CnsClusterFlavor,
+	clusterdistribution string) cnstypes.CnsContainerCluster {
 	return cnstypes.CnsContainerCluster{
 		ClusterType:         string(cnstypes.CnsClusterTypeKubernetes),
 		ClusterId:           clusterid,
@@ -121,8 +123,10 @@ func GetContainerCluster(clusterid string, username string, clusterflavor cnstyp
 	}
 }
 
-// CreateCnsKuberenetesEntityReference returns an  EntityReference object to which the given entity refers to.
-func CreateCnsKuberenetesEntityReference(entityType string, entityName string, namespace string, clusterid string) cnstypes.CnsKubernetesEntityReference {
+// CreateCnsKuberenetesEntityReference returns an EntityReference object to
+// which the given entity refers to.
+func CreateCnsKuberenetesEntityReference(entityType string, entityName string,
+	namespace string, clusterid string) cnstypes.CnsKubernetesEntityReference {
 	return cnstypes.CnsKubernetesEntityReference{
 		EntityType: entityType,
 		EntityName: entityName,
@@ -131,8 +135,8 @@ func CreateCnsKuberenetesEntityReference(entityType string, entityName string, n
 	}
 }
 
-// GetVirtualCenterConfig returns VirtualCenterConfig Object created using vSphere Configuration
-// specified in the argurment.
+// GetVirtualCenterConfig returns VirtualCenterConfig Object created using
+// vSphere Configuration specified in the arguement.
 func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
 	var err error
@@ -191,7 +195,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		}
 	}
 
-	// validate if target file volume datastores present are vsan datastores
+	// Validate if target file volume datastores present are vsan datastores.
 	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
 		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
 		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
@@ -205,7 +209,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	return vcConfig, nil
 }
 
-// GetVcenterIPs returns list of vCenter IPs from VSphereConfig
+// GetVcenterIPs returns list of vCenter IPs from VSphereConfig.
 func GetVcenterIPs(cfg *config.Config) ([]string, error) {
 	var err error
 	vCenterIPs := make([]string, 0)
@@ -218,7 +222,7 @@ func GetVcenterIPs(cfg *config.Config) ([]string, error) {
 	return vCenterIPs, err
 }
 
-// GetLabelsMapFromKeyValue creates a  map object from given parameter
+// GetLabelsMapFromKeyValue creates a  map object from given parameter.
 func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	labelsMap := make(map[string]string)
 	for _, label := range labels {
@@ -227,19 +231,27 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 	return labelsMap
 }
 
-// CompareKubernetesMetadata compares the whole CnsKubernetesEntityMetadata from two given parameters
-func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKubernetesEntityMetadata, cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
+// CompareKubernetesMetadata compares the whole CnsKubernetesEntityMetadata
+// from two given parameters.
+func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKubernetesEntityMetadata,
+	cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
 	log := logger.GetLogger(ctx)
-	log.Debugf("CompareKubernetesMetadata called with k8spvMetaData: %+v \n and cnsMetaData: %+v \n", spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
-	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) || (k8sMetaData.Namespace != cnsMetaData.Namespace) {
+	log.Debugf("CompareKubernetesMetadata called with k8spvMetaData: %+v\n and cnsMetaData: %+v\n",
+		spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
+	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) ||
+		(k8sMetaData.Namespace != cnsMetaData.Namespace) {
 		return false
 	}
-	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels), GetLabelsMapFromKeyValue(cnsMetaData.Labels))
-	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v \n and cnsMetaData: %+v \n", labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)), spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
+	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels),
+		GetLabelsMapFromKeyValue(cnsMetaData.Labels))
+	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v\n and cnsMetaData: %+v\n",
+		labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)),
+		spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
 	return labelsMatch
 }
 
-// Signer decodes the certificate and private key and returns SAML token needed for authentication
+// Signer decodes the certificate and private key and returns SAML token needed
+// for authentication.
 func signer(ctx context.Context, client *vim25.Client, username string, password string) (*sts.Signer, error) {
 	pemBlock, _ := pem.Decode([]byte(username))
 	if pemBlock == nil {
@@ -264,9 +276,9 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 	return signer, nil
 }
 
-// GetTagManager returns tagManager connected to given VirtualCenter
+// GetTagManager returns tagManager connected to given VirtualCenter.
 func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error) {
-	// validate input
+	// Validate input.
 	if vc == nil || vc.Client == nil || vc.Client.Client == nil {
 		return nil, fmt.Errorf("vCenter not initialized")
 	}
@@ -291,17 +303,19 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 	return tagManager, nil
 }
 
-// GetCandidateDatastoresInCluster gets the shared datastores and vSAN-direct managed datastores of given VC cluster
-// The 1st output parameter will be shared datastores
-// The 2nd output parameter will be vSAN-direct managed datastores
-func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) ([]*DatastoreInfo, []*DatastoreInfo, error) {
-	// get all the vsan direct datastore urls in this VC; and later filter in this cluster
+// GetCandidateDatastoresInCluster gets the shared datastores and vSAN-direct
+// managed datastores of given VC cluster.
+// The 1st output parameter will be shared datastores.
+// The 2nd output parameter will be vSAN-direct managed datastores.
+func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) (
+	[]*DatastoreInfo, []*DatastoreInfo, error) {
+	// Get all vsan direct datastore urls in VC. Later, filter in this cluster.
 	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get vSAN Direct VMFS datastores. Err: %+v", err)
 	}
 
-	// find datastores shared across all hosts in given cluster
+	// Find datastores shared across all hosts in given cluster.
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get hosts from VC. Err: %+v", err)
@@ -331,9 +345,10 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 					vsanDirectDatastores = append(vsanDirectDatastores, accessibleDs)
 					continue
 				}
-				// Intersect sharedDatastores with accessibleDatastores
+				// Intersect sharedDatastores with accessibleDatastores.
 				for _, sharedDs := range sharedDatastores {
-					// Intersection is performed based on the datastoreUrl as this uniquely identifies the datastore.
+					// Intersection is performed based on the datastoreUrl as this
+					// uniquely identifies the datastore.
 					if sharedDs.Info.Url == accessibleDs.Info.Url {
 						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
 						break
@@ -349,20 +364,20 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	return sharedDatastores, vsanDirectDatastores, nil
 }
 
-// getVsanDirectDatastores returns the datastore URLs of all the vSAN-Direct managed datatores in the
-// given VirtualCenter
+// getVsanDirectDatastores returns the datastore URLs of all the vSAN-Direct
+// managed datatores in the given VirtualCenter.
 func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID string) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	var datastores = make(map[string]bool)
 
-	// get all datastores in this cluster
+	// Get all datastores in this cluster.
 	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
 	if err != nil {
 		log.Warnf("Not able to fetch datastores in cluster %q. Err: %v", clusterID, err)
 		return nil, err
 	}
 
-	// filter them by datastore type of vsanD
+	// Filter them by datastore type of vsanD.
 	for _, dsInfo := range datastoreInfos {
 		dsURL, dsType, err := dsInfo.GetDatastoreURLAndType(ctx)
 		if err != nil {
@@ -376,10 +391,11 @@ func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID s
 	return datastores, nil
 }
 
-// GetDatastoreInfoByURL returns info of a datastore found in given cluster whose URL matches the specified datastore URL
+// GetDatastoreInfoByURL returns info of a datastore found in given cluster
+// whose URL matches the specified datastore URL.
 func GetDatastoreInfoByURL(ctx context.Context, vc *VirtualCenter, clusterID, dsURL string) (*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	// get all datastores in this cluster
+	// Get all datastores in this cluster.
 	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
 	if err != nil {
 		log.Warnf("Not able to fetch datastores in cluster %q. Err: %v", clusterID, err)
@@ -406,16 +422,15 @@ func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host
 	return vc.Client.Version == cns.ReleaseVSAN67u3, nil
 }
 
-// IsvSphereVersion70U3orAbove checks if specified version is 7.0 Update 3 or higher
-// The method takes aboutInfo{} as input which contains details about
-// VC version, build number and so on.
-// If the version is 7.0 Update 3 or higher, the method returns true, else returns false
-// along with appropriate errors during failure cases
+// IsvSphereVersion70U3orAbove checks if specified version is 7.0 Update 3 or
+// higher. The method takes aboutInfo as input which contains details about
+// VC version, build number and so on. If the version is 7.0 Update 3 or higher,
+// returns true, else returns false along with appropriate errors for the failue.
 func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
 	log := logger.GetLogger(ctx)
 	items := strings.Split(aboutInfo.Version, ".")
 	version := strings.Join(items[:], "")
-	// Convert version string to string, Ex: "7.0.3" becomes 703, "7.0.3.1" becomes 703
+	// Convert version string to int: e.g. "7.0.3" to 703, "7.0.3.1" to 703.
 	if len(version) >= 3 {
 		vSphereVersionInt, err := strconv.Atoi(version[0:3])
 		if err != nil {
@@ -423,11 +438,11 @@ func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 			log.Errorf(msg)
 			return false, errors.New(msg)
 		}
-		// Check if the current vSphere version is 7.0.3 or higher
+		// Check if the current vSphere version is 7.0.3 or higher.
 		if vSphereVersionInt >= VSphere70u3Version {
 			return true, nil
 		}
 	}
-	// For all other versions
+	// For all other versions.
 	return false, nil
 }

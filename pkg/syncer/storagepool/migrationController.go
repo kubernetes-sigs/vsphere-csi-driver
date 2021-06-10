@@ -71,7 +71,7 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 		return fmt.Errorf("failed to get datastore corressponding to URL %v", datastoreURL)
 	}
 
-	volManager := volume.GetManager(ctx, m.vc)
+	volManager := volume.GetManager(ctx, m.vc, nil, false)
 	relocateSpec := cnstypes.NewCnsBlockVolumeRelocateSpec(volumeID, dsInfo.Reference())
 
 	task, err := volManager.RelocateVolume(ctx, relocateSpec)
