@@ -227,8 +227,9 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		for _, volume := range pod.Spec.Volumes {
 			pvClaim := volume.VolumeSource.PersistentVolumeClaim
 			if pvClaim != nil && pvClaim.ClaimName == pvcName {
-				log.Debugf("Returned pod: %s with pvClaim name: %s and namespace: %s running on node: %s",
-					spew.Sdump(&pod), pvcName, pvcNamespace, nodeName)
+				log.Debugf("Returned pod: %s", spew.Sdump(&pod))
+				log.Infof("Returned pod: %s/%s with pvClaim name: %s running on node: %s",
+					pod.Name, pod.Namespace, pvcName, nodeName)
 				return &pod, nil
 			}
 		}
