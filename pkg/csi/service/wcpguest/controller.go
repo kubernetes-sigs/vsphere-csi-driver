@@ -32,7 +32,6 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -274,14 +273,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(ctx, claim, metav1.CreateOptions{})
 				if err != nil {
-					msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v",
+						supervisorPVCName, c.supervisorNamespace, err)
 				}
 			} else {
-				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v",
+					supervisorPVCName, c.supervisorNamespace, err)
 			}
 		}
 		isBound, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient, pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
@@ -290,11 +289,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			log.Error(msg)
 			eventList, err := c.supervisorClient.CoreV1().Events(c.supervisorNamespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + pvc.Name})
 			if err != nil {
-				log.Errorf("Unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v", c.supervisorNamespace, pvc.Name, err)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v",
+					c.supervisorNamespace, pvc.Name, err)
 			}
-			log.Errorf("Last observed events on the pvc %q/%q in supervisor cluster: %+v", c.supervisorNamespace, pvc.Name, spew.Sdump(eventList.Items))
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"last observed events on the pvc %q/%q in supervisor cluster: %+v",
+				c.supervisorNamespace, pvc.Name, spew.Sdump(eventList.Items))
 		}
 		attributes := make(map[string]string)
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && isFileVolumeRequest {
@@ -348,9 +349,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming the volume is already deleted.", req.VolumeId)
 				return &csi.DeleteVolumeResponse{}, nil
 			}
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+				req.VolumeId, c.supervisorNamespace, err)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		for _, accessMode := range svPVC.Spec.AccessModes {
@@ -364,9 +365,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				log.Debugf("PVC: %q not found in the Supervisor cluster. Assuming this volume to be deleted.", req.VolumeId)
 				return &csi.DeleteVolumeResponse{}, nil
 			}
-			msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"deleteVolume Request: %+v has failed. Error: %+v", *req, err)
 		}
 		log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
 		return &csi.DeleteVolumeResponse{}, nil
@@ -399,9 +399,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 		err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 
 		// File volumes support
@@ -410,7 +409,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			// Check the feature state for file volume support
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				// Feature is disabled on the cluster
-				return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+				return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"file volume not supported.")
 			}
 			return controllerPublishForFileVolume(ctx, req, c)
 		}
@@ -440,9 +440,8 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	}
 	var err error
 	if err = c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 	}
 	// Check if volume is already present in the virtualMachine.Spec.Volumes
 	var isVolumePresentInSpec, isVolumeAttached bool
@@ -483,16 +482,14 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 				break
 			}
 			if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-				msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 			}
 			log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
 		}
 		if err != nil {
-			msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
 		}
 	}
 
@@ -504,9 +501,8 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			TimeoutSeconds:  &timeoutSeconds,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
 		}
 		defer watchVirtualMachine.Stop()
 
@@ -517,9 +513,8 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			event := <-watchVirtualMachine.ResultChan()
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				log.Error(msg)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"watch on virtualmachine %q timed out", virtualMachine.Name)
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
@@ -533,9 +528,9 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 						log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q", volume.DiskUuid, volume.Name, vm.Name)
 					} else {
 						if volume.Error != "" {
-							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q", volume.Error, volume.Name, vm.Name)
-							log.Error(msg)
-							return nil, status.Errorf(codes.Internal, msg)
+							return nil, logger.LogNewErrorCodef(log, codes.Internal,
+								"observed Error: %q is set on the volume %q on virtualmachine %q",
+								volume.Error, volume.Name, vm.Name)
 						}
 					}
 					break
@@ -574,9 +569,9 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 	if err := c.cnsOperatorClient.Get(ctx, cnsFileAccessConfigInstanceKey, cnsFileAccessConfigInstance); err != nil {
 		if !errors.IsNotFound(err) {
 			// Get() on the CnsFileAccessConfig instance failed with different error
-			msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v",
+				c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
 		}
 		// Create the CnsFileAccessConfig instance since it is not found
 		cnsFileAccessConfigInstance = &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
@@ -591,18 +586,18 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 		log.Debugf("Creating CnsFileAccessConfig instance: %+v", cnsFileAccessConfigInstance)
 		log.Infof("Creating CnsFileAccessConfig instance with name: %q", cnsFileAccessConfigInstance.Name)
 		if err := c.cnsOperatorClient.Create(ctx, cnsFileAccessConfigInstance); err != nil {
-			msg := fmt.Sprintf("failed to create cnsFileAccessConfig: %q/%q. Error: %v", c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create cnsFileAccessConfig: %q/%q. Error: %v",
+				c.supervisorNamespace, cnsFileAccessConfigInstance.Name, err)
 		}
 	}
 	log.Debugf("Found CnsFileAccessConfig: %q/%q", c.supervisorNamespace, cnsFileAccessConfigInstance.Name)
 	if cnsFileAccessConfigInstance.DeletionTimestamp != nil {
 		// When deletionTimestamp is set, CnsOperator is in the process of removing access for this IP.
 		// When that operation is successful, the instance will be deleted. In a subsequent retry, a new instance will be created.
-		msg := fmt.Sprintf("cnsFileAccessConfigInstance %q/%q is getting deleted. A new instance will be created in the subsequent ControllerPublishVolume request", c.supervisorNamespace, cnsFileAccessConfigInstance.Name)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"cnsFileAccessConfigInstance %q/%q is getting deleted. A new instance will be created in the subsequent ControllerPublishVolume request",
+			c.supervisorNamespace, cnsFileAccessConfigInstance.Name)
 	}
 	publishInfo := make(map[string]string)
 	// Verify if the CnsFileAccessConfig instance has status with done set to true and error is empty
@@ -622,9 +617,8 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 	}
 	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 	if err != nil {
-		msg := fmt.Sprintf("failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
 	}
 	// Attacher timeout, default is set to 4 minutes
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
@@ -635,9 +629,9 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 		TimeoutSeconds:  &timeoutSeconds,
 	})
 	if err != nil {
-		msg := fmt.Sprintf("failed to watch cnsfileaccessconfig %q with Error: %v", cnsFileAccessConfigInstance.Name, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to watch cnsfileaccessconfig %q with Error: %v",
+			cnsFileAccessConfigInstance.Name, err)
 	}
 	defer watchCnsFileAccessConfig.Stop()
 	var cnsFileAccessConfigInstanceErr string
@@ -647,9 +641,9 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 		event := <-watchCnsFileAccessConfig.ResultChan()
 		cnsfileaccessconfig, ok := event.Object.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig)
 		if !ok {
-			msg := fmt.Sprintf("Watch on cnsfileaccessconfig instance %q timed out. Last seen error on the instance=%q", cnsFileAccessConfigInstance.Name, cnsFileAccessConfigInstanceErr)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"watch on cnsfileaccessconfig instance %q timed out. Last seen error on the instance=%q",
+				cnsFileAccessConfigInstance.Name, cnsFileAccessConfigInstanceErr)
 		}
 		if cnsfileaccessconfig.Name != cnsFileAccessConfigInstanceName {
 			log.Debugf("Observed cnsFileAccessConfig instance name: %q, expecting cnsFileAccessConfig instance name: %q. Continuing...", cnsfileaccessconfig.Name, cnsFileAccessConfigInstanceName)
@@ -711,9 +705,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, req.VolumeId, metav1.GetOptions{})
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+				req.VolumeId, c.supervisorNamespace, err)
 		}
 		var isFileVolume bool
 		for _, accessMode := range svPVC.Spec.AccessModes {
@@ -727,7 +721,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				return controllerUnpublishForFileVolume(ctx, req, c)
 			}
 			// Feature is disabled on the cluster
-			return nil, status.Error(codes.InvalidArgument, "File volume not supported.")
+			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "file volume not supported.")
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		return controllerUnpublishForBlockVolume(ctx, req, c)
@@ -762,9 +756,8 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.", c.supervisorNamespace, req.NodeId, req.VolumeId)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
-		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 	}
 	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
@@ -788,16 +781,14 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.", c.supervisorNamespace, req.NodeId, req.VolumeId)
 				return &csi.ControllerUnpublishVolumeResponse{}, nil
 			}
-			msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	}
 	if err != nil {
-		msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
@@ -807,14 +798,12 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		TimeoutSeconds:  &timeoutSeconds,
 	})
 	if err != nil {
-		msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
 	}
 	if watchVirtualMachine == nil {
-		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"watchVirtualMachine for %q is nil", virtualMachine.Name)
 
 	}
 	defer watchVirtualMachine.Stop()
@@ -827,9 +816,8 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		event := <-watchVirtualMachine.ResultChan()
 		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 		if !ok {
-			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"watch on virtualmachine %q timed out", virtualMachine.Name)
 		}
 		if vm.Name != virtualMachine.Name {
 			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q. Continuing...", vm.Name, virtualMachine.Name, req.VolumeId)
@@ -843,9 +831,9 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 					log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
 					isVolumeDetached = false
 					if volume.Attached && volume.Error != "" {
-						msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v", volume.Name, virtualMachine.Name, volume.Error)
-						log.Error(msg)
-						return nil, status.Errorf(codes.Internal, msg)
+						return nil, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to detach volume %q from VirtualMachine %q with Error: %v",
+							volume.Name, virtualMachine.Name, volume.Error)
 					}
 					break
 				}
@@ -866,9 +854,8 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 	// Adding watch on the CnsFileAccessConfig instance to register for updates
 	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 	if err != nil {
-		msg := fmt.Sprintf("failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
 	}
 	cnsFileAccessConfigInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
@@ -881,9 +868,9 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 			log.Infof("ControllerUnpublishVolume: CnsFileAccessConfig instance %q/%q not found in supervisor cluster. Returning success for the detach operation", c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
-		msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 	}
 	// Attach/Detach timeout, default is set to 4 minutes
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
@@ -893,9 +880,9 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		TimeoutSeconds:  &timeoutSeconds,
 	})
 	if err != nil {
-		msg := fmt.Sprintf("failed to watch cnsFileAccessConfig instance %q/%q with Error: %v", c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to watch cnsFileAccessConfig instance %q/%q with Error: %v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 	}
 	if err := c.cnsOperatorClient.Delete(ctx, &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -907,9 +894,9 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 			log.Infof("ControllerUnpublishVolume: CnsFileAccessConfig instance %q/%q already deleted. Returning success for the detach operation", c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
-		msg := fmt.Sprintf("failed to delete CnsFileAccessConfig instance: %q/%q. Error: %+v", c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to delete CnsFileAccessConfig instance: %q/%q. Error: %+v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 	}
 	defer watchCnsFileAccessConfig.Stop()
 	var cnsFileAccessConfigInstanceErr string
@@ -920,9 +907,9 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		event := <-watchCnsFileAccessConfig.ResultChan()
 		cnsfileaccessconfig, ok := event.Object.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig)
 		if !ok {
-			msg := fmt.Sprintf("Watch on cnsfileaccessconfig instance %q/%q timed out. Last seen error on the instance=%q", c.supervisorNamespace, cnsFileAccessConfigInstanceName, cnsFileAccessConfigInstanceErr)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"watch on cnsfileaccessconfig instance %q/%q timed out. Last seen error on the instance=%q",
+				c.supervisorNamespace, cnsFileAccessConfigInstanceName, cnsFileAccessConfigInstanceErr)
 		}
 		if cnsfileaccessconfig.Name != cnsFileAccessConfigInstanceName {
 			log.Debugf("Observed CnsFileAccessConfig instance name: %q, expecting CnsFileAccessConfig instance name: %q. Continuing...", cnsfileaccessconfig.Name, cnsFileAccessConfigInstanceName)
@@ -959,9 +946,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		ctx = logger.NewContextWithLogger(ctx)
 		log := logger.GetLogger(ctx)
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
-			msg := "ExpandVolume feature is disabled on the cluster."
-			log.Warn(msg)
-			return nil, status.Error(codes.Unimplemented, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+				"expandVolume feature is disabled on the cluster.")
 		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
@@ -979,17 +965,16 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			vmList := &vmoperatortypes.VirtualMachineList{}
 			err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
 			if err != nil {
-				msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to list virtualmachines with error: %+v", err)
 			}
 
 			for _, vmInstance := range vmList.Items {
 				for _, vmVolume := range vmInstance.Status.Volumes {
 					if vmVolume.Name == volumeID && vmVolume.Attached {
-						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported", volumeID)
-						log.Error(msg)
-						return nil, status.Error(codes.FailedPrecondition, msg)
+						return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+							"failed to expand volume: %q. Volume is attached to pod. Only offline volume expansion is supported",
+							volumeID)
 					}
 				}
 			}
@@ -998,9 +983,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(ctx, volumeID, metav1.GetOptions{})
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+				volumeID, c.supervisorNamespace, err)
 		}
 
 		waitForSvPvcCondition := true
@@ -1017,9 +1002,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s", volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
 			svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPvcClone, metav1.UpdateOptions{})
 			if err != nil {
-				msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v", volumeID, c.supervisorNamespace, err)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to update supervisor PVC %q in %q namespace. Error: %+v",
+					volumeID, c.supervisorNamespace, err)
 			}
 		case 0:
 			// GC PVC request size is equal to SV PVC request size
@@ -1037,10 +1022,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 		default:
 			// GC PVC request size is lesser than SV PVC request size
-			msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s which is greater than the requested size of %s",
+			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"supervisor PVC %s in namespace %s requests %s, which is greater than GC PVC request size of %s",
 				volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
-			log.Error(msg)
-			return nil, status.Error(codes.InvalidArgument, msg)
 		}
 
 		if waitForSvPvcCondition {
@@ -1048,9 +1032,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, svPVC,
 				corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
 			if err != nil {
-				msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v", volumeID, c.supervisorNamespace, err)
-				log.Error(msg)
-				return nil, status.Error(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v",
+					volumeID, c.supervisorNamespace, err)
 			}
 		}
 
@@ -1099,7 +1083,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listVolumes")
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1108,7 +1092,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "getCapacity")
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
@@ -1136,7 +1120,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
@@ -1144,7 +1128,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
@@ -1153,7 +1137,7 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshots")
 }
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (

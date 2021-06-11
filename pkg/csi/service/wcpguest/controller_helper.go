@@ -27,7 +27,6 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,10 +52,12 @@ const (
 // CreateVolumeRequest for Guest Cluster CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest) error {
+	log := logger.GetLogger(ctx)
+
 	// Validate Name length of volumeName is > 4, eg: pvc-xxxxx
 	if len(req.Name) <= 4 {
-		msg := fmt.Sprintf("Volume name %s is not valid", req.Name)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"volume name %s is not valid", req.Name)
 	}
 	// Get create params
 	var supervisorStorageClass string
@@ -64,19 +65,20 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 	for param := range params {
 		paramName := strings.ToLower(param)
 		if paramName != common.AttributeSupervisorStorageClass {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid GC CSI parameter", param)
-			return status.Error(codes.InvalidArgument, msg)
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"volume parameter %s is not a valid GC CSI parameter", param)
 		}
 		supervisorStorageClass = req.Parameters[param]
 	}
 	// Validate if the req contains non-empty common.AttributeSupervisorStorageClass
 	if supervisorStorageClass == "" {
-		msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
-		return status.Error(codes.InvalidArgument, msg)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
 	}
 	// Fail file volume creation if file volume feature gate is disabled
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		return status.Error(codes.InvalidArgument, "File volume not supported.")
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"file volume not supported")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
 }
