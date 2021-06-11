@@ -18,8 +18,6 @@ package migration
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -247,9 +245,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	var host string
 	if volumeMigration.cnsConfig == nil || len(volumeMigration.cnsConfig.VirtualCenter) == 0 {
-		msg := "could not find vcenter config"
-		log.Errorf(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewError(log, "could not find vcenter config")
 	}
 	for key := range volumeMigration.cnsConfig.VirtualCenter {
 		host = key
@@ -263,17 +259,16 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	var fileBackingInfo *vim25types.BaseConfigInfoDiskFileBackingInfo
 	bUseVslmAPIs, err := common.UseVslmAPIs(ctx, vCenter.Client.ServiceContent.About)
 	if err != nil {
-		msg := fmt.Sprintf("Error while determining the correct APIs to use for vSphere version %q, Error= %+v", vCenter.Client.ServiceContent.About.ApiVersion, err)
-		log.Errorf(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log,
+			"Error while determining the correct APIs to use for vSphere version %q, Error= %+v",
+			vCenter.Client.ServiceContent.About.ApiVersion, err)
 	}
 	if bUseVslmAPIs {
 		log.Infof("Retrieving VStorageObject info using Vslm APIs")
 		vStorageObject, err := (*volumeMigration.volumeManager).RetrieveVStorageObject(ctx, volumeID)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve VStorageObject for volume id: %q, err: %v", volumeID, err)
-			log.Error(msg)
-			return "", errors.New(msg)
+			return "", logger.LogNewErrorf(log,
+				"failed to retrieve VStorageObject for volume id: %q, err: %v", volumeID, err)
 		}
 		log.Debugf("RetrieveVStorageObject successfully returned fileBackingInfo %v for volumeIDList %v:", spew.Sdump(fileBackingInfo), volumeIds)
 		fileBackingInfo = vStorageObject.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
@@ -356,9 +351,8 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 	}
 	re := regexp.MustCompile(`\[([^\[\]]*)\]`)
 	if !re.MatchString(volumeSpec.VolumePath) {
-		msg := fmt.Sprintf("failed to extract datastore name from in-tree volume path: %q", volumeSpec.VolumePath)
-		log.Errorf(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log,
+			"failed to extract datastore name from in-tree volume path: %q", volumeSpec.VolumePath)
 	}
 	datastoreFullPath := re.FindAllString(volumeSpec.VolumePath, -1)[0]
 	vmdkPath := strings.TrimSpace(strings.Trim(volumeSpec.VolumePath, datastoreFullPath))
@@ -369,9 +363,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 	var user string
 	var host string
 	if volumeMigration.cnsConfig == nil || len(volumeMigration.cnsConfig.VirtualCenter) == 0 {
-		msg := "could not find vcenter config"
-		log.Errorf(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewError(log, "could not find vcenter config")
 	}
 	for key, val := range volumeMigration.cnsConfig.VirtualCenter {
 		datacenters = val.Datacenters
@@ -406,9 +398,9 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		log.Debugf("Obtaining storage policy ID for storage policy name: %q", volumeSpec.StoragePolicyName)
 		storagePolicyID, err = vCenter.GetStoragePolicyIDByName(ctx, volumeSpec.StoragePolicyName)
 		if err != nil {
-			msg := fmt.Sprintf("Error occurred while getting stroage policy ID from storage policy name: %q, err: %+v", volumeSpec.StoragePolicyName, err)
-			log.Error(msg)
-			return "", errors.New(msg)
+			return "", logger.LogNewErrorf(log,
+				"Error occurred while getting stroage policy ID from storage policy name: %q, err: %+v",
+				volumeSpec.StoragePolicyName, err)
 		}
 		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q", storagePolicyID, volumeSpec.StoragePolicyName)
 	}
@@ -437,16 +429,15 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 			vmdkPath + "?dcPath=" + url.PathEscape(datacenter) + "&dsName=" + url.PathEscape(datastoreName)
 		bUseVslmAPIs, err := common.UseVslmAPIs(ctx, vCenter.Client.ServiceContent.About)
 		if err != nil {
-			msg := fmt.Sprintf("Error while determining the correct APIs to use for vSphere version %q, Error= %+v", vCenter.Client.ServiceContent.About.ApiVersion, err)
-			log.Errorf(msg)
-			return "", errors.New(msg)
+			return "", logger.LogNewErrorf(log,
+				"Error while determining the correct APIs to use for vSphere version %q, Error= %+v",
+				vCenter.Client.ServiceContent.About.ApiVersion, err)
 		}
 		if bUseVslmAPIs {
 			backingObjectID, err := (*volumeMigration.volumeManager).RegisterDisk(ctx, backingDiskURLPath, volumeSpec.VolumePath)
 			if err != nil {
-				msg := fmt.Sprintf("registration failed for volumePath: %v", volumeSpec.VolumePath)
-				log.Error(msg)
-				return "", errors.New(msg)
+				return "", logger.LogNewErrorf(log,
+					"registration failed for volumePath: %v", volumeSpec.VolumePath)
 			}
 			createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskId: backingObjectID}
 			log.Infof("Registering volume: %q using backingDiskId :%q", volumeSpec.VolumePath, backingObjectID)
@@ -465,9 +456,8 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 	if volumeInfo != nil {
 		log.Infof("Successfully registered volume %q as container volume with ID: %q", volumeSpec.VolumePath, volumeInfo.VolumeID.Id)
 	} else {
-		msg := fmt.Sprintf("registration failed for volumeSpec: %v", volumeSpec)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log,
+			"registration failed for volumeSpec: %v", volumeSpec)
 	}
 	return volumeInfo.VolumeID.Id, nil
 }
