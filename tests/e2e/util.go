@@ -336,6 +336,33 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	return statefulSet, service
 }
 
+// updateDeploymentReplicawithWait helps to update the replica for a deployment with wait
+func updateDeploymentReplicawithWait(client clientset.Interface, count int32, name string, namespace string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var deployment *appsv1.Deployment
+	var err error
+	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
+		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return false, nil
+		}
+		*deployment.Spec.Replicas = count
+		ginkgo.By("Waiting for update operation on deployment to take effect")
+		deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		if err != nil {
+			return false, err
+		}
+		err = fdep.WaitForDeploymentComplete(client, deployment)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	return waitErr
+}
+
 // updateDeploymentReplica helps to update the replica for a deployment
 func updateDeploymentReplica(client clientset.Interface, count int32, name string, namespace string) *appsv1.Deployment {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -372,9 +399,11 @@ func bringDownTKGController(Client clientset.Interface) {
 // Default namespace used here is csiSystemNamespace
 func bringUpCsiController(Client clientset.Interface, namespace ...string) {
 	if len(namespace) == 0 {
-		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		err := updateDeploymentReplicawithWait(Client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else {
-		updateDeploymentReplica(Client, 1, vSphereCSIControllerPodNamePrefix, namespace[0])
+		err := updateDeploymentReplicawithWait(Client, 1, vSphereCSIControllerPodNamePrefix, namespace[0])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	ginkgo.By("Controller is up")
 }
@@ -382,7 +411,8 @@ func bringUpCsiController(Client clientset.Interface, namespace ...string) {
 // bringUpTKGController helps to bring the TKG control manager pod up
 // Its taks svc client as input
 func bringUpTKGController(Client clientset.Interface) {
-	updateDeploymentReplica(Client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
+	err := updateDeploymentReplicawithWait(Client, 1, vsphereControllerManager, vsphereTKGSystemNamespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("TKGControllManager is up")
 }
 
