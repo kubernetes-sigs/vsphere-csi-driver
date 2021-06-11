@@ -1035,7 +1035,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listVolumes")
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1043,7 +1043,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "getCapacity")
 }
 
 // initVolumeMigrationService is a helper method to initialize
@@ -1096,7 +1096,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
@@ -1104,7 +1104,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
@@ -1112,5 +1112,5 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshots")
 }
