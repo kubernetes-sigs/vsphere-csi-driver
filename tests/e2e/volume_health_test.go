@@ -2073,22 +2073,19 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		bringDownCsiController(gcClient)
 		isControllerUP = false
 
+		//Get SV PVC before PSOD
+		svPVC := getPVCFromSupervisorCluster(svPVCName)
+
 		//PSOD the host
 		ginkgo.By("PSOD the host")
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, svcPV.Name)
 
 		//Health status in gc pvc should be still accessible
-		ginkgo.By("poll for health status annotation")
+		ginkgo.By("Expect health status of the GC PVC to be accessible")
 		err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Expect health status of the pvc to be accessible")
-		pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
-
-		ginkgo.By("Expect health annotation is added on the SV pvc")
-		svPVC := getPVCFromSupervisorCluster(svPVCName)
+		ginkgo.By("Expect health annotation added on the SVC PVC is inaccessible")
 		err = pvcHealthAnnotationWatcher(ctx, svcClient, svPVC, healthStatusInAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2098,20 +2095,15 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isControllerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")
-		ginkgo.By("poll for health status annotation")
 		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusInAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
 
-		ginkgo.By("Expect health annotation is added on the SV pvc")
-		svPVC = getPVCFromSupervisorCluster(svPVCName)
-		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
-
-		//ESX Host Recovery time
-		ginkgo.By("poll for health status annotation")
+		ginkgo.By("Expect health annotation added on the GC PVC is accessible")
 		err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect health annotation added on the SVC PVC is accessible")
+		err = pvcHealthAnnotationWatcher(ctx, svcClient, svPVC, healthStatusAccessible)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
