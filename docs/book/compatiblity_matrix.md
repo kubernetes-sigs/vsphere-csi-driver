@@ -8,6 +8,7 @@ Note:
 
 | vSphere CSI Driver | Minimum Kubernetes Release | Maximum Kubernetes Release            | Deprecated | End of Life  |
 |--------------------|----------------------------|---------------------------------------| -----------|--------------|
+| [v2.2.1](./releases/v2.2.1.md)             | 1.18                    | 1.20       | No         | -            |
 | [v2.2.0](./releases/v2.2.0.md)             | 1.18                    | 1.20       | No         | -            |
 | [v2.1.1](./releases/v2.1.1.md)             | 1.17                    | 1.19       | No         | -            |
 | [v2.1.0](./releases/v2.1.0.md)             | 1.17                    | 1.19       | No         | -            |

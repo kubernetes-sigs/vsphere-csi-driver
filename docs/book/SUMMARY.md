@@ -2,6 +2,7 @@
 
 * [Overview](overview.md)
 * Releases
+  * [v2.2.1](releases/v2.2.1.md)
   * [v2.2.0](releases/v2.2.0.md)
   * [v2.1.1](releases/v2.1.1.md)
   * [v2.1.0](releases/v2.1.0.md)
