@@ -36,7 +36,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/util/resizefs"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	mount "k8s.io/mount-utils"
@@ -584,7 +583,7 @@ func getMetrics(path string) (*k8svol.Metrics, error) {
 		return nil, fmt.Errorf("no path given")
 	}
 
-	available, capacity, usage, inodes, inodesFree, inodesUsed, err := fs.FsInfo(path)
+	available, capacity, usage, inodes, inodesFree, inodesUsed, err := fs.Info(path)
 	if err != nil {
 		return nil, err
 	}
@@ -856,7 +855,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 
 	// Resize file system
-	resizer := resizefs.NewResizeFs(mounter)
+	resizer := mount.NewResizeFs(realExec)
 	_, err = resizer.Resize(dev.RealDev, volumePath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,

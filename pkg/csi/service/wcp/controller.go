@@ -887,3 +887,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 	return resp, err
 }
+
+func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
+	*csi.ControllerGetVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "")
+}

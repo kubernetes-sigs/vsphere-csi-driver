@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		}()
 
 		ginkgo.By("Wait for the PVC in guest cluster to bind the lingering pv")
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, namespace, pv, pvclaim))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvclaim))
 
 		// Modify PVC spec to trigger volume expansion
 		// We expand the PVC while no pod is using it to ensure offline expansion
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(clientNewGc, namespaceNewGC, pvNew, pvcNew))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(clientNewGc, framework.NewTimeoutContextWithDefaults(), namespaceNewGC, pvNew, pvcNew))
 
 		ginkgo.By("Expanding current pvc")
 		currentPvcSize := pvcNew.Spec.Resources.Requests[v1.ResourceStorage]
