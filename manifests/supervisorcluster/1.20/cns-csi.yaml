@@ -69,9 +69,6 @@ rules:
   - apiGroups: ["netoperator.vmware.com"]
     resources: ["networkinterfaces"]
     verbs: ["get"]
-  - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsvolumeoperationrequests"]
-    verbs: ["create", "get", "list", "update", "delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
