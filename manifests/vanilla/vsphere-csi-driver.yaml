@@ -50,9 +50,6 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
-  - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsvolumeoperationrequests"]
-    verbs: ["create", "get", "list", "update", "delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -178,7 +175,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.3.0-rc.1
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
@@ -234,7 +231,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/ci/syncer:latest
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.3.0-rc.1
           args:
             - "--leader-election"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
@@ -338,7 +335,7 @@ spec:
             initialDelaySeconds: 5
             timeoutSeconds: 5
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.3.0-rc.1
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
