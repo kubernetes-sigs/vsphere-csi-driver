@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -34,12 +33,9 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	mount "k8s.io/mount-utils"
@@ -51,18 +47,17 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
 )
 
 const (
-	devDiskID                            = "/dev/disk/by-id"
-	blockPrefix                          = "wwn-0x"
-	dmiDir                               = "/sys/class/dmi"
-	maxAllowedBlockVolumesPerNode        = 59
-	defaultTopologyCRWatcherTimeoutInMin = 1
-	maxTopologyCRWatcherTimeoutInMin     = 2
+	devDiskID                     = "/dev/disk/by-id"
+	blockPrefix                   = "wwn-0x"
+	dmiDir                        = "/sys/class/dmi"
+	maxAllowedBlockVolumesPerNode = 59
 )
+
+var topologyService csinodetopology.TopologyService
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume
@@ -695,8 +690,18 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		err                error
 	)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-		accessibleTopology, err = fetchTopologyLabelsUsingCR(ctx, nodeName, nodeID)
+		// Initialize volume topology service.
+		if err = initVolumeTopologyService(ctx); err != nil {
+			return nil, err
+		}
+		// Fetch topology labels for given node.
+		nodeInfo := csinodetopology.NodeInfo{
+			NodeName: nodeName,
+			NodeID:   nodeID,
+		}
+		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
 	} else {
+		// If ImprovedVolumeTopology is not enabled, use the VC credentials to fetch node topology information.
 		var cfg *cnsconfig.Config
 		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
 		if cfgPath == "" {
@@ -716,6 +721,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to read CNS config. Error: %v", err)
 		}
+		// Fetch topology labels using VC TagManager.
 		accessibleTopology, err = fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
 	if err != nil {
@@ -735,145 +741,22 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	return nodeInfoResponse, nil
 }
 
-// fetchTopologyLabelsUsingCR uses the CSINodeTopology CR to retrieve topology information of a node.
-func fetchTopologyLabelsUsingCR(ctx context.Context, nodeName, nodeID string) (map[string]string, error) {
+// initVolumeTopologyService is a helper method to initialize
+// TopologyService in node.
+func initVolumeTopologyService(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-
-	// Get kube config.
-	config, err := k8s.GetKubeConfig(ctx)
+	// This check prevents unnecessary RLocks on the volumeTopology instance.
+	if topologyService != nil {
+		return nil
+	}
+	// Initialize the TopologyService if not done already.
+	var err error
+	topologyService, err = csinodetopology.InitTopologyServiceInterface(ctx)
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to fetch kubeconfig. Error: %+v", err)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to init topology service. Error: %+v", err)
 	}
-	// Create controller runtime client.
-	controllerRuntimeClient, err := k8s.NewClientForGroup(ctx, config, csinodetopologyv1alpha1.GroupName)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to create controllerRuntimeClient. Error: %+v", err)
-	}
-
-	// Fetch node object to set owner ref.
-	nodeObj, err := getNodeObject(ctx, nodeName)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	// Create spec for CSINodeTopology.
-	csiNodeTopologySpec := &csinodetopologyv1alpha1.CSINodeTopology{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: "v1",
-					Kind:       "Node",
-					Name:       nodeObj.Name,
-					UID:        nodeObj.UID,
-				},
-			},
-		},
-		Spec: csinodetopologyv1alpha1.CSINodeTopologySpec{
-			NodeID: nodeID,
-		},
-	}
-	// Create CSINodeTopology CR for the node.
-	err = controllerRuntimeClient.Create(ctx, csiNodeTopologySpec)
-	if err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create CSINodeTopology CR. Error: %+v", err)
-		}
-	} else {
-		log.Infof("Successfully created a CSINodeTopology instance for NodeName: %q", nodeName)
-	}
-
-	// Watch on the CSINodeTopology CR.
-	csiNodeTopologyWatcher, err := k8s.NewCSINodeTopologyWatcher(ctx, config)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to create a watcher for CSINodeTopology CR. Error: %+v", err)
-	}
-	timeoutSeconds := int64((time.Duration(getCSINodeTopologyWatchTimeoutInMin(ctx)) * time.Minute).Seconds())
-	watchCSINodeTopology, err := csiNodeTopologyWatcher.Watch(metav1.ListOptions{
-		FieldSelector:  fields.SelectorFromSet(fields.Set{"metadata.name": nodeID}).String(),
-		TimeoutSeconds: &timeoutSeconds,
-		Watch:          true,
-	})
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to watch on CSINodeTopology instance with name %q. Error: %+v", nodeName, err)
-	}
-	defer watchCSINodeTopology.Stop()
-
-	// Check if status gets updated in the instance within the given timeout seconds.
-	for event := range watchCSINodeTopology.ResultChan() {
-		csiNodeTopologyInstance, ok := event.Object.(*csinodetopologyv1alpha1.CSINodeTopology)
-		if !ok {
-			log.Debugf("Received unidentified object - %+v", event.Object)
-			continue
-		}
-		switch csiNodeTopologyInstance.Status.Status {
-		case csinodetopologyv1alpha1.CSINodeTopologySuccess:
-			accessibleTopology := make(map[string]string)
-			topologyLabels := csiNodeTopologyInstance.Status.TopologyLabels
-			for _, label := range topologyLabels {
-				accessibleTopology[label.Key] = label.Value
-			}
-			return accessibleTopology, nil
-		case csinodetopologyv1alpha1.CSINodeTopologyError:
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to retrieve topology information for Node: %q. Error: %q", nodeID,
-				csiNodeTopologyInstance.Status.ErrorMessage)
-		}
-	}
-	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"timed out while waiting for topology labels in CSINodeTopology instance with name %q to be updated.",
-		nodeID)
-}
-
-// getNodeObject fetches the node instance given the nodeName
-func getNodeObject(ctx context.Context, nodeName string) (*v1.Node, error) {
-	log := logger.GetLogger(ctx)
-
-	// Create the kubernetes client.
-	k8sClient, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("failed to create K8s client. Error: %v", err)
-		return nil, err
-	}
-	// Fetch node object.
-	nodeObj, err := k8sClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("failed to fetch node object with name %q. Error: %v", nodeName, err)
-		return nil, err
-	}
-	return nodeObj, nil
-}
-
-// getCSINodeTopologyWatchTimeoutInMin returns the timeout for watching
-// on CSINodeTopology instances for any updates.
-// If environment variable NODEGETINFO_WATCH_TIMEOUT_MINUTES is set and
-// has a valid value between [1, 2], return the interval value read
-// from environment variable. Otherwise, use the default timeout of 1 min.
-func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	watcherTimeoutInMin := defaultTopologyCRWatcherTimeoutInMin
-	if v := os.Getenv("NODEGETINFO_WATCH_TIMEOUT_MINUTES"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			switch {
-			case value <= 0:
-				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is equal or "+
-					"less than 0, will use the default timeout of %d minute(s)", v, watcherTimeoutInMin)
-			case value > maxTopologyCRWatcherTimeoutInMin:
-				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is equal or "+
-					"less than 0, will use the default timeout of %d minute(s)", v, watcherTimeoutInMin)
-			default:
-				watcherTimeoutInMin = value
-				log.Infof("Timeout is set to %d minute(s)", watcherTimeoutInMin)
-			}
-		} else {
-			log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %s is invalid, "+
-				"using the default timeout of %d minute(s)", v, watcherTimeoutInMin)
-		}
-	}
-	return watcherTimeoutInMin
+	return nil
 }
 
 // fetchTopologyLabelsUsingVCCreds retrieves topology information of the nodes
@@ -959,8 +842,8 @@ func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cn
 
 	if zone != "" && region != "" {
 		accessibleTopology := make(map[string]string)
-		accessibleTopology[v1.LabelZoneRegionStable] = region
-		accessibleTopology[v1.LabelZoneFailureDomainStable] = zone
+		accessibleTopology[v1.LabelTopologyRegion] = region
+		accessibleTopology[v1.LabelTopologyZone] = zone
 		return accessibleTopology, nil
 	}
 	return nil, nil

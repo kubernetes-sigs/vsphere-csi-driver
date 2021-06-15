@@ -55,7 +55,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
-	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
@@ -263,15 +262,15 @@ func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (
 	gvk := schema.GroupVersionKind{
 		Group:   csinodetopologyv1alpha1.GroupName,
 		Version: csinodetopologyv1alpha1.Version,
-		Kind:    csinodetopology.CRDPlural,
+		Kind:    csiNodeTopologyKind,
 	}
 
 	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
 	if err != nil {
-		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csinodetopology.CRDSingular, err)
+		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csiNodeTopologyKind, err)
 		return nil, err
 	}
-	return cache.NewListWatchFromClient(client, csinodetopology.CRDPlural, v1.NamespaceAll, fields.Everything()), nil
+	return cache.NewListWatchFromClient(client, csiNodeTopologyKind, v1.NamespaceAll, fields.Everything()), nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file.
