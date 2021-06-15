@@ -48,24 +48,25 @@ const (
 	defaultPodPollIntervalInSec = 2
 	spTypePrefix                = "cns.vmware.com/"
 	spTypeAnnotationKey         = spTypePrefix + "StoragePoolTypeHint"
-	nodeAffinityAnnotationKey   = "failure-domain.beta.vmware.com/node" // PVC annotation key to specify the node to which PV should be affinitized.
-	vsanDirectType              = spTypePrefix + "vsanD"
-	vsanSnaType                 = spTypePrefix + "vsan-sna"
-	spTypeLabelKey              = spTypePrefix + "StoragePoolType"
-	diskDecommissionModeField   = "decommMode"
+	// PVC annotation key to specify the node to which PV should be affinitized.
+	nodeAffinityAnnotationKey = "failure-domain.beta.vmware.com/node"
+	vsanDirectType            = spTypePrefix + "vsanD"
+	vsanSnaType               = spTypePrefix + "vsan-sna"
+	spTypeLabelKey            = spTypePrefix + "StoragePoolType"
+	diskDecommissionModeField = "decommMode"
 )
 
 type k8sCloudOperator struct {
 	k8sClient clientset.Interface
 }
 
-// initK8sCloudOperatorType initializes the k8sCloudOperator struct
+// initK8sCloudOperatorType initializes the k8sCloudOperator struct.
 func initK8sCloudOperatorType(ctx context.Context) (*k8sCloudOperator, error) {
 	var err error
 	k8sCloudOperator := k8sCloudOperator{}
 	log := logger.GetLogger(ctx)
 
-	// Create the kubernetes client from config
+	// Create the kubernetes client from config.
 	k8sCloudOperator.k8sClient, err = k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
@@ -74,7 +75,7 @@ func initK8sCloudOperatorType(ctx context.Context) (*k8sCloudOperator, error) {
 	return &k8sCloudOperator, nil
 }
 
-// InitK8sCloudOperatorService initializes the K8s Cloud Operator Service
+// InitK8sCloudOperatorService initializes the K8s Cloud Operator Service.
 func InitK8sCloudOperatorService(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Trying to initialize the K8s Cloud Operator gRPC service")
@@ -101,10 +102,10 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 	return nil
 }
 
-/*
- * GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation interface method
- */
-func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Context, req *PodListenerRequest) (*PodListenerResponse, error) {
+// GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation
+// interface method.
+func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Context,
+	req *PodListenerRequest) (*PodListenerResponse, error) {
 	var (
 		vmuuid   string
 		err      error
@@ -134,7 +135,8 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 		var exists bool
 		pod, err := k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Error: %+v", podName, podNamespace, err)
+			log.Errorf("Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
+				podName, podNamespace, err)
 			return false, err
 		}
 		annotations := pod.Annotations
@@ -147,11 +149,13 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 		return true, nil
 	})
 	if err != nil {
-		errMsg := fmt.Sprintf("Unable to find pod with name: %s and annotation: %s on namespace: %s in timeout: %d period. Error: %+v", podName, vmUUIDLabel, podNamespace, timeout, err)
+		errMsg := fmt.Sprintf("Unable to find pod %s and annotation %s on namespace %s in timeout: %d. Err: %+v",
+			podName, vmUUIDLabel, podNamespace, timeout, err)
 		log.Errorf(errMsg)
 		return nil, fmt.Errorf(errMsg)
 	}
-	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s", vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
+	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s",
+		vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
 	response := PodListenerResponse{VmuuidAnnotation: vmuuid}
 	return &response, nil
 }
@@ -167,23 +171,23 @@ func getPodPollIntervalInSecs(ctx context.Context) int {
 	if v := os.Getenv("POD_POLL_INTERVAL_SECONDS"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Poll Interval to query the Pod Info from API server set in env variable POD_POLL_INTERVAL_SECONDS %s is equal or less than 0, will use the default interval %d", v, defaultPodPollIntervalInSec)
+				log.Warnf("Poll Interval to query Pod Info: POD_POLL_INTERVAL_SECONDS=%s is invalid, use default %d",
+					v, defaultPodPollIntervalInSec)
 			} else {
 				podPollIntervalInSec = value
 				log.Debugf("Poll Interval to query the Pod Info from API server is set to %d seconds", podPollIntervalInSec)
 			}
 		} else {
-			log.Warnf("Poll Interval to query the Pod Info from API server set in env variable PODVM_POLL_INTERVAL_SECONDS %s is invalid, will use the default interval", v)
+			log.Warnf("Poll Interval to query Pod Info: PODVM_POLL_INTERVAL_SECONDS=%s is invalid, use default", v)
 		}
 	}
 	return podPollIntervalInSec
 }
 
-/*
- * getPVWithVolumeID queries API server to get PV
- * referring to the given volumeID
- */
-func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context, volumeID string) (*v1.PersistentVolume, error) {
+// getPVWithVolumeID queries API server to get PV referring to the given
+// volumeID.
+func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
+	volumeID string) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	allPVs, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -191,7 +195,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 		return nil, err
 	}
 	for _, pv := range allPVs.Items {
-		// Verify if it is vsphere block driver and volumehandle matches the volume ID
+		// Verify if it is vsphere block driver and volumehandle matches the
+		// volume ID.
 		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Spec.CSI.VolumeHandle == volumeID {
 			log.Debugf("Found PV: %+v referring to volume ID: %s", pv, volumeID)
 			return &pv, nil
@@ -202,27 +207,29 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 	return nil, fmt.Errorf(errMsg)
 }
 
-/*
- * getPod returns the pod spec for the pod satisfying the below conditions
- * 1. Pod Scheduled on node with name "nodeName"
- * 2. Pod is in pending state in the same namespace as pvc specified using "pvcNamespace"
- * 3. Pod has a volume with name "pvcName" associated with it
- */
+// getPod returns the pod spec for the pod satisfying the below conditions.
+// 1. Pod Scheduled on node with name "nodeName".
+// 2. Pod is in pending state in the same namespace as pvc specified using
+//    "pvcNamespace".
+// 3. Pod has a volume with name "pvcName" associated with it.
 func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName string, pvcNamespace string,
 	nodeName string) (*v1.Pod, error) {
 	log := logger.GetLogger(ctx)
 	pods, err := k8sCloudOperator.k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{
-		FieldSelector: fields.AndSelectors(fields.SelectorFromSet(fields.Set{"spec.nodeName": string(nodeName)}), fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)})).String(),
+		FieldSelector: fields.AndSelectors(
+			fields.SelectorFromSet(fields.Set{"spec.nodeName": string(nodeName)}),
+			fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)})).String(),
 	})
 
 	if err != nil {
-		errMsg := fmt.Sprintf("Cannot find pod with namespace: %s running on node: %s with error %+v", pvcNamespace, nodeName, err)
+		errMsg := fmt.Sprintf("Cannot find pod with namespace: %s running on node: %s with error %+v",
+			pvcNamespace, nodeName, err)
 		log.Errorf(errMsg)
 		return nil, fmt.Errorf(errMsg)
 	}
 	log.Debugf("Returned pods: %+v with namespace: %s running on node: %s", spew.Sdump(pods), pvcNamespace, nodeName)
 
-	// Identify the pod that a volume with name "pvcName" associated with it
+	// Identify the pod that a volume with name "pvcName" associated with it.
 	for _, pod := range pods.Items {
 		for _, volume := range pod.Spec.Volumes {
 			pvClaim := volume.VolumeSource.PersistentVolumeClaim
@@ -235,14 +242,14 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		}
 	}
 
-	errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s", pvcName, pvcNamespace, nodeName)
+	errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s",
+		pvcName, pvcNamespace, nodeName)
 	log.Error(errMsg)
 	return nil, fmt.Errorf(errMsg)
 }
 
-/*
- * GetHostAnnotation provide the implementation for the GetHostAnnotation interface method
- */
+// GetHostAnnotation provide the implementation for the GetHostAnnotation
+// interface method.
 func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	req *HostAnnotationRequest) (*HostAnnotationResponse, error) {
 	var (
@@ -267,12 +274,13 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	return response, nil
 }
 
-//response of PlacePersistenceVolumeClaim RPC call include only success tag
-//pvc does not have a storage pool annotation and does not need a storage pool annotation — that is case 1
-//pvc already has a annotation  - case 2
-//pvc needs a storage pool annotation and we cant find one - case 3
-//pvc needs an annotation and we can find one - case 4
-//everything other than case 3 is success
+// Response of PlacePersistenceVolumeClaim RPC call include only success tag.
+// Case 1: pvc does not have a storage pool annotation and does not need a
+//         storage pool annotation.
+// Case 2: pvc already has a annotation.
+// Case 3: pvc needs a storage pool annotation and we cant find one.
+// Case 4: pvc needs an annotation and we can find one.
+// Everything other than case 3 is success.
 func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx context.Context,
 	req *PVCPlacementRequest) (*PVCPlacementResponse, error) {
 
@@ -285,7 +293,8 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, nil
 	}
 
-	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
+	pvc, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumeClaims(
+		req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("Fail to retrieve targeted PVC %s from API server with error %s", pvc, err)
 		return out, err
@@ -308,7 +317,8 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, nil
 	}
 
-	// Abort placement if the storage class has Immediate volume binding and nodeAffinity PVC annotation is not specified
+	// Abort placement if the storage class has Immediate volume binding and
+	// nodeAffinity PVC annotation is not specified.
 	if *sc.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
 		if _, ok := pvc.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; !ok {
 			log.Debugf("Aborting placement for PVC[%s] as neither volume binding of the storage class is [%s] "+
@@ -329,10 +339,12 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	return out, err
 }
 
-// GetStorageVMotionPlan provide the implementation for the GetHostAnnotation interface method
-// It creates a storage vMotion plan as a map where keys are PVs residing in the specified vSAN Direct Datastore
-// and values are other vSAN Direct Datastores into which the PV should be migrated.
-func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Context, req *StorageVMotionRequest) (*StorageVMotionResponse, error) {
+// GetStorageVMotionPlan provide the implementation for the GetHostAnnotation
+// interface method. It creates a storage vMotion plan as a map where keys are
+// PVs residing in the specified vSAN Direct Datastore and values are other
+// vSAN Direct Datastores into which the PV should be migrated.
+func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Context,
+	req *StorageVMotionRequest) (*StorageVMotionResponse, error) {
 	log := logger.GetLogger(ctx)
 	out := &StorageVMotionResponse{
 		SvMotionPlan: nil,
@@ -341,7 +353,8 @@ func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Cont
 		log.Errorf("no right inputs given to GetStorageVMotionPlan")
 		return out, fmt.Errorf("malformed request provided to GetStorageVMotionPlan")
 	}
-	log.Debugf("received GetStorageVMotionPlan for StoragePool %v and maintenance mode %v", req.StoragePoolName, req.MaintenanceMode)
+	log.Debugf("received GetStorageVMotionPlan for StoragePool %v and maintenance mode %v",
+		req.StoragePoolName, req.MaintenanceMode)
 	svMotionPlan, err := GetSVMotionPlan(ctx, k8sCloudOperator.k8sClient, req.StoragePoolName, req.MaintenanceMode)
 	if err != nil {
 		log.Errorf("Failed to get SvMotion plan. Error: %v", err)
