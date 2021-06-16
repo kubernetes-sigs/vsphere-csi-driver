@@ -24,11 +24,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,14 +41,14 @@ const (
 	CRDSingular = "csinodetopology"
 	// CRDPlural represents the plural name of csinodetopology CRD.
 	CRDPlural = "csinodetopologies"
-	// defaultTopologyCRWatcherTimeoutInMin is the default duration for which
+	// defaultTimeoutInMin is the default duration for which
 	// the topology service client will watch on the CSINodeTopology instance to check
 	// if the Status has been updated successfully.
-	defaultTopologyCRWatcherTimeoutInMin = 1
-	// maxTopologyCRWatcherTimeoutInMin is the maximum duration for which
+	defaultTimeoutInMin = 1
+	// maxTimeoutInMin is the maximum duration for which
 	// the topology service client will watch on the CSINodeTopology instance to check
 	// if the Status has been updated successfully.
-	maxTopologyCRWatcherTimeoutInMin = 2
+	maxTimeoutInMin = 2
 )
 
 // NodeInfo contains the information required for the TopologyService to
@@ -61,24 +60,27 @@ type NodeInfo struct {
 	NodeID string
 }
 
-// TopologyService is an interface which exposes functionality related to topology feature.
+// TopologyService is an interface which exposes functionality related to topology aware Kubernetes clusters.
 type TopologyService interface {
-	// GetNodeTopologyLabels fetches the topology labels on the ancestors of NodeVM given the NodeInfo.
+	// GetNodeTopologyLabels fetches the topology labels from the ancestors of NodeVM given the NodeInfo.
 	GetNodeTopologyLabels(ctx context.Context, info *NodeInfo) (map[string]string, error)
 }
 
-// volumeTopology stores information required for the TopologyService interface.
+// volumeTopology implements the TopologyService interface.
 type volumeTopology struct {
-	// k8sClient helps operate on CSINodeTopology custom resource.
-	k8sClient client.Client
+	// csiNodeTopologyK8sClient helps operate on CSINodeTopology custom resource.
+	csiNodeTopologyK8sClient client.Client
 	// csiNodeTopologyWatcher is a watcher instance on the CSINodeTopology custom resource.
 	csiNodeTopologyWatcher *cache.ListWatch
+	// k8sClient is a kubernetes client.
+	k8sClient clientset.Interface
 }
 
 var (
-	// volumeTopologyInstance is instance of volumeTopology and implements TopologyService interface.
+	// volumeTopologyInstance is a singleton instance of volumeTopology.
 	volumeTopologyInstance *volumeTopology
-	// volumeTopologyInstanceLock is used for handling race conditions during read, write on volumeTopologyInstance
+	// volumeTopologyInstanceLock is used for handling race conditions during read, write on volumeTopologyInstance.
+	// It is only used during the instantiation of volumeTopologyInstance.
 	volumeTopologyInstanceLock = &sync.RWMutex{}
 )
 
@@ -104,7 +106,7 @@ func InitTopologyServiceInterface(ctx context.Context) (TopologyService, error) 
 			// Create client to API server.
 			k8sclient, err := k8s.NewClientForGroup(ctx, config, csinodetopologyv1alpha1.GroupName)
 			if err != nil {
-				log.Errorf("failed to create k8sClient with error: %v", err)
+				log.Errorf("failed to create K8s client for CSINodeTopology resource with error: %v", err)
 				return nil, err
 			}
 
@@ -115,9 +117,17 @@ func InitTopologyServiceInterface(ctx context.Context) (TopologyService, error) 
 				return nil, err
 			}
 
+			// Create the kubernetes client.
+			k8sClient, err := k8s.NewClient(ctx)
+			if err != nil {
+				log.Errorf("failed to create K8s client. Error: %v", err)
+				return nil, err
+			}
+
 			volumeTopologyInstance = &volumeTopology{
-				k8sClient:              k8sclient,
-				csiNodeTopologyWatcher: crWatcher,
+				csiNodeTopologyK8sClient: k8sclient,
+				csiNodeTopologyWatcher:   crWatcher,
+				k8sClient:                k8sClient,
 			}
 		}
 	} else {
@@ -133,9 +143,10 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 	log := logger.GetLogger(ctx)
 
 	// Fetch node object to set owner ref.
-	nodeObj, err := getNodeObject(ctx, info.NodeName)
+	nodeObj, err := volTopology.k8sClient.CoreV1().Nodes().Get(ctx, info.NodeName, metav1.GetOptions{})
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to fetch node object with name %q. Error: %v", info.NodeName, err)
 	}
 	// Create spec for CSINodeTopology.
 	csiNodeTopologySpec := &csinodetopologyv1alpha1.CSINodeTopology{
@@ -155,7 +166,7 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 		},
 	}
 	// Create CSINodeTopology CR for the node.
-	err = volTopology.k8sClient.Create(ctx, csiNodeTopologySpec)
+	err = volTopology.csiNodeTopologyK8sClient.Create(ctx, csiNodeTopologySpec)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -205,25 +216,6 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 		info.NodeName)
 }
 
-// getNodeObject fetches the node instance given the nodeName
-func getNodeObject(ctx context.Context, nodeName string) (*v1.Node, error) {
-	log := logger.GetLogger(ctx)
-
-	// Create the kubernetes client.
-	k8sClient, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("failed to create K8s client. Error: %v", err)
-		return nil, err
-	}
-	// Fetch node object.
-	nodeObj, err := k8sClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("failed to fetch node object with name %q. Error: %v", nodeName, err)
-		return nil, err
-	}
-	return nodeObj, nil
-}
-
 // getCSINodeTopologyWatchTimeoutInMin returns the timeout for watching
 // on CSINodeTopology instances for any updates.
 // If environment variable NODEGETINFO_WATCH_TIMEOUT_MINUTES is set and
@@ -231,16 +223,16 @@ func getNodeObject(ctx context.Context, nodeName string) (*v1.Node, error) {
 // from environment variable. Otherwise, use the default timeout of 1 min.
 func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
-	watcherTimeoutInMin := defaultTopologyCRWatcherTimeoutInMin
+	watcherTimeoutInMin := defaultTimeoutInMin
 	if v := os.Getenv("NODEGETINFO_WATCH_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			switch {
 			case value <= 0:
 				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %q is equal or "+
 					"less than 0, will use the default timeout of %d minute(s)", v, watcherTimeoutInMin)
-			case value > maxTopologyCRWatcherTimeoutInMin:
+			case value > maxTimeoutInMin:
 				log.Warnf("Timeout set in env variable NODEGETINFO_WATCH_TIMEOUT_MINUTES %q is greater than "+
-					"%d, will use the default timeout of %d minute(s)", v, maxTopologyCRWatcherTimeoutInMin,
+					"%d, will use the default timeout of %d minute(s)", v, maxTimeoutInMin,
 					watcherTimeoutInMin)
 			default:
 				watcherTimeoutInMin = value
