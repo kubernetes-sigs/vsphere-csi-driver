@@ -100,9 +100,32 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
-// CheckAPI checks if specified version is 6.7.3 or higher.
-func CheckAPI(version string) error {
-	items := strings.Split(version, ".")
+// CheckSnapshotSupport internally checks if the vCenter version is 7.0.3
+func CheckSnapshotSupport(ctx context.Context, manager *Manager) bool {
+	log := logger.GetLogger(ctx)
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		log.Errorf("failed to get vCenter while checking for Snapshot support on vCenter. err=%v", err)
+		return false
+	}
+	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
+	err = CheckAPI(currentVcVersion, SnapshotSupportedVCenterMajor, SnapshotSupportedVCenterMinor,
+		SnapshotSupportedVCenterPatch)
+	if err != nil {
+		log.Errorf("checkAPI failed for snapshot support on vCenter API version: %s, err=%v", currentVcVersion, err)
+		return false
+	}
+	// vCenter version supported.
+	log.Infof("vCenter API version: %s supports CNS snapshots.", currentVcVersion)
+	return true
+}
+
+// CheckAPI checks if specified version against the specified minimum support version.
+func CheckAPI(versionToCheck string,
+	minSupportedVCenterMajor int,
+	minSupportedVCenterMinor int,
+	minSupportedVCenterPatch int) error {
+	items := strings.Split(versionToCheck, ".")
 	if len(items) < 2 || len(items) > 4 {
 		return fmt.Errorf("invalid API Version format")
 	}
@@ -115,14 +138,14 @@ func CheckAPI(version string) error {
 		return fmt.Errorf("invalid Minor Version value")
 	}
 
-	if major < MinSupportedVCenterMajor || (major == MinSupportedVCenterMajor && minor < MinSupportedVCenterMinor) {
-		return fmt.Errorf("the minimum supported vCenter is 6.7.3")
+	if major < minSupportedVCenterMajor || (major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor) {
+		return fmt.Errorf("the minimum supported vCenter is %d.%d.%d", minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	}
 
-	if major == MinSupportedVCenterMajor && minor == MinSupportedVCenterMinor {
+	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
 		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
-			if err != nil || patch < MinSupportedVCenterPatch {
+			if err != nil || patch < minSupportedVCenterPatch {
 				return fmt.Errorf("invalid patch version value")
 			}
 		}

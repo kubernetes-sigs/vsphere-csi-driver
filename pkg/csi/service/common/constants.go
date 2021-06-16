@@ -113,6 +113,18 @@ const (
 	// on which CNS is supported.
 	MinSupportedVCenterPatch int = 3
 
+	// SnapshotSupportedVCenterMajor is the minimum major version of vCenter
+	// on which Snapshot feature is supported.
+	SnapshotSupportedVCenterMajor int = 7
+
+	// SnapshotSupportedVCenterMinor is the minimum minor version of vCenter
+	// on which Snapshot feature is supported.
+	SnapshotSupportedVCenterMinor int = 0
+
+	// SnapshotSupportedVCenterPatch is the minimum patch version of vCenter
+	// on which Snapshot feature is supported.
+	SnapshotSupportedVCenterPatch int = 3
+
 	// VSphere67u3Version is the minimum vSphere version to use Vslm APIs
 	// to support volume migration feature
 	VSphere67u3Version string = "6.7.3"
@@ -252,4 +264,6 @@ const (
 	// to topology feature:
 	// 1. Avoid taking in VC credentials in node daemonset.
 	ImprovedVolumeTopology = "improved-volume-topology"
+	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block volume on vSphere CSI driver.
+	BlockVolumeSnapshot = "block-volume-snapshot"
 )
