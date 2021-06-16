@@ -47,22 +47,22 @@ var virtualNetworkGVR = schema.GroupVersionResource{
 
 const (
 	snatIPAnnotation = "ncp/snat_ip"
-	// Namespace for system resources
+	// Namespace for system resources.
 	kubeSystemNamespace = "kube-system"
-	// WCP configmap that contains info about networking configuration
+	// WCP configmap that contains info about networking configuration.
 	wcpNetworkConfigMap = "wcp-network-config"
-	// Key for network-provider field in 'wcp-network-config' configmap
+	// Key for network-provider field in 'wcp-network-config' configmap.
 	networkProvider = "network_provider"
-	// NSXTNetworkProvider holds the network provider name for NSX-T based setups
+	// NSXTNetworkProvider holds the network provider name for NSX-T based setups.
 	NSXTNetworkProvider = "NSXT_CONTAINER_PLUGIN"
-	// VDSNetworkProvider holds the network provider name for VDS based setups
+	// VDSNetworkProvider holds the network provider name for VDS based setups.
 	VDSNetworkProvider = "VSPHERE_NETWORK"
 )
 
-// GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName
+// GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
 func GetVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
 	log := logger.GetLogger(ctx)
-	// Get PVC by pvcName from namespace
+	// Get PVC by pvcName from namespace.
 	pvc := &v1.PersistentVolumeClaim{}
 	// TODO:
 	// Enhancements to use informers instead of API server invocations is tracked here:
@@ -74,7 +74,7 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 		return "", err
 	}
 
-	// Get PV by name
+	// Get PV by name.
 	pv := &v1.PersistentVolume{}
 	err = client.Get(ctx, apitypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
 	if err != nil {
@@ -86,8 +86,10 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 }
 
 // GetTKGVMIP finds the external facing IP address of a TKG VM object from a
-// given Supervisor Namespace based on the networking configuration (NSX-T or VDS)
-func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.Interface, vmNamespace, vmName string, nsxConfiguration bool) (string, error) {
+// given Supervisor Namespace based on the networking configuration (NSX-T or
+// VDS).
+func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.Interface,
+	vmNamespace, vmName string, nsxConfiguration bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
 	virtualMachineInstance := &vmoperatortypes.VirtualMachine{}
@@ -113,18 +115,21 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	var ip string
 	var exists bool
 	if nsxConfiguration {
-		virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx, networkName, metav1.GetOptions{})
+		virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx,
+			networkName, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
-		log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v", vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
+		log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v",
+			vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
 		ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
 		if !exists {
 			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
 		}
 	} else {
 		networkInterfaceName := networkName + "-" + vmName
-		networkInterfaceInstance, err := dc.Resource(networkInterfaceGVR).Namespace(vmNamespace).Get(ctx, networkInterfaceName, metav1.GetOptions{})
+		networkInterfaceInstance, err := dc.Resource(networkInterfaceGVR).Namespace(vmNamespace).Get(ctx,
+			networkInterfaceName, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
@@ -134,29 +139,32 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			return "", err
 		}
 		if !exists {
-			return "", fmt.Errorf("status.ipConfigs does not exist in NetworkInterface instance %s/%s", vmNamespace, networkInterfaceName)
+			return "", fmt.Errorf("status.ipConfigs does not exist in NetworkInterface instance %s/%s",
+				vmNamespace, networkInterfaceName)
 		}
 		if len(ipConfigs) == 0 {
-			return "", fmt.Errorf("length of status.ipConfigs should be greater than one for NetworkInterface instance %s/%s", vmNamespace, networkInterfaceName)
+			return "", fmt.Errorf("length of status.ipConfigs should be greater than one for NetworkInterface instance %s/%s",
+				vmNamespace, networkInterfaceName)
 		}
-		// Assuming only a single ipConfig is supported per VM. Revisit this logic when
-		// multiple ipConfigs are supported.
+		// Assuming only a single ipConfig is supported per VM. Revisit this logic
+		// when multiple ipConfigs are supported.
 		ip, exists, err = unstructured.NestedString(ipConfigs[0].(map[string]interface{}), "ip")
 		if err != nil {
 			return "", err
 		}
 		if !exists {
-			return "", fmt.Errorf("status.ipConfigs.ip does not exist in NetworkInterface instance %s/%s", vmNamespace, networkInterfaceName)
+			return "", fmt.Errorf("status.ipConfigs.ip does not exist in NetworkInterface instance %s/%s",
+				vmNamespace, networkInterfaceName)
 		}
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
 	return ip, nil
 }
 
-// GetNetworkProvider reads the network-config configmap in Supervisor cluster
-// Returns the network provider as NSXT_CONTAINER_PLUGIN for NSX-T OR
-// Returns the network provider as VSPHERE_NETWORK for VDS.
-// Returns an error if network provider is not present in the configmap.
+// GetNetworkProvider reads the network-config configmap in Supervisor cluster.
+// Returns the network provider as NSXT_CONTAINER_PLUGIN for NSX-T, or
+// VSPHERE_NETWORK for VDS. Otherwise, returns an error, if network provider is
+// not present in the configmap.
 func GetNetworkProvider(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	k8sclient, err := k8s.NewClient(ctx)
@@ -166,7 +174,8 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 	}
 	cm, err := k8sclient.CoreV1().ConfigMaps(kubeSystemNamespace).Get(ctx, wcpNetworkConfigMap, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to get config map %q in namespace %q. Err: %v", wcpNetworkConfigMap, kubeSystemNamespace, err)
+		return "", fmt.Errorf("failed to get config map %q in namespace %q. Err: %v",
+			wcpNetworkConfigMap, kubeSystemNamespace, err)
 	}
 
 	for k, v := range cm.Data {
@@ -176,5 +185,6 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q", wcpNetworkConfigMap, kubeSystemNamespace)
+	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
+		wcpNetworkConfigMap, kubeSystemNamespace)
 }
