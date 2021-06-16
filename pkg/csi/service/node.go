@@ -648,17 +648,17 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	nodeID := os.Getenv("NODE_NAME")
 	if nodeID == "" {
-		return nil, logger.LogNewErrorCode(log, codes.Internal, "env NODE_NAME is not set")
+		return nil, logger.LogNewErrorCode(log, codes.Internal, "ENV NODE_NAME is not set")
 	}
 	var maxVolumesPerNode int64
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
 		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if value < 0 {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"nodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is less than 0", v)
+					"NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is less than 0", v)
 			} else if value > maxAllowedBlockVolumesPerNode {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"nodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is more than %v",
+					"NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is more than %v",
 					v, maxAllowedBlockVolumesPerNode)
 			} else {
 				maxVolumesPerNode = value
@@ -666,7 +666,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			}
 		} else {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"nodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is invalid", v)
+				"NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is invalid", v)
 		}
 	}
 
