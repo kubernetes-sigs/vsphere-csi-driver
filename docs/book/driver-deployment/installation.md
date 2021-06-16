@@ -73,7 +73,7 @@ Where the entries have the following meaning:
 
 - `cluster-id` - represents the unique cluster identifier. Each kubernetes cluster should have it's own unique cluster-id set in the configuration file. The cluster ID should not exceed 64 characters.
 
-- `cluster-distribution` - represents the distribution of the kubernetes cluster. This parameter is optional but will be made mandatory in a future release. Examples are `Openshift`, `Anthos` and `PKS`.
+- `cluster-distribution` - represents the distribution of the kubernetes cluster. This parameter is optional but will be made mandatory in a future release. Examples are `Openshift`, `Anthos` and `TKGI`.
 
   - values with special character `\r` causes vSphere CSI controller to go into CrashLoopBackOff state.
 
