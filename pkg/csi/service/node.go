@@ -104,12 +104,12 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"Volume capability not provided")
+			"volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"Volume capability not supported. Err: %+v", err)
+			"volume capability not supported. Err: %+v", err)
 	}
 
 	var err error
@@ -283,7 +283,7 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 		log.Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
 		if err := gofsutil.Unmount(ctx, stagingTarget); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Error unmounting stagingTarget: %v", err)
+				"error unmounting stagingTarget: %v", err)
 		}
 	}
 	log.Infof("NodeUnstageVolume successful for target %q for volume %q", stagingTarget, volID)
@@ -370,12 +370,12 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	volCap := req.GetVolumeCapability()
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"Volume capability not provided")
+			"volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"Volume capability not supported. Err: %+v", err)
+			"volume capability not supported. Err: %+v", err)
 	}
 
 	// Check if this is a MountVolume or BlockVolume
@@ -473,7 +473,7 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 		log.Infof("NodeUnpublishVolume: Attempting to unmount target %q for volume %q", target, volID)
 		if err := gofsutil.Unmount(ctx, target); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Error unmounting target %q for volume %q. %q", target, volID, err.Error())
+				"error unmounting target %q for volume %q. %q", target, volID, err.Error())
 		}
 		log.Debugf("Unmount successful for target %q for volume %q", target, volID)
 		// TODO Use a go routine here. The deletion of target path might not be a good reason to error out
@@ -507,7 +507,7 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 			"already complete for volume %q and target path %q", volID, target)
 		if err := rmpath(ctx, target); err != nil {
 			return false, logger.LogNewErrorCodef(log, codes.Internal,
-				"Failed to delete the target path %q. Error: %v", target, err)
+				"failed to delete the target path %q. Error: %v", target, err)
 		}
 		log.Debugf("isBlockVolumePublished: Target path %q successfully deleted", target)
 		return false, nil
@@ -917,7 +917,7 @@ func publishMountVol(
 	_, err = mkdir(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Unable to create target dir: %q, err: %v", params.target, err)
+			"unable to create target dir: %q, err: %v", params.target, err)
 	}
 	log.Debugf("PublishMountVolume: Created target path %q", params.target)
 
@@ -960,7 +960,7 @@ func publishMountVol(
 		}
 	} else if len(devMnts) == 0 {
 		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"Volume ID: %q does not appear staged to %q", req.GetVolumeId(), params.stagingTarget)
+			"volume ID: %q does not appear staged to %q", req.GetVolumeId(), params.stagingTarget)
 	}
 
 	// Do the bind mount to publish the volume
@@ -991,7 +991,7 @@ func publishBlockVol(
 	_, err := mkfile(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Unable to create target file: %q, err: %v", params.target, err)
+			"unable to create target file: %q, err: %v", params.target, err)
 	}
 	log.Debugf("publishBlockVol: Target %q created", params.target)
 
@@ -1057,7 +1057,7 @@ func publishFileVol(
 	_, err = mkdir(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Unable to create target dir: %q, err: %v", params.target, err)
+			"unable to create target dir: %q, err: %v", params.target, err)
 	}
 	log.Debugf("PublishFileVolume: Created target path %q", params.target)
 
@@ -1099,7 +1099,7 @@ func publishFileVol(
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"NFSv4 accesspoint not set in publish context")
+			"nfs v4 accesspoint not set in publish context")
 	}
 	// Directly mount the file share volume to the pod. No bind mount required.
 	log.Debugf("PublishFileVolume: Attempting to mount %q to %q with fstype %q and mountflags %v",
@@ -1221,7 +1221,7 @@ func verifyVolumeAttached(ctx context.Context, diskID string) (string, error) {
 	volPath, err := getDiskPath(diskID, nil)
 	if err != nil {
 		return "", logger.LogNewErrorCodef(log, codes.Internal,
-			"Error trying to read attached disks: %v", err)
+			"error trying to read attached disks: %v", err)
 	}
 	if volPath == "" {
 		return "", logger.LogNewErrorCodef(log, codes.NotFound,
@@ -1322,7 +1322,7 @@ func rmpath(ctx context.Context, target string) error {
 	log.Debugf("removing target path: %q", target)
 	if err := os.Remove(target); err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
-			"Unable to remove target path: %s, err: %v", target, err)
+			"unable to remove target path: %s, err: %v", target, err)
 	}
 	return nil
 }
@@ -1390,7 +1390,7 @@ func getDiskID(pubCtx map[string]string, log *zap.SugaredLogger) (string, error)
 	var ok bool
 	if diskID, ok = pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
 		return "", logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"Attribute: %s required in publish context",
+			"attribute: %s required in publish context",
 			common.AttributeFirstClassDiskUUID)
 	}
 	return diskID, nil

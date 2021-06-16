@@ -44,7 +44,7 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 				queryAsyncNotSupported = true
 			} else { // Return for any other failures
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
+					"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
 		}
 	}
@@ -52,7 +52,7 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 		queryResult, err = m.QueryVolume(ctx, queryFilter)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"QueryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
+				"queryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 		}
 	}
 	return queryResult, nil
@@ -76,7 +76,7 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 				queryAsyncNotSupported = true
 			} else { // Return for any other failures
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
+					"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
 		}
 	}
@@ -84,7 +84,7 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 		queryResult, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"QueryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
+				"queryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 		}
 	}
 	return queryResult, nil
