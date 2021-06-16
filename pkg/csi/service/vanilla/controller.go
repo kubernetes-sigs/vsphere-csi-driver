@@ -419,7 +419,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// If zone and region label (vSphere category names) not specified in
 			// the config secret, then return NotFound error.
 			return nil, logger.LogNewErrorCode(log, codes.NotFound,
-				"Zone/Region vsphere category names not specified in the vsphere config secret")
+				"zone/region vsphere category names not specified in the vsphere config secret")
 		}
 		vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 		if err != nil {
@@ -455,7 +455,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if !isDataStoreAccessible {
 				return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"DatastoreURL: %s specified in the storage class is not accessible in the topology:[+%v]",
+					"datastore URL: %s specified in the storage class is not accessible in the topology:[+%v]",
 					createVolumeSpec.ScParams.DatastoreURL, topologyRequirement)
 			}
 		}
@@ -533,7 +533,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
 			} else {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"QueryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
+					"queryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
 			}
 		} else {
 			// Retrieve datastoreURL from placementResults.
