@@ -153,7 +153,7 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"QueryVolume failed with err=%+v", err.Error())
+				"queryVolume failed with err=%+v", err.Error())
 		}
 		if queryResult == nil {
 			log.Info("Observed empty queryResult")

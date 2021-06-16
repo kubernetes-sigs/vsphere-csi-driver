@@ -331,7 +331,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"Error in specified StoragePool %s. Error: %+v", storagePool, err)
+					"error in specified StoragePool %s. Error: %+v", storagePool, err)
 			}
 			overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
 			if err != nil || len(overlappingNodes) == 0 {
@@ -827,7 +827,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log := logger.GetLogger(ctx)
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 			return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
-				"ExpandVolume feature is disabled on the cluster")
+				"expandVolume feature is disabled on the cluster")
 		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
