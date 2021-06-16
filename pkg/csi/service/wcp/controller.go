@@ -325,17 +325,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		} else if param == common.AttributeStoragePool {
 			storagePool = req.Parameters[paramName]
 			if !isValidAccessibilityRequirement(topologyRequirement) {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid accessibility requirements")
+				return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"invalid accessibility requirements")
 			}
 			spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 			if err != nil {
-				msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"Error in specified StoragePool %s. Error: %+v", storagePool, err)
 			}
 			overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
 			if err != nil || len(overlappingNodes) == 0 {
-				msg := fmt.Sprintf("getOverlappingNodes failed: %v", err)
-				return nil, status.Errorf(codes.Internal, msg)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"getOverlappingNodes failed: %v", err)
 			}
 			accessibleNodes = append(accessibleNodes, overlappingNodes...)
 			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
@@ -343,20 +344,20 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			if storagePoolType == vsanDirect {
 				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
 				if err != nil {
-					msg := fmt.Sprintf("Error in specified StoragePool %s. Error: %+v", storagePool, err)
-					log.Error(msg)
-					return nil, status.Errorf(codes.Internal, msg)
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"error in specified StoragePool %s. Error: %+v", storagePool, err)
 				}
 				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
 			} else if storagePoolType == vsanSna {
 				// Query API server to get ESX Host Moid from the hostLocalNodeName
 				if len(accessibleNodes) != 1 {
-					return nil, status.Errorf(codes.Internal, "too many accessible nodes")
+					return nil, logger.LogNewErrorCode(log, codes.Internal,
+						"too many accessible nodes")
 				}
 				hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
 				if err != nil {
-					log.Error(err)
-					return nil, status.Errorf(codes.Internal, "failed to get ESX Host Moid from API server")
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get ESX Host Moid from API server. Error: %+v", err)
 				}
 				affineToHost = hostMoid
 				log.Debugf("Setting the affineToHost value as %s", affineToHost)
@@ -376,23 +377,20 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// Get candidate datastores for the Kubernetes cluster
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get vCenter from Manager. Error: %v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter from Manager. Error: %v", err)
 	}
 	sharedDatastores, vsanDirectDatastores, err := getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
 	if err != nil {
-		msg := fmt.Sprintf("Failed finding candidate datastores to place volume. Error: %v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed finding candidate datastores to place volume. Error: %v", err)
 	}
 
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
 	if err != nil {
-		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create volume. Error: %+v", err)
 	}
 
 	attributes := make(map[string]string)
@@ -472,16 +470,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 
 	if len(filteredDatastores) == 0 {
-		msg := "no datastores found to create file volume"
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCode(log, codes.Internal,
+			"no datastores found to create file volume")
 	}
 	volumeID, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 		c.manager, &createVolumeSpec, filteredDatastores)
 	if err != nil {
-		msg := fmt.Sprintf("failed to create volume. Error: %+v", err)
-		log.Error(msg)
-		return nil, status.Errorf(codes.Internal, msg)
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create volume. Error: %+v", err)
 	}
 
 	attributes := make(map[string]string)
@@ -526,9 +522,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 		if !isBlockRequest {
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-				msg := "File volume feature is disabled on the cluster"
-				log.Warn(msg)
-				return nil, status.Errorf(codes.Unimplemented, msg)
+				return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+					"file volume feature is disabled on the cluster")
 			}
 			return c.createFileVolume(ctx, req)
 		}
@@ -567,9 +562,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		// TODO: Add code to determine the volume type and set volumeType for Prometheus metric accordingly.
 		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
-			msg := fmt.Sprintf("failed to delete volume: %q. Error: %+v", req.VolumeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		}
 		return &csi.DeleteVolumeResponse{}, nil
 	}
@@ -606,16 +600,16 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 		vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8sCloudOperator service when processing attach for volumeID: %s on node: %s. Error: %+v", req.VolumeId, req.NodeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get the pod vmuuid annotation from the k8sCloudOperator service "+
+					"when processing attach for volumeID: %s on node: %s. Error: %+v",
+				req.VolumeId, req.NodeId, err)
 		}
 
 		vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
 		if err != nil {
-			msg := fmt.Sprintf("failed to get datacenter from config with error: %+v", err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get datacenter from config with error: %+v", err)
 		}
 		var vCenterHost, dcMorefValue string
 		for key, value := range vcdcMap {
@@ -624,25 +618,23 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 		vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
 		if err != nil {
-			msg := fmt.Sprintf("Cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
 				vc.Config.Host, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
 		}
 
 		// Connect to VC
 		err = vc.Connect(ctx)
 		if err != nil {
-			msg := fmt.Sprintf("failed to connect to Virtual Center: %s", vc.Config.Host)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to connect to Virtual Center: %s", vc.Config.Host)
 		}
 
 		podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
 		if err != nil {
-			msg := fmt.Sprintf("failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v", vmuuid, dcMorefValue, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v",
+				vmuuid, dcMorefValue, err)
 		}
 
 		// Attach the volume to the node
@@ -655,18 +647,16 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				if !common.IsFileVolumeRequest(ctx, capabilities) { //Block volume
 					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx, req.VolumeId, c.manager.VolumeManager)
 					if err != nil {
-						msg := fmt.Sprintf("failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
-						log.Error(msg)
-						return nil, status.Errorf(codes.Internal, msg)
+						return nil, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
 					}
 
 					if allowed {
 						// Mark the volume as fake attached before returning response
 						err := commonco.ContainerOrchestratorUtility.MarkFakeAttached(ctx, req.VolumeId)
 						if err != nil {
-							msg := fmt.Sprintf("failed to mark volume: %s as fake attached. Error: %+v", req.VolumeId, err)
-							log.Error(msg)
-							return nil, status.Errorf(codes.Internal, msg)
+							return nil, logger.LogNewErrorCodef(log, codes.Internal,
+								"failed to mark volume: %s as fake attached. Error: %+v", req.VolumeId, err)
 						}
 
 						publishInfo := make(map[string]string)
@@ -683,9 +673,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 				log.Infof("Volume %s is not eligible to be fake attached", req.VolumeId)
 			}
-			msg := fmt.Sprintf("failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to attach volume with volumeID: %s. Error: %+v", req.VolumeId, err)
 		}
 
 		publishInfo := make(map[string]string)
@@ -837,9 +826,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		ctx = logger.NewContextWithLogger(ctx)
 		log := logger.GetLogger(ctx)
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
-			msg := "ExpandVolume feature is disabled on the cluster"
-			log.Warn(msg)
-			return nil, status.Errorf(codes.Unimplemented, msg)
+			return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+				"ExpandVolume feature is disabled on the cluster")
 		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 
@@ -856,9 +844,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
 		if err != nil {
-			msg := fmt.Sprintf("failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
-			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
 		}
 
 		// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
