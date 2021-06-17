@@ -213,8 +213,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 		if !r.updateCnsMetadata(ctx, instance, true) {
 			// Failed to update CNS
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to delete entry in CNS for instance "+
-				"with name %q and entity type %q in the guest cluster. Requeuing request.",
-				instance.Spec.EntityName, instance.Spec.EntityType)
+				"with name %q and entity type %q in the guest cluster %q. Requeuing request.",
+				instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields with the errors per volume.
 			if err = r.client.Update(ctx, instance); err != nil {
@@ -271,8 +271,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 		if !r.updateCnsMetadata(ctx, instance, false) {
 			// Failed to update CNS.
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update entry in CNS for instance "+
-				"with name %q and entity type %q in the guest cluster. Requeueing request.",
-				instance.Spec.EntityName, instance.Spec.EntityType)
+				"with name %q and entity type %q in the guest cluster %q. Requeueing request.",
+				instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields on supervisor API server and requeue the request.
 			_ = r.client.Update(ctx, instance)
@@ -280,8 +280,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 		}
 		// Successfully updated CNS.
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Successfully updated entry in CNS for instance "+
-			"with name %q and entity type %q in the guest cluster.",
-			instance.Spec.EntityName, instance.Spec.EntityType)
+			"with name %q and entity type %q in the guest cluster %q.",
+			instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Update instance.status fields on supervisor API server.
 		if err = r.client.Update(ctx, instance); err != nil {
