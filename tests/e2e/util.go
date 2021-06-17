@@ -2153,6 +2153,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context, 
 	}
 	if result.Code != 0 {
 		if add {
+			//nolint:misspell
 			sshCmd = "gawk -i inplace '/--bind-addres/ { print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " + kcmManifest
 		} else {
 			return nil
