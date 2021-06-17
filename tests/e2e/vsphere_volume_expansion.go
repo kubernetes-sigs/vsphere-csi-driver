@@ -3156,7 +3156,7 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	// first time after pod creation
 	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", diskSizeInMb), fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
 	ginkgo.By("File system resize finished successfully")
-	framework.Logf("Offline volume expansion on PVC is successfull")
+	framework.Logf("Offline volume expansion on PVC is successful")
 	return pvclaim, pod, vmUUID
 
 }

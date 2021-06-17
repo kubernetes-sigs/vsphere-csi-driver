@@ -1439,7 +1439,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		Steps:
 		1. Create a SC with allowVolumeExpansion set to 'true'
 		2. create a PVC of 2Gi using the SC created in step 1 and wait for binding with PV
-		3. resize GC PVC to 1Gi, 2Gi and 8Gi in seperate threads
+		3. resize GC PVC to 1Gi, 2Gi and 8Gi in separate threads
 		4. Check using CNS query that size of the volume is 10Gi
 		5. Verify size of PVs in SVC and GC are 10Gi
 		6. delete the PVC, pod and SC
@@ -1843,7 +1843,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	   6. On GC create a gc-PVC pointing to above created PV gcPVC > svcPVC(step 5)
 	   7. Wait for gc-PV , gc-PVC to get bound
 	   8. Create POD, verify the status
-	   9. Trigger online volume expansion on gc-pvc, Online expansion on gcPVC should be successfull
+	   9. Trigger online volume expansion on gc-pvc, Online expansion on gcPVC should be successful
 	   9. Delete all the above created PV, PVC and resource quota
 	*/
 	ginkgo.It("Online volume resize on statically created PVC on guest cluster when svcPVC<gcPVC", func() {
