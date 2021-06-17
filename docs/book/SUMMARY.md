@@ -25,6 +25,7 @@
   * [Volume Expansion](features/volume_expansion.md)
   * [Volume Topology](features/volume_topology.md)
   * [vSphere CSI Migration](features/vsphere_csi_migration.md)
+  * [Raw Block Volume](features/raw_block_volume.md)
 * [Known Issues](known_issues.md)
 * [Troubleshooting](troubleshooting.md)
 * [Development](development.md)
