@@ -307,7 +307,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 		datastoreURL = dsMo.Summary.Url
 	}
 	log.Infof("Volume created successfully. VolumeName: %q, volumeID: %q",
-		volumeName, volumeID)
+		volumeName, volumeID.Id)
 	log.Debugf("CreateVolume volumeId %q is placed on datastore %q",
 		volumeID, datastoreURL)
 	return &CnsVolumeInfo{
