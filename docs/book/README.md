@@ -1,6 +1,6 @@
 # Kubernetes vSphere CSI Driver
 
-vSphere Storage for Kubernetes, also called vSphere Cloud Provider, was introduced in 2017 and became the first vSphere storage solution for Kubernetes. The main goal of that project was to expose vSphere storage and features to Kubernetes users. The project offered an in-tree volume driver that has been actively used by various Kubernetes as a service solutions, such as PKS, OpenShift, GKE On-Prem, and so on. Cloud Native Storage (CNS) is a result of evolution and productization of vSphere Storage for Kubernetes and is also enterprise ready.
+vSphere Storage for Kubernetes, also called vSphere Cloud Provider, was introduced in 2017 and became the first vSphere storage solution for Kubernetes. The main goal of that project was to expose vSphere storage and features to Kubernetes users. The project offered an in-tree volume driver that has been actively used by various Kubernetes as a service solutions, such as TKGI, OpenShift, GKE On-Prem, and so on. Cloud Native Storage (CNS) is a result of evolution and productization of vSphere Storage for Kubernetes and is also enterprise ready.
 
 The main goal of CNS is to make vSphere and vSphere storage, including vSAN, a platform to run stateful Kubernetes workloads. vSphere has a great data path that is highly reliable, highly performant and mature for enterprise use. CNS enables access of this data path to Kubernetes and brings an understanding of Kubernetes volume and pod abstractions to vSphere. CNS was first released in vSphere 6.7 Update 3.
 
