@@ -34,7 +34,7 @@ const (
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
-	csiSystemNamespace                         = "vmware-system-csi"
+	csiSystemNamespace                         = "kube-system"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultFullSyncWaitTime                    = 1800
