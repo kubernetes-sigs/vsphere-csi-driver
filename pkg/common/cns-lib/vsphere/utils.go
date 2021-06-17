@@ -136,7 +136,7 @@ func CreateCnsKuberenetesEntityReference(entityType string, entityName string,
 }
 
 // GetVirtualCenterConfig returns VirtualCenterConfig Object created using
-// vSphere Configuration specified in the arguement.
+// vSphere Configuration specified in the argument.
 func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
 	var err error
