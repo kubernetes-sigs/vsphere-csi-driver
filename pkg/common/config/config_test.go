@@ -159,6 +159,36 @@ func TestValidateConfigWithInvalidClusterId(t *testing.T) {
 	}
 }
 
+func TestSnapshotConfigWhenMaxUnspecified(t *testing.T) {
+	cfg := &Config{
+		VirtualCenter: idealVCConfig,
+	}
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error during confid validation - %+v", *cfg)
+	}
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume != DefaultGlobalMaxSnapshotsPerBlockVolume {
+		t.Errorf("Default max number of snaps incorrect")
+	}
+}
+
+func TestSnapshotConfigWhenMaxSpecifiedAsEnv(t *testing.T) {
+	cfg := &Config{
+		VirtualCenter: idealVCConfig,
+	}
+	// Temporarily set env variable.
+	os.Setenv("GLOBAL_MAX_SNAPSHOTS_PER_BLOCK_VOLUME", "5")
+	err := FromEnv(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error during confid validation - %+v", *cfg)
+	}
+	// Unset after reading to prevent effects on future tests.
+	os.Unsetenv("GLOBAL_MAX_SNAPSHOTS_PER_BLOCK_VOLUME")
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume != 5 {
+		t.Errorf("Max number of snapshots from env variable ignored")
+	}
+}
+
 func isConfigEqual(actual *Config, expected *Config) bool {
 	// TODO: Compare Global struct
 	// Compare VC Config
