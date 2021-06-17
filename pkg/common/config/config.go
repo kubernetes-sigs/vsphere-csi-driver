@@ -76,6 +76,8 @@ const (
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 24 hours.
 	DefaultCnsVolumeOperationRequestCleanupIntervalInMin = 1440
+	// DefaultGlobalMaxSnapshotsPerBlockVolume is the default maximum number of block volume snapshots per volume.
+	DefaultGlobalMaxSnapshotsPerBlockVolume = 3
 )
 
 // Errors
@@ -181,6 +183,14 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	}
 	if v := os.Getenv("VSPHERE_LABEL_ZONE"); v != "" {
 		cfg.Labels.Zone = v
+	}
+	if v := os.Getenv("GLOBAL_MAX_SNAPSHOTS_PER_BLOCK_VOLUME"); v != "" {
+		maxSnaps, err := strconv.Atoi(v)
+		if err != nil {
+			log.Errorf("failed to parse GLOBAL_MAX_SNAPSHOTS_PER_BLOCK_VOLUME: %s", err)
+		} else {
+			cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = maxSnaps
+		}
 	}
 	// Build VirtualCenter from ENVs.
 	for _, e := range os.Environ() {
@@ -340,6 +350,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin == 0 {
 		cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin =
 			DefaultCnsVolumeOperationRequestCleanupIntervalInMin
+	}
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = DefaultGlobalMaxSnapshotsPerBlockVolume
 	}
 	return nil
 }
