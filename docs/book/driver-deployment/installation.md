@@ -83,7 +83,7 @@ Where the entries have the following meaning:
 
 - `insecure-flag` - should be set to true to use self-signed certificate for login.
 
-- `user` - vCenter username.
+- `user` - vCenter username. Specify username along with domain name for example - `user = "userName@domainName"` or  `user = "domainName\\username"` . Note: For active directory user if domain name is not specified, vSphere CSI driver will not function properly.
 
 - `password` - password for vCenter user specified with user.
 
