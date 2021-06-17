@@ -112,4 +112,4 @@ kubectl delete clusterrolebinding.rbac.authorization.k8s.io vsphere-csi-webhook-
 kubectl delete deployment vsphere-csi-webhook --namespace "${namespace}" 2>/dev/null || true
 
 # patch validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
-sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" validatingwebhook.yaml | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
