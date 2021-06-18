@@ -324,7 +324,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
 	if !present || (!strings.Contains(spTypes, vsanType) && !strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
-		log.Debug("storage class is not of type vsan direct or vsan-sna, aborting placement")
+		log.Debug("storage class is not of type vsan direct or vsan-sna or vsan, aborting placement")
 		return out, nil
 	}
 
