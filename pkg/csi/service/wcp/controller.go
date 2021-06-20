@@ -17,7 +17,6 @@ limitations under the License.
 package wcp
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -245,27 +244,22 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			// Proceed only if the connection succeeds, else return error.
 			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
 			if err = newVC.Connect(ctx); err != nil {
-				msg := fmt.Sprintf("failed to connect to VirtualCenter host: %q, Err: %+v", newVCConfig.Host, err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
+					newVCConfig.Host, err)
 			}
 
 			// Reset virtual center singleton instance by passing reload flag as true
 			log.Info("Obtaining new vCenterInstance")
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 		} else {
 			// If it's not a VC host or VC credentials update, same singleton instance can be used
 			// and it's Config field can be updated
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 			vcenter.Config = newVCConfig
 		}
