@@ -579,6 +579,98 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 	return pv
 }
 
+// function to create PVC spec with given namespace, labels and pvName
+func getPersistentVolumeClaimSpecForRWX(namespace string, labels map[string]string, pvName string, pvSize string) *v1.PersistentVolumeClaim {
+	var (
+		pvc *v1.PersistentVolumeClaim
+	)
+	if pvSize == "" {
+		pvSize = "2Gi"
+	}
+	sc := ""
+	pvc = &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteMany,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(pvSize),
+				},
+			},
+			VolumeName:       pvName,
+			StorageClassName: &sc,
+		},
+	}
+	if labels != nil {
+		pvc.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
+
+	return pvc
+}
+
+// function to create PV volume spec with given FCD ID, Reclaim Policy and labels
+func getPersistentVolumeSpecForRWX(fcdID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string, pvSize string, storageclass string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+
+	if pvSize == "" {
+		pvSize = "2Gi"
+	}
+
+	if accessMode == "" {
+		// if accessMode is not specified, set the default accessMode
+		accessMode = v1.ReadWriteMany
+	}
+
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIDriverName,
+				VolumeHandle: fcdID,
+				ReadOnly:     false,
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse(pvSize),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: storageclass,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
+	pv.Annotations = annotations
+	return pv
+}
+
 // invokeVCenterReboot invokes reboot command on the given vCenter host over SSH
 func invokeVCenterReboot(host string) error {
 	sshCmd := "reboot"
