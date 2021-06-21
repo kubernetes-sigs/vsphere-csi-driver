@@ -277,7 +277,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string
@@ -356,7 +356,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv := persistentvolumes[0]
@@ -435,7 +435,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	// Create a new POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating a new pod to attach PV again to the node")
-	pod, err = framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err = CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv = persistentvolumes[0]
@@ -552,7 +552,7 @@ func invokeTestForInvalidOnlineVolumeExpansion(f *framework.Framework, client cl
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	pv := persistentvolumes[0]
@@ -840,7 +840,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 
 	// Create a POD to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := framework.CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := CreatePod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string

@@ -143,7 +143,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod to attach PVs to the node")
-		pod, err := framework.CreatePod(client, namespace, nil, pvclaims, false, "")
+		pod, err := CreatePod(client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer client.CoreV1().Pods(namespace).Delete(pod.Name, nil)
 

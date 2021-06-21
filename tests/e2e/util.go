@@ -894,3 +894,24 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 		cfg.Global.InsecureFlag, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort)
 	return result, nil
 }
+
+// createPod with given claims based on node selector
+func CreatePod(client clientset.Interface, namespace string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+	pod := framework.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod, err := client.CoreV1().Pods(namespace).Create(pod)
+	if err != nil {
+		return pod, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running
+	err = framework.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// get fresh pod info
+	pod, err = client.CoreV1().Pods(namespace).Get(pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+	return pod, nil
+}
