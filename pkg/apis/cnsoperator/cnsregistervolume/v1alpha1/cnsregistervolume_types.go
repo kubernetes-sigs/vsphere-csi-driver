@@ -27,23 +27,30 @@ type CnsRegisterVolumeSpec struct {
 	// Name of the PVC
 	PvcName string `json:"pvcName"`
 
-	// VolumeID indicates an existing vsphere volume to be imported into Project Pacific cluster
-	// If the AccessMode is "ReadWriteMany" or "ReadOnlyMany", then this VolumeID can be either an existing FileShare (or) CNS file volume backed FileShare.
-	// If the AccessMode is "ReadWriteOnce", then this VolumeID can be either an existing FCD (or) a CNS backed FCD.
+	// VolumeID indicates an existing vsphere volume to be imported into Project
+	// Pacific cluster.
+	// If the AccessMode is "ReadWriteMany" or "ReadOnlyMany", then this VolumeID
+	// can be either an existing FileShare (or) CNS file volume backed FileShare.
+	// If the AccessMode is "ReadWriteOnce", then this VolumeID can be either an
+	// existing FCD (or) a CNS backed FCD.
 	// VolumeID and DiskUrlPath cannot be specified together.
 	VolumeID string `json:"volumeID,omitempty"`
 
-	// AccessMode contains the actual access mode the volume backing the CnsRegisterVolume has.
+	// AccessMode contains the actual access mode the volume backing the
+	// CnsRegisterVolume has.
 	// AccessMode must be specified if VolumeID is specified.
 	AccessMode v1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
 
-	// DiskUrlPath is URL path to an existing block volume to be imported into Project Pacific cluster.
+	// DiskUrlPath is URL path to an existing block volume to be imported into
+	// Project Pacific cluster.
 	// VolumeID and DiskUrlPath cannot be specified together.
-	// DiskUrlPath is explicitly used for block volumes. AccessMode need not be specified and will be defaulted to "ReadWriteOnce".
+	// DiskUrlPath is explicitly used for block volumes. AccessMode need not be
+	// specified and will be defaulted to "ReadWriteOnce".
 	// This field must be in the following format:
 	// Format:
 	// https://<vc_ip>/folder/<vm_vmdk_path>?dcPath=<datacenterName>&dsName=<datastoreName>
-	// Ex: https://10.192.255.221/folder/34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk?dcPath=Datacenter-1&dsName=vsanDatastore
+	// Ex: https://10.192.255.221/folder/34a9c05d-5f03-e254-e692-02004479cb91/
+	//        vm2_1.vmdk?dcPath=Datacenter-1&dsName=vsanDatastore
 	// This is for a 34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk
 	// file under datacenter "Datacenter-1" and datastore "vsanDatastore".
 	DiskURLPath string `json:"diskURLPath,omitempty"`

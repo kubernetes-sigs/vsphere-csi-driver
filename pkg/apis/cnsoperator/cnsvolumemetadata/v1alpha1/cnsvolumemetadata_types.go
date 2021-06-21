@@ -49,26 +49,24 @@ type CnsVolumeMetadataSpec struct {
 	// A Pod in the guest cluster can refers to one or more PVCs in the guest cluster.
 	// A PVC in the guest cluster refers to a PV in the guest cluster.
 	// A PV in the guest cluster refers to a PVC in the supervisor cluster.
-	// A Pod/PVC in the guest cluster referring to a PVC/PV respectively in the guest
-	// cluster must set the ClusterID field.
-	// A PV in the guest cluster referring to a PVC in the supervisor cluster must leave
-	// the ClusterID field unset.
+	// A Pod/PVC in the guest cluster referring to a PVC/PV respectively in the
+	// guest cluster must set the ClusterID field.
+	// A PV in the guest cluster referring to a PVC in the supervisor cluster
+	// must leave the ClusterID field unset.
 	// This field is mandatory.
 	EntityReferences []CnsOperatorEntityReference `json:"entityreferences"`
 
-	// Labels indicates user labels assigned to the entity
-	// in the guest cluster. Should only be populated if
-	// EntityType is PERSISTENT_VOLUME OR PERSISTENT_VOLUME_CLAIM
-	// CNS Operator will return a failure to the client if labels
-	// are set for objects whose EntityType is POD.
+	// Labels indicates user labels assigned to the entity in the guest cluster.
+	// Should only be populated if EntityType is PERSISTENT_VOLUME OR
+	// PERSISTENT_VOLUME_CLAIM. CNS Operator will return a failure to the client
+	// if labels are set for objects whose EntityType is POD.
 	//+optional
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// Namespace indicates namespace of entity in guest cluster.
-	// Should only be populated if EntityType is
-	// PERSISTENT_VOLUME_CLAIM or POD.
-	// CNS Operator will return a failure to the client if
-	// namespace is set for objects whose EntityType is PERSISTENT_VOLUME.
+	// Should only be populated if EntityType is PERSISTENT_VOLUME_CLAIM or POD.
+	// CNS Operator will return a failure to the client if namespace is set for
+	// objects whose EntityType is PERSISTENT_VOLUME.
 	//+optional
 	Namespace string `json:"namespace,omitempty"`
 
@@ -107,19 +105,19 @@ type CnsVolumeMetadata struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// CnsVolumeMetadataList contains a list of CnsVolumeMetadata
+// CnsVolumeMetadataList contains a list of CnsVolumeMetadata.
 type CnsVolumeMetadataList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CnsVolumeMetadata `json:"items"`
 }
 
-// CnsOperatorEntityType defines the type for entitytype parameter
-// in cnsvolumemetadata API
+// CnsOperatorEntityType defines the type for entitytype parameter in
+// cnsvolumemetadata API.
 type CnsOperatorEntityType cnstypes.CnsKubernetesEntityType
 
-// CnsVolumeMetadataVolumeStatus defines the status of the last
-// update operation on CNS for the given volume.
+// CnsVolumeMetadataVolumeStatus defines the status of the last update operation
+// on CNS for the given volume.
 // Error message will be empty if no error was encountered.
 type CnsVolumeMetadataVolumeStatus struct {
 	VolumeName   string `json:"volumename"`
@@ -127,7 +125,7 @@ type CnsVolumeMetadataVolumeStatus struct {
 	ErrorMessage string `json:"errormessage,omitempty"`
 }
 
-// Allowed CnsOperatorEntityTypes for cnsvolumemetadata API
+// Allowed CnsOperatorEntityTypes for cnsvolumemetadata API.
 const (
 	CnsOperatorEntityTypePV  = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePV)
 	CnsOperatorEntityTypePVC = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePVC)
@@ -135,15 +133,19 @@ const (
 )
 
 // CnsOperatorEntityReference defines the type for entityreference
-// parameter in cnsvolumemetadata API
+// parameter in cnsvolumemetadata API.
 type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
 
-// CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the input parameters
-func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig, uid string, name string, entityType CnsOperatorEntityType, labels map[string]string, namespace string, reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
+// CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the
+// input parameters.
+func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig, uid string, name string,
+	entityType CnsOperatorEntityType, labels map[string]string, namespace string,
+	reference []CnsOperatorEntityReference) *CnsVolumeMetadata {
 	return &CnsVolumeMetadata{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            GetCnsVolumeMetadataName(gcConfig.TanzuKubernetesClusterUID, uid),
-			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion, cnsoperatortypes.GCKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
+			Name: GetCnsVolumeMetadataName(gcConfig.TanzuKubernetesClusterUID, uid),
+			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion,
+				cnsoperatortypes.GCKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
 		},
 		Spec: CnsVolumeMetadataSpec{
 			VolumeNames:         volumeHandle,
@@ -158,13 +160,16 @@ func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig
 	}
 }
 
-// GetCnsVolumeMetadataName returns the concatenated string of guestclusterid and entity id
+// GetCnsVolumeMetadataName returns the concatenated string of guestclusterid
+// and entity id.
 func GetCnsVolumeMetadataName(guestClusterID string, entityUID string) string {
 	return guestClusterID + "-" + entityUID
 }
 
-// GetCnsOperatorEntityReference returns the entityReference object from the input parameters
-func GetCnsOperatorEntityReference(name string, namespace string, entitytype CnsOperatorEntityType, clusterid string) CnsOperatorEntityReference {
+// GetCnsOperatorEntityReference returns the entityReference object from the
+// input parameters.
+func GetCnsOperatorEntityReference(name string, namespace string, entitytype CnsOperatorEntityType,
+	clusterid string) CnsOperatorEntityReference {
 	return CnsOperatorEntityReference{
 		EntityType: string(entitytype),
 		EntityName: name,
@@ -173,7 +178,8 @@ func GetCnsOperatorEntityReference(name string, namespace string, entitytype Cns
 	}
 }
 
-// GetCnsOperatorVolumeStatus returns a CnsVolumeMetadataVolumeStatus object from input parameters
+// GetCnsOperatorVolumeStatus returns a CnsVolumeMetadataVolumeStatus object
+// from input parameters.
 func GetCnsOperatorVolumeStatus(volumeName string, errorMessage string) CnsVolumeMetadataVolumeStatus {
 	return CnsVolumeMetadataVolumeStatus{
 		VolumeName:   volumeName,
@@ -182,8 +188,10 @@ func GetCnsOperatorVolumeStatus(volumeName string, errorMessage string) CnsVolum
 	}
 }
 
-// GetCnsVolumeMetadataOwnerReference returns the owner reference object from the input parameters
-func GetCnsVolumeMetadataOwnerReference(apiVersion string, kind string, clusterName string, clusterUID string) metav1.OwnerReference {
+// GetCnsVolumeMetadataOwnerReference returns the owner reference object from
+// the input parameters.
+func GetCnsVolumeMetadataOwnerReference(apiVersion string, kind string, clusterName string,
+	clusterUID string) metav1.OwnerReference {
 	bController := true
 	bOwnerDeletion := true
 	return metav1.OwnerReference{
