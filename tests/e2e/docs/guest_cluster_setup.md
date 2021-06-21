@@ -38,6 +38,14 @@
 
 ![WCP non shared DS 3](images/non-shared_ds_policy_step_2.png)
 
+### 4. Create Thick Provisioning Policy(Specific to vSAN datastore)
+
+![Thick Provisioning Policy](images/thick_policy.png)
+
+### 5. Create Raid-0-Policy(Specific to vSAN datastore)
+
+![Raid-0-Policy](images/raid_0_policy.png)
+
 ## Running e2e Tests
 
 The section outlines how to set the env variable for running e2e test.
@@ -83,12 +91,15 @@ The section outlines how to set the env variable for running e2e test.
     export NEW_GUEST_CLUSTER_KUBE_CONFIG=/path/to/second-guest-cluster-kube-config-file
     export STORAGE_POLICY_WITH_THICK_PROVISIONING="<policy-name>"
     export COMPUTE_CLUSTER_NAME="<your_cluster_name>"
+    export RAID_0_STORAGE_POLICY="raid-0-policy"
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
     # Second guest cluster for `NEW_GUEST_CLUSTER_KUBE_CONFIG` should be created under `SVC_NAMESPACE`
     # For few GC block volume expansion tests we need a storage policy which has thick provisioning enabled
     # `STORAGE_POLICY_WITH_THICK_PROVISIONING` needs to be added to `SVC_NAMESPACE` with storage limit >=20GiB
+    # For Few Volume health test scenarios we need a storage policy with no data redundancy
+    # 'RAID_0_STORAGE_POLICY' needs to be added to `SVC_NAMESPACE` with storage limit >=20GiB
 
 #### Setting SSH keys for VC with your local machine to run tests which toggle states of VC services and full sync tests
 
