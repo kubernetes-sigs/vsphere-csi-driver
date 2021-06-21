@@ -64,7 +64,9 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		namespace         string
 		scParameters      map[string]string
 		storageclass      *storage.StorageClass
+		pvclaim           *v1.PersistentVolumeClaim
 		pvclaims          []*v1.PersistentVolumeClaim
+		podArray          []*v1.Pod
 		persistentvolumes []*v1.PersistentVolume
 		err               error
 		volumeOpsScale    int
@@ -90,6 +92,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 			}
 		}
 		pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+		podArray = make([]*v1.Pod, volumeOpsScale)
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 	})
@@ -206,6 +209,118 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
 			}
+		}
+	})
+
+	/*
+		Test to verify detach race on Namespace deletion
+
+		Steps
+		1. Create StorageClass
+		2. Create PVCs which uses the StorageClass created in step 1.
+		3. Wait for PV to be provisioned.
+		4. Wait for PVC's status to become Bound.
+		5. Create pods using PVCs on specific node
+		6. Wait for Disk to be attached to the node.
+		7. Delete Namespace  and Wait for volumes to be deleted and Volume Disk to be detached from the Node.
+	*/
+
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] Delete namespace to confirm all volumes and pods are deleted", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
+		ginkgo.By("Creating Storage Class")
+
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = nil
+			storagePolicyName = ""
+		} else if guestCluster {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyName
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+		if guestCluster {
+			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, "")
+		} else {
+			scSpec := getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false)
+			storageclass, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		count := 0
+		for count < volumeOpsScale {
+			ginkgo.By("Creating PVCs using the Storage Class")
+			pvclaims[count], err = fpv.CreatePVC(client, namespace, getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			count++
+		}
+
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podCount := 0
+		for podCount < volumeOpsScale {
+			ginkgo.By("Creating pod to attach PVs to the node")
+			pvclaim = pvclaims[podCount]
+			podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			podCount++
+		}
+
+		defer func() {
+			err = client.CoreV1().Namespaces().Delete(ctx, namespace, *metav1.NewDeleteOptions(0))
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		var vmUUID string
+		ginkgo.By("Verify the volumes are attached to the node vm")
+		podCount = 0
+		for podCount < volumeOpsScale {
+			pvclaim = pvclaims[podCount]
+			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+
+			volumeID := pv.Spec.CSI.VolumeHandle
+			if vanillaCluster {
+				vmUUID = getNodeUUID(client, podArray[podCount].Spec.NodeName)
+			}
+			if guestCluster {
+				vmUUID, err = getVMUUIDFromNodeName(podArray[podCount].Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				// Get volume ID from Supervisor cluster
+				volumeID = getVolumeIDFromSupervisorCluster(volumeID)
+			}
+
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume: %s is not attached to the node: %s", pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			podCount++
+		}
+
+		ginkgo.By("Verify whether Namespace deleted or not")
+		err = client.CoreV1().Namespaces().Delete(ctx, namespace, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = waitForNamespaceToGetDeleted(ctx, client, namespace, pollTimeout, k8sPodTerminationTimeOutLong)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify the volumes are deleted from CNS")
+		pvCount := 0
+		for pvCount < volumeOpsScale {
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(persistentvolumes[pvCount].Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvCount++
 		}
 	})
 })
