@@ -87,6 +87,7 @@ func newLogger() *zap.Logger {
 		loggerConfig.EncoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
 		logger, _ = loggerConfig.Build()
 	}
+	logger.WithOptions(zap.AddCallerSkip(1))
 	return logger
 }
 
