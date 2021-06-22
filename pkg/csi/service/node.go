@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
 )
 
 const (
@@ -55,6 +56,8 @@ const (
 	dmiDir                        = "/sys/class/dmi"
 	maxAllowedBlockVolumesPerNode = 59
 )
+
+var topologyService csinodetopology.TopologyService
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume
@@ -646,10 +649,12 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var nodeInfoResponse *csi.NodeGetInfoResponse
 
-	nodeID := os.Getenv("NODE_NAME")
-	if nodeID == "" {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
 		return nil, logger.LogNewErrorCode(log, codes.Internal, "ENV NODE_NAME is not set")
 	}
+	nodeID := nodeName
+
 	var maxVolumesPerNode int64
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
 		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -679,99 +684,51 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 		return nodeInfoResponse, nil
 	}
-	var cfg *cnsconfig.Config
-	cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
-	if cfgPath == "" {
-		cfgPath = cnsconfig.DefaultCloudConfigPath
-	}
-	cfg, err := cnsconfig.GetCnsconfig(ctx, cfgPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-			nodeInfoResponse = &csi.NodeGetInfoResponse{
-				NodeId:            nodeID,
-				MaxVolumesPerNode: maxVolumesPerNode,
-			}
-			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-			return nodeInfoResponse, nil
-		}
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to read cnsconfig. err: %v", err)
-	}
-	var accessibleTopology map[string]string
-	topology := &csi.Topology{}
 
-	if cfg.Labels.Zone != "" && cfg.Labels.Region != "" {
-		log.Infof("Config file provided to node daemonset with zones and regions. Assuming topology aware cluster.")
-		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get VirtualCenterConfig from cns config. err: %v", err)
+	var (
+		accessibleTopology map[string]string
+		err                error
+	)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+		// Initialize volume topology service.
+		if err = initVolumeTopologyService(ctx); err != nil {
+			return nil, err
 		}
-		vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
-		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to register vcenter with virtualCenterManager. err: %v", err)
+		// Fetch topology labels for given node.
+		nodeInfo := csinodetopology.NodeInfo{
+			NodeName: nodeName,
+			NodeID:   nodeID,
 		}
-		defer func() {
-			if vcManager != nil {
-				err = vcManager.UnregisterAllVirtualCenters(ctx)
-				if err != nil {
-					log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
+		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
+	} else {
+		// If ImprovedVolumeTopology is not enabled, use the VC credentials to fetch node topology information.
+		var cfg *cnsconfig.Config
+		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
+		if cfgPath == "" {
+			cfgPath = cnsconfig.DefaultCloudConfigPath
+		}
+		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+				nodeInfoResponse = &csi.NodeGetInfoResponse{
+					NodeId:            nodeID,
+					MaxVolumesPerNode: maxVolumesPerNode,
 				}
+				log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+				return nodeInfoResponse, nil
 			}
-		}()
-		//Connect to vCenter
-		err = vcenter.Connect(ctx)
-		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to connect to vcenter host: %s. err: %v", vcenter.Config.Host, err)
+				"failed to read CNS config. Error: %v", err)
 		}
-		// Get VM UUID
-		uuid, err := getSystemUUID(ctx)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get system uuid for node VM. err: %v", err)
-		}
-		log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
-		nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-		if err != nil || nodeVM == nil {
-			log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			uuid, err = convertUUID(uuid)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"convertUUID failed with error: %v", err)
-			}
-			nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
-			if err != nil || nodeVM == nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-			}
-		}
-		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create tagManager. err: %v", err)
-		}
-		defer func() {
-			err := tagManager.Logout(ctx)
-			if err != nil {
-				log.Errorf("failed to logout tagManager. err: %v", err)
-			}
-		}()
-		zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
-		}
-		log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
-		if zone != "" && region != "" {
-			accessibleTopology = make(map[string]string)
-			accessibleTopology[v1.LabelZoneRegion] = region
-			accessibleTopology[v1.LabelZoneFailureDomain] = zone
-		}
+		// Fetch topology labels using VC TagManager.
+		accessibleTopology, err = fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	topology := &csi.Topology{}
 	if len(accessibleTopology) > 0 {
 		topology.Segments = accessibleTopology
 	}
@@ -782,6 +739,114 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	}
 	log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
 	return nodeInfoResponse, nil
+}
+
+// initVolumeTopologyService is a helper method to initialize
+// TopologyService in node.
+func initVolumeTopologyService(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	// This check prevents unnecessary RLocks on the volumeTopology instance.
+	if topologyService != nil {
+		return nil
+	}
+	// Initialize the TopologyService if not done already.
+	var err error
+	topologyService, err = csinodetopology.InitTopologyServiceInterface(ctx)
+	if err != nil {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to init topology service. Error: %+v", err)
+	}
+	return nil
+}
+
+// fetchTopologyLabelsUsingVCCreds retrieves topology information of the nodes
+// using VC credentials mounted on the nodes. This approach will be deprecated soon.
+func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cnsconfig.Config) (
+	map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// If zone or region are empty, return.
+	if cfg.Labels.Zone == "" || cfg.Labels.Region == "" {
+		return nil, nil
+	}
+
+	log.Infof("Config file provided to node daemonset contains zone and region info. " +
+		"Assuming topology aware cluster.")
+	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get VirtualCenterConfig from cns config. err: %v", err)
+	}
+	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to register vcenter with virtualCenterManager. err: %v", err)
+	}
+	defer func() {
+		if vcManager != nil {
+			err = vcManager.UnregisterAllVirtualCenters(ctx)
+			if err != nil {
+				log.Errorf("UnregisterAllVirtualCenters failed. err: %v", err)
+			}
+		}
+	}()
+
+	// Connect to vCenter.
+	err = vcenter.Connect(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to connect to vcenter host: %s. err: %v", vcenter.Config.Host, err)
+	}
+	// Get VM UUID.
+	uuid, err := getSystemUUID(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get system uuid for node VM. err: %v", err)
+	}
+	log.Debugf("Successfully retrieved uuid:%s  from the node: %s", uuid, nodeID)
+	nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
+	if err != nil || nodeVM == nil {
+		log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+		uuid, err = convertUUID(uuid)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"convertUUID failed with error: %v", err)
+		}
+		nodeVM, err = cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
+		if err != nil || nodeVM == nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
+		}
+	}
+	// Get a tag manager instance.
+	tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create tagManager. err: %v", err)
+	}
+	defer func() {
+		err := tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. err: %v", err)
+		}
+	}()
+
+	// Fetch zone and region for given node.
+	zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get accessibleTopology for vm: %v, err: %v", nodeVM.Reference(), err)
+	}
+	log.Debugf("zone: [%s], region: [%s], Node VM: [%s]", zone, region, nodeID)
+
+	if zone != "" && region != "" {
+		accessibleTopology := make(map[string]string)
+		accessibleTopology[v1.LabelTopologyRegion] = region
+		accessibleTopology[v1.LabelTopologyZone] = zone
+		return accessibleTopology, nil
+	}
+	return nil, nil
 }
 
 func (driver *vsphereCSIDriver) NodeExpandVolume(

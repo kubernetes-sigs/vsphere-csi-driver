@@ -39,6 +39,8 @@ const (
 	virtualMachineKind = "virtualmachines"
 	// Kind for cnsfileaccessconfig resources
 	cnsfileaccessconfigKind = "cnsfileaccessconfigs"
+	// Kind for csiNodeTopology resources
+	csiNodeTopologyKind = "csinodetopologies"
 )
 
 // InformerManager is a service that notifies subscribers about changes
