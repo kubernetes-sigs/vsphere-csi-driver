@@ -1,6 +1,6 @@
 module sigs.k8s.io/vsphere-csi-driver
 
-go 1.15
+go 1.16
 
 require (
 	github.com/akutz/gofsutil v0.1.2
