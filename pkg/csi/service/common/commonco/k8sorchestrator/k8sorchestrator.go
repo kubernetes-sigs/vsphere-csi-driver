@@ -30,6 +30,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -230,7 +231,29 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 	}
 
 	// Initialize internal FSS map values
-	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest || controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if k8sOrchestratorInstance.internalFSS.configMapName != "" && k8sOrchestratorInstance.internalFSS.configMapNamespace != "" {
+			// Retrieve configmap
+			fssConfigMap, err = k8sClient.CoreV1().ConfigMaps(k8sOrchestratorInstance.internalFSS.configMapNamespace).Get(
+				ctx, k8sOrchestratorInstance.internalFSS.configMapName, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Infof("configmap :%q is not present in the namespace: %q", k8sOrchestratorInstance.internalFSS.configMapName, k8sOrchestratorInstance.internalFSS.configMapNamespace)
+				} else {
+					log.Errorf("failed to fetch configmap %s from namespace %s. Error: %v",
+						k8sOrchestratorInstance.internalFSS.configMapName, k8sOrchestratorInstance.internalFSS.configMapNamespace, err)
+					return err
+				}
+			}
+			// Update values
+			if fssConfigMap != nil {
+				k8sOrchestratorInstance.internalFSS.featureStates = fssConfigMap.Data
+			}
+			log.Infof("New internal feature states values stored successfully: %v", k8sOrchestratorInstance.internalFSS.featureStates)
+		}
+	}
+
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		if k8sOrchestratorInstance.internalFSS.configMapName != "" && k8sOrchestratorInstance.internalFSS.configMapNamespace != "" {
 			// Retrieve configmap
 			fssConfigMap, err = k8sClient.CoreV1().ConfigMaps(k8sOrchestratorInstance.internalFSS.configMapNamespace).Get(
@@ -714,6 +737,9 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		err                    error
 	)
 	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if featureName == common.CSIMigration || featureName == common.CSIAuthCheck || featureName == common.OnlineVolumeExtend {
+			return true
+		}
 		// Check internal FSS map
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
 			internalFeatureState, err = strconv.ParseBool(flag)
