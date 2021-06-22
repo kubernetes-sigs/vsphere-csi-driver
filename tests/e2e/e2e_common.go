@@ -73,6 +73,8 @@ const (
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
 	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
+	execRWXCommandPod1                         = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
+	execRWXCommandPod2                         = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
 	ext3FSType                                 = "ext3"
 	ext4FSType                                 = "ext4"
 	fcdName                                    = "BasicStaticFCD"

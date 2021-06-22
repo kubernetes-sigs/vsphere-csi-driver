@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/rexray/gocsi"
 
@@ -75,6 +76,7 @@ func main() {
 			usage,
 			provider.New(),
 		)
+		time.Sleep(600 * time.Second)
 		log.Debug("Running CSI driver using gocsi.")
 	} else {
 		// If no endpoint is set then exit the program.
