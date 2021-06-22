@@ -71,8 +71,6 @@ var (
 // definition on the API server and returns an implementation of
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
-// This function is not thread safe. Multiple serial calls to this function will
-// return multiple new instances of the VolumeOperationRequest interface.
 func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int) (VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 
