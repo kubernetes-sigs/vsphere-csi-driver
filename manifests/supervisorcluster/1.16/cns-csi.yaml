@@ -110,8 +110,6 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  strategy:
-    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -148,7 +146,7 @@ spec:
             - "--enable-hostlocal-placement=true"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
@@ -158,7 +156,7 @@ spec:
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
-              mountPath: /var/lib/csi/sockets/pluginproxy/
+              mountPath: /csi
         - name: csi-attacher
           image: localhost:5000/vmware/csi-attacher/csi-attacher:v1.1.1
           args:
@@ -169,7 +167,7 @@ spec:
             - "--leader-election-type=leases"
           env:
             - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              value: /csi/csi.sock
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
@@ -177,7 +175,7 @@ spec:
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
-              mountPath: /var/lib/csi/sockets/pluginproxy/
+              mountPath: /csi
         - name: csi-resizer
           image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.0.0_vmware.1
           imagePullPolicy: IfNotPresent
@@ -199,17 +197,30 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "rm -rf /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com"]
+          ports:
+           - containerPort: 2112
+             name: prometheus
+             protocol: TCP
+           - name: healthz
+             containerPort: 9808
+             protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
           env:
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              value: unix:///csi/csi.sock
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
             - name: X_CSI_MODE
               value: "controller"
+            - name: X_CSI_SERIAL_VOL_ACCESS_TIMEOUT
+              value: 3m
             - name: KUBERNETES_SERVICE_HOST
               value: "127.0.0.1"
             - name: KUBERNETES_SERVICE_PORT
@@ -225,17 +236,14 @@ spec:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
               readOnly: true
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: liveness-probe
           image: localhost:5000/vmware/csi-livenessprobe/csi-livenessprobe:v1.1.0
           args:
-            - "--csi-address=$(ADDRESS)"
-          env:
-            - name: ADDRESS
-              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+            - "--csi-address=/csi/csi.sock"
           volumeMounts:
-            - mountPath: /var/lib/csi/sockets/pluginproxy/
+            - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
           image: localhost:5000/vmware/syncer:<syncer_ver>
@@ -270,9 +278,7 @@ spec:
           secret:
             secretName: vsphere-config-secret
         - name: socket-dir
-          hostPath:
-            path: /var/lib/csi/sockets/pluginproxy/csi.vsphere.vmware.com
-            type: DirectoryOrCreate
+          emptyDir: {}
 ---
 apiVersion: v1
 data:
