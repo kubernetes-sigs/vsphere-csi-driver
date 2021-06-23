@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
@@ -1074,7 +1075,11 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 	pods, err := c.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, pod := range pods.Items {
+		framework.Logf("For pod '%s', volumes:\n%s", pod.Name, spew.Sdump(pod.Spec.Volumes))
 		for _, volume := range pod.Spec.Volumes {
+			if strings.Contains(volume.Name, "kube-api-access") {
+				continue
+			}
 			if volume.VolumeSource.PersistentVolumeClaim == nil && volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
 				return &pod
 			}
@@ -1128,14 +1133,36 @@ func getVolHandle4VcpPvc(ctx context.Context, client clientset.Interface, namesp
 	return crd.Spec.VolumeID
 }
 
+//isVcpPV returns whether true for vcp volume and false for csi, fails for any other type
+func isVcpPV(ctx context.Context, c clientset.Interface, pv *v1.PersistentVolume) bool {
+	if pv.Spec.CSI != nil {
+		return false
+	}
+	gomega.Expect(pv.Spec.VsphereVolume).NotTo(gomega.BeNil())
+	return true
+}
+
+//getVolHandle4Pv fetches volume handle for give PVC
+func getVolHandle4Pv(ctx context.Context, c clientset.Interface, pv *v1.PersistentVolume) string {
+	isVcpVol := isVcpPV(ctx, c, pv)
+	if isVcpVol {
+		found, crd := getCnsVSphereVolumeMigrationCrd(ctx, pv.Spec.VsphereVolume.VolumePath)
+		gomega.Expect(found).To(gomega.BeTrue())
+		return crd.Spec.VolumeID
+	}
+	return pv.Spec.CSI.VolumeHandle
+}
+
 //deletePodAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
 func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Interface, namespace string, pod *v1.Pod) {
 	ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
 	volhandles := []string{}
 	for _, vol := range pod.Spec.Volumes {
+		if strings.Contains(vol.Name, "kube-api-access") {
+			continue
+		}
 		pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
-		volhandles = append(volhandles, pv.Spec.CSI.VolumeHandle)
-
+		volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
 	}
 	err := fpod.DeletePodWithWait(client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
