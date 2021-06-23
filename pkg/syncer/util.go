@@ -2,8 +2,10 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/client-go/tools/cache"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -149,11 +151,11 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 	var allQueryResults []*cnstypes.CnsQueryResult
 	for {
 		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
-		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, cnstypes.CnsQuerySelection{},
-			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolume failed with err=%+v", err.Error())
+			msg := fmt.Sprintf("QueryVolume failed with err=%+v", err.Error())
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 		if queryResult == nil {
 			log.Info("Observed empty queryResult")
