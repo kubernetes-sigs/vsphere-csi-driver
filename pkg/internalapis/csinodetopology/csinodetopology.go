@@ -18,12 +18,14 @@ package csinodetopology
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -145,8 +147,9 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 	// Fetch node object to set owner ref.
 	nodeObj, err := volTopology.k8sClient.CoreV1().Nodes().Get(ctx, info.NodeName, metav1.GetOptions{})
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to fetch node object with name %q. Error: %v", info.NodeName, err)
+		msg := fmt.Sprintf("failed to fetch node object with name %q. Error: %v", info.NodeName, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 	// Create spec for CSINodeTopology.
 	csiNodeTopologySpec := &csinodetopologyv1alpha1.CSINodeTopology{
@@ -169,8 +172,9 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 	err = volTopology.csiNodeTopologyK8sClient.Create(ctx, csiNodeTopologySpec)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create CSINodeTopology CR. Error: %+v", err)
+			msg := fmt.Sprintf("failed to create CSINodeTopology CR. Error: %+v", err)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 	} else {
 		log.Infof("Successfully created a CSINodeTopology instance for NodeName: %q", info.NodeName)
@@ -183,8 +187,9 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 		Watch:          true,
 	})
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to watch on CSINodeTopology instance with name %q. Error: %+v", info.NodeName, err)
+		msg := fmt.Sprintf("failed to watch on CSINodeTopology instance with name %q. Error: %+v", info.NodeName, err)
+		log.Error(msg)
+		return nil, status.Error(codes.Internal, msg)
 	}
 	defer watchCSINodeTopology.Stop()
 
@@ -206,14 +211,16 @@ func (volTopology *volumeTopology) GetNodeTopologyLabels(ctx context.Context, in
 			}
 			return accessibleTopology, nil
 		case csinodetopologyv1alpha1.CSINodeTopologyError:
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to retrieve topology information for Node: %q. Error: %q", info.NodeName,
+			msg := fmt.Sprintf("failed to retrieve topology information for Node: %q. Error: %q", info.NodeName,
 				csiNodeTopologyInstance.Status.ErrorMessage)
+			log.Error(msg)
+			return nil, status.Error(codes.Internal, msg)
 		}
 	}
-	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"timed out while waiting for topology labels to be updated in %q CSINodeTopology instance.",
+	msg := fmt.Sprintf("timed out while waiting for topology labels to be updated in %q CSINodeTopology instance.",
 		info.NodeName)
+	log.Error(msg)
+	return nil, status.Error(codes.Internal, msg)
 }
 
 // getCSINodeTopologyWatchTimeoutInMin returns the timeout for watching

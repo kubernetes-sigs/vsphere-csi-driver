@@ -1179,5 +1179,5 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetVolume: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "controllerGetVolume")
+	return nil, status.Error(codes.Unimplemented, "")
 }
