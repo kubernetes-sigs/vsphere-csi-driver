@@ -98,24 +98,26 @@ func GetLoggerWithNoContext() *zap.SugaredLogger {
 
 // LogNewError logs an error msg, and returns error with msg.
 func LogNewError(log *zap.SugaredLogger, msg string) error {
-	log.Error(msg)
+	log.Desugar().WithOptions(zap.AddCallerSkip(1)).Sugar().Error(msg)
 	return errors.New(msg)
 }
 
 // LogNewErrorf logs a formated msg, and returns error with msg.
 func LogNewErrorf(log *zap.SugaredLogger, format string, a ...interface{}) error {
 	msg := fmt.Sprintf(format, a...)
-	return LogNewError(log, msg)
+	log.Desugar().WithOptions(zap.AddCallerSkip(1)).Sugar().Error(msg)
+	return errors.New(msg)
 }
 
 // LogNewErrorCode logs an error msg, and returns error with code and msg.
 func LogNewErrorCode(log *zap.SugaredLogger, c codes.Code, msg string) error {
-	log.Error(msg)
+	log.Desugar().WithOptions(zap.AddCallerSkip(1)).Sugar().Error(msg)
 	return status.Error(c, msg)
 }
 
 // LogNewErrorCodef logs a formated msg, and returns error with code and msg.
 func LogNewErrorCodef(log *zap.SugaredLogger, c codes.Code, format string, a ...interface{}) error {
 	msg := fmt.Sprintf(format, a...)
-	return LogNewErrorCode(log, c, msg)
+	log.Desugar().WithOptions(zap.AddCallerSkip(1)).Sugar().Error(msg)
+	return status.Error(c, msg)
 }
