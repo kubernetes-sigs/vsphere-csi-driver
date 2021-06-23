@@ -30,9 +30,9 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
-	"go.uber.org/zap"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,13 +106,11 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 	}
 
 	if volCap == nil {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"volume capability not provided")
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"volume capability not supported. Err: %+v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
 	}
 
 	var err error
@@ -128,7 +126,7 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 		// Mount Volume
 		// Extract mount volume details
 		log.Debug("NodeStageVolume: Volume detected as a mount volume")
-		params.fsType, params.mntFlags, err = ensureMountVol(ctx, log, volCap)
+		params.fsType, params.mntFlags, err = ensureMountVol(ctx, volCap)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +148,7 @@ func nodeStageBlockVolume(
 	log := logger.GetLogger(ctx)
 	// Block Volume
 	pubCtx := req.GetPublishContext()
-	diskID, err := getDiskID(pubCtx, log)
+	diskID, err := getDiskID(pubCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -366,24 +364,21 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 			"staging target path %q not set", params.stagingTarget)
 	}
 	if params.target == "" {
-		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"target path %q not set", params.target)
+		return nil, status.Errorf(codes.FailedPrecondition, "target path %q not set", params.target)
 	}
 
 	volCap := req.GetVolumeCapability()
 	if volCap == nil {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"volume capability not provided")
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"volume capability not supported. Err: %+v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "Volume capability not supported. Err: %+v", err)
 	}
 
 	// Check if this is a MountVolume or BlockVolume
 	if !common.IsFileVolumeRequest(ctx, caps) {
-		params.diskID, err = getDiskID(req.GetPublishContext(), log)
+		params.diskID, err = getDiskID(req.GetPublishContext())
 		if err != nil {
 			log.Errorf("error fetching DiskID. Parameters: %v", params)
 			return nil, err
@@ -429,8 +424,7 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	target := req.GetTargetPath()
 
 	if target == "" {
-		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"target path %q not set", target)
+		return nil, status.Errorf(codes.FailedPrecondition, "target path %q not set", target)
 	}
 
 	// Verify if the path exists
@@ -973,7 +967,7 @@ func publishMountVol(
 	log.Infof("PublishMountVolume called with args: %+v", params)
 
 	// Extract fs details
-	_, mntFlags, err := ensureMountVol(ctx, log, req.GetVolumeCapability())
+	_, mntFlags, err := ensureMountVol(ctx, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
@@ -1113,7 +1107,7 @@ func publishFileVol(
 	log.Infof("PublishFileVolume called with args: %+v", params)
 
 	// Extract mount details
-	fsType, mntFlags, err := ensureMountVol(ctx, log, req.GetVolumeCapability())
+	fsType, mntFlags, err := ensureMountVol(ctx, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
@@ -1392,11 +1386,10 @@ func rmpath(ctx context.Context, target string) error {
 	return nil
 }
 
-func ensureMountVol(ctx context.Context, log *zap.SugaredLogger,
-	volCap *csi.VolumeCapability) (string, []string, error) {
+func ensureMountVol(ctx context.Context, volCap *csi.VolumeCapability) (string, []string, error) {
 	mountVol := volCap.GetMount()
 	if mountVol == nil {
-		return "", nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "access type missing")
+		return "", nil, status.Error(codes.InvalidArgument, "access type missing")
 	}
 	fs := common.GetVolumeCapabilityFsType(ctx, volCap)
 	mntFlags := mountVol.GetMountFlags()
@@ -1450,12 +1443,12 @@ func convertUUID(uuid string) (string, error) {
 	return strings.ToLower(convertedUUID), nil
 }
 
-func getDiskID(pubCtx map[string]string, log *zap.SugaredLogger) (string, error) {
+func getDiskID(pubCtx map[string]string) (string, error) {
 	var diskID string
 	var ok bool
 	if diskID, ok = pubCtx[common.AttributeFirstClassDiskUUID]; !ok {
-		return "", logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"attribute: %s required in publish context",
+		return "", status.Errorf(codes.InvalidArgument,
+			"Attribute: %s required in publish context",
 			common.AttributeFirstClassDiskUUID)
 	}
 	return diskID, nil
