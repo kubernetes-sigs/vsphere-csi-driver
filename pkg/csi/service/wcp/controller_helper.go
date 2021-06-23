@@ -126,8 +126,9 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 		// Get datacenter object from config
 		vc, err := common.GetVCenter(ctx, manager)
 		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get vcenter object with error: %+v", err)
+			msg := fmt.Sprintf("failed to get vcenter object with error: %+v", err)
+			log.Errorf(msg)
+			return status.Errorf(codes.Internal, msg)
 		}
 		dc := &vsphere.Datacenter{
 			Datacenter: object.NewDatacenter(vc.Client.Client,
@@ -141,19 +142,22 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 		// Create client to list virtualmachine instances from the supervisor cluster API server
 		cfg, err := config.GetConfig()
 		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get config with error: %+v", err)
+			msg := fmt.Sprintf("failed to get config with error: %+v", err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
 		}
 		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
 		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
+			msg := fmt.Sprintf("failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
 		}
 		vmList := &vmoperatorv1alpha1.VirtualMachineList{}
 		err = vmOperatorClient.List(ctx, vmList)
 		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to list virtualmachines with error: %+v", err)
+			msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+			log.Error(msg)
+			return status.Errorf(codes.Internal, msg)
 		}
 
 		// Get BIOS UUID from virtualmachine instances to create VirtualMachine object
@@ -161,8 +165,9 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			biosUUID := vmInstance.Status.BiosUUID
 			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
 			if err != nil {
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+				msg := fmt.Sprintf("failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+				log.Error(msg)
+				return status.Errorf(codes.Internal, msg)
 			}
 			nodes = append(nodes, vm)
 		}
