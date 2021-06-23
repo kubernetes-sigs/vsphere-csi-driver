@@ -46,63 +46,71 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
-// VolumeSpec contains VolumePath and StoragePolicyID
-// using which Volume can be looked up using VolumeMigrationService
+// VolumeSpec contains VolumePath and StoragePolicyID, using which Volume can
+// be looked up via VolumeMigrationService.
 type VolumeSpec struct {
 	VolumePath        string
 	StoragePolicyName string
 }
 
 // VolumeMigrationService exposes interfaces to support VCP to CSI migration.
-// It will maintain internal state to map volume path to volume ID and reverse mapping.
+// It will maintain internal state to map volume path to volume ID and reverse
+// mapping.
 type VolumeMigrationService interface {
-	// GetVolumeID returns VolumeID for given VolumeSpec
+	// GetVolumeID returns VolumeID for a given VolumeSpec.
 	// Returns an error if not able to retrieve VolumeID.
 	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error)
 
-	// GetVolumePath returns VolumePath for given VolumeID
+	// GetVolumePath returns VolumePath for a given VolumeID.
 	// Returns an error if not able to retrieve VolumePath.
 	GetVolumePath(ctx context.Context, volumeID string) (string, error)
 
-	// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for specified volumeID
+	// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for
+	// specified volumeID.
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
 }
 
-// volumeMigration holds migrated volume information and provides functionality around it.
+// volumeMigration holds migrated volume information and provides functionality
+// around it.
 type volumeMigration struct {
-	// volumePath to volumeId map
+	// volumePath to volumeId map.
 	volumePathToVolumeID sync.Map
-	// k8sClient helps operate on CnsVSphereVolumeMigration custom resource
+	// k8sClient helps operate on CnsVSphereVolumeMigration custom resource.
 	k8sClient client.Client
-	// volumeManager helps perform Volume Operations
+	// volumeManager helps perform Volume Operations.
 	volumeManager *cnsvolume.Manager
-	// cnsConfig helps retrieve vSphere CSI configuration for RegisterVolume Operation
+	// cnsConfig helps retrieve vSphere CSI configuration for RegisterVolume
+	// Operation.
 	cnsConfig *cnsconfig.Config
 }
 
 const (
-	// CRDName represent the name of cnsvspherevolumemigrations CRD
+	// CRDName represent the name of cnsvspherevolumemigrations CRD.
 	CRDName = "cnsvspherevolumemigrations.cns.vmware.com"
-	// CRDGroupName represent the group of cnsvspherevolumemigrations CRD
+	// CRDGroupName represent the group of cnsvspherevolumemigrations CRD.
 	CRDGroupName = "cns.vmware.com"
-	// CRDSingular represent the singular name of cnsvspherevolumemigrations CRD
+	// CRDSingular represent the singular name of cnsvspherevolumemigrations CRD.
 	CRDSingular = "cnsvspherevolumemigration"
-	// CRDPlural represent the plural name of cnsvspherevolumemigrations CRD
+	// CRDPlural represent the plural name of cnsvspherevolumemigrations CRD.
 	CRDPlural = "cnsvspherevolumemigrations"
 )
 
 var (
-	// volumeMigrationInstance is instance of volumeMigration and implements interface for VolumeMigrationService
+	// volumeMigrationInstance is instance of volumeMigration and implements
+	// interface for VolumeMigrationService.
 	volumeMigrationInstance *volumeMigration
-	// volumeMigrationInstanceLock is used for handling race conditions during read, write on volumeMigrationInstance
+	// volumeMigrationInstanceLock is used for handling race conditions during
+	// read, write on volumeMigrationInstance.
 	volumeMigrationInstanceLock = &sync.RWMutex{}
-	// deleteVolumeInfoLock is used for handling race conditions during volumeMigration CR deletion
+	// deleteVolumeInfoLock is used for handling race conditions during
+	// volumeMigration CR deletion.
 	deleteVolumeInfoLock = &sync.Mutex{}
 )
 
-// GetVolumeMigrationService returns the singleton VolumeMigrationService
-// Starts a cleanup routine to delete stale CRD instances if needed
-func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager, cnsConfig *cnsconfig.Config, runCleanupRoutine bool) (VolumeMigrationService, error) {
+// GetVolumeMigrationService returns the singleton VolumeMigrationService.
+// Starts a cleanup routine to delete stale CRD instances if needed.
+func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Manager,
+	cnsConfig *cnsconfig.Config, runCleanupRoutine bool) (VolumeMigrationService, error) {
 	log := logger.GetLogger(ctx)
 	volumeMigrationInstanceLock.RLock()
 	if volumeMigrationInstance == nil {
@@ -111,9 +119,12 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 		defer volumeMigrationInstanceLock.Unlock()
 		if volumeMigrationInstance == nil {
 			log.Info("Initializing volume migration service...")
-			// This is idempotent if CRD is pre-created then we continue with initialization of volumeMigrationInstance
-			volumeMigrationServiceInitErr := k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
-				reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(), migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.ClusterScoped)
+			// This is idempotent if CRD is pre-created then we continue with
+			// initialization of volumeMigrationInstance.
+			volumeMigrationServiceInitErr := k8s.CreateCustomResourceDefinitionFromSpec(ctx,
+				CRDName, CRDSingular, CRDPlural, reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(),
+				migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version,
+				apiextensionsv1beta1.ClusterScoped)
 			if volumeMigrationServiceInitErr != nil {
 				log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
 				return nil, volumeMigrationServiceInitErr
@@ -128,7 +139,8 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 				volumeManager:        volumeManager,
 				cnsConfig:            cnsConfig,
 			}
-			volumeMigrationInstance.k8sClient, volumeMigrationServiceInitErr = k8s.NewClientForGroup(ctx, config, CRDGroupName)
+			volumeMigrationInstance.k8sClient, volumeMigrationServiceInitErr =
+				k8s.NewClientForGroup(ctx, config, CRDGroupName)
 			if volumeMigrationServiceInitErr != nil {
 				volumeMigrationInstance = nil
 				log.Errorf("failed to create k8sClient. Err: %v", volumeMigrationServiceInitErr)
@@ -136,8 +148,9 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			}
 			go func() {
 				log.Debugf("Starting Informer for cnsvspherevolumemigrations")
-				informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version,
-					"cnsvspherevolumemigrations", metav1.NamespaceNone, config, true)
+				informer, err := k8s.GetDynamicInformer(ctx, migrationv1alpha1.SchemeGroupVersion.Group,
+					migrationv1alpha1.SchemeGroupVersion.Version, "cnsvspherevolumemigrations",
+					metav1.NamespaceNone, config, true)
 				if err != nil {
 					log.Errorf("failed to create dynamic informer for volume migration CRD. Err: %v", err)
 				}
@@ -145,24 +158,29 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 					AddFunc: func(obj interface{}) {
 						log.Debugf("received add event for VolumeMigration CR!")
 						var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-						err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+						err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+							obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
 						if err != nil {
 							log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
 							return
 						}
-						volumeMigrationInstance.volumePathToVolumeID.Store(volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
-						log.Debugf("successfully added volumePath: %q, volumeID: %q mapping in the cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+						volumeMigrationInstance.volumePathToVolumeID.Store(
+							volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+						log.Debugf("successfully added volumePath: %q, volumeID: %q mapping in the cache",
+							volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 					},
 					DeleteFunc: func(obj interface{}) {
 						log.Debugf("received delete event for VolumeMigration CR!")
 						var volumeMigrationObject migrationv1alpha1.CnsVSphereVolumeMigration
-						err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
+						err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+							obj.(*unstructured.Unstructured).Object, &volumeMigrationObject)
 						if err != nil {
 							log.Errorf("failed to cast object to volumeMigrationObject. err: %v", err)
 							return
 						}
 						volumeMigrationInstance.volumePathToVolumeID.Delete(volumeMigrationObject.Spec.VolumePath)
-						log.Debugf("successfully deleted volumePath: %q, volumeID: %q mapping from cache", volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
+						log.Debugf("successfully deleted volumePath: %q, volumeID: %q mapping from cache",
+							volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 					},
 				}
 				informer.Informer().AddEventHandler(handlers)
@@ -170,7 +188,6 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 				informer.Informer().Run(stopCh)
 			}()
 			if runCleanupRoutine {
-				// Run cleanupStaleCRDInstances routine when runCleanupRoutine set to true
 				go volumeMigrationInstance.cleanupStaleCRDInstances()
 			}
 			log.Info("volume migration service initialized")
@@ -181,7 +198,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 	return volumeMigrationInstance, nil
 }
 
-// GetVolumeID returns VolumeID for given VolumeSpec
+// GetVolumeID returns VolumeID for given VolumeSpec.
 // Returns an error if not able to retrieve VolumeID.
 func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -190,7 +207,9 @@ func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeS
 		log.Debugf("VolumeID: %q found from the cache for VolumePath: %q", info.(string), volumeSpec.VolumePath)
 		return info.(string), nil
 	}
-	log.Infof("Could not retrieve VolumeID from cache for Volume Path: %q. volume may not be registered. Registering Volume with CNS", volumeSpec.VolumePath)
+	// Volume may not be registered.
+	log.Infof("Could not retrieve VolumeID from cache for Volume Path: %q. Registering Volume with CNS",
+		volumeSpec.VolumePath)
 	volumeID, err := volumeMigration.registerVolume(ctx, volumeSpec)
 	if err != nil {
 		log.Errorf("failed to register volume for volumeSpec: %v, with err: %v", volumeSpec, err)
@@ -213,7 +232,7 @@ func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeS
 	return volumeID, nil
 }
 
-// GetVolumePath returns VolumePath for given VolumeID
+// GetVolumePath returns VolumePath for given VolumeID.
 // Returns an error if not able to retrieve VolumePath.
 func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -241,7 +260,8 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 		volumeMigration.volumePathToVolumeID.Store(volumeMigrationResource.Spec.VolumePath, volumeID)
 		return volumeMigrationResource.Spec.VolumePath, nil
 	}
-	log.Infof("Could not retrieve mapping of volume path and VolumeID in the cache for VolumeID: %q. volume may not be registered", volumeID)
+	log.Infof("Could not retrieve mapping of volume path and VolumeID in the cache for VolumeID: %q. "+
+		"volume may not be registered", volumeID)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	var host string
 	if volumeMigration.cnsConfig == nil || len(volumeMigration.cnsConfig.VirtualCenter) == 0 {
@@ -270,7 +290,8 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 			return "", logger.LogNewErrorf(log,
 				"failed to retrieve VStorageObject for volume id: %q, err: %v", volumeID, err)
 		}
-		log.Debugf("RetrieveVStorageObject successfully returned fileBackingInfo %v for volumeIDList %v:", spew.Sdump(fileBackingInfo), volumeIds)
+		log.Debugf("RetrieveVStorageObject successfully returned fileBackingInfo %v for volumeIDList %v:",
+			spew.Sdump(fileBackingInfo), volumeIds)
 		fileBackingInfo = vStorageObject.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
 	} else {
 		log.Infof("Calling QueryVolumeInfo using: %v", volumeIds)
@@ -279,7 +300,8 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 			log.Errorf("QueryVolumeInfo failed for volumeID: %s, err: %v", volumeID, err)
 			return "", err
 		}
-		log.Debugf("QueryVolumeInfo successfully returned volumeInfo %v for volumeIDList %v:", spew.Sdump(queryVolumeInfoResult), volumeIds)
+		log.Debugf("QueryVolumeInfo successfully returned volumeInfo %v for volumeIDList %v:",
+			spew.Sdump(queryVolumeInfoResult), volumeIds)
 		cnsBlockVolumeInfo := interface{}(queryVolumeInfoResult.VolumeInfo).(*cnstypes.CnsBlockVolumeInfo)
 		fileBackingInfo = cnsBlockVolumeInfo.VStorageObject.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
 	}
@@ -300,9 +322,11 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	return fileBackingInfo.FilePath, nil
 }
 
-// SaveVolumeInfo helps create CR for given cnsVSphereVolumeMigration
-// this func also update local cache with supplied cnsVSphereVolumeMigration, after successful creation of CR
-func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context, cnsVSphereVolumeMigration *migrationv1alpha1.CnsVSphereVolumeMigration) error {
+// saveVolumeInfo helps create CR for given cnsVSphereVolumeMigration. This func
+// also update local cache with supplied cnsVSphereVolumeMigration, after
+// successful creation of CR
+func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context,
+	cnsVSphereVolumeMigration *migrationv1alpha1.CnsVSphereVolumeMigration) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating CR for cnsVSphereVolumeMigration: %+v", cnsVSphereVolumeMigration)
 	err := volumeMigration.k8sClient.Create(ctx, cnsVSphereVolumeMigration)
@@ -318,7 +342,8 @@ func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context, cnsV
 	return nil
 }
 
-// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for specified volumeID
+// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for
+// specified volumeID.
 func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
 	deleteVolumeInfoLock.Lock()
@@ -340,8 +365,8 @@ func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, vo
 	return nil
 }
 
-// registerVolume takes VolumeSpec and helps register Volume with CNS
-// Returns VolumeID for successful registration, otherwise return error
+// registerVolume takes VolumeSpec and helps register Volume with CNS.
+// Returns VolumeID for successful registration, otherwise return error.
 func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
 	uuid, err := uuid.NewUUID()
@@ -371,7 +396,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		host = key
 		break
 	}
-	// Get vCenter
+	// Get vCenter.
 	vCenter, err := vsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, host)
 	if err != nil {
 		log.Errorf("failed to get vCenter. err: %v", err)
@@ -381,7 +406,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 	if datacenters != "" {
 		datacenterPaths = strings.Split(datacenters, ",")
 	} else {
-		// Get all datacenters from vCenter
+		// Get all datacenters from vCenter.
 		dcs, err := vCenter.GetDatacenters(ctx)
 		if err != nil {
 			log.Errorf("failed to get datacenters from vCenter. err: %v", err)
@@ -402,10 +427,12 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 				"Error occurred while getting stroage policy ID from storage policy name: %q, err: %+v",
 				volumeSpec.StoragePolicyName, err)
 		}
-		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q", storagePolicyID, volumeSpec.StoragePolicyName)
+		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q",
+			storagePolicyID, volumeSpec.StoragePolicyName)
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user, cnstypes.CnsClusterFlavorVanilla, volumeMigration.cnsConfig.Global.ClusterDistribution)
+	containerCluster := vsphere.GetContainerCluster(volumeMigration.cnsConfig.Global.ClusterID, user,
+		cnstypes.CnsClusterFlavorVanilla, volumeMigration.cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       uuid.String(),
@@ -434,7 +461,8 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 				vCenter.Client.ServiceContent.About.ApiVersion, err)
 		}
 		if bUseVslmAPIs {
-			backingObjectID, err := (*volumeMigration.volumeManager).RegisterDisk(ctx, backingDiskURLPath, volumeSpec.VolumePath)
+			backingObjectID, err := (*volumeMigration.volumeManager).RegisterDisk(ctx,
+				backingDiskURLPath, volumeSpec.VolumePath)
 			if err != nil {
 				return "", logger.LogNewErrorf(log,
 					"registration failed for volumePath: %v", volumeSpec.VolumePath)
@@ -445,16 +473,19 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 			createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskUrlPath: backingDiskURLPath}
 			log.Infof("Registering volume: %q using backingDiskURLPath :%q", volumeSpec.VolumePath, backingDiskURLPath)
 		}
-		log.Debugf("vSphere CSI driver registering volume %q with create spec %+v", volumeSpec.VolumePath, spew.Sdump(createSpec))
+		log.Debugf("vSphere CSI driver registering volume %q with create spec %+v",
+			volumeSpec.VolumePath, spew.Sdump(createSpec))
 		volumeInfo, err = (*volumeMigration.volumeManager).CreateVolume(ctx, createSpec)
 		if err != nil {
-			log.Warnf("failed to register volume %q with createSpec: %v. error: %+v", volumeSpec.VolumePath, createSpec, err)
+			log.Warnf("failed to register volume %q with createSpec: %v. error: %+v",
+				volumeSpec.VolumePath, createSpec, err)
 		} else {
 			break
 		}
 	}
 	if volumeInfo != nil {
-		log.Infof("Successfully registered volume %q as container volume with ID: %q", volumeSpec.VolumePath, volumeInfo.VolumeID.Id)
+		log.Infof("Successfully registered volume %q as container volume with ID: %q",
+			volumeSpec.VolumePath, volumeInfo.VolumeID.Id)
 	} else {
 		return "", logger.LogNewErrorf(log,
 			"registration failed for volumeSpec: %v", volumeSpec)
@@ -462,9 +493,11 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 	return volumeInfo.VolumeID.Id, nil
 }
 
-// cleanupStaleCRDInstances helps in cleaning up stale volume migration CRD instances
+// cleanupStaleCRDInstances helps in cleaning up stale volume migration CRD
+// instances.
 func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
-	ticker := time.NewTicker(time.Duration(volumeMigrationInstance.cnsConfig.Global.VolumeMigrationCRCleanupIntervalInMin) * time.Minute)
+	ticker := time.NewTicker(
+		time.Duration(volumeMigrationInstance.cnsConfig.Global.VolumeMigrationCRCleanupIntervalInMin) * time.Minute)
 	for range ticker.C {
 		ctx, log := logger.GetNewContextWithLogger()
 		config, err := k8s.GetKubeConfig(ctx)
@@ -491,7 +524,8 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 				volumeMigrationInstance.cnsConfig.Global.ClusterID,
 			},
 		}
-		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx,
+			queryFilter, cnstypes.CnsQuerySelection{})
 		if err != nil {
 			log.Warnf("failed to queryAllVolume with err %+v", err)
 			continue
