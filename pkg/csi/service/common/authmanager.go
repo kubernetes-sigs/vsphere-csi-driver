@@ -28,6 +28,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -192,8 +193,9 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context,
 	// Get all datastores from VC.
 	dcList, err := vc.GetDatacenters(ctx)
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get datacenter list. err: %+v", err)
+		msg := fmt.Sprintf("failed to get datacenter list. err: %+v", err)
+		log.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 	var dsURLTodsInfoMap map[string]*cnsvsphere.DatastoreInfo
 	var dsURLs []string

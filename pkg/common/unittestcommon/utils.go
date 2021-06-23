@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 
@@ -76,24 +77,27 @@ func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
 ) (bool, error) {
 	// TODO - This can be implemented if we add WCP controller tests for attach volume
 	log := logger.GetLogger(ctx)
-	return false, logger.LogNewErrorCode(log, codes.Unimplemented,
-		"IsFakeAttachAllowed for FakeK8SOrchestrator is not yet implemented.")
+	msg := "IsFakeAttachAllowed for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return false, status.Error(codes.Unimplemented, msg)
 }
 
 // MarkFakeAttached marks the volume as fake attached.
 func (c *FakeK8SOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string) error {
 	// TODO - This can be implemented if we add WCP controller tests for attach volume
 	log := logger.GetLogger(ctx)
-	return logger.LogNewErrorCode(log, codes.Unimplemented,
-		"MarkFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+	msg := "MarkFakeAttached for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return status.Error(codes.Unimplemented, msg)
 }
 
 // ClearFakeAttached checks if the volume was fake attached, and unmark it as not fake attached.
 func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string) error {
 	// TODO - This can be implemented if we add WCP controller tests for attach volume
 	log := logger.GetLogger(ctx)
-	return logger.LogNewErrorCode(log, codes.Unimplemented,
-		"ClearFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+	msg := "ClearFakeAttached for FakeK8SOrchestrator is not yet implemented."
+	log.Error(msg)
+	return status.Error(codes.Unimplemented, msg)
 }
 
 // GetFakeVolumeMigrationService returns the mocked VolumeMigrationService
