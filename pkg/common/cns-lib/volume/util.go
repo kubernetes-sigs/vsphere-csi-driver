@@ -258,7 +258,9 @@ func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (c
 	}
 
 	if taskResult == nil {
-		return nil, logger.LogNewErrorf(log, "taskResult is empty for task: %q", taskInfo.ActivationId)
+		msg := fmt.Sprintf("taskResult is empty for task: %q", taskInfo.ActivationId)
+		log.Error(msg)
+		return nil, errors.New(msg)
 	}
 	return taskResult, nil
 }
@@ -302,7 +304,9 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 		pc := property.DefaultCollector(virtualCenter.Client.Client)
 		err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
+			msg := fmt.Sprintf("failed to retrieve datastore summary property: %v", err)
+			log.Error(msg)
+			return nil, errors.New(msg)
 		}
 		datastoreURL = dsMo.Summary.Url
 	}

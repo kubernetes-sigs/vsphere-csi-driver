@@ -210,7 +210,9 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	)
 
 	if m.operationStore == nil {
-		return nil, logger.LogNewError(log, "operation store cannot be nil")
+		msg := "operation store cannot be nil"
+		log.Error(msg)
+		return nil, errors.New(msg)
 	}
 
 	// Determine if CNS CreateVolume needs to be invoked.
@@ -702,8 +704,10 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		return logger.LogNewErrorf(log, "failed to delete volume: %q, fault: %q, opID: %q",
+		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
 		volumeID, taskInfo.ActivationId)
@@ -724,7 +728,9 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 	)
 	if m.operationStore == nil {
-		return logger.LogNewError(log, "operation store cannot be nil")
+		msg := "operation store cannot be nil"
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	// Determine if CNS needs to be invoked.
 	volumeOperationDetails, err := m.operationStore.GetRequestDetails(ctx, instanceName)
@@ -821,7 +827,8 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, taskInfo.ActivationId, taskInvocationStatusError, msg)
-		return logger.LogNewError(log, msg)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
 		volumeID, taskInfo.ActivationId)
@@ -963,7 +970,9 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 	task, err := m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
 	if err != nil {
 		if cnsvsphere.IsNotFoundError(err) {
-			return logger.LogNewErrorf(log, "volume %q not found. Cannot expand volume.", volumeID)
+			msg := fmt.Sprintf("volume %q not found. Cannot expand volume.", volumeID)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 		log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return err
@@ -984,13 +993,17 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 		return err
 	}
 	if taskResult == nil {
-		return logger.LogNewErrorf(log, "TaskResult is empty for ExtendVolume task: %q, opID: %q",
+		msg := fmt.Sprintf("TaskResult is empty for ExtendVolume task: %q, opID: %q",
 			taskInfo.Task.Value, taskInfo.ActivationId)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		return logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
+		msg := fmt.Sprintf("failed to extend volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 	log.Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	return nil
@@ -1011,7 +1024,9 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 	)
 
 	if m.operationStore == nil {
-		return logger.LogNewError(log, "operation store cannot be nil")
+		msg := "operation store cannot be nil"
+		log.Error(msg)
+		return errors.New(msg)
 	}
 
 	volumeOperationDetails, err = m.operationStore.GetRequestDetails(ctx, instanceName)
@@ -1070,7 +1085,9 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		task, err = m.virtualCenter.CnsClient.ExtendVolume(ctx, cnsExtendSpecList)
 		if err != nil {
 			if cnsvsphere.IsNotFoundError(err) {
-				return logger.LogNewErrorf(log, "volume %q not found. Cannot expand volume.", volumeID)
+				msg := fmt.Sprintf("volume %q not found. Cannot expand volume.", volumeID)
+				log.Error(msg)
+				return errors.New(msg)
 			}
 			log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -1107,8 +1124,10 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
 			taskInfo.ActivationId, taskInvocationStatusError, err.Error())
-		return logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
+		msg := fmt.Sprintf("failed to extend volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Error(msg)
+		return errors.New(msg)
 	}
 
 	log.Infof("ExpandVolume: Volume expanded successfully to size %d. volumeID: %q, opId: %q",
@@ -1121,8 +1140,10 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 	}
 	// Return an error if the new size is less than the requested size.
 	// The volume will be expanded again on a retry.
-	return logger.LogNewErrorf(log, "volume expanded to size %d but requested size is %d",
+	msg := fmt.Sprintf("volume expanded to size %d but requested size is %d",
 		volumeOperationDetails.Capacity, size)
+	log.Error(msg)
+	return errors.New(msg)
 }
 
 // QueryVolume returns volumes matching the given filter.
