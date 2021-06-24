@@ -46,19 +46,21 @@ func validateManager(ctx context.Context, m *defaultManager) error {
 }
 
 // IsDiskAttached checks if the volume is attached to the VM.
-// If the volume is attached to the VM, return disk uuid of the volume, else return empty string
-func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error) {
+// If the volume is attached to the VM, return disk uuid of the volume,
+// else return empty string.
+func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string,
+	checkNVMeController bool) (string, error) {
 	log := logger.GetLogger(ctx)
-	// Verify if the volume id is on the VM backing virtual disk devices
+	// Verify if the volume id is on the VM backing virtual disk devices.
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
 		log.Errorf("failed to get devices from vm: %s", vm.InventoryPath)
 		return "", err
 	}
-	// Build a map of NVME Controller key : NVME controller name
-	// This is needed to check if disk in contention is attached to a NVME controller
-	// The virtual disk devices do not contain the controller type information, but only
-	// contain the controller key information.
+	// Build a map of NVME Controller key : NVME controller name.
+	// This is needed to check if disk in contention is attached to a NVME
+	// controller. The virtual disk devices do not contain the controller type
+	// information, but only contain the controller key information.
 	nvmeControllerKeyToNameMap := make(map[int32]string)
 	for _, device := range vmDevices {
 		if vmDevices.TypeName(device) == "VirtualNVMEController" {
@@ -70,8 +72,9 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 		}
 	}
 	// Iterate through all the virtual disk devices and verify if virtual disk
-	// is attached to NVME controller if checkNVMeController is enabled and return
-	// NVME UUID by converting the backing UUID, else return the backing UUID (SCSI format UUID)
+	// is attached to NVME controller if checkNVMeController is enabled and
+	// return NVME UUID by converting the backing UUID, else return the backing
+	// UUID (SCSI format UUID).
 	for _, device := range vmDevices {
 		if vmDevices.TypeName(device) == "VirtualDisk" {
 			if virtualDisk, ok := device.(*types.VirtualDisk); ok {
@@ -87,7 +90,8 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 										log.Errorf("failed to convert uuid to  NvmeV13UUID for the vm: %s", vm.InventoryPath)
 										return "", err
 									}
-									log.Debugf("Successfully converted diskUUID %s to NvmeV13UUID %s for volume %s on vm %+v", backing.Uuid, uuid, volumeID, vm)
+									log.Debugf("Successfully converted diskUUID %s to NvmeV13UUID %s for volume %s on vm %+v",
+										backing.Uuid, uuid, volumeID, vm)
 									return uuid, nil
 								}
 							}
@@ -106,7 +110,7 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 	return "", nil
 }
 
-// getNvmeUUID returns the NVME formatted UUID
+// getNvmeUUID returns the NVME formatted UUID.
 func getNvmeUUID(ctx context.Context, uuid string) (string, error) {
 	log := logger.GetLogger(ctx)
 	uuidBytes, err := uuidlib.Parse(uuid)
@@ -135,8 +139,10 @@ func getNvmeUUID(ctx context.Context, uuid string) (string, error) {
 }
 
 // IsDiskAttachedToVMs checks if the volume is attached to any of the input VMs.
-// If the volume is attached to the VM, return disk uuid of the volume, else return empty string
-func IsDiskAttachedToVMs(ctx context.Context, volumeID string, vms []*cnsvsphere.VirtualMachine, checkNVMeController bool) (string, error) {
+// If the volume is attached to the VM, return disk uuid of the volume, else
+// return empty string.
+func IsDiskAttachedToVMs(ctx context.Context, volumeID string, vms []*cnsvsphere.VirtualMachine,
+	checkNVMeController bool) (string, error) {
 	for _, vm := range vms {
 		diskUUID, err := IsDiskAttached(ctx, vm, volumeID, checkNVMeController)
 		if diskUUID != "" || err != nil {
@@ -146,9 +152,10 @@ func IsDiskAttachedToVMs(ctx context.Context, volumeID string, vms []*cnsvsphere
 	return "", nil
 }
 
-// updateQueryResult helps update CnsQueryResult to populate volume.Metadata.EntityMetadata.ClusterID
-// with value from volume.Metadata.ContainerCluster.ClusterId
-// This is required to make driver code compatible to vSphere 67 release
+// updateQueryResult helps update CnsQueryResult to populate
+// volume.Metadata.EntityMetadata.ClusterID with value from
+// volume.Metadata.ContainerCluster.ClusterId. This is required to make
+// driver code compatible to vSphere 67 release.
 func updateQueryResult(ctx context.Context, m *defaultManager, res *cnstypes.CnsQueryResult) *cnstypes.CnsQueryResult {
 	if m.virtualCenter.Client.Version == cns.ReleaseVSAN67u3 {
 		log := logger.GetLogger(ctx)
@@ -167,7 +174,7 @@ func updateQueryResult(ctx context.Context, m *defaultManager, res *cnstypes.Cns
 	return res
 }
 
-// setupConnection connects to CNS and updates the VSphereUser to the session's user.
+// setupConnection connects to CNS and updates VSphereUser to session user.
 func setupConnection(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
 	spec *cnstypes.CnsVolumeCreateSpec) error {
 	log := logger.GetLogger(ctx)
@@ -191,7 +198,8 @@ func setupConnection(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 	return nil
 }
 
-// getPendingCreateVolumeTaskFromMap returns the CreateVolume task for a volume stored in the volumeTaskMap.
+// getPendingCreateVolumeTaskFromMap returns the CreateVolume task for a volume
+// stored in the volumeTaskMap.
 func getPendingCreateVolumeTaskFromMap(ctx context.Context, volNameFromInputSpec string) *object.Task {
 	var task *object.Task
 	log := logger.GetLogger(ctx)
@@ -204,12 +212,14 @@ func getPendingCreateVolumeTaskFromMap(ctx context.Context, volNameFromInputSpec
 	return task
 }
 
-// invokeCNSCreateVolume truncates the input volume name and invokes a CreateVolume operation for that volume on CNS.
+// invokeCNSCreateVolume truncates the input volume name and invokes a
+// CreateVolume operation for that volume on CNS.
 func invokeCNSCreateVolume(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
 	spec *cnstypes.CnsVolumeCreateSpec) (*object.Task, error) {
 	var cnsCreateSpecList []cnstypes.CnsVolumeCreateSpec
 	log := logger.GetLogger(ctx)
-	// Truncate the volume name to make sure the name is within 80 characters before calling CNS.
+	// Truncate the volume name to make sure the name is within 80 characters
+	// before calling CNS.
 	if len(spec.Name) > maxLengthOfVolumeNameInCNS {
 		volNameAfterTruncate := spec.Name[0 : maxLengthOfVolumeNameInCNS-1]
 		log.Infof("Create Volume with name %s is too long, truncate it to %s", spec.Name, volNameAfterTruncate)
@@ -225,7 +235,8 @@ func invokeCNSCreateVolume(ctx context.Context, virtualCenter *cnsvsphere.Virtua
 	return task, nil
 }
 
-// isStaticallyProvisioned returns true if the input spec is for a statically provisioned volume.
+// isStaticallyProvisioned returns true if the input spec is for a statically
+// provisioned volume.
 func isStaticallyProvisioned(spec *cnstypes.CnsVolumeCreateSpec) bool {
 	var isStaticallyProvisionedBlockVolume bool
 	var isStaticallyProvisionedFileVolume bool
@@ -263,9 +274,11 @@ func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (c
 	return taskResult, nil
 }
 
-// validateCreateVolumeResponseFault validates if the CreateVolume task fault. If it failed with an AlreadyRegistered
-// fault, then it returns the CnsVolumeInfo object. Otherwise, it returns an error.
-func validateCreateVolumeResponseFault(ctx context.Context, name string, resp *cnstypes.CnsVolumeOperationResult) (*CnsVolumeInfo, error) {
+// validateCreateVolumeResponseFault validates if the CreateVolume task fault.
+// If it failed with an AlreadyRegistered fault, then it returns the
+// CnsVolumeInfo object. Otherwise, it returns an error.
+func validateCreateVolumeResponseFault(ctx context.Context, name string,
+	resp *cnstypes.CnsVolumeOperationResult) (*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	fault, ok := resp.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
 	if ok {
@@ -283,7 +296,8 @@ func validateCreateVolumeResponseFault(ctx context.Context, name string, resp *c
 
 }
 
-// getCnsVolumeInfoFromTaskResult retrieves the datastoreURL and returns the CnsVolumeInfo object.
+// getCnsVolumeInfoFromTaskResult retrieves the datastoreURL and returns the
+// CnsVolumeInfo object.
 func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter, volumeName string,
 	volumeID cnstypes.CnsVolumeId, taskResult cnstypes.BaseCnsVolumeOperationResult) (*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
@@ -292,7 +306,8 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	if volumeCreateResult.PlacementResults != nil {
 		var datastoreMoRef types.ManagedObjectReference
 		for _, placementResult := range volumeCreateResult.PlacementResults {
-			// For the datastore which the volume is provisioned, placementFaults will not be set.
+			// For the datastore which the volume is provisioned, placementFaults
+			// will not be set.
 			if len(placementResult.PlacementFaults) == 0 {
 				datastoreMoRef = placementResult.Datastore
 				break

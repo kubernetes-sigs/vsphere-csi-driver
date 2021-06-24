@@ -30,7 +30,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-// DatastoreInfoProperty refers to the property name info for the Datastore
+// DatastoreInfoProperty refers to the property name info for the Datastore.
 const DatastoreInfoProperty = "info"
 
 // Datacenter holds virtual center information along with the Datacenter.
@@ -81,12 +81,16 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 	return nil, err
 }
 
-// GetVirtualMachineByUUID returns the VirtualMachine instance given its UUID in a datacenter.
+// GetVirtualMachineByUUID returns the VirtualMachine instance given its UUID
+// in a datacenter.
 // If instanceUUID is set to true, then UUID is an instance UUID.
-//  - In this case, this function searches for virtual machines whose instance UUID matches the given uuid.
+//  - In this case, this function searches for virtual machines whose instance
+//    UUID matches the given uuid.
 // If instanceUUID is set to false, then UUID is BIOS UUID.
-//  - In this case, this function searches for virtual machines whose BIOS UUID matches the given uuid.
-func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool) (*VirtualMachine, error) {
+//  - In this case, this function searches for virtual machines whose BIOS UUID
+//    matches the given uuid.
+func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context,
+	uuid string, instanceUUID bool) (*VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	uuid = strings.ToLower(strings.TrimSpace(uuid))
 	searchIndex := object.NewSearchIndex(dc.Datacenter.Client())
@@ -168,8 +172,10 @@ func AsyncGetAllDatacenters(ctx context.Context, buffSize int) (<-chan *Datacent
 	return dcsChan, errChan
 }
 
-// GetVMMoList gets the VM Managed Objects with the given properties from the VM object
-func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachine, properties []string) ([]mo.VirtualMachine, error) {
+// GetVMMoList gets the VM Managed Objects with the given properties from the
+// VM object.
+func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachine,
+	properties []string) ([]mo.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	var vmMoList []mo.VirtualMachine
 	var vmRefs []types.ManagedObjectReference
@@ -185,14 +191,15 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	pc := property.DefaultCollector(dc.Client())
 	err := pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {
-		log.Errorf("failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v", vmObjList, properties, err)
+		log.Errorf("failed to get VM managed objects from VM objects. vmObjList: %+v, properties: %+v, err: %v",
+			vmObjList, properties, err)
 		return nil, err
 	}
 	return vmMoList, nil
 }
 
-// GetAllDatastores gets the datastore URL to DatastoreInfo map for all the datastores in
-// the datacenter.
+// GetAllDatastores gets the datastore URL to DatastoreInfo map for all the
+// datastores in the datacenter.
 func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(dc.Client(), false)
@@ -211,7 +218,8 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsList, properties, err)
+		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v",
+			dsList, properties, err)
 		return nil, err
 	}
 	dsURLInfoMap := make(map[string]*DatastoreInfo)
