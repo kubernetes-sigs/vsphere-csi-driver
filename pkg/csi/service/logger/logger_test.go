@@ -53,3 +53,47 @@ func TestLogNewErrorCodef(t *testing.T) {
 		t.Error("Failed to create an error")
 	}
 }
+
+func BenchmarkLogNewError(b *testing.B) {
+	log := GetLoggerWithNoContext()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e := LogNewError(log, "Error Benchmark")
+		if e == nil {
+			b.Error("Failed to create an error")
+		}
+	}
+}
+
+func BenchmarkLogNewErrorf(b *testing.B) {
+	log := GetLoggerWithNoContext()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e := LogNewErrorf(log, "%s", "Error Benchmark")
+		if e == nil {
+			b.Error("Failed to create an error")
+		}
+	}
+}
+
+func BenchmarkLogNewErrorCode(b *testing.B) {
+	log := GetLoggerWithNoContext()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e := LogNewErrorCode(log, codes.Unknown, "Error Benchmark")
+		if e == nil {
+			b.Error("Failed to create an error")
+		}
+	}
+}
+
+func BenchmarkLogNewErrorCodef(b *testing.B) {
+	log := GetLoggerWithNoContext()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e := LogNewErrorCodef(log, codes.Unknown, "%s", "Error Benchmark")
+		if e == nil {
+			b.Error("Failed to create an error")
+		}
+	}
+}
