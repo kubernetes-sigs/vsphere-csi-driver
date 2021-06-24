@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -147,7 +148,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
-	c.nodeMgr = &Nodes{}
+	c.nodeMgr = &node.Nodes{}
 	err = c.nodeMgr.Initialize(ctx)
 	if err != nil {
 		log.Errorf("failed to initialize nodeMgr. err=%v", err)
@@ -310,7 +311,7 @@ func (c *controller) ReloadConfiguration() error {
 		c.manager.VcenterConfig = newVCConfig
 		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled)
 		// Re-Initialize Node Manager to cache latest vCenter config.
-		c.nodeMgr = &Nodes{}
+		c.nodeMgr = &node.Nodes{}
 		err = c.nodeMgr.Initialize(ctx)
 		if err != nil {
 			log.Errorf("failed to re-initialize nodeMgr. err=%v", err)

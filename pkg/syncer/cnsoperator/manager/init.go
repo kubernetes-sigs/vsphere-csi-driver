@@ -35,6 +35,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -167,6 +168,14 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
 				return err
 			}
+			// Initialize node manager so that CSINodeTopology controller
+			// can retrieve NodeVM using the NodeID in the spec
+			nodeMgr := &node.Nodes{}
+			err = nodeMgr.Initialize(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
+				return err
+			}
 		}
 	}
 
@@ -186,6 +195,10 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// Setup Scheme for all resources for external APIs
 	if err := cnsoperatorv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
+		return err
+	}
+	if err = csinodetopologyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Errorf("failed to add CSINodeTopology to scheme with error: %+v", err)
 		return err
 	}
 
