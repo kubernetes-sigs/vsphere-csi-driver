@@ -26,23 +26,26 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// QueryVolumeUtil helps to invoke query volume API based on the feature state set for using query async volume.
-// If useQueryVolumeAsync is set to true, the function invokes CNS QueryVolumeAsync, otherwise it invokes synchronous QueryVolume API
-// The function also take volume manager instance, query filters, query selection as params
-// Returns queryResult when query volume succeeds, otherwise returns appropriate errors
-func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+// QueryVolumeUtil helps to invoke query volume API based on the feature
+// state set for using query async volume. If useQueryVolumeAsync is set to
+// true, the function invokes CNS QueryVolumeAsync, otherwise it invokes
+// synchronous QueryVolume API. The function also take volume manager instance,
+// query filters, query selection as params. Returns queryResult when query
+// volume succeeds, otherwise returns appropriate errors.
+func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
+	querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	var queryAsyncNotSupported bool
 	var queryResult *cnstypes.CnsQueryResult
 	var err error
 	if useQueryVolumeAsync {
-		// AsyncQueryVolume feature switch is disabled
+		// AsyncQueryVolume feature switch is disabled.
 		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
 		if err != nil {
 			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
 				log.Warn("QueryVolumeAsync is not supported. Invoking QueryVolume API")
 				queryAsyncNotSupported = true
-			} else { // Return for any other failures
+			} else { // Return for any other failures.
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
@@ -58,23 +61,26 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 	return queryResult, nil
 }
 
-// QueryAllVolumeUtil helps to invoke query volume API based on the feature state set for using query async volume.
-// If useQueryVolumeAsync is set to true, the function invokes CNS QueryVolumeAsync, otherwise it invokes synchronous QueryAllVolume API
-// The function also take volume manager instance, query filters, query selection as params
-// Returns queryResult when query volume succeeds, otherwise returns appropriate errors
-func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter, querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+// QueryAllVolumeUtil helps to invoke query volume API based on the feature
+// state set for using query async volume. If useQueryVolumeAsync is set to
+// true, the function invokes CNS QueryVolumeAsync, otherwise it invokes
+// synchronous QueryAllVolume API. The function also take volume manager
+// instance, query filters, query selection as params. Returns queryResult
+// when query volume succeeds, otherwise returns appropriate errors.
+func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
+	querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	var queryAsyncNotSupported bool
 	var queryResult *cnstypes.CnsQueryResult
 	var err error
 	if useQueryVolumeAsync {
-		// AsyncQueryVolume feature switch is disabled
+		// AsyncQueryVolume feature switch is disabled.
 		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
 		if err != nil {
 			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
 				log.Warn("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
 				queryAsyncNotSupported = true
-			} else { // Return for any other failures
+			} else { // Return for any other failures.
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
 			}
