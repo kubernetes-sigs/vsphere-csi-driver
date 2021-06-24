@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vanilla
+package node
 
 import (
 	"context"
@@ -24,7 +24,6 @@ import (
 	"github.com/vmware/govmomi/vapi/tags"
 	v1 "k8s.io/api/core/v1"
 
-	cnsnode "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
@@ -32,13 +31,13 @@ import (
 
 // Nodes comprises cns node manager and kubernetes informer.
 type Nodes struct {
-	cnsNodeManager cnsnode.Manager
+	cnsNodeManager Manager
 	informMgr      *k8s.InformerManager
 }
 
 // Initialize helps initialize node manager and node informer manager.
 func (nodes *Nodes) Initialize(ctx context.Context) error {
-	nodes.cnsNodeManager = cnsnode.GetManager(ctx)
+	nodes.cnsNodeManager = GetManager(ctx)
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
