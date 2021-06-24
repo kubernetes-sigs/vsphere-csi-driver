@@ -35,13 +35,13 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
@@ -170,7 +170,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}
 			// Initialize node manager so that CSINodeTopology controller
 			// can retrieve NodeVM using the NodeID in the spec
-			nodeMgr := &vanilla.Nodes{}
+			nodeMgr := &node.Nodes{}
 			err = nodeMgr.Initialize(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
