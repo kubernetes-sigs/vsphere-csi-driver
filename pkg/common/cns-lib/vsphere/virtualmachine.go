@@ -65,13 +65,14 @@ func (vm *VirtualMachine) IsActive(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// renew renews the virtual machine and datacenter objects given its virtual center.
+// renew renews the virtual machine and datacenter objects on the given vc.
 func (vm *VirtualMachine) renew(vc *VirtualCenter) {
 	vm.VirtualMachine = object.NewVirtualMachine(vc.Client.Client, vm.VirtualMachine.Reference())
 	vm.Datacenter.Datacenter = object.NewDatacenter(vc.Client.Client, vm.Datacenter.Reference())
 }
 
-// GetAllAccessibleDatastores gets the list of accessible Datastores for the given Virtual Machine
+// GetAllAccessibleDatastores gets the list of accessible Datastores for the
+// given Virtual Machine.
 func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	host, err := vm.HostSystem(ctx)
@@ -119,9 +120,11 @@ const (
 
 // GetVirtualMachineByUUID returns virtual machine given its UUID in entire VC.
 // If instanceUuid is set to true, then UUID is an instance UUID.
-// In this case, this function searches for virtual machines whose instance UUID matches the given uuid.
+// In this case, this function searches for virtual machines whose instance UUID
+// matches the given uuid.
 // If instanceUuid is set to false, then UUID is BIOS UUID.
-// In this case, this function searches for virtual machines whose BIOS UUID matches the given uuid.
+// In this case, this function searches for virtual machines whose BIOS UUID
+// matches the given uuid.
 func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool) (*VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initiating asynchronous datacenter listing with uuid %s", uuid)
@@ -197,7 +200,7 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 	}
 }
 
-// GetHostSystem returns HostSystem object of the virtual machine
+// GetHostSystem returns HostSystem object of the virtual machine.
 func (vm *VirtualMachine) GetHostSystem(ctx context.Context) (*object.HostSystem, error) {
 	log := logger.GetLogger(ctx)
 	vmHost, err := vm.VirtualMachine.HostSystem(ctx)
@@ -215,7 +218,7 @@ func (vm *VirtualMachine) GetHostSystem(ctx context.Context) (*object.HostSystem
 	return vmHost, nil
 }
 
-// GetTagManager returns tagManager using vm client
+// GetTagManager returns tagManager using vm client.
 func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, error) {
 	log := logger.GetLogger(ctx)
 	virtualCenter, err := GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vm.VirtualCenterHost)
@@ -226,8 +229,8 @@ func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, err
 	return GetTagManager(ctx, virtualCenter)
 }
 
-// GetAncestors returns ancestors of VM
-// example result: "Folder", "Datacenter", "Cluster"
+// GetAncestors returns ancestors of VM.
+// Example result: "Folder", "Datacenter", "Cluster".
 func (vm *VirtualMachine) GetAncestors(ctx context.Context) ([]mo.ManagedEntity, error) {
 	log := logger.GetLogger(ctx)
 	vmHost, err := vm.GetHostSystem(ctx)
@@ -237,7 +240,7 @@ func (vm *VirtualMachine) GetAncestors(ctx context.Context) ([]mo.ManagedEntity,
 	}
 	var objects []mo.ManagedEntity
 	pc := vm.Datacenter.Client().ServiceContent.PropertyCollector
-	// example result: ["Folder", "Datacenter", "Cluster"]
+	// Example result: ["Folder", "Datacenter", "Cluster"]
 	objects, err = mo.Ancestors(ctx, vm.Datacenter.Client(), pc, vmHost.Reference())
 	if err != nil {
 		log.Errorf("GetAncestors failed for %s with err %v", vmHost.Reference(), err)
@@ -247,17 +250,20 @@ func (vm *VirtualMachine) GetAncestors(ctx context.Context) ([]mo.ManagedEntity,
 	return objects, nil
 }
 
-// GetZoneRegion returns zone and region of the node vm
-func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName string, regionCategoryName string, tagManager *tags.Manager) (zone string, region string, err error) {
+// GetZoneRegion returns zone and region of the node vm.
+func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName string,
+	regionCategoryName string, tagManager *tags.Manager) (zone string, region string, err error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("GetZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s", zoneCategoryName, regionCategoryName)
+	log.Debugf("GetZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s",
+		zoneCategoryName, regionCategoryName)
 	var objects []mo.ManagedEntity
 	objects, err = vm.GetAncestors(ctx)
 	if err != nil {
 		log.Errorf("GetAncestors failed for %s with err %v", vm.Reference(), err)
 		return "", "", err
 	}
-	// search the hierarchy, example order: ["Host", "Cluster", "Datacenter", "Folder"]
+	// Search the hierarchy, example order:
+	//    ["Host", "Cluster", "Datacenter", "Folder"]
 	for i := range objects {
 		obj := objects[len(objects)-1-i]
 		log.Debugf("Name: %s, Type: %s", obj.Self.Value, obj.Self.Type)
@@ -296,23 +302,27 @@ func (vm *VirtualMachine) GetZoneRegion(ctx context.Context, zoneCategoryName st
 	return zone, region, err
 }
 
-// IsInZoneRegion checks if virtual machine belongs to specified zone and region
-// This function returns true if virtual machine belongs to specified zone/region, else returns false.
-func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName string, regionCategoryName string, zoneValue string, regionValue string, tagManager *tags.Manager) (bool, error) {
+// IsInZoneRegion checks if VM belongs to specified zone and region.
+// This function returns true if yes, false otherwise.
+func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName string, regionCategoryName string,
+	zoneValue string, regionValue string, tagManager *tags.Manager) (bool, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("IsInZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s, zoneValue: %s, regionValue: %s", zoneCategoryName, regionCategoryName, zoneValue, regionValue)
+	log.Infof("IsInZoneRegion: called with zoneCategoryName: %s, regionCategoryName: %s, zoneValue: %s, regionValue: %s",
+		zoneCategoryName, regionCategoryName, zoneValue, regionValue)
 	vmZone, vmRegion, err := vm.GetZoneRegion(ctx, zoneCategoryName, regionCategoryName, tagManager)
 	if err != nil {
 		log.Errorf("failed to get accessibleTopology for vm: %v, err: %v", vm.Reference(), err)
 		return false, err
 	}
 	if regionValue == "" && zoneValue != "" && vmZone == zoneValue {
-		// region is not specified, if zone matches with look up zone value, return true
+		// Region is not specified. If zone matches with look up zone value,
+		// return true.
 		log.Debugf("MoRef [%v] belongs to zone [%s]", vm.Reference(), zoneValue)
 		return true, nil
 	}
 	if zoneValue == "" && regionValue != "" && vmRegion == regionValue {
-		// zone is not specified, if region matches with look up region value, return true
+		// Zone is not specified. If region matches with look up region value,
+		// return true.
 		log.Debugf("MoRef [%v] belongs to region [%s]", vm.Reference(), regionValue)
 		return true, nil
 	}
@@ -323,7 +333,7 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 	return false, nil
 }
 
-// GetUUIDFromProviderID Returns VM UUID from Node's providerID
+// GetUUIDFromProviderID Returns VM UUID from Node's providerID.
 func GetUUIDFromProviderID(providerID string) string {
 	return strings.TrimPrefix(providerID, providerPrefix)
 }
