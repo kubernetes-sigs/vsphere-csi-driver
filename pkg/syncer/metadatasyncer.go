@@ -986,8 +986,11 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 
 	// Dynamically provisioned PVs have a volume attribute called 'storage.kubernetes.io/csiProvisionerIdentity'
 	// in their CSI spec, which is set by external-provisioner.
-	_, dynamic := newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
-	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && !dynamic {
+	var isdynamicCSIPV bool
+	if newPv.Spec.CSI != nil {
+		_, isdynamicCSIPV = newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
+	}
+	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && !isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created
 		var volumeType string
 		if IsMultiAttachAllowed(oldPv) {
