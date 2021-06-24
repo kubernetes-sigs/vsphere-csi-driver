@@ -1247,7 +1247,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		isVsanhealthServiceStopped = false
 
 		ginkgo.By("Wait for some time for the CRD to create PV , PVC")
-		time.Sleep(time.Duration(60) * time.Second)
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
 
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
@@ -1332,7 +1333,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		isSPSserviceStopped = false
 
 		ginkgo.By("Wait for some time for the updated CRD to create PV , PVC")
-		time.Sleep(time.Duration(60) * time.Second)
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
 
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
