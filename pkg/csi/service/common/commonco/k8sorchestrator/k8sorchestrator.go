@@ -58,14 +58,16 @@ var (
 	k8sOrchestratorInstance            *K8sOrchestrator
 	k8sOrchestratorInstanceInitialized uint32
 	// doesSvFssCRExist is set only in Guest cluster flavor if
-	// the cnscsisvfeaturestate CR exists in the supervisor namespace of the TKG cluster
+	// the cnscsisvfeaturestate CR exists in the supervisor namespace
+	// of the TKG cluster.
 	doesSvFssCRExist         bool
 	serviceMode              string
 	svFssCRMutex             = &sync.RWMutex{}
 	k8sOrchestratorInitMutex = &sync.RWMutex{}
 )
 
-// FSSConfigMapInfo contains details about the FSS configmap(s) present in all flavors
+// FSSConfigMapInfo contains details about the FSS configmap(s) present in
+// all flavors.
 type FSSConfigMapInfo struct {
 	featureStates      map[string]string
 	configMapName      string
@@ -74,7 +76,8 @@ type FSSConfigMapInfo struct {
 
 // Map of volume handles to the pvc it is bound to.
 // Key is the volume handle ID and value is the namespaced name of the pvc.
-// The methods to add, remove and get entries from the map in a threadsafe manner are defined.
+// The methods to add, remove and get entries from the map in a threadsafe
+// manner are defined.
 type volumeIDToPvcMap struct {
 	*sync.RWMutex
 	items map[string]string
@@ -101,7 +104,7 @@ func (m *volumeIDToPvcMap) get(volumeHandle string) string {
 	return m.items[volumeHandle]
 }
 
-// K8sOrchestrator defines set of properties specific to K8s
+// K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
 	supervisorFSS    FSSConfigMapInfo
 	internalFSS      FSSConfigMapInfo
@@ -111,29 +114,33 @@ type K8sOrchestrator struct {
 	k8sClient        clientset.Interface
 }
 
-// K8sGuestInitParams lists the set of parameters required to run the init for K8sOrchestrator in Guest cluster
+// K8sGuestInitParams lists the set of parameters required to run the init for
+// K8sOrchestrator in Guest cluster.
 type K8sGuestInitParams struct {
 	InternalFeatureStatesConfigInfo   cnsconfig.FeatureStatesConfigInfo
 	SupervisorFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                       string
 }
 
-// K8sSupervisorInitParams lists the set of parameters required to run the init for K8sOrchestrator in Supervisor cluster
+// K8sSupervisorInitParams lists the set of parameters required to run the init
+// for K8sOrchestrator in Supervisor cluster.
 type K8sSupervisorInitParams struct {
 	SupervisorFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                       string
 }
 
-// K8sVanillaInitParams lists the set of parameters required to run the init for K8sOrchestrator in Vanilla cluster
+// K8sVanillaInitParams lists the set of parameters required to run the init for
+// K8sOrchestrator in Vanilla cluster.
 type K8sVanillaInitParams struct {
 	InternalFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                     string
 }
 
-// Newk8sOrchestrator instantiates K8sOrchestrator object and returns this object
-// NOTE: As Newk8sOrchestrator is created in the init of the driver and syncer components,
-// raise an error only if it is of utmost importance
-func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor, params interface{}) (*K8sOrchestrator, error) {
+// Newk8sOrchestrator instantiates K8sOrchestrator object and returns this
+// object. NOTE: As Newk8sOrchestrator is created in the init of the driver and
+// syncer components, raise an error only if it is of utmost importance.
+func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor,
+	params interface{}) (*K8sOrchestrator, error) {
 	var (
 		coInstanceErr error
 		k8sClient     clientset.Interface
@@ -175,17 +182,19 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 	return k8sOrchestratorInstance, nil
 }
 
-// initFSS performs all the operations required to initialize the Feature states map and keep a watch on it
-// NOTE: As initFSS is called during the init of the driver and syncer components,
-// raise an error only if the containers need to crash
-func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClusterFlavor cnstypes.CnsClusterFlavor, params interface{}) error {
+// initFSS performs all the operations required to initialize the Feature
+// states map and keep a watch on it. NOTE: As initFSS is called during the
+// init of the driver and syncer components, raise an error only if the
+// containers need to crash.
+func initFSS(ctx context.Context, k8sClient clientset.Interface,
+	controllerClusterFlavor cnstypes.CnsClusterFlavor, params interface{}) error {
 	log := logger.GetLogger(ctx)
 	var (
 		fssConfigMap               *v1.ConfigMap
 		err                        error
 		configMapNamespaceToListen string
 	)
-	// Store configmap info in global variables to access later
+	// Store configmap info in global variables to access later.
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
 		// Validate init params
@@ -200,7 +209,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 	}
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		k8sOrchestratorInstance.internalFSS.featureStates = make(map[string]string)
-		// Validate init params
+		// Validate init params.
 		vanillaInitParams, ok := params.(K8sVanillaInitParams)
 		if !ok {
 			return fmt.Errorf("expected orchestrator params of type K8sVanillaInitParams, got %T instead", params)
@@ -213,7 +222,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
 		k8sOrchestratorInstance.internalFSS.featureStates = make(map[string]string)
-		// Validate init params
+		// Validate init params.
 		guestInitParams, ok := params.(K8sGuestInitParams)
 		if !ok {
 			return fmt.Errorf("expected orchestrator params of type K8sGuestInitParams, got %T instead", params)
@@ -222,38 +231,44 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 		k8sOrchestratorInstance.internalFSS.configMapNamespace = guestInitParams.InternalFeatureStatesConfigInfo.Namespace
 		k8sOrchestratorInstance.supervisorFSS.configMapName = guestInitParams.SupervisorFeatureStatesConfigInfo.Name
 		k8sOrchestratorInstance.supervisorFSS.configMapNamespace = guestInitParams.SupervisorFeatureStatesConfigInfo.Namespace
-		// As of now, TKGS is having both supervisor FSS and internal FSS in the same namespace.
-		// If the configmap's namespaces change in future, we may need listeners on different namespaces
-		// Until then, we will initialize configMapNamespaceToListen to internalFSS.configMapNamespace
+		// As of now, TKGS is having both supervisor FSS and internal FSS in the
+		// same namespace. If the configmap's namespaces change in future, we may
+		// need listeners on different namespaces. Until then, we will initialize
+		// configMapNamespaceToListen to internalFSS.configMapNamespace.
 		configMapNamespaceToListen = k8sOrchestratorInstance.internalFSS.configMapNamespace
 		serviceMode = guestInitParams.ServiceMode
 	}
 
-	// Initialize internal FSS map values
-	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest || controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		if k8sOrchestratorInstance.internalFSS.configMapName != "" && k8sOrchestratorInstance.internalFSS.configMapNamespace != "" {
-			// Retrieve configmap
+	// Initialize internal FSS map values.
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest ||
+		controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if k8sOrchestratorInstance.internalFSS.configMapName != "" &&
+			k8sOrchestratorInstance.internalFSS.configMapNamespace != "" {
+			// Retrieve configmap.
 			fssConfigMap, err = k8sClient.CoreV1().ConfigMaps(k8sOrchestratorInstance.internalFSS.configMapNamespace).Get(
 				ctx, k8sOrchestratorInstance.internalFSS.configMapName, metav1.GetOptions{})
 			if err != nil {
-				// return error as we cannot init containers without this info
+				// return error as we cannot init containers without this info.
 				log.Errorf("failed to fetch configmap %s from namespace %s. Error: %v",
-					k8sOrchestratorInstance.internalFSS.configMapName, k8sOrchestratorInstance.internalFSS.configMapNamespace, err)
+					k8sOrchestratorInstance.internalFSS.configMapName,
+					k8sOrchestratorInstance.internalFSS.configMapNamespace, err)
 				return err
 			}
-			// Update values
+			// Update values.
 			k8sOrchestratorInstance.internalFSS.featureStates = fssConfigMap.Data
-			log.Infof("New internal feature states values stored successfully: %v", k8sOrchestratorInstance.internalFSS.featureStates)
+			log.Infof("New internal feature states values stored successfully: %v",
+				k8sOrchestratorInstance.internalFSS.featureStates)
 		}
 	}
 
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest && serviceMode != "node" {
 		var isFSSCREnabled bool
-		// Check if csi-sv-feature-states-replication FSS exists and is enabled
+		// Check if csi-sv-feature-states-replication FSS exists and is enabled.
 		if val, ok := k8sOrchestratorInstance.internalFSS.featureStates[common.CSISVFeatureStateReplication]; ok {
 			isFSSCREnabled, err = strconv.ParseBool(val)
 			if err != nil {
-				log.Errorf("unable to convert %v to bool. csi-sv-feature-states-replication FSS disabled. Error: %v", val, err)
+				log.Errorf("unable to convert %v to bool. csi-sv-feature-states-replication FSS disabled. Error: %v",
+					val, err)
 				return err
 			}
 		} else {
@@ -262,7 +277,9 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 			return errors.New(msg)
 		}
 
-		// Initialize supervisor FSS map values in GC using the cnscsisvfeaturestate CR if csi-sv-feature-states-replication FSS is enabled
+		// Initialize supervisor FSS map values in GC using the
+		// cnscsisvfeaturestate CR if csi-sv-feature-states-replication FSS
+		// is enabled.
 		if isFSSCREnabled {
 			svNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 			if err != nil {
@@ -274,25 +291,31 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 				log.Errorf("failed to read config. Error: %+v", err)
 				return err
 			}
-			// Get rest client config for supervisor
+			// Get rest client config for supervisor.
 			restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
 
-			// Attempt to fetch the cnscsisvfeaturestate CR from the supervisor namespace of the TKG cluster
+			// Attempt to fetch the cnscsisvfeaturestate CR from the supervisor
+			// namespace of the TKG cluster.
 			svFssCR, err := getSVFssCR(ctx, restClientConfig)
 			if err != nil {
-				// If the cnscsisvfeaturestate CR is not yet registered in the supervisor cluster, we receive NoKindMatchError.
-				// In such cases log an info message and fallback to GCM replicated configmap approach
+				// If the cnscsisvfeaturestate CR is not yet registered in the
+				// supervisor cluster, we receive NoKindMatchError. In such cases
+				// log an info message and fallback to GCM replicated configmap
+				// approach.
 				_, ok := err.(*apiMeta.NoKindMatchError)
 				if ok {
-					log.Infof("%s CR not found in supervisor namespace. Defaulting to the %q FSS configmap in %q namespace. Error: %+v",
-						featurestates.CRDSingular, k8sOrchestratorInstance.supervisorFSS.configMapName, k8sOrchestratorInstance.supervisorFSS.configMapNamespace, err)
+					log.Infof("%s CR not found in supervisor namespace. Defaulting to the %q FSS configmap "+
+						"in %q namespace. Error: %+v",
+						featurestates.CRDSingular, k8sOrchestratorInstance.supervisorFSS.configMapName,
+						k8sOrchestratorInstance.supervisorFSS.configMapNamespace, err)
 				} else {
-					log.Errorf("failed to get %s CR from supervisor namespace %q. Error: %+v", featurestates.CRDSingular, svNamespace, err)
+					log.Errorf("failed to get %s CR from supervisor namespace %q. Error: %+v",
+						featurestates.CRDSingular, svNamespace, err)
 					return err
 				}
 			} else {
 				setSvFssCRAvailability(true)
-				// Store supervisor FSS values in cache
+				// Store supervisor FSS values in cache.
 				for _, svFSS := range svFssCR.Spec.FeatureStates {
 					k8sOrchestratorInstance.supervisorFSS.featureStates[svFSS.Name] = strconv.FormatBool(svFSS.Enabled)
 				}
@@ -300,40 +323,44 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 					featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
 			}
 
-			// Create an informer to watch on the cnscsisvfeaturestate CR
+			// Create an informer to watch on the cnscsisvfeaturestate CR.
 			go func() {
-				// Ideally if a resource is not yet registered on a cluster and we try to create an informer to watch it, the informer creation will not fail but
-				// the informer starts emitting error messages like `Failed to list X: the server could not find the requested resource`.
-				// To avoid this, we attempt to fetch the cnscsisvfeaturestate CR first and retry if we receive an error.
-				// This is required in cases where TKG cluster is on a newer build and supervisor is at an older version.
+				// Ideally if a resource is not yet registered on a cluster and we
+				// try to create an informer to watch it, the informer creation will
+				// not fail. But, the informer starts emitting error messages like
+				// `Failed to list X: the server could not find the requested resource`.
+				// To avoid this, we attempt to fetch the cnscsisvfeaturestate CR
+				// first and retry if we receive an error. This is required in cases
+				// where TKG cluster is on a newer build and supervisor is at an
+				// older version.
 				ticker := time.NewTicker(informerCreateRetryInterval)
 				var dynInformer informers.GenericInformer
 				for range ticker.C {
-					// Check if cnscsisvfeaturestate CR exists, if not keep retrying
+					// Check if cnscsisvfeaturestate CR exists, if not keep retrying.
 					_, err = getSVFssCR(ctx, restClientConfig)
 					if err != nil {
 						continue
 					}
-					// Create a dynamic informer for the cnscsisvfeaturestate CR
-					dynInformer, err = k8s.GetDynamicInformer(ctx, featurestates.CRDGroupName, internalapis.Version, featurestates.CRDPlural,
-						svNamespace, restClientConfig, false)
+					// Create a dynamic informer for the cnscsisvfeaturestate CR.
+					dynInformer, err = k8s.GetDynamicInformer(ctx, featurestates.CRDGroupName,
+						internalapis.Version, featurestates.CRDPlural, svNamespace, restClientConfig, false)
 					if err != nil {
 						log.Errorf("failed to create dynamic informer for %s CR. Error: %+v", featurestates.CRDSingular, err)
 						continue
 					}
 					break
 				}
-				// Set up namespaced listener for cnscsisvfeaturestate CR
+				// Set up namespaced listener for cnscsisvfeaturestate CR.
 				dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-					// Add
+					// Add.
 					AddFunc: func(obj interface{}) {
 						fssCRAdded(obj)
 					},
-					// Update
+					// Update.
 					UpdateFunc: func(oldObj interface{}, newObj interface{}) {
 						fssCRUpdated(oldObj, newObj)
 					},
-					// Delete
+					// Delete.
 					DeleteFunc: func(obj interface{}) {
 						fssCRDeleted(obj)
 					},
@@ -344,34 +371,40 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface, controllerClust
 			}()
 		}
 	}
-	// Initialize supervisor FSS map values using configmap in Supervisor cluster flavor
-	// or in guest cluster flavor only if cnscsisvfeaturestate CR is not registered yet
-	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload || (controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest && !getSvFssCRAvailability() && serviceMode != "node") {
-		if k8sOrchestratorInstance.supervisorFSS.configMapName != "" && k8sOrchestratorInstance.supervisorFSS.configMapNamespace != "" {
-			// Retrieve configmap
+	// Initialize supervisor FSS map values using configmap in Supervisor
+	// cluster flavor or in guest cluster flavor only if cnscsisvfeaturestate
+	// CR is not registered yet.
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
+		(controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+			!getSvFssCRAvailability() && serviceMode != "node") {
+		if k8sOrchestratorInstance.supervisorFSS.configMapName != "" &&
+			k8sOrchestratorInstance.supervisorFSS.configMapNamespace != "" {
+			// Retrieve configmap.
 			fssConfigMap, err = k8sClient.CoreV1().ConfigMaps(k8sOrchestratorInstance.supervisorFSS.configMapNamespace).Get(
 				ctx, k8sOrchestratorInstance.supervisorFSS.configMapName, metav1.GetOptions{})
 			if err != nil {
 				log.Errorf("failed to fetch configmap %s from namespace %s. Error: %v",
-					k8sOrchestratorInstance.supervisorFSS.configMapName, k8sOrchestratorInstance.supervisorFSS.configMapNamespace, err)
+					k8sOrchestratorInstance.supervisorFSS.configMapName,
+					k8sOrchestratorInstance.supervisorFSS.configMapNamespace, err)
 				return err
 			}
-			// Update values
+			// Update values.
 			k8sOrchestratorInstance.supervisorFSS.featureStates = fssConfigMap.Data
-			log.Infof("New supervisor feature states values stored successfully: %v", k8sOrchestratorInstance.supervisorFSS.featureStates)
+			log.Infof("New supervisor feature states values stored successfully: %v",
+				k8sOrchestratorInstance.supervisorFSS.featureStates)
 		}
 	}
-	// Set up kubernetes configmap listener for CSI namespace
+	// Set up kubernetes configmap listener for CSI namespace.
 	k8sOrchestratorInstance.informerManager.AddConfigMapListener(ctx, k8sClient, configMapNamespaceToListen,
-		// Add
+		// Add.
 		func(obj interface{}) {
 			configMapAdded(obj)
 		},
-		// Update
+		// Update.
 		func(oldObj interface{}, newObj interface{}) {
 			configMapUpdated(oldObj, newObj)
 		},
-		// Delete
+		// Delete.
 		func(obj interface{}) {
 			configMapDeleted(obj)
 		})
@@ -390,14 +423,15 @@ func getSvFssCRAvailability() bool {
 	return doesSvFssCRExist
 }
 
-// getSVFssCR retrieves the cnscsisvfeaturestate CR from the supervisor namespace
-// in the TKG cluster using the supervisor client.
+// getSVFssCR retrieves the cnscsisvfeaturestate CR from the supervisor
+// namespace in the TKG cluster using the supervisor client.
 // It takes the REST config to the cluster and creates a client using the config
 // to returns the svFssCR object.
-func getSVFssCR(ctx context.Context, restClientConfig *restclient.Config) (*featurestatesv1alpha1.CnsCsiSvFeatureStates, error) {
+func getSVFssCR(ctx context.Context, restClientConfig *restclient.Config) (
+	*featurestatesv1alpha1.CnsCsiSvFeatureStates, error) {
 	log := logger.GetLogger(ctx)
 
-	// Get CNS operator client
+	// Get CNS operator client.
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	if err != nil {
 		log.Errorf("failed to create CnsOperator client. Err: %+v", err)
@@ -408,19 +442,21 @@ func getSVFssCR(ctx context.Context, restClientConfig *restclient.Config) (*feat
 		log.Errorf("failed to retrieve supervisor cluster namespace from config. Error: %+v", err)
 		return nil, err
 	}
-	// Fetch cnscsisvfeaturestate CR
+	// Fetch cnscsisvfeaturestate CR.
 	svFssCR := &featurestatesv1alpha1.CnsCsiSvFeatureStates{}
 	err = cnsOperatorClient.Get(ctx, client.ObjectKey{Name: featurestates.SVFeatureStateCRName,
 		Namespace: svNamespace}, svFssCR)
 	if err != nil {
-		log.Debugf("failed to get %s CR from supervisor namespace %q. Error: %+v", featurestates.CRDSingular, svNamespace, err)
+		log.Debugf("failed to get %s CR from supervisor namespace %q. Error: %+v",
+			featurestates.CRDSingular, svNamespace, err)
 		return nil, err
 	}
 
 	return svFssCR, nil
 }
 
-// configMapAdded adds feature state switch values from configmap that has been created on K8s cluster
+// configMapAdded adds feature state switch values from configmap that has been
+// created on K8s cluster.
 func configMapAdded(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
@@ -436,21 +472,25 @@ func configMapAdded(obj interface{}) {
 			return
 		}
 		if getSvFssCRAvailability() {
-			log.Debugf("configMapAdded: Ignoring supervisor FSS configmap add event as %q CR is present", featurestates.CRDSingular)
+			log.Debugf("configMapAdded: Ignoring supervisor FSS configmap add event as %q CR is present",
+				featurestates.CRDSingular)
 			return
 		}
-		// Update supervisor FSS
+		// Update supervisor FSS.
 		k8sOrchestratorInstance.supervisorFSS.featureStates = fssConfigMap.Data
-		log.Infof("configMapAdded: Supervisor feature state values from %q stored successfully: %v", fssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
+		log.Infof("configMapAdded: Supervisor feature state values from %q stored successfully: %v",
+			fssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
 	} else if fssConfigMap.Name == k8sOrchestratorInstance.internalFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.internalFSS.configMapNamespace {
-		// Update internal FSS
+		// Update internal FSS.
 		k8sOrchestratorInstance.internalFSS.featureStates = fssConfigMap.Data
-		log.Infof("configMapAdded: Internal feature state values from %q stored successfully: %v", fssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
+		log.Infof("configMapAdded: Internal feature state values from %q stored successfully: %v",
+			fssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
 	}
 }
 
-// configMapUpdated updates feature state switch values from configmap that has been created on K8s cluster
+// configMapUpdated updates feature state switch values from configmap that
+// has been created on K8s cluster.
 func configMapUpdated(oldObj, newObj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	oldFssConfigMap, ok := oldObj.(*v1.ConfigMap)
@@ -463,7 +503,7 @@ func configMapUpdated(oldObj, newObj interface{}) {
 		log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
 		return
 	}
-	// Check if there are updates to configmap data
+	// Check if there are updates to configmap data.
 	if reflect.DeepEqual(newFssConfigMap.Data, oldFssConfigMap.Data) {
 		log.Debug("configMapUpdated: No change in configmap data. Ignoring the event")
 		return
@@ -471,28 +511,33 @@ func configMapUpdated(oldObj, newObj interface{}) {
 
 	if newFssConfigMap.Name == k8sOrchestratorInstance.supervisorFSS.configMapName &&
 		newFssConfigMap.Namespace == k8sOrchestratorInstance.supervisorFSS.configMapNamespace {
-		// The controller in nodes is not dependent on the supervisor FSS updates
+		// The controller in nodes is not dependent on the supervisor FSS updates.
 		if serviceMode == "node" {
 			log.Debug("configMapUpdated: Ignoring supervisor FSS configmap update event in the nodes")
 			return
 		}
-		// Ignore configmap updates if the cnscsisvfeaturestate CR is present in supervisor namespace
+		// Ignore configmap updates if the cnscsisvfeaturestate CR is present in
+		// supervisor namespace.
 		if getSvFssCRAvailability() {
-			log.Debugf("configMapUpdated: Ignoring supervisor FSS configmap update event as %q CR is present", featurestates.CRDSingular)
+			log.Debugf("configMapUpdated: Ignoring supervisor FSS configmap update event as %q CR is present",
+				featurestates.CRDSingular)
 			return
 		}
-		// Update supervisor FSS
+		// Update supervisor FSS.
 		k8sOrchestratorInstance.supervisorFSS.featureStates = newFssConfigMap.Data
-		log.Warnf("configMapUpdated: Supervisor feature state values from %q stored successfully: %v", newFssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
+		log.Warnf("configMapUpdated: Supervisor feature state values from %q stored successfully: %v",
+			newFssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
 	} else if newFssConfigMap.Name == k8sOrchestratorInstance.internalFSS.configMapName &&
 		newFssConfigMap.Namespace == k8sOrchestratorInstance.internalFSS.configMapNamespace {
-		// Update internal FSS
+		// Update internal FSS.
 		k8sOrchestratorInstance.internalFSS.featureStates = newFssConfigMap.Data
-		log.Warnf("configMapUpdated: Internal feature state values from %q stored successfully: %v", newFssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
+		log.Warnf("configMapUpdated: Internal feature state values from %q stored successfully: %v",
+			newFssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
 	}
 }
 
-// configMapDeleted clears the feature state switch values from the feature states map
+// configMapDeleted clears the feature state switch values from the feature
+// states map.
 func configMapDeleted(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	fssConfigMap, ok := obj.(*v1.ConfigMap)
@@ -500,7 +545,7 @@ func configMapDeleted(obj interface{}) {
 		log.Warnf("configMapDeleted: unrecognized object %+v", obj)
 		return
 	}
-	// Check if it is either internal or supervisor FSS configmap
+	// Check if it is either internal or supervisor FSS configmap.
 	if fssConfigMap.Name == k8sOrchestratorInstance.supervisorFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.supervisorFSS.configMapNamespace {
 		if serviceMode == "node" {
@@ -508,19 +553,23 @@ func configMapDeleted(obj interface{}) {
 			return
 		}
 		if getSvFssCRAvailability() {
-			log.Debugf("configMapDeleted: Ignoring supervisor FSS configmap delete event as %q CR is present", featurestates.CRDSingular)
+			log.Debugf("configMapDeleted: Ignoring supervisor FSS configmap delete event as %q CR is present",
+				featurestates.CRDSingular)
 			return
 		}
-		log.Errorf("configMapDeleted: configMap %q in namespace %q deleted. This is a system resource, kindly restore it.", fssConfigMap.Name, fssConfigMap.Namespace)
+		log.Errorf("configMapDeleted: configMap %q in namespace %q deleted. "+
+			"This is a system resource, kindly restore it.", fssConfigMap.Name, fssConfigMap.Namespace)
 		os.Exit(1)
 	} else if fssConfigMap.Name == k8sOrchestratorInstance.internalFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.internalFSS.configMapNamespace {
-		log.Errorf("configMapDeleted: configMap %q in namespace %q deleted. This is a system resource, kindly restore it.", fssConfigMap.Name, fssConfigMap.Namespace)
+		log.Errorf("configMapDeleted: configMap %q in namespace %q deleted. "+
+			"This is a system resource, kindly restore it.", fssConfigMap.Name, fssConfigMap.Namespace)
 		os.Exit(1)
 	}
 }
 
-// fssCRAdded adds supervisor feature state switch values from the cnscsisvfeaturestate CR
+// fssCRAdded adds supervisor feature state switch values from the
+// cnscsisvfeaturestate CR.
 func fssCRAdded(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	var svFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
@@ -541,24 +590,28 @@ func fssCRAdded(obj interface{}) {
 		featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
 }
 
-// fssCRUpdated updates supervisor feature state switch values from the cnscsisvfeaturestate CR
+// fssCRUpdated updates supervisor feature state switch values from the
+// cnscsisvfeaturestate CR.
 func fssCRUpdated(oldObj, newObj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	var (
 		newSvFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
 		oldSvFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
 	)
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(newObj.(*unstructured.Unstructured).Object, &newSvFSSObject)
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+		newObj.(*unstructured.Unstructured).Object, &newSvFSSObject)
 	if err != nil {
 		log.Errorf("fssCRUpdated: failed to cast new object to %s. err: %v", featurestates.CRDSingular, err)
 		return
 	}
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(oldObj.(*unstructured.Unstructured).Object, &oldSvFSSObject)
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(
+		oldObj.(*unstructured.Unstructured).Object, &oldSvFSSObject)
 	if err != nil {
 		log.Errorf("fssCRUpdated: failed to cast old object to %s. err: %v", featurestates.CRDSingular, err)
 		return
 	}
-	// Check if there are updates to the feature states in the cnscsisvfeaturestate CR
+	// Check if there are updates to the feature states in the
+	// cnscsisvfeaturestate CR.
 	if reflect.DeepEqual(oldSvFSSObject.Spec.FeatureStates, newSvFSSObject.Spec.FeatureStates) {
 		log.Debug("fssCRUpdated: No change in %s CR data. Ignoring the event", featurestates.CRDSingular)
 		return
@@ -575,7 +628,8 @@ func fssCRUpdated(oldObj, newObj interface{}) {
 		featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
 }
 
-// fssCRDeleted crashes the container if the cnscsisvfeaturestate CR object with name svfeaturestates is deleted
+// fssCRDeleted crashes the container if the cnscsisvfeaturestate CR object
+// with name svfeaturestates is deleted.
 func fssCRDeleted(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	var svFSSObject featurestatesv1alpha1.CnsCsiSvFeatureStates
@@ -589,14 +643,17 @@ func fssCRDeleted(obj interface{}) {
 		return
 	}
 	setSvFssCRAvailability(false)
-	// Logging an error here because cnscsisvfeaturestate CR should not be deleted
-	log.Errorf("fssCRDeleted: %s CR object with name %q in namespace %q deleted. This is a system resource, kindly restore it.",
+	// Logging an error here because cnscsisvfeaturestate CR should not be
+	// deleted.
+	log.Errorf("fssCRDeleted: %s CR object with name %q in namespace %q deleted. "+
+		"This is a system resource, kindly restore it.",
 		featurestates.CRDSingular, svFSSObject.Name, svFSSObject.Namespace)
 	os.Exit(1)
 }
 
-// initVolumeHandleToPvcMap performs all the operations required to initialize the volume id to PVC name map.
-// It also watches for PV update & delete operations, and updates the map accordingly.
+// initVolumeHandleToPvcMap performs all the operations required to initialize
+// the volume id to PVC name map. It also watches for PV update & delete
+// operations, and updates the map accordingly.
 func initVolumeHandleToPvcMap(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing volume ID to PVC name map")
@@ -605,36 +662,39 @@ func initVolumeHandleToPvcMap(ctx context.Context) {
 		items:   make(map[string]string),
 	}
 
-	// Set up kubernetes resource listener to listen events on PersistentVolumes and PersistentVolumeClaims
+	// Set up kubernetes resource listener to listen events on PersistentVolumes
+	// and PersistentVolumeClaims.
 	k8sOrchestratorInstance.informerManager.AddPVListener(
-		func(obj interface{}) { // Add
+		func(obj interface{}) { // Add.
 			pvAdded(obj)
 		},
-		func(oldObj interface{}, newObj interface{}) { // Update
+		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvUpdated(oldObj, newObj)
 		},
-		func(obj interface{}) { // Delete
+		func(obj interface{}) { // Delete.
 			pvDeleted(obj)
 		})
 
 	k8sOrchestratorInstance.informerManager.AddPVCListener(
-		func(obj interface{}) { // Add
+		func(obj interface{}) { // Add.
 			pvcAdded(obj)
 		},
-		nil, // Update
-		nil, // Delete
+		nil, // Update.
+		nil, // Delete.
 	)
 }
 
-// Since informerManager's sharedInformerFactory is started with no resync period, it never syncs the
-// existing cluster objects to its Store when it's started.
-// pvcAdded provides no additional handling but it ensures that existing PVCs in the cluster
-// gets added to sharedInformerFactory's Store before it's started. Then using informerManager's
-// PVCLister should find the existing PVCs as well.
+// Since informerManager's sharedInformerFactory is started with no resync
+// period, it never syncs the existing cluster objects to its Store when
+// it's started. pvcAdded provides no additional handling but it ensures that
+// existing PVCs in the cluster gets added to sharedInformerFactory's Store
+// before it's started. Then using informerManager's PVCLister should find
+// the existing PVCs as well.
 func pvcAdded(obj interface{}) {}
 
 // pvAdded adds a volume to the volumeIDToPvcMap if it's already in Bound phase.
-// This ensures that all existing PVs in the cluster are added to the map, even across container restarts.
+// This ensures that all existing PVs in the cluster are added to the map, even
+// across container restarts.
 func pvAdded(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
@@ -645,9 +705,9 @@ func pvAdded(obj interface{}) {
 
 	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name &&
 		pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound &&
-		!isFileVolume(pv) { //we should not be caching file volumes to the map
+		!isFileVolume(pv) { // We should not be caching file volumes to the map.
 
-		//Add volume handle to PVC mapping
+		// Add volume handle to PVC mapping.
 		objKey := pv.Spec.CSI.VolumeHandle
 		objVal := pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name
 
@@ -656,10 +716,10 @@ func pvAdded(obj interface{}) {
 	}
 }
 
-// pvUpdated updates the volumeIDToPvcMap when a PV goes to Bound phase
+// pvUpdated updates the volumeIDToPvcMap when a PV goes to Bound phase.
 func pvUpdated(oldObj, newObj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
-	// Get old and new PV objects
+	// Get old and new PV objects.
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
 		log.Warnf("PVUpdated: unrecognized old object %+v", oldObj)
@@ -672,13 +732,13 @@ func pvUpdated(oldObj, newObj interface{}) {
 		return
 	}
 
-	// PV goes into Bound phase
+	// PV goes into Bound phase.
 	if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
 		if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&
 			newPv.Spec.ClaimRef != nil && !isFileVolume(newPv) {
 
 			log.Debugf("pvUpdated: PV %s went to Bound phase", newPv.Name)
-			//Add volume handle to PVC mapping
+			// Add volume handle to PVC mapping.
 			objKey := newPv.Spec.CSI.VolumeHandle
 			objVal := newPv.Spec.ClaimRef.Namespace + "/" + newPv.Spec.ClaimRef.Name
 
@@ -688,7 +748,7 @@ func pvUpdated(oldObj, newObj interface{}) {
 	}
 }
 
-// pvDeleted deletes an entry from volumeIDToPvcMap when a PV gets deleted
+// pvDeleted deletes an entry from volumeIDToPvcMap when a PV gets deleted.
 func pvDeleted(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
@@ -704,8 +764,9 @@ func pvDeleted(obj interface{}) {
 	}
 }
 
-// IsFSSEnabled utilises the cluster flavor to check their corresponding FSS maps and returns
-// if the feature state switch is enabled for the given feature indicated by featureName
+// IsFSSEnabled utilises the cluster flavor to check their corresponding FSS
+// maps and returns if the feature state switch is enabled for the given feature
+// indicated by featureName.
 func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) bool {
 	log := logger.GetLogger(ctx)
 	var (
@@ -714,61 +775,69 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		err                    error
 	)
 	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		// Check internal FSS map
+		// Check internal FSS map.
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
 			internalFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
-				log.Errorf("Error while converting %v feature state value: %v to boolean. Setting the feature state to false", featureName, internalFeatureState)
+				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
+					"Setting the feature state to false", featureName, internalFeatureState)
 				return false
 			}
 			return internalFeatureState
 		}
-		log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false", featureName, c.internalFSS.configMapName)
+		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
+			"Setting the feature state to false", featureName, c.internalFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		// Check SV FSS map
+		// Check SV FSS map.
 		if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
 			supervisorFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
-				log.Errorf("Error while converting %v feature state value: %v to boolean. Setting the feature state to false", featureName, supervisorFeatureState)
+				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
+					"Setting the feature state to false", featureName, supervisorFeatureState)
 				return false
 			}
 			return supervisorFeatureState
 		}
-		log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
+		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
+			"Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Check internal FSS map
+		// Check internal FSS map.
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
 			internalFeatureState, err := strconv.ParseBool(flag)
 			if err != nil {
-				log.Errorf("Error while converting %v feature state value: %v to boolean. Setting the feature state to false", featureName, internalFeatureState)
+				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
+					"Setting the feature state to false", featureName, internalFeatureState)
 				return false
 			}
 			if !internalFeatureState {
-				// If FSS set to false, return
+				// If FSS set to false, return.
 				log.Infof("%s feature state set to false in %s ConfigMap", featureName, c.internalFSS.configMapName)
 				return internalFeatureState
 			}
 		} else {
-			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false", featureName, c.internalFSS.configMapName)
+			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
+				featureName, c.internalFSS.configMapName)
 			return false
 		}
 		if serviceMode != "node" {
-			// Check SV FSS map
+			// Check SV FSS map.
 			if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
 				supervisorFeatureState, err := strconv.ParseBool(flag)
 				if err != nil {
-					log.Errorf("Error while converting %v feature state value: %v to boolean. Setting the feature state to false", featureName, supervisorFeatureState)
+					log.Errorf("Error while converting %v feature state value: %v to boolean. "+
+						"Setting the feature state to false", featureName, supervisorFeatureState)
 					return false
 				}
 				if !supervisorFeatureState {
-					// If FSS set to false, return
+					// If FSS set to false, return.
 					log.Infof("%s feature state set to false in %s ConfigMap", featureName, c.supervisorFSS.configMapName)
 					return supervisorFeatureState
 				}
 			} else {
-				log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
+				log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
+					featureName, c.supervisorFSS.configMapName)
 				return false
 			}
 		}
@@ -778,19 +847,23 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	return false
 }
 
-// IsFakeAttachAllowed checks if the volume is eligible to be fake attached and returns a bool value
-func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error) {
+// IsFakeAttachAllowed checks if the volume is eligible to be fake attached
+// and returns a bool value.
+func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string,
+	volumeManager cnsvolume.Manager) (bool, error) {
 	log := logger.GetLogger(ctx)
-	//Check pvc annotations
+	// Check pvc annotations.
 	pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
 	if err != nil {
-		log.Errorf("IsFakeAttachAllowed: failed to get pvc annotations for volume ID %s while checking eligibility for fake attach", volumeID)
+		log.Errorf("IsFakeAttachAllowed: failed to get pvc annotations for volume ID %s "+
+			"while checking eligibility for fake attach", volumeID)
 		return false, err
 	}
 
 	if val, found := pvcAnn[common.AnnIgnoreInaccessiblePV]; found && val == "yes" {
-		log.Debugf("Found %s annotation on pvc set to yes for volume: %s. Checking volume health on CNS volume.", common.AnnIgnoreInaccessiblePV, volumeID)
-		//Check if volume is inaccessible
+		log.Debugf("Found %s annotation on pvc set to yes for volume: %s. Checking volume health on CNS volume.",
+			common.AnnIgnoreInaccessiblePV, volumeID)
+		// Check if volume is inaccessible.
 		vol, err := common.QueryVolumeByID(ctx, volumeManager, volumeID)
 		if err != nil {
 			log.Errorf("failed to query CNS for volume ID %s while checking eligibility for fake attach", volumeID)
@@ -811,15 +884,17 @@ func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID stri
 				return true, nil
 			}
 		}
-		// For all other cases, return false
+		// For all other cases, return false.
 		return false, nil
 	}
-	// Annotation is not found or not set to true, return false
-	log.Debugf("Annotation %s not found or not set to true on pvc for volume %s", common.AnnIgnoreInaccessiblePV, volumeID)
+	// Annotation is not found or not set to true, return false.
+	log.Debugf("Annotation %s not found or not set to true on pvc for volume %s",
+		common.AnnIgnoreInaccessiblePV, volumeID)
 	return false, nil
 }
 
-// MarkFakeAttached updates the pvc corresponding to volume to have a fake attach annotation.
+// MarkFakeAttached updates the pvc corresponding to volume to have a fake
+// attach annotation.
 func (c *K8sOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
 	annotations := make(map[string]string)
@@ -827,8 +902,9 @@ func (c *K8sOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string)
 	annotations[common.AnnFakeAttached] = "yes"
 
 	// Update annotations.
-	// Along with updating fake attach annotation on pvc, also update the volume health on pvc
-	// as inaccessible, as that's one of the conditions for volume to be fake attached.
+	// Along with updating fake attach annotation on pvc, also update the volume
+	// health on pvc as inaccessible, as that's one of the conditions for volume
+	// to be fake attached.
 	if err := c.updatePVCAnnotations(ctx, volumeID, annotations); err != nil {
 		log.Errorf("failed to mark fake attach annotation on the pvc for volume %s. Error:%+v", volumeID, err)
 		return err
@@ -837,24 +913,25 @@ func (c *K8sOrchestrator) MarkFakeAttached(ctx context.Context, volumeID string)
 	return nil
 }
 
-// ClearFakeAttached checks if pvc corresponding to the volume has fake annotations,
-// and unmark it as not fake attached.
+// ClearFakeAttached checks if pvc corresponding to the volume has fake
+// annotations, and unmark it as not fake attached.
 func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
-	//Check pvc annotations
+	// Check pvc annotations.
 	pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
 	if err != nil {
 		if err.Error() == common.ErrNotFound.Error() {
 			// PVC not found, which means PVC could have been deleted. No need to proceed.
 			return nil
 		}
-		log.Errorf("ClearFakeAttached: failed to get pvc annotations for volume ID %s while checking if it was fake attached", volumeID)
+		log.Errorf("ClearFakeAttached: failed to get pvc annotations for volume ID %s "+
+			"while checking if it was fake attached", volumeID)
 		return err
 	}
 	val, found := pvcAnn[common.AnnFakeAttached]
 	if found && val == "yes" {
 		log.Debugf("Volume: %s was fake attached", volumeID)
-		//Clear the fake attach annotation
+		// Clear the fake attach annotation.
 		annotations := make(map[string]string)
 		annotations[common.AnnFakeAttached] = ""
 		if err := c.updatePVCAnnotations(ctx, volumeID, annotations); err != nil {

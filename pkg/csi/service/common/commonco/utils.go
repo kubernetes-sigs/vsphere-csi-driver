@@ -27,11 +27,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// SetInitParams initializes the parameters required to create a container agnostic orchestrator instance
+// SetInitParams initializes the parameters required to create a container
+// agnostic orchestrator instance.
 func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, initParams *interface{},
 	supervisorFSSName, supervisorFSSNamespace, internalFSSName, internalFSSNamespace, serviceMode string) {
 	log := logger.GetLogger(ctx)
-	// Set default values for FSS, if not given and initiate CO-agnostic init params
+	// Set default values for FSS, if not given and initiate CO-agnostic init
+	// params.
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
 		if strings.TrimSpace(supervisorFSSName) == "" {
@@ -67,7 +69,8 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	case cnstypes.CnsClusterFlavorGuest:
 		if strings.TrimSpace(supervisorFSSName) == "" {
-			log.Infof("Defaulting supervisor feature states configmap name to %q", csiconfig.DefaultSupervisorFSSConfigMapName)
+			log.Infof("Defaulting supervisor feature states configmap name to %q",
+				csiconfig.DefaultSupervisorFSSConfigMapName)
 			supervisorFSSName = csiconfig.DefaultSupervisorFSSConfigMapName
 		}
 		if strings.TrimSpace(supervisorFSSNamespace) == "" {
