@@ -103,7 +103,8 @@ func GetFileVolumeClientInstance(ctx context.Context) (FileVolumeClient, error) 
 // Returns an empty list if the instance doesnt exist OR if the
 // input IP address is not present in this instance.
 // Returns an error if any operations fails.
-func (f *fileVolumeClient) GetClientVMsFromIPList(ctx context.Context, fileVolumeName string, clientVMIP string) ([]string, error) {
+func (f *fileVolumeClient) GetClientVMsFromIPList(ctx context.Context,
+	fileVolumeName string, clientVMIP string) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Fetching client VMs list from cnsfilevolumeclient %s for IP address %s", fileVolumeName, clientVMIP)
@@ -153,10 +154,12 @@ func (f *fileVolumeClient) GetClientVMsFromIPList(ctx context.Context, fileVolum
 // identify CnsFileVolumeClient instances.
 // The instance is created if it doesn't exist.
 // Returns an error if the operation cannot be persisted on the API server.
-func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context, fileVolumeName, clientVMName, clientVMIP string) error {
+func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context,
+	fileVolumeName, clientVMName, clientVMIP string) error {
 	log := logger.GetLogger(ctx)
 
-	log.Infof("Adding client VM %s to cnsfilevolumeclient %s list for IP address %s", clientVMName, fileVolumeName, clientVMIP)
+	log.Infof("Adding client VM %s to cnsfilevolumeclient %s list for IP address %s",
+		clientVMName, fileVolumeName, clientVMIP)
 	actual, _ := f.volumeLock.LoadOrStore(fileVolumeName, &sync.Mutex{})
 	instanceLock, ok := actual.(*sync.Mutex)
 	if !ok {
@@ -204,8 +207,10 @@ func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context, fileVolumeNa
 		return err
 	}
 
-	// Verify if input clientVM exists in existing ExternalIPtoClientVms list for input IP address
-	log.Debugf("Verifying if VM %s exists in ExternalIPtoClientVms list for IP address: %s. Current list: %+v", clientVMName, clientVMIP, instance.Spec.ExternalIPtoClientVms[clientVMIP])
+	// Verify if input clientVM exists in existing ExternalIPtoClientVms list
+	// for input IP address.
+	log.Debugf("Verifying if VM %s exists in ExternalIPtoClientVms list for IP address: %s. Current list: %+v",
+		clientVMName, clientVMIP, instance.Spec.ExternalIPtoClientVms[clientVMIP])
 	oldClientVMList := instance.Spec.ExternalIPtoClientVms[clientVMIP]
 	for _, oldClientVM := range oldClientVMList {
 		if oldClientVM == clientVMName {
@@ -229,12 +234,14 @@ func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context, fileVolumeNa
 // Callers need to specify fileVolumeName as a combination of
 // "<SV-namespace>/<SV-PVC-name>". This combination is used to uniquely
 // identify CnsFileVolumeClient instances.
-// If the given VM was the last client for this file volume, the instance is deleted from
-// the API server.
+// If the given VM was the last client for this file volume, the instance is
+// deleted from the API server.
 // Returns an error if the operation cannot be persisted on the API server.
-func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context, fileVolumeName, clientVMName, clientVMIP string) error {
+func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context,
+	fileVolumeName, clientVMName, clientVMIP string) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("Removing clientVM %s from cnsfilevolumeclient %s list for IP address %s", clientVMName, fileVolumeName, clientVMIP)
+	log.Infof("Removing clientVM %s from cnsfilevolumeclient %s list for IP address %s",
+		clientVMName, fileVolumeName, clientVMIP)
 	actual, _ := f.volumeLock.LoadOrStore(fileVolumeName, &sync.Mutex{})
 	instanceLock, ok := actual.(*sync.Mutex)
 	if !ok {
@@ -262,11 +269,14 @@ func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context, fileVol
 		return err
 	}
 
-	log.Debugf("Verifying if clientVM %s exists in ExternalIPtoClientVms list for IP address: %s. Current list: %+v", clientVMName, clientVMIP, instance.Spec.ExternalIPtoClientVms[clientVMIP])
+	log.Debugf("Verifying if clientVM %s exists in ExternalIPtoClientVms list for IP address: %s. Current list: %+v",
+		clientVMName, clientVMIP, instance.Spec.ExternalIPtoClientVms[clientVMIP])
 	for index, existingClientVM := range instance.Spec.ExternalIPtoClientVms[clientVMIP] {
 		if clientVMName == existingClientVM {
 			log.Debugf("Removing clientVM %s from ExternalIPtoClientVms list", clientVMName)
-			instance.Spec.ExternalIPtoClientVms[clientVMIP] = append(instance.Spec.ExternalIPtoClientVms[clientVMIP][:index], instance.Spec.ExternalIPtoClientVms[clientVMIP][index+1:]...)
+			instance.Spec.ExternalIPtoClientVms[clientVMIP] = append(
+				instance.Spec.ExternalIPtoClientVms[clientVMIP][:index],
+				instance.Spec.ExternalIPtoClientVms[clientVMIP][index+1:]...)
 			if len(instance.Spec.ExternalIPtoClientVms[clientVMIP]) == 0 {
 				log.Debugf("Deleting entry for IP %s from spec.ExternalIPtoClientVms", clientVMIP)
 				delete(instance.Spec.ExternalIPtoClientVms, clientVMIP)
