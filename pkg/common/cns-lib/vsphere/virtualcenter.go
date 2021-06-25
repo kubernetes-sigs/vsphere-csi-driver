@@ -373,8 +373,8 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 		return nil
 	}
 	if err := vc.Client.Logout(ctx); err != nil {
-		log.Errorf("failed to logout with err: %v", err)
-		return err
+		// In case of logout error we will indicate warnings in the logs and set vc Client to nil
+		log.Warnf("failed to logout with err: %v", err)
 	}
 	vc.Client = nil
 	return nil
