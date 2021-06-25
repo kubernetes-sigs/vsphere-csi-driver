@@ -60,22 +60,21 @@ const (
 	defaultMaxWorkerThreadsToProcessCnsVolumeMetadata = 3
 )
 
-// backOffDuration is a map of cnsvolumemetadata name's to the time after which a request
-// for this instance will be requeued.
-// Initialized to 1 second for new instances and for instances whose latest reconcile
-// operation succeeded.
+// backOffDuration is a map of cnsvolumemetadata name's to the time after which
+// a request for this instance will be requeued. Initialized to 1 second for new
+// instances and for instances whose latest reconcile operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
 var (
 	backOffDuration         map[string]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager, ConfigurationInfo,
-// volumeManager and k8sclient. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
+// Add creates a new CnsVolumeMetadata Controller and adds it to the Manager,
+// ConfigurationInfo, volumeManager and k8sclient. The Manager will set fields
+// on the Controller and Start it when the Manager is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
-	// Initializes kubernetes client
+	// Initializes kubernetes client.
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsVolumeMetadata Controller as its a non-WCP CSI deployment")
@@ -88,7 +87,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	// eventBroadcaster broadcasts events on cnsvolumemetadata instances to the event sink
+	// eventBroadcaster broadcasts events on cnsvolumemetadata instances to the
+	// event sink.
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(
 		&typedcorev1.EventSinkImpl{
@@ -99,17 +99,20 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, k8sclient, recorder))
 }
 
-// newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager, k8sclient kubernetes.Interface, recorder record.EventRecorder) reconcile.Reconciler {
-	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, k8sclient: k8sclient, recorder: recorder}
+// newReconciler returns a new reconcile.Reconciler.
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager,
+	k8sclient kubernetes.Interface, recorder record.EventRecorder) reconcile.Reconciler {
+	return &ReconcileCnsVolumeMetadata{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo,
+		volumeManager: volumeManager, k8sclient: k8sclient, recorder: recorder}
 }
 
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
+// add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx)
-	// Create a new controller
-	c, err := controller.New("cnsvolumemetadata-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
+	// Create a new controller.
+	c, err := controller.New("cnsvolumemetadata-controller", mgr,
+		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
 		log.Errorf("failed to create new CnsVolumeMetadata controller with error: %+v", err)
 		return err
@@ -136,16 +139,18 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 			// Return true if deletion timestamp is non-nil and the finalizer is still set.
 			// Return false for updates to any other fields.
 			// Finalizer is added and removed by CNS Operator.
-			return !(reflect.DeepEqual(oldObj.Finalizers, newObj.Finalizers) && reflect.DeepEqual(oldObj.Spec, newObj.Spec)) || (newObj.DeletionTimestamp != nil && newObj.Finalizers != nil)
+			return !(reflect.DeepEqual(oldObj.Finalizers, newObj.Finalizers) && reflect.DeepEqual(oldObj.Spec, newObj.Spec)) ||
+				(newObj.DeletionTimestamp != nil && newObj.Finalizers != nil)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			// Instances are deleted only after CNS Operator has removed its finalizer from that instance.
-			// No reconcile operations need to take place after the finalizer is removed.
+			// Instances are deleted only after CNS Operator has removed its
+			// finalizer from that instance. No reconcile operations need to
+			// take place after the finalizer is removed.
 			return false
 		},
 	}
 
-	// Watch for changes to primary resource CnsVolumeMetadata
+	// Watch for changes to primary resource CnsVolumeMetadata.
 	err = c.Watch(src, h, pred)
 	if err != nil {
 		log.Errorf("failed to watch for changes to CnsVolumeMetadata resource with error: %+v", err)
@@ -155,10 +160,11 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// blank assignment to verify that ReconcileCnsVolumeMetadata implements reconcile.Reconciler
+// blank assignment to verify that ReconcileCnsVolumeMetadata implements
+// reconcile.Reconciler.
 var _ reconcile.Reconciler = &ReconcileCnsVolumeMetadata{}
 
-// ReconcileCnsVolumeMetadata reconciles a CnsVolumeMetadata object
+// ReconcileCnsVolumeMetadata reconciles a CnsVolumeMetadata object.
 type ReconcileCnsVolumeMetadata struct {
 	client        client.Client
 	scheme        *runtime.Scheme
@@ -168,27 +174,31 @@ type ReconcileCnsVolumeMetadata struct {
 	recorder      record.EventRecorder
 }
 
-// Reconcile reads that state of the cluster for a CnsVolumeMetadata object and makes changes on CNS
-// based on the state read in the CnsVolumeMetadata.Spec
-// The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+// Reconcile reads that state of the cluster for a CnsVolumeMetadata object and
+// makes changes on CNS based on the state read in the CnsVolumeMetadata.Spec.
+// The Controller will requeue the Request to be processed again if the returned
+// error is non-nil or Result.Requeue is true, otherwise upon completion it will
+// remove the work from the queue.
+func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
+	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
 	instance := &cnsv1alpha1.CnsVolumeMetadata{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Infof("ReconcileCnsVolumeMetadata: Failed to get CnsVolumeMetadata instance %q. Ignoring request.", request.Name)
+			log.Infof("ReconcileCnsVolumeMetadata: Failed to get CnsVolumeMetadata instance %q. Ignoring request.",
+				request.Name)
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
-		log.Errorf("ReconcileCnsVolumeMetadata: Error reading the CnsVolumeMetadata instance with name: %q on namespace: %q. Err: %+v",
-			request.Name, request.Namespace, err)
+		log.Errorf("ReconcileCnsVolumeMetadata: Error reading CnsVolumeMetadata instance "+
+			"with name: %q on namespace: %q. Err: %+v", request.Name, request.Namespace, err)
 		return reconcile.Result{}, err
 	}
 
-	log.Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q", instance.Name, instance.Spec.EntityType)
+	log.Infof("ReconcileCnsVolumeMetadata: Received request for instance %q and type %q",
+		instance.Name, instance.Spec.EntityType)
 
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
@@ -198,7 +208,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
-	// Validate input instance fields
+	// Validate input instance fields.
 	if err = validateReconileRequest(instance); err != nil {
 		msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to validate reconcile request with error: %v", err)
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -211,7 +221,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 	// If the operation fails, requeue the request.
 	if instance.DeletionTimestamp != nil {
 		if !r.updateCnsMetadata(ctx, instance, true) {
-			// Failed to update CNS
+			// Failed to update CNS.
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to delete entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster %q. Requeuing request.",
 				instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
@@ -237,10 +247,11 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, err
 				}
-				log.Debugf("ReconcileCnsVolumeMetadata: Successfully removed finalizer %q for instance %q", finalizer, instance.Name)
+				log.Debugf("ReconcileCnsVolumeMetadata: Successfully removed finalizer %q for instance %q",
+					finalizer, instance.Name)
 			}
 		}
-		// Cleanup instance entry from backOffDuration map
+		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
@@ -257,7 +268,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	// Set finalizer if it was not set already on this instance
+	// Set finalizer if it was not set already on this instance.
 	if !isFinalizerSet {
 		instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
 		if err = r.client.Update(ctx, instance); err != nil {
@@ -267,14 +278,15 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 			return reconcile.Result{RequeueAfter: timeout}, err
 		}
 	} else {
-		// Update CNS volume entry with instance's metadata
+		// Update CNS volume entry with instance's metadata.
 		if !r.updateCnsMetadata(ctx, instance, false) {
 			// Failed to update CNS.
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster %q. Requeueing request.",
 				instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-			// Update instance.status fields on supervisor API server and requeue the request.
+			// Update instance.status fields on supervisor API server and requeue
+			// the request.
 			_ = r.client.Update(ctx, instance)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -297,9 +309,11 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context, request reco
 // updateCnsMetadata updates the volume entry on CNS.
 // If deleteFlag is true, metadata is deleted for the given instance.
 // Returns true if all updates on CNS succeeded, otherwise return false.
-func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool) bool {
+func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
+	instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool) bool {
 	log := logger.GetLogger(ctx)
-	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v", instance.Name, deleteFlag)
+	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v",
+		instance.Name, deleteFlag)
 	vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		log.Errorf("ReconcileCnsVolumeMetadata: Failed to get virtual center instance. Err: %v", err)
@@ -317,7 +331,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		if instance.Spec.EntityType == cnsv1alpha1.CnsOperatorEntityTypePV {
 			clusterid = r.configInfo.Cfg.Global.ClusterID
 		}
-		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(reference.EntityType, reference.EntityName, reference.Namespace, clusterid))
+		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(
+			reference.EntityType, reference.EntityName, reference.Namespace, clusterid))
 	}
 
 	var volumeStatus []*cnsv1alpha1.CnsVolumeMetadataVolumeStatus
@@ -330,7 +345,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		// Get pvc object in the supervisor cluster that this instance refers to.
 		pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx, volume, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PVC %q in namespace %q. Err: %v", volume, instance.Namespace, err)
+			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PVC %q in namespace %q. Err: %v",
+				volume, instance.Namespace, err)
 			if errors.IsNotFound(err) && deleteFlag {
 				log.Info("Assuming volume entry is deleted from CNS.")
 				continue
@@ -356,10 +372,14 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		}
 
 		var metadataList []cnstypes.BaseCnsEntityMetadata
-		metadata := cnsvsphere.GetCnsKubernetesEntityMetaData(instance.Spec.EntityName, instance.Spec.Labels, deleteFlag, string(instance.Spec.EntityType), instance.Spec.Namespace, instance.Spec.GuestClusterID, []cnstypes.CnsKubernetesEntityReference{entityReferences[index]})
+		metadata := cnsvsphere.GetCnsKubernetesEntityMetaData(instance.Spec.EntityName, instance.Spec.Labels,
+			deleteFlag, string(instance.Spec.EntityType), instance.Spec.Namespace, instance.Spec.GuestClusterID,
+			[]cnstypes.CnsKubernetesEntityReference{entityReferences[index]})
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
 
-		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID, r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest, instance.Spec.ClusterDistribution)
+		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID,
+			r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest,
+			instance.Spec.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: pv.Spec.CSI.VolumeHandle,
@@ -380,8 +400,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 		}
 	}
 
-	// Modify status field of instance
-	// Update on API server will be made by the calling function
+	// Modify status field of instance.
+	// Update on API server will be made by the calling function.
 	instance.Status.VolumeStatus = nil
 	for _, status := range volumeStatus {
 		instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, *status)
@@ -390,8 +410,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context, inst
 }
 
 // validateReconileRequest validates the fields of the request against the
-// cnsvolumemetadata API.
-// Returns an error if any validation fails.
+// cnsvolumemetadata API. Returns an error if any validation fails.
 func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 	var err error
 
@@ -404,11 +423,13 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 			err = errors.NewBadRequest("Namespace cannot be set for PERSISTENT_VOLUME instances")
 		}
 		if len(req.Spec.VolumeNames) != 1 || len(req.Spec.EntityReferences) != 1 {
-			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME instances")
+			err = errors.NewBadRequest(
+				"VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME instances")
 		}
 		for _, reference := range req.Spec.EntityReferences {
 			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePVC) {
-				err = errors.NewBadRequest("PERSISTENT_VOLUME instances can only refer to PERSISTENT_VOLUME_CLAIM instances")
+				err = errors.NewBadRequest(
+					"PERSISTENT_VOLUME instances can only refer to PERSISTENT_VOLUME_CLAIM instances")
 			}
 			if reference.ClusterID != "" {
 				err = errors.NewBadRequest("EntityReferences.ClusterID should be empty for PERSISTENT_VOLUME instances")
@@ -419,14 +440,17 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 			err = errors.NewBadRequest("Namespace should be set for PERSISTENT_VOLUME_CLAIM instances")
 		}
 		if len(req.Spec.VolumeNames) != 1 || len(req.Spec.EntityReferences) != 1 {
-			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME_CLAIM instances")
+			err = errors.NewBadRequest(
+				"VolumeNames and EntityReferences should have length 1 for PERSISTENT_VOLUME_CLAIM instances")
 		}
 		for _, reference := range req.Spec.EntityReferences {
 			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePV) {
-				err = errors.NewBadRequest("PERSISTENT_VOLUME_CLAIM instances can only refer to PERSISTENT_VOLUME instances")
+				err = errors.NewBadRequest(
+					"PERSISTENT_VOLUME_CLAIM instances can only refer to PERSISTENT_VOLUME instances")
 			}
 			if reference.ClusterID == "" {
-				err = errors.NewBadRequest("EntityReferences.ClusterID should not be empty for PERSISTENT_VOLUME_CLAIM instances")
+				err = errors.NewBadRequest(
+					"EntityReferences.ClusterID should not be empty for PERSISTENT_VOLUME_CLAIM instances")
 			}
 		}
 	case cnsv1alpha1.CnsOperatorEntityTypePOD:
@@ -437,7 +461,8 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 			err = errors.NewBadRequest("Labels cannot be set for POD instances")
 		}
 		if len(req.Spec.VolumeNames) == 0 || len(req.Spec.EntityReferences) == 0 {
-			err = errors.NewBadRequest("VolumeNames and EntityReferences should have length greater than 0 for POD instances")
+			err = errors.NewBadRequest(
+				"VolumeNames and EntityReferences should have length greater than 0 for POD instances")
 		}
 		for _, reference := range req.Spec.EntityReferences {
 			if reference.EntityType != string(cnsv1alpha1.CnsOperatorEntityTypePVC) {
@@ -454,21 +479,22 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 
 }
 
-// recordEvent records the event, sets the backOffDuration for the instance appropriately
-// and logs the message.
-// backOffDuration is reset to 1 second on success and doubled on failure.
-func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *cnsv1alpha1.CnsVolumeMetadata, eventtype string, msg string) {
+// recordEvent records the event, sets the backOffDuration for the instance
+// appropriately and logs the message. backOffDuration is reset to 1 second
+// on success and doubled on failure.
+func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata,
+	instance *cnsv1alpha1.CnsVolumeMetadata, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	switch eventtype {
 	case v1.EventTypeWarning:
-		// Double backOff duration
+		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
-		// Reset backOff duration to one second
+		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
 		backOffDurationMapMutex.Unlock()
@@ -477,29 +503,34 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata, instance *c
 	}
 }
 
-// getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum
-// number of worker threads which can be run to reconcile CnsVolumeMetadata instances.
+// getMaxWorkerThreadsToReconcileCnsVolumeMetadata returns the maximum number
+// of worker threads which can be run to reconcile CnsVolumeMetadata instances.
 // If environment variable WORKER_THREADS_VOLUME_METADATA is set and valid,
-// return the value read from environment variable otherwise, use the default value
+// return the value read from environment variable. Otherwise, use the default
+// value.
 func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsToProcessCnsVolumeMetadata
 	if v := os.Getenv("WORKER_THREADS_VOLUME_METADATA"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is "+
+					"less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 			} else if value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is greater than %d, will use the default value %d",
+				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s "+
+					"is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run is set to %d", workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s "+
+				"is invalid, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 		}
 	} else {
-		log.Debugf("WORKER_THREADS_VOLUME_METADATA is not set. Picking the default value %d", defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
+		log.Debugf("WORKER_THREADS_VOLUME_METADATA is not set. Picking the default value %d",
+			defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 	}
 	return workerThreads
 }
