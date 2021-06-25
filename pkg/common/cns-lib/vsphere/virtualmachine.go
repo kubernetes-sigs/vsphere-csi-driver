@@ -337,3 +337,38 @@ func (vm *VirtualMachine) IsInZoneRegion(ctx context.Context, zoneCategoryName s
 func GetUUIDFromProviderID(providerID string) string {
 	return strings.TrimPrefix(providerID, providerPrefix)
 }
+
+// GetSharedDatastoresForVMs returns shared datastores accessible to specified
+// nodeVMs list.
+func GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*VirtualMachine) ([]*DatastoreInfo, error) {
+	var sharedDatastores []*DatastoreInfo
+	log := logger.GetLogger(ctx)
+	for _, nodeVM := range nodeVMs {
+		log.Debugf("Getting accessible datastores for node %s", nodeVM.VirtualMachine)
+		accessibleDatastores, err := nodeVM.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(sharedDatastores) == 0 {
+			sharedDatastores = accessibleDatastores
+		} else {
+			var sharedAccessibleDatastores []*DatastoreInfo
+			for _, sharedDs := range sharedDatastores {
+				// Check if sharedDatastores is found in accessibleDatastores.
+				for _, accessibleDs := range accessibleDatastores {
+					// Intersection is performed based on the datastoreUrl as this
+					// uniquely identifies the datastore.
+					if sharedDs.Info.Url == accessibleDs.Info.Url {
+						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
+						break
+					}
+				}
+			}
+			sharedDatastores = sharedAccessibleDatastores
+		}
+		if len(sharedDatastores) == 0 {
+			return nil, fmt.Errorf("no shared datastores found for nodeVm: %+v", nodeVM)
+		}
+	}
+	return sharedDatastores, nil
+}
