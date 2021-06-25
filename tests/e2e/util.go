@@ -65,6 +65,7 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -1305,6 +1306,16 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if expectedInstanceName == instance.Name {
 				ginkgo.By(fmt.Sprintf("Found CNSVolumeMetadata crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+		}
+		if crdName == "cnsfileaccessconfigs" {
+			instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSFileAccessConfig crd: %v, expected: %v", instance, expectedInstanceName))
 				instanceFound = true
 				break
 			}

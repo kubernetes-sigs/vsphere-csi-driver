@@ -56,7 +56,6 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 	})
 
 	/*
-
 		Test to verify static volume provision.
 
 		Steps
@@ -66,17 +65,19 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		4. Wait for PVC's status to become Bound
 		5. Query CNS and check if the PVC entry is pushed into CNS or not
 		6. Create pod using PVC
-		7. Wait for Pod to be up and running
-		8. Verify Read/Write operation on File volume
-		9. Create a PV using the PVC1 handle
-		10. Create PVC using the PV created above
-		11. Wait for the PVC to be bound
-		12. Create a Pod to use the second PVC
-		13. Wait for the Pod to be up and running
-		14. Verfiy Read/Write operation on the files created by Pod1
-		15. Delete pod and Wait for Volume Disk to be detached from the Node.
-		16. Delete PVC, PV and Storage Class.
-
+		7. Verify CNSFileAccessConfig CRD is created or not for pod created in step 6
+		8. Wait for Pod to be up and running
+		9. Verify Read/Write operation on File volume
+		10. Create a PV using the PVC1 handle
+		11. Create PVC using the PV created above
+		12. Wait for the PVC to be bound
+		13. Create a Pod to use the second PVC
+		14. Wait for the Pod to be up and running
+		15. Verify CNSFileAccessConfig CRD is created or not for pod created in step 13
+		16. Verfiy Read/Write operation on the files created by Pod1
+		17. Delete pod and Wait for Volume Disk to be detached from the Node.
+		18. Vefiry CNSFileAccessConfig CRD is deleted or not for both Pod1 and Pod2
+		19. Delete PVC, PV and Storage Class.
 	*/
 
 	ginkgo.It("Verify RWX Static volume provision - Pod 1 & 2 are using the volume at the same time", func() {
@@ -137,6 +138,9 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
+		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
@@ -176,6 +180,9 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
+		verifyCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
 		output = framework.RunKubectlOrDie(namespace, cmd...)
@@ -201,11 +208,16 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
+		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 		err = fpod.DeletePodWithWait(client, pod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
+		verifyCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 	})
 
 })
