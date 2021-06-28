@@ -38,7 +38,8 @@ var (
 
 // newDynamicInformerFactory creates a dynamic informer factory for a given
 // namespace if it doesn't exist already.
-func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, namespace string, isInCluster bool) (dynamicinformer.DynamicSharedInformerFactory, error) {
+func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, namespace string,
+	isInCluster bool) (dynamicinformer.DynamicSharedInformerFactory, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		dynamicInformerFactory dynamicinformer.DynamicSharedInformerFactory
@@ -86,7 +87,8 @@ func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, name
 // If isInCluster is set to true, the config contains credentials to the in
 // cluster API server. If isInCluster is set to false, config contains
 // credentials to the supervisor cluster.
-func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, namespace string, cfg *restclient.Config, isInCluster bool) (informers.GenericInformer, error) {
+func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, namespace string,
+	cfg *restclient.Config, isInCluster bool) (informers.GenericInformer, error) {
 	log := logger.GetLogger(ctx)
 	var err error
 
