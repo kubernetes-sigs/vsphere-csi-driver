@@ -40,13 +40,13 @@ import (
 )
 
 const (
-	// Suffix with each storage class resource on the quota
+	// Suffix with each storage class resource on the quota.
 	// https://kubernetes.io/docs/concepts/policy/resource-quotas/#storage-resource-quota
 	scResourceNameSuffix = ".storageclass.storage.k8s.io/requests.storage"
 )
 
-// isDatastoreAccessibleToCluster verifies if the datastoreUrl is accessible to cluster
-// with clusterID.
+// isDatastoreAccessibleToCluster verifies if the datastoreUrl is accessible to
+// cluster with clusterID.
 func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCenter,
 	clusterID string, datastoreURL string) bool {
 	log := logger.GetLogger(ctx)
@@ -64,8 +64,9 @@ func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCent
 	return false
 }
 
-// constructCreateSpecForInstance creates CNS CreateVolume spec
-func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume, host string) *cnstypes.CnsVolumeCreateSpec {
+// constructCreateSpecForInstance creates CNS CreateVolume spec.
+func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, host string) *cnstypes.CnsVolumeCreateSpec {
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
@@ -102,7 +103,8 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume, instance *cns
 
 // getK8sStorageClassName gets the storage class name in K8S mapping the vsphere
 // storagepolicy id. The policy must also be assigned to the passed namespace.
-func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, storagePolicyID string, namespace string) (string, error) {
+func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface,
+	storagePolicyID string, namespace string) (string, error) {
 	log := logger.GetLogger(ctx)
 	scList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -117,7 +119,7 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, 
 			param := strings.ToLower(paramName)
 			if param == common.AttributeStoragePolicyID && val == storagePolicyID {
 				scName = sc.Name
-				break //There will be only one storage class in the cluster with a given policy ID.
+				break // Only one storage class in a cluster with a given policy ID.
 			}
 		}
 	}
@@ -138,24 +140,28 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface, 
 
 	if scName != "" && len(quotaList.Items) > 0 {
 		for _, quota := range quotaList.Items {
-			//Looping over each named resource in the storage quota to check if it matches the storage class.
+			// Looping over each named resource in the storage quota to check if
+			// it matches the storage class.
 			for resource := range quota.Spec.Hard {
 				if scName+scResourceNameSuffix == resource.String() {
-					log.Debugf("Found k8s storage class: %s with storagePolicyId: %s and the policy is assigned to namespace: %s", scName, storagePolicyID, namespace)
+					log.Debugf("Found k8s storage class: %s with storagePolicyId: %s and "+
+						"the policy is assigned to namespace: %s", scName, storagePolicyID, namespace)
 					return scName, nil
 				}
 			}
 		}
 	}
 
-	msg := fmt.Sprintf("Failed to find matching K8s Storageclass. Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s", storagePolicyID, namespace)
+	msg := fmt.Sprintf("Failed to find matching K8s Storageclass. "+
+		"Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s",
+		storagePolicyID, namespace)
 	log.Error(msg)
 	return "", errors.New(msg)
 }
 
-// getPersistentVolumeSpec to create PV volume spec for the given input params
-func getPersistentVolumeSpec(volumeName string, volumeID string,
-	capacity int64, accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {
+// getPersistentVolumeSpec to create PV volume spec for the given input params.
+func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
+	accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
 	pv := &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
@@ -189,7 +195,8 @@ func getPersistentVolumeSpec(volumeName string, volumeID string,
 	return pv
 }
 
-// getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with specified storage class
+// getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with
+// specified storage class.
 func getPersistentVolumeClaimSpec(name string, namespace string, capacity int64,
 	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string) *v1.PersistentVolumeClaim {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
@@ -214,14 +221,17 @@ func getPersistentVolumeClaimSpec(name string, namespace string, capacity int64,
 	return claim
 }
 
-// isPVCBound return true if the PVC is bound before timeout, otherwise return false
-func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+// isPVCBound return true if the PVC is bound before timeout.
+// Otherwise, return false.
+func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim,
+	timeout time.Duration) (bool, error) {
 	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
 	timeoutSeconds := int64(timeout.Seconds())
 
-	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s", timeoutSeconds, pvcName, ns, v1.ClaimBound)
+	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s",
+		timeoutSeconds, pvcName, ns, v1.ClaimBound)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
 		ctx,
 		metav1.ListOptions{
@@ -241,38 +251,48 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 		if !ok {
 			continue
 		}
-		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v", pvcName, ns, pvc.Status.Phase, event)
+		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v",
+			pvcName, ns, pvc.Status.Phase, event)
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Name == pvcName {
 			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s", pvcName, ns, pvc.Status.Phase)
 			return true, nil
 		}
 	}
-	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds", pvcName, ns, v1.ClaimBound, timeoutSeconds)
+	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
+		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
-// getMaxWorkerThreadsToReconcileCnsRegisterVolume returns the maximum
-// number of worker threads which can be run to reconcile CnsRegisterVolume instances.
+// getMaxWorkerThreadsToReconcileCnsRegisterVolume returns the maximum number
+// of worker threads which can be run to reconcile CnsRegisterVolume instances.
 // If environment variable WORKER_THREADS_REGISTER_VOLUME is set and valid,
-// return the value read from environment variable otherwise, use the default value
+// return the value read from environment variable. Otherwise, use the default
+// value.
 func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForRegisterVolume
 	if v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForRegisterVolume)
+				log.Warnf("Maximum number of worker threads to run set in env variable "+
+					"WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d",
+					v, defaultMaxWorkerThreadsForRegisterVolume)
 			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
+				log.Warnf("Maximum number of worker threads to run set in env variable "+
+					"WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
 			} else {
 				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d", workerThreads)
+				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d",
+					workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_REGISTER_VOLUME %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForRegisterVolume)
+			log.Warnf("Maximum number of worker threads to run set in env variable "+
+				"WORKER_THREADS_REGISTER_VOLUME %s is invalid, will use the default value %d",
+				v, defaultMaxWorkerThreadsForRegisterVolume)
 		}
 	} else {
-		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. Picking the default value %d", defaultMaxWorkerThreadsForRegisterVolume)
+		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. Picking the default value %d",
+			defaultMaxWorkerThreadsForRegisterVolume)
 	}
 	return workerThreads
 }
