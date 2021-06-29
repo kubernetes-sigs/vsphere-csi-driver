@@ -58,69 +58,75 @@ import (
 )
 
 var (
-	// volumeMigrationService holds the pointer to VolumeMigration instance
+	// volumeMigrationService holds the pointer to VolumeMigration instance.
 	volumeMigrationService migration.VolumeMigrationService
 	// COInitParams stores the input params required for initiating the
-	// CO agnostic orchestrator for the syncer container
+	// CO agnostic orchestrator for the syncer container.
 	COInitParams interface{}
 
-	// MetadataSyncer instance for the syncer container
+	// MetadataSyncer instance for the syncer container.
 	MetadataSyncer *metadataSyncInformer
 )
 
-// newInformer returns uninitialized metadataSyncInformer
+// newInformer returns uninitialized metadataSyncInformer.
 func newInformer() *metadataSyncInformer {
 	return &metadataSyncInformer{}
 }
 
-// getFullSyncIntervalInMin returns the FullSyncInterval
+// getFullSyncIntervalInMin returns the FullSyncInterval.
 // If environment variable FULL_SYNC_INTERVAL_MINUTES is set and valid,
-// return the interval value read from environment variable
-// otherwise, use the default value 30 minutes
+// return the interval value read from environment variable.
+// Otherwise, use the default value 30 minutes.
 func getFullSyncIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	fullSyncIntervalInMin := defaultFullSyncIntervalInMin
 	if v := os.Getenv("FULL_SYNC_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
+				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s "+
+					"is equal or less than 0, will use the default interval", v)
 			} else if value > defaultFullSyncIntervalInMin {
-				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is larger than max value can be set, will use the default interval", v)
+				log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s "+
+					"is larger than max value can be set, will use the default interval", v)
 			} else {
 				fullSyncIntervalInMin = value
 				log.Infof("FullSync: fullSync interval is set to %d minutes", fullSyncIntervalInMin)
 			}
 		} else {
-			log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+			log.Warnf("FullSync: fullSync interval set in env variable FULL_SYNC_INTERVAL_MINUTES %s "+
+				"is invalid, will use the default interval", v)
 		}
 	}
 	return fullSyncIntervalInMin
 }
 
-// getVolumeHealthIntervalInMin returns the VolumeHealthInterval
+// getVolumeHealthIntervalInMin returns the VolumeHealthInterval.
 // If environment variable VOLUME_HEALTH_STATUS_INTERVAL_MINUTES is set and valid,
-// return the interval value read from environment variable
-// otherwise, use the default value 5 minutes
+// return the interval value read from environment variable.
+// Otherwise, use the default value 5 minutes.
 func getVolumeHealthIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	volumeHealthIntervalInMin := defaultVolumeHealthIntervalInMin
 	if v := os.Getenv("VOLUME_HEALTH_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s is equal or less than 0, will use the default interval", v)
+				log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+					"is equal or less than 0, will use the default interval", v)
 			} else {
 				volumeHealthIntervalInMin = value
 				log.Infof("VolumeHealth: VolumeHealth interval is set to %d minutes", volumeHealthIntervalInMin)
 			}
 		} else {
-			log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+			log.Warnf("VolumeHealth: VolumeHealth interval set in env variable VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+				"is invalid, will use the default interval", v)
 		}
 	}
 	return volumeHealthIntervalInMin
 }
 
-// InitMetadataSyncer initializes the Metadata Sync Informer
-func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, configInfo *cnsconfig.ConfigurationInfo) error {
+// InitMetadataSyncer initializes the Metadata Sync Informer.
+func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
+	configInfo *cnsconfig.ConfigurationInfo) error {
 	log := logger.GetLogger(ctx)
 	var err error
 	log.Infof("Initializing MetadataSyncer")
@@ -128,39 +134,42 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	MetadataSyncer = metadataSyncer
 	metadataSyncer.configInfo = configInfo
 
-	// Create the kubernetes client from config
+	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 
-	// Initialize the k8s orchestrator interface
-	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, COInitParams)
+	// Initialize the k8s orchestrator interface.
+	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		common.Kubernetes, clusterFlavor, COInitParams)
 	if err != nil {
 		log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Initialize client to supervisor cluster
-		// if metadata syncer is being initialized for guest clusters
-		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+		// Initialize client to supervisor cluster, if metadata syncer is being
+		// initialized for guest clusters.
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+			metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx,
+			restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("Creating Cns Operator client failed. Err: %v", err)
 			return err
 		}
 
-		// Initialize supervisor cluser client
+		// Initialize supervisor cluser client.
 		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
 			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 			return err
 		}
 	} else {
-		// Initialize volume manager with vcenter credentials
-		// if metadata syncer is being intialized for Vanilla or Supervisor clusters
+		// Initialize volume manager with vcenter credentials, if metadata syncer
+		// is being intialized for Vanilla or Supervisor clusters.
 		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 		if err != nil {
 			return err
@@ -173,10 +182,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSISVFeatureStateReplication) {
 			svParams, ok := COInitParams.(k8sorchestrator.K8sSupervisorInitParams)
 			if !ok {
-				return fmt.Errorf("expected orchestrator params of type K8sSupervisorInitParams, got %T instead", COInitParams)
+				return fmt.Errorf("expected orchestrator params of type K8sSupervisorInitParams, got %T instead",
+					COInitParams)
 			}
 			go func() {
-				if err := featurestates.StartSvFSSReplicationService(ctx, svParams.SupervisorFeatureStatesConfigInfo.Name, svParams.SupervisorFeatureStatesConfigInfo.Namespace); err != nil {
+				err := featurestates.StartSvFSSReplicationService(ctx, svParams.SupervisorFeatureStatesConfigInfo.Name,
+					svParams.SupervisorFeatureStatesConfigInfo.Namespace)
+				if err != nil {
 					log.Errorf("error starting supervisor FSS ReplicationService. Error: %+v", err)
 					os.Exit(1)
 				}
@@ -184,9 +196,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}
 
-	// Initialize cnsDeletionMap used by Full Sync
+	// Initialize cnsDeletionMap used by Full Sync.
 	cnsDeletionMap = make(map[string]bool)
-	// Initialize cnsCreationMap used by Full Sync
+	// Initialize cnsCreationMap used by Full Sync.
 	cnsCreationMap = make(map[string]bool)
 
 	cfgPath := common.GetConfigPath(ctx)
@@ -215,20 +227,24 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 						time.Sleep(5 * time.Second)
 					}
 				}
-				// Handling create event for reconnecting to VC when ca file is rotated
-				// In Supervisor cluster, ca file gets rotated at the path /etc/vmware/wcp/tls/vmca.pem
-				// WCP is handling ca file rotation by creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new contents
-				// and then renaming the file back to /etc/vmware/wcp/tls/vmca.pem.
-				// For such operations, fsnotify handles the event as a CREATE event
-				// The conditions below also ensures that the event is for the expected ca file path
+				// Handling create event for reconnecting to VC when ca file is
+				// rotated. In Supervisor cluster, ca file gets rotated at the path
+				// /etc/vmware/wcp/tls/vmca.pem. WCP handles ca file rotation by
+				// creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new
+				// contents, then rename it back to /etc/vmware/wcp/tls/vmca.pem.
+				// For such operations, fsnotify handles the event as a CREATE
+				// event. The conditions below also ensures that the event is for
+				// the expected ca file path.
 				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
 					for {
 						reconnectVCErr := ReloadConfiguration(metadataSyncer, true)
 						if reconnectVCErr == nil {
-							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
+							log.Infof("Successfully re-established connection with VC from: %q",
+								cnsconfig.SupervisorCAFilePath)
 							break
 						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v", reconnectVCErr)
+						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v",
+							reconnectVCErr)
 						time.Sleep(60 * time.Second)
 					}
 				}
@@ -267,30 +283,30 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}
 
-	// Set up kubernetes resource listeners for metadata syncer
+	// Set up kubernetes resource listeners for metadata syncer.
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
-		nil, // Add
-		func(oldObj interface{}, newObj interface{}) { // Update
+		nil, // Add.
+		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvcUpdated(oldObj, newObj, metadataSyncer)
 		},
-		func(obj interface{}) { // Delete
+		func(obj interface{}) { // Delete.
 			pvcDeleted(obj, metadataSyncer)
 		})
 	metadataSyncer.k8sInformerManager.AddPVListener(
-		nil, // Add
-		func(oldObj interface{}, newObj interface{}) { // Update
+		nil, // Add.
+		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvUpdated(oldObj, newObj, metadataSyncer)
 		},
-		func(obj interface{}) { // Delete
+		func(obj interface{}) { // Delete.
 			pvDeleted(obj, metadataSyncer)
 		})
 	metadataSyncer.k8sInformerManager.AddPodListener(
-		nil, // Add
-		func(oldObj interface{}, newObj interface{}) { // Update
+		nil, // Add.
+		func(oldObj interface{}, newObj interface{}) { // Update.
 			podUpdated(oldObj, newObj, metadataSyncer)
 		},
-		func(obj interface{}) { // Delete
+		func(obj interface{}) { // Delete.
 			podDeleted(obj, metadataSyncer)
 		})
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
@@ -306,13 +322,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	defer fullSyncTicker.Stop()
-	// Trigger full sync
-	// If TriggerCsiFullSync feature gate is enabled, use TriggerCsiFullSync to trigger
-	// full sync. If not, directly invoke full sync methods.
+	// Trigger full sync.
+	// If TriggerCsiFullSync feature gate is enabled, use TriggerCsiFullSync to
+	// trigger full sync. If not, directly invoke full sync methods.
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
 		log.Infof("%q feature flag is enabled. Using TriggerCsiFullSync API to trigger full sync",
 			common.TriggerCsiFullSync)
-		// Get a config to talk to the apiserver
+		// Get a config to talk to the apiserver.
 		restConfig, err := config.GetConfig()
 		if err != nil {
 			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
@@ -341,8 +357,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
 					err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
 					if err != nil {
-						log.Errorf("Failed to update TriggerCsiFullSync instance: %+v to increment the TriggerFullSyncId. Error: %v",
-							triggerCsiFullSyncInstance, err)
+						log.Errorf("Failed to update TriggerCsiFullSync instance: %+v to increment the TriggerFullSyncId. "+
+							"Error: %v", triggerCsiFullSyncInstance, err)
 					} else {
 						log.Infof("Incremented TriggerSyncID from %d to %d as part of periodic run to trigger full sync",
 							triggerCsiFullSyncInstance.Spec.TriggerSyncID-1, triggerCsiFullSyncInstance.Spec.TriggerSyncID)
@@ -375,7 +391,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	volumeHealthTicker := time.NewTicker(time.Duration(getVolumeHealthIntervalInMin(ctx)) * time.Minute)
 	defer volumeHealthTicker.Stop()
 
-	// Trigger get volume health status
+	// Trigger get volume health status.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		go func() {
 			for ; true; <-volumeHealthTicker.C {
@@ -392,7 +408,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeHealthEnablementTicker.Stop()
-		// Trigger volume health reconciler
+		// Trigger volume health reconciler.
 		go func() {
 			for ; true; <-volumeHealthEnablementTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
@@ -400,7 +416,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("VolumeHealth feature is disabled on the cluster")
 				} else {
 					if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break
@@ -410,7 +427,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 		volumeResizeEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeResizeEnablementTicker.Stop()
-		// Trigger resize reconciler
+		// Trigger resize reconciler.
 		go func() {
 			for ; true; <-volumeResizeEnablementTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
@@ -418,7 +435,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					log.Debugf("ExpandVolume feature is disabled on the cluster")
 				} else {
 					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v", err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
 					}
 					break
@@ -431,8 +449,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	return nil
 }
 
-// getTriggerCsiFullSyncInstance gets the full sync instance with name "csifullsync"
-func getTriggerCsiFullSyncInstance(ctx context.Context, client client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
+// getTriggerCsiFullSyncInstance gets the full sync instance with name
+// "csifullsync".
+func getTriggerCsiFullSyncInstance(ctx context.Context,
+	client client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
 	triggerCsiFullSyncInstance := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	key := k8stypes.NamespacedName{Namespace: "", Name: common.TriggerCsiFullSyncCRName}
 	if err := client.Get(ctx, key, triggerCsiFullSyncInstance); err != nil {
@@ -441,7 +461,8 @@ func getTriggerCsiFullSyncInstance(ctx context.Context, client client.Client) (*
 	return triggerCsiFullSyncInstance, nil
 }
 
-// updateTriggerCsiFullSyncInstance updates the full sync instance with name "csifullsync"
+// updateTriggerCsiFullSyncInstance updates the full sync instance with
+// name "csifullsync".
 func updateTriggerCsiFullSyncInstance(ctx context.Context,
 	client client.Client, instance *triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
 	if err := client.Update(ctx, instance); err != nil {
@@ -450,11 +471,13 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 	return nil
 }
 
-// ReloadConfiguration reloads configuration from the secret, and update controller's cached configs
-// The function takes metadatasyncerInformer and reconnectToVCFromNewConfig as parameters.
-// If reconnectToVCFromNewConfig is set to true, the function re-establishes connection with VC,
-// else based on the configuration data changed during reload, the function resets config, reloads VC connection
-// when credentials are changed and returns appropriate error
+// ReloadConfiguration reloads configuration from the secret, and update
+// controller's cached configs. The function takes metadatasyncerInformer and
+// reconnectToVCFromNewConfig as parameters. If reconnectToVCFromNewConfig
+// is set to true, the function re-establishes connection with VC. Otherwise,
+// based on the configuration data changed during reload, the function resets
+// config, reloads VC connection when credentials are changed and returns
+// appropriate error.
 func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
@@ -466,8 +489,10 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
-		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+			cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx,
+			restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
 			msg := fmt.Sprintf("failed to create cns operator client. Err: %v", err)
 			log.Error(msg)
@@ -491,17 +516,21 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			var vcenter *cnsvsphere.VirtualCenter
 			if metadataSyncer.host != newVCConfig.Host ||
 				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
-				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password || reconnectToVCFromNewConfig {
-				// Verify if new configuration has valid credentials by connecting to vCenter.
-				// Proceed only if the connection succeeds, else return error.
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
+				reconnectToVCFromNewConfig {
+				// Verify if new configuration has valid credentials by connecting
+				// to vCenter. Proceed only if the connection succeeds, else return
+				// error.
 				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
 				if err = newVC.Connect(ctx); err != nil {
-					msg := fmt.Sprintf("failed to connect to VirtualCenter host: %s using new credentials, Err: %+v", newVCConfig.Host, err)
+					msg := fmt.Sprintf("failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
+						newVCConfig.Host, err)
 					log.Error(msg)
 					return errors.New(msg)
 				}
 
-				// Reset virtual center singleton instance by passing reload flag as true
+				// Reset virtual center singleton instance by passing reload flag
+				// as true.
 				log.Info("Obtaining new vCenterInstance using new credentials")
 				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 				if err != nil {
@@ -510,8 +539,8 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 					return errors.New(msg)
 				}
 			} else {
-				// If it's not a VC host or VC credentials update, same singleton instance can be used
-				// and it's Config field can be updated
+				// If it's not a VC host or VC credentials update, same singleton
+				// instance can be used and it's Config field can be updated.
 				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 				if err != nil {
 					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
@@ -535,10 +564,11 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	return nil
 }
 
-// pvcUpdated updates persistent volume claim metadata on VC when pvc labels on K8S cluster have been updated
+// pvcUpdated updates persistent volume claim metadata on VC when pvc labels
+// on K8S cluster have been updated.
 func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
-	// Get old and new pvc objects
+	// Get old and new pvc objects.
 	oldPvc, ok := oldObj.(*v1.PersistentVolumeClaim)
 	if oldPvc == nil || !ok {
 		return
@@ -553,15 +583,17 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		return
 	}
 
-	// Get pv object attached to pvc
+	// Get pv object attached to pvc.
 	pv, err := metadataSyncer.pvLister.Get(newPvc.Spec.VolumeName)
 	if pv == nil || err != nil {
 		if !apierrors.IsNotFound(err) {
-			log.Errorf("PVCUpdated: Error getting Persistent Volume for pvc %s in namespace %s with err: %v", newPvc.Name, newPvc.Namespace, err)
+			log.Errorf("PVCUpdated: Error getting Persistent Volume for pvc %s in namespace %s with err: %v",
+				newPvc.Name, newPvc.Namespace, err)
 			return
 		}
-		log.Infof("PVCUpdated: PV with name %s not found using PV Lister. Querying API server to get PV Info", newPvc.Spec.VolumeName)
-		// Create the kubernetes client from config
+		log.Infof("PVCUpdated: PV with name %s not found using PV Lister. Querying API server to get PV Info",
+			newPvc.Spec.VolumeName)
+		// Create the kubernetes client from config.
 		k8sClient, err := k8s.NewClient(ctx)
 		if err != nil {
 			log.Errorf("PVCUpdated: Creating Kubernetes client failed. Err: %v", err)
@@ -569,30 +601,36 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		}
 		pv, err = k8sClient.CoreV1().PersistentVolumes().Get(ctx, newPvc.Spec.VolumeName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("PVCUpdated: Error getting Persistent Volume %s from API server with err: %v", newPvc.Spec.VolumeName, err)
+			log.Errorf("PVCUpdated: Error getting Persistent Volume %s from API server with err: %v",
+				newPvc.Spec.VolumeName, err)
 			return
 		}
 		log.Debugf("PVCUpdated: Found Persistent Volume %s from API server", newPvc.Spec.VolumeName)
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
-	// Verify if csi migration is ON and check if there is any label update or migrated-to annotation was received for the PVC
+	// Verify if csi migration is ON and check if there is any label update or
+	// migrated-to annotation was received for the PVC.
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
 		if !isValidvSphereVolumeClaim(ctx, newPvc.ObjectMeta) {
-			log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update", newPvc.Name, newPvc.Namespace)
+			log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update",
+				newPvc.Name, newPvc.Namespace)
 			return
 		}
 		if oldPvc.Status.Phase == v1.ClaimBound &&
 			reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) &&
 			reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
-			log.Debugf("PVCUpdated: PVC labels and annotations have not changed for %s in namespace %s", newPvc.Name, newPvc.Namespace)
+			log.Debugf("PVCUpdated: PVC labels and annotations have not changed for %s in namespace %s",
+				newPvc.Name, newPvc.Namespace)
 			return
 		}
 		// Verify if there is an annotation update
 		if !reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) {
-			// Verify if the annotation update is related to migration. If not, return
+			// Verify if the annotation update is related to migration. If not,
+			// return.
 			if !HasMigratedToAnnotationUpdate(ctx, oldPvc.GetAnnotations(), newPvc.GetAnnotations(), newPvc.Name) {
-				log.Debugf("PVCUpdated: Migrated-to annotation is not added for %s in namespace %s. Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
-				// Check if there are no label update, then return
+				log.Debugf("PVCUpdated: Migrated-to annotation is not added for %s in namespace %s. "+
+					"Ignoring other annotation updates", newPvc.Name, newPvc.Namespace)
+				// Check if there are no label update, then return.
 				if !reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
 					return
 				}
@@ -600,16 +638,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		}
 	} else {
 		if pv.Spec.VsphereVolume != nil {
-			// Volume is in-tree VCP volume
+			// Volume is in-tree VCP volume.
 			log.Warnf("PVCUpdated: %q feature state is disabled. Skipping the PVC update", common.CSIMigration)
 			return
 		}
-		// Verify if pv is vsphere csi volume
+		// Verify if pv is vsphere csi volume.
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 			log.Debugf("PVCUpdated: Not a vSphere CSI Volume")
 			return
 		}
-		// For volumes provisioned by CSI driver, verify if old and new labels are not equal
+		// For volumes provisioned by CSI driver, verify if old and new labels are not equal.
 		if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
 			log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")
 			return
@@ -617,14 +655,15 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Invoke volume updated method for pvCSI
+		// Invoke volume updated method for pvCSI.
 		pvcsiVolumeUpdated(ctx, newPvc, pv.Spec.CSI.VolumeHandle, metadataSyncer)
 	} else {
 		csiPVCUpdated(ctx, newPvc, pv, metadataSyncer)
 	}
 }
 
-// pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s cluster
+// pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s
+// cluster.
 func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
 	pvc, ok := obj.(*v1.PersistentVolumeClaim)
@@ -636,42 +675,45 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	if pvc.Status.Phase != v1.ClaimBound {
 		return
 	}
-	// Get pv object attached to pvc
+	// Get pv object attached to pvc.
 	pv, err := metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
 	if pv == nil || err != nil {
-		log.Errorf("PVCDeleted: Error getting Persistent Volume for pvc %s in namespace %s with err: %v", pvc.Name, pvc.Namespace, err)
+		log.Errorf("PVCDeleted: Error getting Persistent Volume for pvc %s in namespace %s with err: %v",
+			pvc.Name, pvc.Namespace, err)
 		return
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
 		if !isValidvSphereVolumeClaim(ctx, pvc.ObjectMeta) {
-			log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
+			log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. "+
+				"Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
 			return
 		}
 	} else {
 		if pv.Spec.VsphereVolume != nil {
-			// Volume is in-tree VCP volume
+			// Volume is in-tree VCP volume.
 			log.Warnf("PVCDeleted: %q feature state is disabled. Skipping the PVC delete", common.CSIMigration)
 			return
 		}
-		// Verify if pv is vSphere csi volume
+		// Verify if pv is vSphere csi volume.
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 			log.Debugf("PVCDeleted: Not a vSphere CSI Volume")
 			return
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Invoke volume deleted method for pvCSI
+		// Invoke volume deleted method for pvCSI.
 		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
 	} else {
 		csiPVCDeleted(ctx, pvc, pv, metadataSyncer)
 	}
 }
 
-// pvUpdated updates volume metadata on VC when volume labels on K8S cluster have been updated
+// pvUpdated updates volume metadata on VC when volume labels on K8S cluster
+// have been updated.
 func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
-	// Get old and new PV objects
+	// Get old and new PV objects.
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
 		log.Warnf("PVUpdated: unrecognized old object %+v", oldObj)
@@ -685,9 +727,10 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 	log.Debugf("PVUpdated: PV Updated from %+v to %+v", oldPv, newPv)
 
-	// Return if new PV status is Pending or Failed
+	// Return if new PV status is Pending or Failed.
 	if newPv.Status.Phase == v1.VolumePending || newPv.Status.Phase == v1.VolumeFailed {
-		log.Debugf("PVUpdated: PV %s metadata is not updated since updated PV is in phase %s", newPv.Name, newPv.Status.Phase)
+		log.Debugf("PVUpdated: PV %s metadata is not updated since updated PV is in phase %s",
+			newPv.Name, newPv.Status.Phase)
 		return
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
@@ -704,10 +747,12 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		}
 		// Verify if migration annotation is getting removed.
 		if !reflect.DeepEqual(newPv.GetAnnotations(), oldPv.GetAnnotations()) {
-			// Verify if the annotation update is related to migration. If not, return
+			// Verify if the annotation update is related to migration.
+			// If not, return.
 			if !HasMigratedToAnnotationUpdate(ctx, oldPv.GetAnnotations(), newPv.GetAnnotations(), newPv.Name) {
-				log.Debugf("PVUpdated: Migrated-to annotation is not added for %q. Ignoring other annotation updates", newPv.Name)
-				// Check if there are no label update, then return
+				log.Debugf("PVUpdated: Migrated-to annotation is not added for %q. Ignoring other annotation updates",
+					newPv.Name)
+				// Check if there are no label update, then return.
 				if !reflect.DeepEqual(newPv.Labels, oldPv.Labels) {
 					return
 				}
@@ -715,22 +760,24 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		}
 	} else {
 		if newPv.Spec.VsphereVolume != nil {
-			// Volume is in-tree VCP volume
+			// Volume is in-tree VCP volume.
 			log.Warnf("PVUpdated: %q feature state is disabled. Skipping the PV update", common.CSIMigration)
 			return
 		}
-		// Verify if pv is a vSphere csi volume
+		// Verify if pv is a vSphere csi volume.
 		if newPv.Spec.CSI == nil || newPv.Spec.CSI.Driver != csitypes.Name {
 			log.Debugf("PVUpdated: PV is not a vSphere CSI Volume: %+v", newPv)
 			return
 		}
-		// Return if labels are unchanged
-		if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) && reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
+		// Return if labels are unchanged.
+		if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) &&
+			reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
 			log.Debugf("PVUpdated: PV labels have not changed")
 			return
 		}
 	}
-	if oldPv.Status.Phase == v1.VolumeBound && newPv.Status.Phase == v1.VolumeReleased && oldPv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
+	if oldPv.Status.Phase == v1.VolumeBound && newPv.Status.Phase == v1.VolumeReleased &&
+		oldPv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVUpdated: Volume will be deleted by controller")
 		return
 	}
@@ -739,14 +786,15 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Invoke volume updated method for pvCSI
+		// Invoke volume updated method for pvCSI.
 		pvcsiVolumeUpdated(ctx, newPv, newPv.Spec.CSI.VolumeHandle, metadataSyncer)
 	} else {
 		csiPVUpdated(ctx, newPv, oldPv, metadataSyncer)
 	}
 }
 
-// pvDeleted deletes volume metadata on VC when volume has been deleted on K8s cluster
+// pvDeleted deletes volume metadata on VC when volume has been deleted on
+// K8s cluster.
 func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
@@ -764,28 +812,29 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	} else {
 		if pv.Spec.VsphereVolume != nil {
-			// Volume is in-tree VCP volume
+			// Volume is in-tree VCP volume.
 			log.Warnf("PVDeleted: %q feature state is disabled. Skipping the PVC update", common.CSIMigration)
 			return
 		}
-		// Verify if pv is a vSphere csi volume
+		// Verify if pv is a vSphere csi volume.
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
 			log.Debugf("PVDeleted: Not a vSphere CSI Volume. PV: %+v", pv)
 			return
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Invoke volume deleted method for pvCSI
+		// Invoke volume deleted method for pvCSI.
 		pvcsiVolumeDeleted(ctx, string(pv.GetUID()), metadataSyncer)
 	} else {
 		csiPVDeleted(ctx, pv, metadataSyncer)
 	}
 }
 
-// podUpdated updates pod metadata on VC when pod labels have been updated on K8s cluster
+// podUpdated updates pod metadata on VC when pod labels have been updated on
+// K8s cluster.
 func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
-	// Get old and new pod objects
+	// Get old and new pod objects.
 	oldPod, ok := oldObj.(*v1.Pod)
 	if oldPod == nil || !ok {
 		log.Warnf("PodUpdated: unrecognized old object %+v", oldObj)
@@ -797,19 +846,19 @@ func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		return
 	}
 
-	// If old pod is in pending state and new pod is running, update metadata
+	// If old pod is in pending state and new pod is running, update metadata.
 	if oldPod.Status.Phase == v1.PodPending && newPod.Status.Phase == v1.PodRunning {
-
 		log.Debugf("PodUpdated: Pod %s calling updatePodMetadata", newPod.Name)
-		// Update pod metadata
+		// Update pod metadata.
 		updatePodMetadata(ctx, newPod, metadataSyncer, false)
 	}
 }
 
-// podDeleted deletes pod metadata on VC when pod has been deleted on K8s cluster
+// podDeleted deletes pod metadata on VC when pod has been deleted on
+// K8s cluster.
 func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
-	// Get pod object
+	// Get pod object.
 	pod, ok := obj.(*v1.Pod)
 	if pod == nil || !ok {
 		log.Warnf("PodDeleted: unrecognized new object %+v", obj)
@@ -817,11 +866,11 @@ func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 
 	log.Debugf("PodDeleted: Pod %s calling updatePodMetadata", pod.Name)
-	// Update pod metadata
+	// Update pod metadata.
 	updatePodMetadata(ctx, pod, metadataSyncer, true)
 }
 
-// updatePodMetadata updates metadata for volumes attached to the pod
+// updatePodMetadata updates metadata for volumes attached to the pod.
 func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		pvcsiUpdatePod(ctx, pod, metadataSyncer, deleteFlag)
@@ -831,35 +880,43 @@ func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadat
 
 }
 
-// csiPVCUpdated updates volume metadata for PVC objects on the VC in Vanilla k8s and supervisor cluster
-func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
+// csiPVCUpdated updates volume metadata for PVC objects on the VC in Vanilla
+// k8s and supervisor cluster.
+func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	var volumeHandle string
 	var err error
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-		// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+		// In case if feature state switch is enabled after syncer is deployed,
+		// we need to initialize the volumeMigrationService.
 		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 			log.Errorf("PVC Updated: Failed to get migration service. Err: %v", err)
 			return
 		}
-		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
+			StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
 		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 		if err != nil {
-			log.Errorf("PVC Updated: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+			log.Errorf("PVC Updated: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
+				"with error %+v", migrationVolumeSpec, err)
 			return
 		}
 	} else {
 		volumeFound := false
 		volumeHandle = pv.Spec.CSI.VolumeHandle
-		// Following wait poll is required to avoid race condition between pvcUpdated and pvUpdated
-		// This helps avoid race condition between pvUpdated and pvcUpdated handlers when static PV and PVC is created almost
-		// at the same time using single YAML file.
+		// Following wait poll is required to avoid race condition between
+		// pvcUpdated and pvUpdated. This helps avoid race condition between
+		// pvUpdated and pvcUpdated handlers when static PV and PVC is created
+		// almost at the same time using single YAML file.
 		err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
 			}
-			// Query with empty selection. CNS returns only the volume ID from it's cache.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			// Query with empty selection. CNS returns only the volume ID from
+			// its cache.
+			queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
+				cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
 				log.Errorf("PVCUpdated: QueryVolume failed with err=%+v", err.Error())
 				return false, err
@@ -871,24 +928,31 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 			return volumeFound, nil
 		})
 		if err != nil {
-			log.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. err: %+v", err)
+			log.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. "+
+				"err: %+v", err)
 			return
 		}
 
 		if !volumeFound {
-			// volumeFound will be false when wait poll times out
-			log.Errorf("PVCUpdated: volume: %q is not marked as the container volume. Skipping PVC entity metadata update.", volumeHandle)
+			// volumeFound will be false when wait poll times out.
+			log.Errorf("PVCUpdated: volume: %q is not marked as the container volume. Skipping PVC entity metadata update",
+				volumeHandle)
 			return
 		}
 	}
 
-	// Create updateSpec
+	// Create updateSpec.
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
-	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
+	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV),
+		pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
+	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false,
+		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		[]cnstypes.CnsKubernetesEntityReference{entityReference})
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
+		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
@@ -907,38 +971,47 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 	}
 }
 
-// csiPVCDeleted deletes volume metadata on VC when volume has been deleted on Vanilla k8s and supervisor cluster
-func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
+// csiPVCDeleted deletes volume metadata on VC when volume has been deleted
+// on Vanilla k8s and supervisor cluster.
+func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	// Volume will be deleted by controller when reclaim policy is delete
+	// Volume will be deleted by controller when reclaim policy is delete.
 	if pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVCDeleted: Reclaim policy is delete")
 		return
 	}
 
-	// If the PV reclaim policy is retain we need to delete PVC labels
+	// If the PV reclaim policy is retain we need to delete PVC labels.
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true,
+		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace,
+		metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
 	var volumeHandle string
 	var err error
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-		// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+		// In case if feature state switch is enabled after syncer is deployed,
+		// we need to initialize the volumeMigrationService.
 		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 			log.Errorf("PVC Deleted: Failed to get migration service. Err: %v", err)
 			return
 		}
-		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
+			StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
 		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 		if err != nil {
-			log.Errorf("PVC Deleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+			log.Errorf("PVC Deleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
+				"with error %+v", migrationVolumeSpec, err)
 			return
 		}
 	} else {
 		volumeHandle = pv.Spec.CSI.VolumeHandle
 	}
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
+		metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
 			Id: volumeHandle,
@@ -950,69 +1023,85 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 		},
 	}
 
-	log.Debugf("PVCDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+	log.Debugf("PVCDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
+		updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 		log.Errorf("PVCDeleted: UpdateVolumeMetadata failed with err %v", err)
 	}
 }
 
-// csiPVUpdated updates volume metadata on VC when volume labels on Vanilla k8s and supervisor cluster have been updated
-func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
+// csiPVUpdated updates volume metadata on VC when volume labels on Vanilla
+// k8s and supervisor cluster have been updated.
+func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.PersistentVolume,
+	metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	var metadataList []cnstypes.BaseCnsEntityMetadata
-	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false,
+		string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	var volumeHandle string
 	var err error
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
+		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && newPv.Spec.VsphereVolume != nil {
-		// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+		// In case if feature state switch is enabled after syncer is deployed,
+		// we need to initialize the volumeMigrationService.
 		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 			log.Errorf("PVUpdated: Failed to get migration service. Err: %v", err)
 			return
 		}
-		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: newPv.Spec.VsphereVolume.VolumePath, StoragePolicyName: newPv.Spec.VsphereVolume.StoragePolicyName})
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx,
+			&migration.VolumeSpec{VolumePath: newPv.Spec.VsphereVolume.VolumePath,
+				StoragePolicyName: newPv.Spec.VsphereVolume.StoragePolicyName})
 		if err != nil {
-			log.Errorf("PVUpdated: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", newPv.Spec.VsphereVolume.VolumePath, err)
+			log.Errorf("PVUpdated: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v",
+				newPv.Spec.VsphereVolume.VolumePath, err)
 			return
 		}
 	} else {
 		volumeHandle = newPv.Spec.CSI.VolumeHandle
 	}
 
-	// TODO: Revisit the logic for static PV update once we have a specific return code from CNS
-	// for UpdateVolumeMetadata if the volume is not registered as CNS volume.
-	// The issue is being tracked here: https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/579
+	// TODO: Revisit the logic for static PV update once we have a specific
+	// return code from CNS for UpdateVolumeMetadata if the volume is not
+	// registered as CNS volume. The issue is being tracked here:
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/579
 
-	// Dynamically provisioned PVs have a volume attribute called 'storage.kubernetes.io/csiProvisionerIdentity'
-	// in their CSI spec, which is set by external-provisioner.
+	// Dynamically provisioned PVs have a volume attribute called
+	// 'storage.kubernetes.io/csiProvisionerIdentity' in their CSI spec, which
+	// is set by external-provisioner.
 	var isdynamicCSIPV bool
 	if newPv.Spec.CSI != nil {
 		_, isdynamicCSIPV = newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
 	}
-	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && !isdynamicCSIPV && newPv.Spec.CSI != nil {
-		// Static PV is Created
+	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable &&
+		!isdynamicCSIPV && newPv.Spec.CSI != nil {
+		// Static PV is Created.
 		var volumeType string
 		if IsMultiAttachAllowed(oldPv) {
 			volumeType = common.FileVolumeType
 		} else {
 			volumeType = common.BlockVolumeType
 		}
-		log.Debugf("PVUpdated: observed static volume provisioning for the PV: %q with volumeType: %q", newPv.Name, volumeType)
+		log.Debugf("PVUpdated: observed static volume provisioning for the PV: %q with volumeType: %q",
+			newPv.Name, volumeType)
 		queryFilter := cnstypes.CnsQueryFilter{
 			VolumeIds: []cnstypes.CnsVolumeId{{Id: oldPv.Spec.CSI.VolumeHandle}},
 		}
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
 		// QueryAll with no selection will return only the volume ID.
-		queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
+			cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			log.Errorf("PVUpdated: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
 		if len(queryResult.Volumes) == 0 {
-			log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
-			// Call CreateVolume for Static Volume Provisioning
+			log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. "+
+				"Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
+			// Call CreateVolume for Static Volume Provisioning.
 			createSpec := &cnstypes.CnsVolumeCreateSpec{
 				Name:       oldPv.Name,
 				VolumeType: volumeType,
@@ -1035,25 +1124,30 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 					},
 				}
 			}
-			log.Debugf("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v", oldPv.Name, spew.Sdump(createSpec))
+			log.Debugf("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v",
+				oldPv.Name, spew.Sdump(createSpec))
 			_, err := metadataSyncer.volumeManager.CreateVolume(ctx, createSpec)
 			if err != nil {
 				log.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
 			} else {
-				log.Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.", oldPv.Spec.CSI.VolumeHandle)
+				log.Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.",
+					oldPv.Spec.CSI.VolumeHandle)
 			}
 			// Volume is successfully created so returning from here.
 			return
 		} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
-			log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.", oldPv.Spec.CSI.VolumeHandle)
-			// Volume is already present in the CNS, so continue with the UpdateVolumeMetadata
+			log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.",
+				oldPv.Spec.CSI.VolumeHandle)
+			// Volume is already present in the CNS, so continue with the
+			// UpdateVolumeMetadata.
 		} else {
-			log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.", oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
+			log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.",
+				oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
 			// unknown Volume is returned from the CNS, so returning from here.
 			return
 		}
 	}
-	// call UpdateVolumeMetadata for all other cases
+	// Call UpdateVolumeMetadata for all other cases.
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
 			Id: volumeHandle,
@@ -1065,18 +1159,22 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		},
 	}
 
-	log.Debugf("PVUpdated: Calling UpdateVolumeMetadata for volume %q with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+	log.Debugf("PVUpdated: Calling UpdateVolumeMetadata for volume %q with updateSpec: %+v",
+		updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 		log.Errorf("PVUpdated: UpdateVolumeMetadata failed with err %v", err)
 		return
 	}
-	log.Debugf("PVUpdated: UpdateVolumeMetadata succeed for the volume %q with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+	log.Debugf("PVUpdated: UpdateVolumeMetadata succeed for the volume %q with updateSpec: %+v",
+		updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 }
 
-// csiPVDeleted deletes volume metadata on VC when volume has been deleted on Vanills k8s and supervisor cluster
+// csiPVDeleted deletes volume metadata on VC when volume has been deleted on
+// Vanills k8s and supervisor cluster.
 func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased && pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
+	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased &&
+		pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVDeleted: Volume deletion will be handled by Controller")
 		return
 	}
@@ -1084,13 +1182,17 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	defer volumeOperationsLock.Unlock()
 
 	if IsMultiAttachAllowed(pv) {
-		// if PV is file share volume
-		log.Debugf("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to delete volume metadata references for PV: %q", pv.Name)
+		// If PV is file share volume.
+		log.Debugf("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to "+
+			"delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
-		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true,
+			string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
+			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: pv.Spec.CSI.VolumeHandle,
@@ -1102,7 +1204,8 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			},
 		}
 
-		log.Debugf("PVDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+		log.Debugf("PVDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
+			updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 			log.Errorf("PVDeleted: UpdateVolumeMetadata failed with err %v", err)
 			return
@@ -1114,13 +1217,16 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				},
 			},
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
+			cnstypes.CnsQuerySelection{}, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			log.Error("PVDeleted: QueryVolume failed with err=%+v", err.Error())
 			return
 		}
-		if queryResult != nil && len(queryResult.Volumes) == 1 && len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {
-			log.Infof("PVDeleted: Volume: %q is not in use by any other entity. Removing CNS tag.", pv.Spec.CSI.VolumeHandle)
+		if queryResult != nil && len(queryResult.Volumes) == 1 &&
+			len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {
+			log.Infof("PVDeleted: Volume: %q is not in use by any other entity. Removing CNS tag.",
+				pv.Spec.CSI.VolumeHandle)
 			err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
 			if err != nil {
 				log.Errorf("PVDeleted: Failed to delete volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
@@ -1131,18 +1237,21 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	} else {
 		var volumeHandle string
 		var err error
-		// Fetch FSS value for CSI migration once
+		// Fetch FSS value for CSI migration once.
 		migrationFeatureEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
-			// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+			// In case if feature state switch is enabled after syncer is deployed,
+			// we need to initialize the volumeMigrationService.
 			if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 				log.Errorf("PVDeleted: Failed to get migration service. Err: %v", err)
 				return
 			}
-			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
+				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
 			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 			if err != nil {
-				log.Errorf("PVDeleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+				log.Errorf("PVDeleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
+					"with error %+v", migrationVolumeSpec, err)
 				return
 			}
 		} else {
@@ -1155,7 +1264,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
-			// Delete the cnsvspherevolumemigration crd instance when PV is deleted
+			// Delete the cnsvspherevolumemigration crd instance when PV is deleted.
 			err = volumeMigrationService.DeleteVolumeInfo(ctx, volumeHandle)
 			if err != nil {
 				log.Errorf("PVDeleted: failed to delete volumeInfo CR for volume: %q. Error: %+v", volumeHandle, err)
@@ -1165,10 +1274,11 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	}
 }
 
-// csiUpdatePod update/deletes pod CnsVolumeMetadata when pod has been created/deleted on Vanilla k8s and supervisor cluster have been updated
+// csiUpdatePod update/deletes pod CnsVolumeMetadata when pod has been
+// created/deleted on Vanilla k8s and supervisor cluster have been updated.
 func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
 	log := logger.GetLogger(ctx)
-	// Iterate through volumes attached to pod
+	// Iterate through volumes attached to pod.
 	for _, volume := range pod.Spec.Volumes {
 		var volumeHandle string
 		var metadataList []cnstypes.BaseCnsEntityMetadata
@@ -1177,25 +1287,36 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
 				if !deleteFlag {
-					// We need to update metadata for pods having corresponding PVC as an entity reference
-					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID)
-					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, []cnstypes.CnsKubernetesEntityReference{entityReference})
+					// We need to update metadata for pods having corresponding PVC
+					// as an entity reference.
+					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(
+						string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace,
+						metadataSyncer.configInfo.Cfg.Global.ClusterID)
+					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil,
+						deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
+						metadataSyncer.configInfo.Cfg.Global.ClusterID,
+						[]cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
-					// Deleting the pod metadata
-					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+					// Deleting the pod metadata.
+					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
+						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
+						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 				var err error
 				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
-					// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+					// In case if feature state switch is enabled after syncer is
+					// deployed, we need to initialize the volumeMigrationService.
 					if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 						log.Errorf("PodUpdated: Failed to get migration service. Err: %v", err)
 						return
 					}
-					migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath, StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
+					migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
+						StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
 					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 					if err != nil {
-						log.Errorf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+						log.Errorf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
+							"with error %+v", migrationVolumeSpec, err)
 						return
 					}
 				} else {
@@ -1206,18 +1327,22 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					continue
 				}
 			} else {
-				log.Debugf("Volume %q is not a valid vSphere volume for the pod %q", volume.PersistentVolumeClaim.ClaimName, pod.Name)
+				log.Debugf("Volume %q is not a valid vSphere volume for the pod %q",
+					volume.PersistentVolumeClaim.ClaimName, pod.Name)
 				return
 			}
 		} else {
-			// Inline migrated volumes with no PVC
+			// Inline migrated volumes with no PVC.
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
 				if volume.VsphereVolume != nil {
-					// No entity reference is supplied for inline volumes
-					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+					// No entity reference is supplied for inline volumes.
+					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
+						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
+						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 					metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 					var err error
-					// In case if feature state switch is enabled after syncer is deployed, we need to initialize the volumeMigrationService
+					// In case if feature state switch is enabled after syncer is
+					// deployed, we need to initialize the volumeMigrationService.
 					if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 						log.Errorf("PodUpdated: Failed to get migration service. Err: %v", err)
 						return
@@ -1225,7 +1350,8 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					migrationVolumeSpec := &migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath}
 					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
 					if err != nil {
-						log.Warnf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v with error %+v", migrationVolumeSpec, err)
+						log.Warnf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
+							"with error %+v", migrationVolumeSpec, err)
 						return
 					}
 				} else {
@@ -1233,17 +1359,21 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					continue
 				}
 			} else {
-				// For vSphere volumes we need to log the message that CSI migration feature state is disabled
+				// For vSphere volumes we need to log the message that CSI
+				// migration feature state is disabled.
 				if volume.VsphereVolume != nil {
 					log.Debug("CSI migration feature state is disabled")
 					continue
 				}
-				// For non vSphere volumes, do nothing and move to next volume iteration
+				// For non vSphere volumes, do nothing and move to next volume
+				// iteration.
 				log.Debugf("Ignoring the update for inline volume %q for the pod %q", volume.Name, pod.Name)
 				continue
 			}
 		}
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
+			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: volumeHandle,
@@ -1255,7 +1385,8 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 			},
 		}
 
-		log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v", updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+		log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
+			updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
 		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 			log.Errorf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
 		}
@@ -1263,9 +1394,10 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	}
 }
 
-func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Interface, svcKubeClient clientset.Interface) error {
+func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Interface,
+	svcKubeClient clientset.Interface) error {
 	log := logger.GetLogger(ctx)
-	// Get the supervisor namespace in which the guest cluster is deployed
+	// Get the supervisor namespace in which the guest cluster is deployed.
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		log.Errorf("could not get supervisor namespace in which guest cluster was deployed. Err: %v", err)
@@ -1274,10 +1406,12 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 	log.Infof("supervisorNamespace %s", supervisorNamespace)
 	log.Infof("initVolumeHealthReconciler is triggered")
 	tkgInformerFactory := informers.NewSharedInformerFactory(tkgKubeClient, volumeHealthResyncPeriod)
-	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient, volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
+	svcInformerFactory := informers.NewSharedInformerFactoryWithOptions(svcKubeClient,
+		volumeHealthResyncPeriod, informers.WithNamespace(supervisorNamespace))
 	stopCh := make(chan struct{})
 	defer close(stopCh)
-	rc, err := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod, tkgInformerFactory, svcInformerFactory,
+	rc, err := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod,
+		tkgInformerFactory, svcInformerFactory,
 		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
 		supervisorNamespace, stopCh,
 	)
@@ -1288,11 +1422,13 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 	return nil
 }
 
-func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface, supervisorClient clientset.Interface) error {
+func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface,
+	supervisorClient clientset.Interface) error {
 	log := logger.GetLogger(ctx)
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
-		log.Errorf("resize: could not get supervisor namespace in which Tanzu Kubernetes Grid was deployed. Resize reconciler is not running for err: %v", err)
+		log.Errorf("resize: could not get supervisor namespace in which Tanzu Kubernetes Grid was deployed. "+
+			"Resize reconciler is not running for err: %v", err)
 		return err
 	}
 	stopCh := make(chan struct{})
