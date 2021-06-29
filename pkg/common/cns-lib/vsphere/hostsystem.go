@@ -35,7 +35,8 @@ type HostSystem struct {
 	*object.HostSystem
 }
 
-// GetAllAccessibleDatastores gets the list of accessible datastores for the given host
+// GetAllAccessibleDatastores gets the list of accessible datastores for the
+// given host.
 func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	var hostSystemMo mo.HostSystem
@@ -53,7 +54,8 @@ func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*Data
 	properties := []string{"info"}
 	err = pc.Retrieve(ctx, dsRefList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v", dsRefList, properties, err)
+		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v",
+			dsRefList, properties, err)
 		return nil, err
 	}
 	var dsObjList []*DatastoreInfo
@@ -67,7 +69,7 @@ func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*Data
 	return dsObjList, nil
 }
 
-// GetHostVsanNodeUUID gets the vSAN NodeUuid for this host
+// GetHostVsanNodeUUID gets the vSAN NodeUuid for this host.
 func (host *HostSystem) GetHostVsanNodeUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	hostVsanSystem, err := host.ConfigManager().VsanSystem(ctx)
@@ -84,7 +86,8 @@ func (host *HostSystem) GetHostVsanNodeUUID(ctx context.Context) (string, error)
 	return vsan.Config.ClusterInfo.NodeUuid, nil
 }
 
-// VsanHostCapacity captures the capacity info of a host. It exists to support the API within this Go helper module
+// VsanHostCapacity captures the capacity info of a host. It exists to support
+// the API within this Go helper module.
 type VsanHostCapacity struct {
 	Capacity         int64
 	CapacityReserved int64
@@ -92,7 +95,8 @@ type VsanHostCapacity struct {
 	HostMoID         string
 }
 
-// VsanPhysicalDisk reflects the fields of JSON structure emitted by the VsanInternalSystem.QueryPhysicalVsanDisks API that we care about
+// VsanPhysicalDisk reflects the fields of JSON structure emitted by the
+// VsanInternalSystem.QueryPhysicalVsanDisks API that we care about.
 type VsanPhysicalDisk struct {
 	IsSSD            int    `json:"isSsd,omitempty"`
 	SsdUUID          string `json:"ssdUuid,omitempty"`
@@ -105,23 +109,26 @@ type VsanPhysicalDisk struct {
 // VsanPhysicalDiskMap is what VsanInternalSystem.QueryPhysicalVsanDisks returns
 type VsanPhysicalDiskMap map[string]VsanPhysicalDisk
 
-// QueryPhysicalVsanDisks wraps the underlying vSAN API and unmarshals the JSON result as well
+// QueryPhysicalVsanDisks wraps the underlying vSAN API and unmarshals the JSON
+// result as well.
 func (host *HostSystem) QueryPhysicalVsanDisks(ctx context.Context) (VsanPhysicalDiskMap, error) {
 	out := make(VsanPhysicalDiskMap)
 	log := logger.GetLogger(ctx)
-	// XXX: We could consider caching the VsanInternalSystem
+	// XXX: We could consider caching the VsanInternalSystem.
 	hostVis, err := host.ConfigManager().VsanInternalSystem(ctx)
 	if err != nil {
 		log.Errorf("Failed getting the VsanSystem for host %v with err: %v", host, err)
 		return out, err
 	}
 
-	// self_only means we only want the disks from this host. We could ask one host for all
-	// disks, but that depends on the vSAN network being healthy. For this code we rather
-	// ask the hosts for their authoritative info, which is their local disks.
+	// self_only means we only want the disks from this host. We could ask one
+	// host for all disks, but that depends on the vSAN network being healthy.
+	// For this code we rather ask the hosts for their authoritative info, which
+	// is their local disks.
 	req := types.QueryPhysicalVsanDisks{
-		This:  hostVis.Reference(),
-		Props: []string{"self_only", "disk_health", "capacity", "isSsd", "ssdUuid", "isAllFlash", "capacityReserved", "capacityUsed"},
+		This: hostVis.Reference(),
+		Props: []string{"self_only", "disk_health", "capacity", "isSsd",
+			"ssdUuid", "isAllFlash", "capacityReserved", "capacityUsed"},
 	}
 
 	res, err := methods.QueryPhysicalVsanDisks(ctx, hostVis.Client(), &req)
@@ -137,7 +144,8 @@ func (host *HostSystem) QueryPhysicalVsanDisks(ctx context.Context) (VsanPhysica
 	return out, nil
 }
 
-// GetHostVsanCapacity wraps around QueryPhysicalVsanDisks to sum up all the capacity disks of a host
+// GetHostVsanCapacity wraps around QueryPhysicalVsanDisks to sum up all the
+// capacity disks of a host.
 func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapacity, error) {
 	out := VsanHostCapacity{
 		Capacity:         0,
@@ -152,7 +160,7 @@ func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapac
 
 	for _, disk := range disks {
 		if disk.IsSSD == 1 {
-			// Cache disk doesn't count as capacity
+			// Cache disk doesn't count as capacity.
 			continue
 		}
 		// XXX: Check for health?
