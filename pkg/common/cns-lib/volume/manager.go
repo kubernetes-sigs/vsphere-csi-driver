@@ -180,11 +180,8 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
-	if vcenter.Config.Host != managerInstance.virtualCenter.Config.Host {
-		log.Infof("Re-initializing defaultManager.virtualCenter")
-		managerInstance.virtualCenter = vcenter
-	}
-	m.virtualCenter.Config = vcenter.Config
+	log.Infof("Re-initializing defaultManager.virtualCenter")
+	managerInstance.virtualCenter = vcenter
 	if m.virtualCenter.Client != nil {
 		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
 		log.Infof("VC client timeout is set to %v", m.virtualCenter.Client.Timeout)
