@@ -42,7 +42,7 @@ type (
 	parameterSet map[string]struct{}
 )
 
-// Has checks if specified paramName present in the paramSet
+// Has checks if specified paramName present in the paramSet.
 func (paramSet parameterSet) Has(paramName string) bool {
 	_, ok := paramSet[paramName]
 	return ok
@@ -52,13 +52,13 @@ var (
 	server *http.Server
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
-	// CO agnostic orchestrator in the admission handler package
+	// CO agnostic orchestrator in the admission handler package.
 	COInitParams                 *interface{}
 	containerOrchestratorUtility commonco.COCommonInterface
 )
 
-// watchConfigChange watches on the webhook configuration directory for changes like cert, key etc.
-// this is required for certificate rotation
+// watchConfigChange watches on the webhook configuration directory for changes
+// like cert, key etc. This is required for certificate rotation.
 func watchConfigChange() {
 	ctx, log := logger.GetNewContextWithLogger()
 	cfg, err := getWebHookConfig(ctx)
@@ -114,7 +114,7 @@ func watchConfigChange() {
 	}
 }
 
-// StartWebhookServer starts the webhook server
+// StartWebhookServer starts the webhook server.
 func StartWebhookServer(ctx context.Context) error {
 	var stopCh = make(chan bool)
 	log := logger.GetLogger(ctx)
@@ -133,7 +133,8 @@ func StartWebhookServer(ctx context.Context) error {
 			log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
 			return err
 		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *COInitParams)
+		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
+			common.Kubernetes, clusterFlavor, *COInitParams)
 		if err != nil {
 			log.Errorf("failed to get k8s interface. err: %v", err)
 			return err
@@ -142,7 +143,8 @@ func StartWebhookServer(ctx context.Context) error {
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 		if err != nil {
-			log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v", cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile, err)
+			log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
+				cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile, err)
 			return err
 		}
 		if cfg.WebHookConfig.Port == "" {
@@ -152,12 +154,12 @@ func StartWebhookServer(ctx context.Context) error {
 			Addr:      fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
 			TLSConfig: &tls.Config{Certificates: []tls.Certificate{certs}},
 		}
-		// define http server and server handler
+		// Define http server and server handler.
 		mux := http.NewServeMux()
 		mux.HandleFunc("/validate", validationHandler)
 		server.Handler = mux
 
-		// start webhook server
+		// Start webhook server.
 		log.Debugf("Starting webhook server on port: %v", cfg.WebHookConfig.Port)
 		go func() {
 			if err = server.ListenAndServeTLS(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile); err != nil {
@@ -176,7 +178,8 @@ func StartWebhookServer(ctx context.Context) error {
 	return errors.New("can't start webhook. no features are enabled which requires webhook")
 }
 
-// restartWebhookServer stops the webhook server and start webhook using updated config
+// restartWebhookServer stops the webhook server and start webhook using
+// updated config.
 func restartWebhookServer(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	cfg, err := getWebHookConfig(ctx)
@@ -194,8 +197,9 @@ func restartWebhookServer(ctx context.Context) error {
 	return StartWebhookServer(ctx)
 }
 
-// validationHandler is the handler for webhook http multiplexer to help validate resources
-// depending on the URL validation of AdmissionReview will be redirected to appropriate validation function
+// validationHandler is the handler for webhook http multiplexer to help
+// validate resources. Depending on the URL validation of AdmissionReview
+// will be redirected to appropriate validation function.
 func validationHandler(w http.ResponseWriter, r *http.Request) {
 	var body []byte
 	ctx, log := logger.GetNewContextWithLogger()
@@ -210,7 +214,7 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debugf("Received request")
-	// verify the content type is accurate
+	// Verify the content type is accurate.
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "application/json" {
 		log.Errorf("content-Type=%s, expect application/json", contentType)
