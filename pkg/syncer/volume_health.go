@@ -49,7 +49,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	}
 	queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter, querySelection, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 	if err != nil {
-		log.Error("csiGetVolumeHealthStatus: QueryVolume failed with err=%+v", err.Error())
+		log.Errorf("csiGetVolumeHealthStatus: QueryVolume failed with err=%+v", err.Error())
 		return
 	}
 
@@ -88,7 +88,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		if volHealthStatus, ok := volumeIdToHealthStatusMap[volID]; ok {
 			// only update PVC health annotation if the HealthStatus of volume is not "unknown"
 			if volHealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-				volHealthStatusAnn, err := common.ConvertVolumeHealthStatus(volHealthStatus)
+				volHealthStatusAnn, err := common.ConvertVolumeHealthStatus(ctx, volID, volHealthStatus)
 				if err != nil {
 					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", volHealthStatus, volID)
 				}
@@ -116,12 +116,12 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	_, foundAnnHealthTS := pvc.Annotations[annVolumeHealthTS]
 	if !found || val != volHealthStatus || !foundAnnHealthTS {
 		// VolumeHealth annotation on pvc is changed, set it to new value
-		log.Debugf("updateVolumeHealthStatus: update volume health annotation for pvc %s/%s from old value %s to new value %s",
-			pvc.Namespace, pvc.Name, val, volHealthStatus)
 		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 		timeNow := time.Now().Format(time.UnixDate)
 		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealthTS, timeNow)
-		log.Debugf("updateVolumeHealthStatus: set annotation for health to %s at time %s for pvc %s/%s", volHealthStatus, timeNow, pvc.Namespace, pvc.Name)
+		log.Infof("updateVolumeHealthStatus: set volumehealth annotation for pvc %s/%s from old "+
+			"value %s to new value %s and volumehealthTS annotation to %s",
+			pvc.Namespace, pvc.Name, val, volHealthStatus, timeNow)
 		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) {
@@ -131,8 +131,8 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 				newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 				if err == nil {
 					timeUpdate := time.Now().Format(time.UnixDate)
-					log.Debugf("updateVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
-						"get from API server from old value %s to new value %s at time %s",
+					log.Infof("updateVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
+						"get from API server from old value %s to new value %s and volumehealthTS annotation to %s",
 						newPvc.Namespace, newPvc.Name, val, volHealthStatus, timeUpdate)
 					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, timeUpdate)
