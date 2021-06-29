@@ -69,6 +69,8 @@ const (
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
+	envNumberOfGoRoutines                      = "NUMBER_OF_GO_ROUTINES"
+	envWorkerPerRoutine                        = "WORKER_PER_ROUTINE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
@@ -110,6 +112,7 @@ const (
 	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                         = 2 * time.Second
 	rqLimit                                    = "200Gi"
+	rqLimitScaleTest                           = "900Gi"
 	defaultrqLimit                             = "20Gi"
 	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
 	scParamDatastoreURL                        = "DatastoreURL"
