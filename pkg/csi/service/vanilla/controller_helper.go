@@ -38,33 +38,37 @@ func validateVanillaDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolu
 }
 
 // validateControllerPublishVolumeRequest is the helper function to validate
-// ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateVanillaControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+// ControllerPublishVolumeRequest. Function returns error if validation fails
+// otherwise returns nil.
+func validateVanillaControllerPublishVolumeRequest(ctx context.Context,
+	req *csi.ControllerPublishVolumeRequest) error {
 	return common.ValidateControllerPublishVolumeRequest(ctx, req)
 }
 
 // validateControllerUnpublishVolumeRequest is the helper function to validate
-// ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
+// ControllerUnpublishVolumeRequest. Function returns error if validation fails
+// otherwise returns nil.
+func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context,
+	req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-// validateVanillaControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for Vanilla CSI driver.
+// validateVanillaControllerExpandVolumeRequest is the helper function to
+// validate ExpandVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-func validateVanillaControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	isOnlineExpansionEnabled, isOnlineExpansionSupported bool) error {
+func validateVanillaControllerExpandVolumeRequest(ctx context.Context,
+	req *csi.ControllerExpandVolumeRequest, isOnlineExpansionEnabled, isOnlineExpansionSupported bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	// Check online extend FSS and vCenter support
+	// Check online extend FSS and vCenter support.
 	if isOnlineExpansionEnabled && isOnlineExpansionSupported {
 		return nil
 	}
 
-	// Check if it is an online expansion scenario and raise error
+	// Check if it is an online expansion scenario and raise error.
 	nodeManager := node.GetManager(ctx)
 	nodes, err := nodeManager.GetAllNodes(ctx)
 	if err != nil {
