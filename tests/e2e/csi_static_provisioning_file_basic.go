@@ -18,7 +18,9 @@ package e2e
 
 import (
 	"context"
+	"math/rand"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +54,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		defaultDatastore  *object.Datastore
 		namespace         string
 		pv                *v1.PersistentVolume
+		pvSpec            *v1.PersistentVolume
 		pvc               *v1.PersistentVolumeClaim
 	)
 
@@ -193,6 +196,117 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, pvc.Name, pv.Name, pod.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	})
+
+	/*
+		This test verifies the static provisioning workflow by creating the PV by same name twice.
+
+		Test Steps:
+		1. Create File share and get the file share id.
+		2. Create PV1 Spec with volumeID set to FCDID created in Step-1, and PersistentVolumeReclaimPolicy is set to Retain.
+		3. Wait for the volume entry to be created in CNS
+		4. Delete PV1
+		5. Wait for PV1 to be deleted, and also entry is deleted from CNS
+		6. Create a PV2 by the same name as PV1
+		7. Wait for the volume entry to be created in CNS
+		8. Delete PV2
+		9. Wait for PV2 to be deleted, and also entry is deleted from CNS
+	*/
+	ginkgo.It("Verify static provisioning for file volume workflow using same PV name twice", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		err := connectCns(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating file share")
+		cnsCreateReq := cnstypes.CnsCreateVolume{
+			This:        cnsVolumeManagerInstance,
+			CreateSpecs: []cnstypes.CnsVolumeCreateSpec{*getFileShareCreateSpec(defaultDatastore.Reference())},
+		}
+		cnsCreateRes, err := cnsmethods.CnsCreateVolume(ctx, e2eVSphere.CnsClient.Client, &cnsCreateReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err := object.NewTask(e2eVSphere.Client.Client, cnsCreateRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
+
+		// Deleting the volume with deleteDisk set to false
+		ginkgo.By("Deleting the fileshare with deleteDisk set to false")
+		cnsDeleteReq := cnstypes.CnsDeleteVolume{
+			This:       cnsVolumeManagerInstance,
+			VolumeIds:  []cnstypes.CnsVolumeId{{Id: fileShareVolumeID}},
+			DeleteDisk: false,
+		}
+		cnsDeleteRes, err := cnsmethods.CnsDeleteVolume(ctx, e2eVSphere.CnsClient.Client, &cnsDeleteReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err = object.NewTask(e2eVSphere.Client.Client, cnsDeleteRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		staticPVLabels := make(map[string]string)
+		staticPVLabels["fileshare-id"] = strings.TrimPrefix(fileShareVolumeID, "file:")
+
+		ginkgo.By("Creating the PV")
+		pvSpec = getPersistentVolumeSpecForFileShare(fileShareVolumeID, v1.PersistentVolumeReclaimRetain, staticPVLabels, v1.ReadWriteMany)
+
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		pvSpec.Name = "static-pv-" + curtimestring + val
+
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			ginkgo.By("Delete PV")
+			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvSpec.Name))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvSpec.Name, poll, pollTimeoutShort))
+
+			ginkgo.By("Verify fileshare volume got deleted")
+			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
+		}()
+
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Deleting PV-1")
+		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating PV-2")
+		pv2, err := client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			ginkgo.By("Delete PV")
+			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvSpec.Name))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvSpec.Name, poll, pollTimeoutShort))
+
+			ginkgo.By("Verify fileshare volume got deleted")
+			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
+		}()
+
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv2.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Deleting PV-2")
+		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
 
