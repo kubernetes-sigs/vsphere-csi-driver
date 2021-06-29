@@ -60,32 +60,32 @@ const (
 var topologyService csinodetopology.TopologyService
 
 type nodeStageParams struct {
-	// volID is the identifier for the underlying volume
+	// volID is the identifier for the underlying volume.
 	volID string
-	// fsType is the file system type - ext3, ext4, nfs, nfs4
+	// fsType is the file system type - ext3, ext4, nfs, nfs4.
 	fsType string
-	// Staging Target path is used to mount the volume to the node
+	// Staging Target path is used to mount the volume to the node.
 	stagingTarget string
-	// Mount flags/options intended to be used while running the mount command
+	// Mount flags/options intended to be used while running the mount command.
 	mntFlags []string
-	// Read-only flag
+	// Read-only flag.
 	ro bool
 }
 
 type nodePublishParams struct {
-	// volID is the identifier for the underlying volume
+	// volID is the identifier for the underlying volume.
 	volID string
-	// Target path is used to bind-mount a staged volume to the pod
+	// Target path is used to bind-mount a staged volume to the pod.
 	target string
-	// Staging Target path is used to mount the volume to the node
+	// Staging Target path is used to mount the volume to the node.
 	stagingTarget string
-	// diskID is the identifier for the disk
+	// diskID is the identifier for the disk.
 	diskID string
-	// volumePath represents the sym-linked block volume full path
+	// volumePath represents the sym-linked block volume full path.
 	volumePath string
-	// device represents the actual path of the block volume
+	// device represents the actual path of the block volume.
 	device string
-	// Read-only flag
+	// Read-only flag.
 	ro bool
 }
 
@@ -99,9 +99,10 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
-	// Check for block volume or file share
+	// Check for block volume or file share.
 	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCap}) {
-		log.Infof("NodeStageVolume: Volume %q detected as a file share volume. Ignoring staging for file volumes.", volumeID)
+		log.Infof("NodeStageVolume: Volume %q detected as a file share volume. Ignoring staging for file volumes.",
+			volumeID)
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
@@ -118,22 +119,23 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 	var err error
 	params := nodeStageParams{
 		volID: volumeID,
-		// Retrieve accessmode - RO/RW
+		// Retrieve accessmode - RO/RW.
 		ro: common.IsVolumeReadOnly(req.GetVolumeCapability()),
 	}
-	// TODO: Verify if volume exists and return a NotFound error in negative scenario
+	// TODO: Verify if volume exists and return a NotFound error in negative
+	// scenario.
 
-	// Check if this is a MountVolume or Raw BlockVolume
+	// Check if this is a MountVolume or Raw BlockVolume.
 	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Mount); ok {
-		// Mount Volume
-		// Extract mount volume details
+		// Mount Volume.
+		// Extract mount volume details.
 		log.Debug("NodeStageVolume: Volume detected as a mount volume")
 		params.fsType, params.mntFlags, err = ensureMountVol(ctx, log, volCap)
 		if err != nil {
 			return nil, err
 		}
 
-		// Check that staging path is created by CO and is a directory
+		// Check that staging path is created by CO and is a directory.
 		params.stagingTarget = req.GetStagingTargetPath()
 		if _, err = verifyTargetDir(ctx, params.stagingTarget, true); err != nil {
 			return nil, err
@@ -148,7 +150,7 @@ func nodeStageBlockVolume(
 	params nodeStageParams) (
 	*csi.NodeStageVolumeResponse, error) {
 	log := logger.GetLogger(ctx)
-	// Block Volume
+	// Block Volume.
 	pubCtx := req.GetPublishContext()
 	diskID, err := getDiskID(pubCtx, log)
 	if err != nil {
@@ -156,7 +158,7 @@ func nodeStageBlockVolume(
 	}
 	log.Infof("nodeStageBlockVolume: Retrieved diskID as %q", diskID)
 
-	// Verify if the volume is attached
+	// Verify if the volume is attached.
 	log.Debugf("nodeStageBlockVolume: Checking if volume is attached to diskID: %v", diskID)
 	volPath, err := verifyVolumeAttached(ctx, diskID)
 	if err != nil {
@@ -165,7 +167,7 @@ func nodeStageBlockVolume(
 	}
 	log.Debugf("nodeStageBlockVolume: Disk %q attached at %q", diskID, volPath)
 
-	// Check that block device looks good
+	// Check that block device looks good.
 	dev, err := getDevice(volPath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -175,15 +177,15 @@ func nodeStageBlockVolume(
 	}
 	log.Debugf("nodeStageBlockVolume: getDevice %+v", *dev)
 
-	// Check if this is a MountVolume or BlockVolume
+	// Check if this is a MountVolume or BlockVolume.
 	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-		// Volume is a block volume, so skip the rest of the steps
+		// Volume is a block volume, so skip the rest of the steps.
 		log.Infof("nodeStageBlockVolume: Skipping staging for block volume ID %q", params.volID)
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
-	// Mount Volume
-	// Fetch dev mounts to check if the device is already staged
+	// Mount Volume.
+	// Fetch dev mounts to check if the device is already staged.
 	log.Debugf("nodeStageBlockVolume: Fetching device mounts")
 	mnts, err := gofsutil.GetDevMounts(ctx, dev.RealDev)
 	if err != nil {
@@ -192,29 +194,31 @@ func nodeStageBlockVolume(
 	}
 
 	if len(mnts) == 0 {
-		// Device isn't mounted anywhere, stage the volume
-		// If access mode is read-only, we don't allow formatting
+		// Device isn't mounted anywhere, stage the volume.
+		// If access mode is read-only, we don't allow formatting.
 		if params.ro {
 			log.Debugf("nodeStageBlockVolume: Mounting %q at %q in read-only mode with mount flags %v",
 				dev.FullPath, params.stagingTarget, params.mntFlags)
 			params.mntFlags = append(params.mntFlags, "ro")
-			if err := gofsutil.Mount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {
+			err := gofsutil.Mount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...)
+			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"error mounting volume. Parameters: %v err: %v", params, err)
 			}
 			log.Infof("nodeStageBlockVolume: Device mounted successfully at %q", params.stagingTarget)
 			return &csi.NodeStageVolumeResponse{}, nil
 		}
-		// Format and mount the device
+		// Format and mount the device.
 		log.Debugf("nodeStageBlockVolume: Format and mount the device %q at %q with mount flags %v",
 			dev.FullPath, params.stagingTarget, params.mntFlags)
-		if err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...); err != nil {
+		err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.stagingTarget, params.fsType, params.mntFlags...)
+		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error in formating and mounting volume. Parameters: %v err: %v", params, err)
 		}
 	} else {
-		// If Device is already mounted. Need to ensure that it is already
-		// mounted to the expected staging target, with correct rw/ro perms
+		// If Device is already mounted. Need to ensure that it is already.
+		// mounted to the expected staging target, with correct rw/ro perms.
 		log.Debugf("nodeStageBlockVolume: Device already mounted. Checking mount flags %v for correctness.",
 			params.mntFlags)
 		for _, m := range mnts {
@@ -225,7 +229,7 @@ func nodeStageBlockVolume(
 				}
 				log.Debugf("nodeStageBlockVolume: Checking for mount options %v", m.Opts)
 				if contains(m.Opts, rwo) {
-					// TODO make sure that all the mount options match
+					// TODO make sure that all the mount options match.
 					log.Infof("nodeStageBlockVolume: Device already mounted at %q with mount option %q",
 						params.stagingTarget, rwo)
 					return &csi.NodeStageVolumeResponse{}, nil
@@ -250,14 +254,15 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	log.Infof("NodeUnstageVolume: called with args %+v", *req)
 
 	stagingTarget := req.GetStagingTargetPath()
-	// Fetch all the mount points
+	// Fetch all the mount points.
 	mnts, err := gofsutil.GetMounts(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"could not retrieve existing mount points: %v", err)
 	}
 	log.Debugf("NodeUnstageVolume: node mounts %+v", mnts)
-	// Figure out if the target path is present in mounts or not - Unstage is not required for file volumes
+	// Figure out if the target path is present in mounts or not - Unstage is
+	// not required for file volumes.
 	targetFound := common.IsTargetInMounts(ctx, stagingTarget, mnts)
 	if !targetFound {
 		log.Infof("NodeUnstageVolume: Target path %q is not mounted. Skipping unstage.", stagingTarget)
@@ -269,19 +274,19 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	if err != nil {
 		return nil, err
 	}
-	// This will take care of idempotent requests
+	// This will take care of idempotent requests.
 	if !dirExists {
 		log.Infof("NodeUnstageVolume: Target path %q does not exist. Assuming unstage is complete.", stagingTarget)
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	// Block volume
+	// Block volume.
 	isMounted, err := isBlockVolumeMounted(ctx, volID, stagingTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	// Volume is still mounted. Unstage the volume
+	// Volume is still mounted. Unstage the volume.
 	if isMounted {
 		log.Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
 		if err := gofsutil.Unmount(ctx, stagingTarget); err != nil {
@@ -294,7 +299,7 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 }
 
 // isBlockVolumeMounted checks if the block volume is properly mounted or not.
-// If yes, then the calling function proceeds to unmount the volume
+// If yes, then the calling function proceeds to unmount the volume.
 func isBlockVolumeMounted(
 	ctx context.Context,
 	volID string,
@@ -302,7 +307,7 @@ func isBlockVolumeMounted(
 	bool, error) {
 
 	log := logger.GetLogger(ctx)
-	// Look up block device mounted to target
+	// Look up block device mounted to target.
 	// BlockVolume: Here we are relying on the fact that the CO is required to
 	// have created the staging path per the spec, even for BlockVolumes. Even
 	// though we don't use the staging path for block, the fact nothing will be
@@ -314,17 +319,19 @@ func isBlockVolumeMounted(
 			volID, err.Error())
 	}
 
-	// No device found
+	// No device found.
 	if dev == nil {
-		// Nothing is mounted, so unstaging is already done
+		// Nothing is mounted, so unstaging is already done.
 		log.Debugf("isBlockVolumeMounted: No device found. Assuming Unstage is "+
 			"already done for volume %q and target path %q", volID, stagingTargetPath)
-		// For raw block volumes, we do not get a device attached to the stagingTargetPath. This path is just a dummy.
+		// For raw block volumes, we do not get a device attached to the
+		// stagingTargetPath. This path is just a dummy.
 		return false, nil
 	}
-	log.Debugf("found device: volID: %q, path: %q, block: %q, target: %q", volID, dev.FullPath, dev.RealDev, stagingTargetPath)
+	log.Debugf("found device: volID: %q, path: %q, block: %q, target: %q",
+		volID, dev.FullPath, dev.RealDev, stagingTargetPath)
 
-	// Get mounts for device
+	// Get mounts for device.
 	mnts, err := gofsutil.GetDevMounts(ctx, dev.RealDev)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
@@ -332,14 +339,14 @@ func isBlockVolumeMounted(
 			err.Error())
 	}
 
-	// device is mounted more than once. Should only be mounted to target
+	// device is mounted more than once. Should only be mounted to target.
 	if len(mnts) > 1 {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"isBlockVolumeMounted: volume: %s appears mounted in multiple places", volID)
 	}
 
 	// Since we looked up the block volume from the target path, we assume that
-	// the one existing mount is from the block to the target
+	// the one existing mount is from the block to the target.
 	log.Debugf("isBlockVolumeMounted: Found single mount point for volume %q and target %q",
 		volID, stagingTargetPath)
 	return true, nil
@@ -358,7 +365,8 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 		target: req.GetTargetPath(),
 		ro:     req.GetReadonly(),
 	}
-	// TODO: Verify if volume exists and return a NotFound error in negative scenario
+	// TODO: Verify if volume exists and return a NotFound error in negative
+	// scenario.
 
 	params.stagingTarget = req.GetStagingTargetPath()
 	if params.stagingTarget == "" {
@@ -381,7 +389,7 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 			"volume capability not supported. Err: %+v", err)
 	}
 
-	// Check if this is a MountVolume or BlockVolume
+	// Check if this is a MountVolume or BlockVolume.
 	if !common.IsFileVolumeRequest(ctx, caps) {
 		params.diskID, err = getDiskID(req.GetPublishContext(), log)
 		if err != nil {
@@ -396,7 +404,7 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 			return nil, err
 		}
 
-		// Get underlying block device
+		// Get underlying block device.
 		dev, err := getDevice(volPath)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -405,15 +413,15 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 		params.volumePath = dev.FullPath
 		params.device = dev.RealDev
 
-		// check for Block vs Mount
+		// check for Block vs Mount.
 		if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
-			// bind mount device to target
+			// bind mount device to target.
 			return publishBlockVol(ctx, req, dev, params)
 		}
-		// Volume must be a mount volume
+		// Volume must be a mount volume.
 		return publishMountVol(ctx, req, dev, params)
 	}
-	// Volume must be a file share
+	// Volume must be a file share.
 	return publishFileVol(ctx, req, params)
 }
 
@@ -433,12 +441,13 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 			"target path %q not set", target)
 	}
 
-	// Verify if the path exists
-	// NOTE: For raw block volumes, this path is a file. In all other cases, it is a directory
+	// Verify if the path exists.
+	// NOTE: For raw block volumes, this path is a file. In all other cases,
+	// it is a directory.
 	_, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// target path does not exist, so we must be Unpublished
+			// Target path does not exist, so we must be Unpublished.
 			log.Infof("NodeUnpublishVolume: Target path %q does not exist. Assuming NodeUnpublish is complete", target)
 			return &csi.NodeUnpublishVolumeResponse{}, nil
 		}
@@ -446,7 +455,7 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 			"failed to stat target %q, err: %v", target, err)
 	}
 
-	// Fetch all the mount points
+	// Fetch all the mount points.
 	mnts, err := gofsutil.GetMounts(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -454,15 +463,16 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	}
 	log.Debugf("NodeUnpublishVolume: node mounts %+v", mnts)
 
-	// Check if the volume is already unpublished
-	// Also validates if path is a mounted directory or not
+	// Check if the volume is already unpublished.
+	// Also validates if path is a mounted directory or not.
 	isPresent := common.IsTargetInMounts(ctx, target, mnts)
 	if !isPresent {
-		log.Infof("NodeUnpublishVolume: Target %s not present in mount points. Assuming it is already unpublished.", target)
+		log.Infof("NodeUnpublishVolume: Target %s not present in mount points. Assuming it is already unpublished.",
+			target)
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
-	// Figure out if the target path is a file or block volume
+	// Figure out if the target path is a file or block volume.
 	isFileMount, _ := common.IsFileVolumeMount(ctx, target, mnts)
 	isPublished := true
 	if !isFileMount {
@@ -479,8 +489,9 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 				"error unmounting target %q for volume %q. %q", target, volID, err.Error())
 		}
 		log.Debugf("Unmount successful for target %q for volume %q", target, volID)
-		// TODO Use a go routine here. The deletion of target path might not be a good reason to error out
-		// The SP is supposed to delete the files/directory it created in this target path
+		// TODO Use a go routine here. The deletion of target path might not be a
+		// good reason to error out. The SP is supposed to delete the files or
+		// directory it created in this target path.
 		if err := rmpath(ctx, target); err != nil {
 			log.Debugf("failed to delete the target path %q", target)
 			return nil, err
@@ -496,7 +507,7 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	// Look up block device mounted to target
+	// Look up block device mounted to target.
 	dev, err := getDevFromMount(target)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
@@ -580,7 +591,7 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	}, nil
 }
 
-//getMetrics helps get volume metrics using k8s fsInfo strategy
+// getMetrics helps get volume metrics using k8s fsInfo strategy.
 func getMetrics(path string) (*k8svol.Metrics, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no path given")
@@ -632,13 +643,14 @@ func (driver *vsphereCSIDriver) NodeGetCapabilities(
 	}, nil
 }
 
-/*
-	NodeGetInfo RPC returns the NodeGetInfoResponse with mandatory fields `NodeId` and `AccessibleTopology`.
-	However, for sending `MaxVolumesPerNode` in the response, it is not straight forward since vSphere CSI
-	driver supports both block and file volume. For block volume, max volumes to be attached is deterministic
-	by inspecting SCSI controllers of the VM, but for file volume, this is not deterministic.
-	We can not set this limit on MaxVolumesPerNode, since single driver is used for both block and file volumes.
-*/
+// NodeGetInfo RPC returns the NodeGetInfoResponse with mandatory fields
+// `NodeId` and `AccessibleTopology`. However, for sending `MaxVolumesPerNode`
+// in the response, it is not straight forward since vSphere CSI driver
+// supports both block and file volume. For block volume, max volumes to be
+// attached is deterministic by inspecting SCSI controllers of the VM, but for
+// file volume, this is not deterministic. We can not set this limit on
+// MaxVolumesPerNode, since single driver is used for both block and file
+// volumes.
 func (driver *vsphereCSIDriver) NodeGetInfo(
 	ctx context.Context,
 	req *csi.NodeGetInfoRequest) (
@@ -701,7 +713,8 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		}
 		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
 	} else {
-		// If ImprovedVolumeTopology is not enabled, use the VC credentials to fetch node topology information.
+		// If ImprovedVolumeTopology is not enabled, use the VC credentials to
+		// fetch node topology information.
 		var cfg *cnsconfig.Config
 		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
 		if cfgPath == "" {
@@ -760,7 +773,8 @@ func initVolumeTopologyService(ctx context.Context) error {
 }
 
 // fetchTopologyLabelsUsingVCCreds retrieves topology information of the nodes
-// using VC credentials mounted on the nodes. This approach will be deprecated soon.
+// using VC credentials mounted on the nodes. This approach will be deprecated
+// soon.
 func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cnsconfig.Config) (
 	map[string]string, error) {
 	log := logger.GetLogger(ctx)
@@ -880,7 +894,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 			"volume path must be provided to expand volume on node")
 	}
 
-	// Look up block device mounted to staging target path
+	// Look up block device mounted to staging target path.
 	dev, err := getDevFromMount(volumePath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -901,16 +915,17 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
-		// Fetch the current block size
+		// Fetch the current block size.
 		currentBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error when getting size of block volume at path %s: %v", dev.RealDev, err)
 		}
-		// Check if a rescan is required
+		// Check if a rescan is required.
 		if currentBlockSizeBytes < reqVolSizeBytes {
-			// If a device is expanded while it is attached to a VM, we need to rescan
-			// the device on the guest OS in order to see the modified size on the Guest OS
+			// If a device is expanded while it is attached to a VM, we need to
+			// rescan the device on the guest OS in order to see the modified size
+			// on the Guest OS.
 			// Refer to https://kb.vmware.com/s/article/1006371
 			err = rescanDevice(ctx, dev)
 			if err != nil {
@@ -919,7 +934,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 		}
 	}
 
-	// Resize file system
+	// Resize file system.
 	resizer := mount.NewResizeFs(realExec)
 	_, err = resizer.Resize(dev.RealDev, volumePath)
 	if err != nil {
@@ -928,7 +943,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 	log.Debugf("NodeExpandVolume: Resized filesystem with devicePath %s volumePath %s", dev.RealDev, volumePath)
 
-	// Check the block size
+	// Check the block size.
 	currentBlockSizeBytes, err := getBlockSizeBytes(mounter, dev.RealDev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -942,7 +957,8 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 			"requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
 	}
 
-	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d", dev.RealDev, volumePath, int64(units.FileSize(reqVolSizeMB*common.MbInBytes)))
+	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d",
+		dev.RealDev, volumePath, int64(units.FileSize(reqVolSizeMB*common.MbInBytes)))
 	return &csi.NodeExpandVolumeResponse{
 		CapacityBytes: int64(units.FileSize(reqVolSizeMB * common.MbInBytes)),
 	}, nil
@@ -953,7 +969,8 @@ func getBlockSizeBytes(mounter *mount.SafeFormatAndMount, devicePath string) (in
 	cmd := mounter.Exec.Command("blockdev", cmdArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %v", devicePath, string(output), err)
+		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %v",
+			devicePath, string(output), err)
 	}
 	strOut := strings.TrimSpace(string(output))
 	gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
@@ -972,13 +989,14 @@ func publishMountVol(
 	log := logger.GetLogger(ctx)
 	log.Infof("PublishMountVolume called with args: %+v", params)
 
-	// Extract fs details
+	// Extract fs details.
 	_, mntFlags, err := ensureMountVol(ctx, log, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
 
-	// We are responsible for creating target dir, per spec, if not already present
+	// We are responsible for creating target dir, per spec, if not already
+	// present.
 	_, err = mkdir(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -986,13 +1004,12 @@ func publishMountVol(
 	}
 	log.Debugf("PublishMountVolume: Created target path %q", params.target)
 
-	// Verify if the Staging path already exists
+	// Verify if the Staging path already exists.
 	if _, err := verifyTargetDir(ctx, params.stagingTarget, true); err != nil {
 		return nil, err
 	}
 
-	// get block device mounts
-	// Check if device is already mounted
+	// Get block device mounts. Check if device is already mounted.
 	devMnts, err := getDevMounts(ctx, dev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1000,25 +1017,25 @@ func publishMountVol(
 	}
 	log.Debugf("publishMountVol: device %+v, device mounts %q", *dev, devMnts)
 
-	// We expect that block device is already staged, so there should be at least 1
-	// mount already. if it's > 1, it may already be published
+	// We expect that block device is already staged, so there should be at
+	// least 1 mount already. if it's > 1, it may already be published.
 	if len(devMnts) > 1 {
-		// check if publish is already there
+		// check if publish is already there.
 		for _, m := range devMnts {
 			if m.Path == params.target {
-				// volume already published to target
-				// if mount options look good, do nothing
+				// volume already published to target.
+				// If mount options look good, do nothing.
 				rwo := "rw"
 				if params.ro {
 					rwo = "ro"
 				}
 				if !contains(m.Opts, rwo) {
-					//TODO make sure that all the mount options match
+					// TODO: make sure that all the mount options match.
 					return nil, logger.LogNewErrorCode(log, codes.AlreadyExists,
 						"volume previously published with different options")
 				}
 
-				// Existing mount satisfies request
+				// Existing mount satisfies request.
 				log.Infof("Volume already published to target. Parameters: [%+v]", params)
 				return &csi.NodePublishVolumeResponse{}, nil
 			}
@@ -1028,7 +1045,7 @@ func publishMountVol(
 			"volume ID: %q does not appear staged to %q", req.GetVolumeId(), params.stagingTarget)
 	}
 
-	// Do the bind mount to publish the volume
+	// Do the bind mount to publish the volume.
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
 	}
@@ -1052,7 +1069,8 @@ func publishBlockVol(
 	log := logger.GetLogger(ctx)
 	log.Infof("PublishBlockVolume called with args: %+v", params)
 
-	// We are responsible for creating target file, per spec, if not already present
+	// We are responsible for creating target file, per spec, if not already
+	// present.
 	_, err := mkfile(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1063,13 +1081,13 @@ func publishBlockVol(
 	// Read-only is not supported for BlockVolume. Doing a read-only
 	// bind mount of the device to the target path does not prevent
 	// the underlying block device from being modified, so don't
-	// advertise a false sense of security
+	// advertise a false sense of security.
 	if params.ro {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"read only not supported for Block Volume")
 	}
 
-	// get block device mounts
+	// Get block device mounts.
 	devMnts, err := getDevMounts(ctx, dev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1077,9 +1095,9 @@ func publishBlockVol(
 	}
 	log.Debugf("publishBlockVol: device %+v, device mounts %q", *dev, devMnts)
 
-	// check if device is already mounted
+	// Check if device is already mounted.
 	if len(devMnts) == 0 {
-		// do the bind mount
+		// Do the bind mount.
 		mntFlags := make([]string, 0)
 		log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
 			dev.FullPath, params.target, mntFlags)
@@ -1089,7 +1107,7 @@ func publishBlockVol(
 		}
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.target)
 	} else if len(devMnts) == 1 {
-		// already mounted, make sure it's what we want
+		// Already mounted, make sure it's what we want.
 		if devMnts[0].Path != params.target {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				"device already in use and mounted elsewhere")
@@ -1100,7 +1118,7 @@ func publishBlockVol(
 			"block volume already mounted in more than one place")
 	}
 	log.Infof("NodePublishVolume successful to path %q", params.target)
-	// existing or new mount satisfies request
+	// Existing or new mount satisfies request.
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
@@ -1112,13 +1130,14 @@ func publishFileVol(
 	log := logger.GetLogger(ctx)
 	log.Infof("PublishFileVolume called with args: %+v", params)
 
-	// Extract mount details
+	// Extract mount details.
 	fsType, mntFlags, err := ensureMountVol(ctx, log, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
 
-	// We are responsible for creating target dir, per spec, if not already present
+	// We are responsible for creating target dir, per spec, if not already
+	// present.
 	_, err = mkdir(ctx, params.target)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1126,7 +1145,7 @@ func publishFileVol(
 	}
 	log.Debugf("PublishFileVolume: Created target path %q", params.target)
 
-	// Check if target already mounted
+	// Check if target already mounted.
 	mnts, err := gofsutil.GetMounts(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1135,32 +1154,32 @@ func publishFileVol(
 	log.Debugf("PublishFileVolume: Mounts - %+v", mnts)
 	for _, m := range mnts {
 		if m.Path == params.target {
-			// volume already published to target
-			// if mount options look good, do nothing
+			// Volume already published to target.
+			// If mount options look good, do nothing.
 			rwo := "rw"
 			if params.ro {
 				rwo = "ro"
 			}
 			if !contains(m.Opts, rwo) {
-				//TODO make sure that all the mount options match
+				// TODO: make sure that all the mount options match.
 				return nil, logger.LogNewErrorCode(log, codes.AlreadyExists,
 					"volume previously published with different options")
 			}
 
-			// Existing mount satisfies request
+			// Existing mount satisfies request.
 			log.Infof("Volume already published to target %q.", params.target)
 			return &csi.NodePublishVolumeResponse{}, nil
 		}
 	}
 
-	// Check for read-only flag on Pod pvc spec
+	// Check for read-only flag on Pod pvc spec.
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
 	}
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		mntFlags = append(mntFlags, "hard")
 	}
-	// Retrieve the file share access point from publish context
+	// Retrieve the file share access point from publish context.
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
@@ -1177,7 +1196,7 @@ func publishFileVol(
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-// Device is a struct for holding details about a block device
+// Device is a struct for holding details about a block device.
 type Device struct {
 	FullPath string
 	Name     string
@@ -1185,7 +1204,7 @@ type Device struct {
 }
 
 // getDevice returns a Device struct with info about the given device, or
-// an error if it doesn't exist or is not a block device
+// an error if it doesn't exist or is not a block device.
 func getDevice(path string) (*Device, error) {
 
 	fi, err := os.Lstat(path)
@@ -1193,7 +1212,7 @@ func getDevice(path string) (*Device, error) {
 		return nil, err
 	}
 
-	// eval any symlinks and make sure it points to a device
+	// Eval any symlinks and make sure it points to a device.
 	d, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return nil, err
@@ -1245,7 +1264,7 @@ func getDeviceRescanPath(dev *Device) (string, error) {
 	return "", fmt.Errorf("illegal path for device %q", dev.RealDev)
 }
 
-// The files parameter is optional for testing purposes
+// The files parameter is optional for testing purposes.
 func getDiskPath(id string, files []os.FileInfo) (string, error) {
 	var (
 		devs []os.FileInfo
@@ -1282,7 +1301,7 @@ func contains(list []string, item string) bool {
 
 func verifyVolumeAttached(ctx context.Context, diskID string) (string, error) {
 	log := logger.GetLogger(ctx)
-	// Check that volume is attached
+	// Check that volume is attached.
 	volPath, err := getDiskPath(diskID, nil)
 	if err != nil {
 		return "", logger.LogNewErrorCodef(log, codes.Internal,
@@ -1297,9 +1316,11 @@ func verifyVolumeAttached(ctx context.Context, diskID string) (string, error) {
 	return volPath, nil
 }
 
-// verifyTargetDir checks if the target path is not empty, exists and is a directory
-// if targetShouldExist is set to false, then verifyTargetDir returns (false, nil) if the path does not exist.
-// if targetShouldExist is set to true, then verifyTargetDir returns (false, err) if the path does not exist.
+// verifyTargetDir checks if the target path is not empty, exists and is a
+// directory. If targetShouldExist is set to false, then verifyTargetDir
+// returns (false, nil) if the path does not exist. If targetShouldExist is
+// set to true, then verifyTargetDir returns (false, err) if the path does
+// not exist.
 func verifyTargetDir(ctx context.Context, target string, targetShouldExist bool) (bool, error) {
 	log := logger.GetLogger(ctx)
 	if target == "" {
@@ -1311,11 +1332,12 @@ func verifyTargetDir(ctx context.Context, target string, targetShouldExist bool)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if targetShouldExist {
-				// target path does not exist but targetShouldExist is set to true
+				// Target path does not exist but targetShouldExist is set to true.
 				return false, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"target: %s not pre-created", target)
 			}
-			// target path does not exist but targetShouldExist is set to false, so no error
+			// Target path does not exist but targetShouldExist is set to false,
+			// so no error.
 			return false, nil
 		}
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1324,7 +1346,8 @@ func verifyTargetDir(ctx context.Context, target string, targetShouldExist bool)
 
 	// This check is mandated by the spec, but this would/should fail if the
 	// volume has a block accessType as we get a file for raw block volumes
-	// during NodePublish/Unpublish. Do not use this function for Publish/Unpublish
+	// during NodePublish/Unpublish. Do not use this function for Publish or
+	// Unpublish.
 	if !tgtStat.IsDir() {
 		return false, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 			"existing path: %s is not a directory", target)
@@ -1335,7 +1358,7 @@ func verifyTargetDir(ctx context.Context, target string, targetShouldExist bool)
 }
 
 // mkdir creates the directory specified by path if needed.
-// return pair is a bool flag of whether dir was created, and an error
+// Return pair is a bool flag of whether dir was created, and an error.
 func mkdir(ctx context.Context, path string) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating directory :%q", path)
@@ -1358,7 +1381,7 @@ func mkdir(ctx context.Context, path string) (bool, error) {
 }
 
 // mkfile creates a file specified by the path if needed.
-// return pair is a bool flag of whether file was created, and an error
+// Return pair is a bool flag of whether file was created, and an error.
 func mkfile(ctx context.Context, path string) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating file :%q", path)
@@ -1379,11 +1402,11 @@ func mkfile(ctx context.Context, path string) (bool, error) {
 	return false, nil
 }
 
-// rmpath removes the given target path, whether it is a file or a directory
-// for directories, an error is returned if the dir is not empty
+// rmpath removes the given target path, whether it is a file or a directory.
+// For directories, an error is returned if the dir is not empty.
 func rmpath(ctx context.Context, target string) error {
 	log := logger.GetLogger(ctx)
-	// target should be empty
+	// Target should be empty.
 	log.Debugf("removing target path: %q", target)
 	if err := os.Remove(target); err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
@@ -1404,7 +1427,7 @@ func ensureMountVol(ctx context.Context, log *zap.SugaredLogger,
 	return fs, mntFlags, nil
 }
 
-// a wrapper around gofsutil.GetMounts that handles bind mounts
+// A wrapper around gofsutil.GetMounts that handles bind mounts.
 func getDevMounts(ctx context.Context,
 	sysDevice *Device) ([]gofsutil.Info, error) {
 
@@ -1434,9 +1457,9 @@ func getSystemUUID(ctx context.Context) (string, error) {
 	return strings.ToLower(id), nil
 }
 
-// convertUUID helps convert UUID to vSphere format
-//input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
-//returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
+// convertUUID helps convert UUID to vSphere format, for example,
+// Input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
+// Returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
 func convertUUID(uuid string) (string, error) {
 	if len(uuid) != 36 {
 		return "", errors.New("uuid length should be 36")
@@ -1463,13 +1486,13 @@ func getDiskID(pubCtx map[string]string, log *zap.SugaredLogger) (string, error)
 
 func getDevFromMount(target string) (*Device, error) {
 
-	// Get list of all mounts on system
+	// Get list of all mounts on system.
 	mnts, err := gofsutil.GetMounts(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	// example for RAW block device
+	// example for RAW block device.
 	// Device:udev
 	// Path:/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/pvc-098a7585-109c-11ea-94c1-005056825b1f
 	// Source:/dev/sdb
@@ -1482,28 +1505,31 @@ func getDevFromMount(target string) (*Device, error) {
 	//   Platform: OpenShift 4.5.7
 	//
 	// Device:devtmpfs
-	// Path:/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/pvc-4e248bb9-f82a-4001-a031-74fc03c9f630/108db26e-3946-469a-9a9c-dd9d6a600956
+	// Path:/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/
+	//      pvc-4e248bb9-f82a-4001-a031-74fc03c9f630/108db26e-3946-469a-9a9c-dd9d6a600956
 	// Source:/dev/sdb
 	// Type:devtmpfs
 	// Opts:[rw nosuid]}
 
 	// example for Mounted block device
 	// Device:/dev/sdb
-	// Path:/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount
+	// Path:/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/
+	//      kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount
 	// Source:/var/lib/kubelet/plugins/kubernetes.io/csi/pv/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/globalmount
 	// Type:ext4
 	// Opts:[rw relatime]
 
 	// example for File Volume
 	// Device:h10-186-38-214.vsanfs3.testdomain:/5231f3d8-f06b-b67c-8cd1-f3c126013ce4
-	// Path:/var/lib/kubelet/pods/ba41b064-bd0b-4a47-afff-8d262ec6308a/volumes/kubernetes.io~csi/pvc-a425f631-f93c-4cb6-9d61-03bd2dd81b44/mount
+	// Path:/var/lib/kubelet/pods/ba41b064-bd0b-4a47-afff-8d262ec6308a/volumes/
+	//      kubernetes.io~csi/pvc-a425f631-f93c-4cb6-9d61-03bd2dd81b44/mount
 	// Source:h10-186-38-214.vsanfs3.testdomain:/5231f3d8-f06b-b67c-8cd1-f3c126013ce4
 	// Type:nfs4
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
 		if m.Path == target {
-			// something is mounted to target, get underlying disk
+			// Something is mounted to target, get underlying disk.
 			d := m.Device
 			if m.Device == "udev" || m.Device == "devtmpfs" {
 				d = m.Source
@@ -1516,6 +1542,6 @@ func getDevFromMount(target string) (*Device, error) {
 		}
 	}
 
-	// Did not identify a device mounted to target
+	// Did not identify a device mounted to target.
 	return nil, nil
 }
