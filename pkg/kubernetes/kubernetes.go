@@ -199,7 +199,8 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 // NewCnsFileAccessConfigWatcher creates a new ListWatch for VirtualMachines
 // given rest client config.
-func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
+func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Config,
+	namespace string) (*cache.ListWatch, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 
@@ -224,7 +225,8 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 
 // NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given
 // rest client config.
-func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, namespace string) (*cache.ListWatch, error) {
+func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
+	namespace string) (*cache.ListWatch, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 
@@ -247,8 +249,8 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config, na
 	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil
 }
 
-// NewCSINodeTopologyWatcher creates a new ListWatch for CSINodeTopology objects given
-// rest client config.
+// NewCSINodeTopologyWatcher creates a new ListWatch for CSINodeTopology objects
+// given rest client config.
 func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (*cache.ListWatch, error) {
 	var err error
 	log := logger.GetLogger(ctx)
@@ -273,7 +275,8 @@ func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (
 	return cache.NewListWatchFromClient(client, csiNodeTopologyKind, v1.NamespaceAll, fields.Everything()), nil
 }
 
-// CreateKubernetesClientFromConfig creaates a newk8s client from given kubeConfig file.
+// CreateKubernetesClientFromConfig creaates a newk8s client from given
+// kubeConfig file.
 func CreateKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interface, error) {
 
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
@@ -321,7 +324,8 @@ func getClientThroughput(ctx context.Context, isSupervisorClient bool) (float32,
 	}
 
 	if v := os.Getenv(envClientQPS); v != "" {
-		if value, err := strconv.ParseFloat(v, 32); err != nil || float32(value) < minClientQPS || float32(value) > maxClientQPS {
+		value, err := strconv.ParseFloat(v, 32)
+		if err != nil || float32(value) < minClientQPS || float32(value) > maxClientQPS {
 			log.Warnf("Invalid value set for env variable %s: %v. Using default value.", envClientQPS, v)
 		} else {
 			qps = float32(value)
@@ -395,9 +399,11 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 	}
 
 	crdName := newCrd.ObjectMeta.Name
-	crd, err := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+	crd, err := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx,
+		crdName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, newCrd, metav1.CreateOptions{})
+		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx,
+			newCrd, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
 			return err
@@ -407,7 +413,8 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 		// Update the existing CRD with new CRD.
 		crd.Spec = newCrd.Spec
 		crd.Status = newCrd.Status
-		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Update(ctx, crd, metav1.UpdateOptions{})
+		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Update(ctx,
+			crd, metav1.UpdateOptions{})
 		if err != nil {
 			log.Errorf("Failed to update %q CRD with err: %+v", crdName, err)
 			return err
@@ -451,7 +458,8 @@ func waitForCustomResourceToBeEstablished(ctx context.Context,
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {
 		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Err: %+v", crdName, err)
-		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx, crdName, *metav1.NewDeleteOptions(0))
+		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx,
+			crdName, *metav1.NewDeleteOptions(0))
 		if deleteErr != nil {
 			log.Errorf("Failed to delete %q CRD with err: %+v", crdName, deleteErr)
 		}
