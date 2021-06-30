@@ -420,7 +420,7 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "online-volume-extend": "true"
-  "file-volume": "false"
+  "file-volume": "true"
   "csi-sv-feature-states-replication": "false"
   "block-volume-snapshot": "false"
 kind: ConfigMap
