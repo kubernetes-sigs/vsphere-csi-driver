@@ -72,6 +72,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeoperationrequests"]
     verbs: ["create", "get", "list", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -344,6 +347,7 @@ data:
   "fake-attach": "true"
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
+  "sibling-replica-bound-pvc-check": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
