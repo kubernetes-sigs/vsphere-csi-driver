@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -94,16 +95,34 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
+
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to initialize rest clientconfig. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
 }
 
-// newReconciler returns a new reconcile.Reconciler.
+// newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
-	volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
+	volumeManager volumes.Manager, vmOperatorClient client.Client,
+	recorder record.EventRecorder) reconcile.Reconciler {
 	ctx, _ := logger.GetNewContextWithLogger()
 	return &ReconcileCnsNodeVMAttachment{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, volumeManager: volumeManager, nodeManager: cnsnode.GetManager(ctx), recorder: recorder}
+		configInfo: configInfo, volumeManager: volumeManager,
+		vmOperatorClient: vmOperatorClient, nodeManager: cnsnode.GetManager(ctx),
+		recorder: recorder}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
@@ -137,13 +156,14 @@ var _ reconcile.Reconciler = &ReconcileCnsNodeVMAttachment{}
 // ReconcileCnsNodeVMAttachment reconciles a CnsNodeVmAttachment object.
 type ReconcileCnsNodeVMAttachment struct {
 	// This client, initialized using mgr.Client() above, is a split client
-	// that reads objects from the cache and writes to the apiserver.
-	client        client.Client
-	scheme        *runtime.Scheme
-	configInfo    *config.ConfigurationInfo
-	volumeManager volumes.Manager
-	nodeManager   cnsnode.Manager
-	recorder      record.EventRecorder
+	// that reads objects from the cache and writes to the apiserver
+	client           client.Client
+	scheme           *runtime.Scheme
+	configInfo       *config.ConfigurationInfo
+	volumeManager    volumes.Manager
+	vmOperatorClient client.Client
+	nodeManager      cnsnode.Manager
+	recorder         record.EventRecorder
 }
 
 // Reconcile reads that state of the cluster for a CnsNodeVMAttachment object
@@ -155,9 +175,9 @@ type ReconcileCnsNodeVMAttachment struct {
 // will remove the work from the queue.
 func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
+	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-
-	// Fetch the CnsNodeVmAttachment instance.
+	// Fetch the CnsNodeVmAttachment instance
 	instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
@@ -214,6 +234,17 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
+		instance.Status.Error = err.Error()
+		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+		if err != nil {
+			log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		}
+		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	err = vcenter.Connect(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
 		instance.Status.Error = err.Error()
 		err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 		if err != nil {
@@ -357,20 +388,47 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil {
 		nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 		if err != nil {
-			msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment "+
-				"request with name: %q on namespace: %q. Err: %+v",
+			msg := fmt.Sprintf("failed to find the VM on VC with UUID: %s for "+
+				"CnsNodeVmAttachment request with name: %q on namespace: %s. Err: %+v",
 				nodeUUID, request.Name, request.Namespace, err)
-			// TODO : Need to check for VirtualMachine CRD instance existence.
+			log.Errorf(msg)
+			if err != cnsvsphere.ErrVMNotFound {
+				msg := fmt.Sprintf("VM on VC with UUID: %s not found when processing "+
+					"CnsNodeVmAttachment request with name: %q on namespace: %q",
+					nodeUUID, request.Name, request.Namespace)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
 			// This check is needed in scenarios where VC inventory is stale due
 			// to upgrade or back-up and restore.
-			removeFinalizerFromCRDInstance(ctx, instance, request)
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			isPresent, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+				request.Namespace)
 			if err != nil {
-				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				msg = fmt.Sprintf("failed to verify is VM CR is present with UUID: %s "+
+					"in namespace: %s", nodeUUID, request.Namespace)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
-			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
-			return reconcile.Result{}, nil
-
+			if !isPresent {
+				msg = fmt.Sprintf("VM CR is not present with UUID: %s in namespace: %s. "+
+					"Removing finalizer on CnsNodeVMAttachment: %s instance.",
+					nodeUUID, request.Namespace, request.Name)
+				// This check is needed in scenarios where VC inventory is stale due to upgrade or back-up and restore
+				removeFinalizerFromCRDInstance(ctx, instance, request)
+				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				if err != nil {
+					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				}
+				recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+				return reconcile.Result{}, nil
+			} else {
+				msg := fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
+					"is still present in namespace: %s. Retrying the operation",
+					nodeUUID, request.Namespace)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
 		var cnsVolumeID string
 		var ok bool
@@ -445,7 +503,33 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 	}
 }
 
-// getVCDatacenterFromConfig returns datacenter registered for each vCenter.
+// isVmCrPresent checks whether VM CR is present in SV namespace
+// with given vmuuid.
+func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
+	vmuuid string, namespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	vmList := &vmoperatortypes.VirtualMachineList{}
+	err := vmOperatorClient.List(ctx, vmList, client.InNamespace(namespace))
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return false, err
+	}
+	for _, vmInstance := range vmList.Items {
+		if vmInstance.Status.BiosUUID == vmuuid {
+			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
+				vmuuid, namespace)
+			log.Infof(msg)
+			return true, nil
+		}
+	}
+	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
+		vmuuid, namespace)
+	log.Error(msg)
+	return false, nil
+}
+
+// getVCDatacenterFromConfig returns datacenter registered for each vCenter
 func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
 	var err error
 	vcdcMap := make(map[string][]string)
