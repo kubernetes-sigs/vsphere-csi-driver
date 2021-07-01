@@ -73,7 +73,7 @@ const (
 	// Appplatform label that all vDPP PVCs must have.
 	appplatformLabel = "appplatform.vmware.com/instance-id"
 	// Opt out label present on pod to look for bound PVCs of all sibling replicas
-	siblingReplicaNodeSnatchingCheckOptOutLabel = "psp.vmware.com/sibling-replica-node-snatching-check-opt-out"
+	siblingReplicaCheckOptOutLabel = "psp.vmware.com/sibling-replica-check-opt-out"
 )
 
 // StoragePoolInfo is abstraction of a storage pool list.
@@ -585,8 +585,8 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 		return candidateHosts, nil
 	}
 
-	if val, ok := pvcLabels[siblingReplicaNodeSnatchingCheckOptOutLabel]; ok && val == "true" {
-		// siblingReplicaNodeSnatchingCheckOptOut is opted in by default unless specified otherwise
+	if val, ok := pvcLabels[siblingReplicaCheckOptOutLabel]; ok && val == "true" {
+		// siblingReplicaCheckOptOutLabel is opted in by default unless specified otherwise
 		log.Infof("Sibling Replica Bound PVC check is not opted, skip this step for PVC %s.", currPVC.Name)
 		return candidateHosts, nil
 	}
