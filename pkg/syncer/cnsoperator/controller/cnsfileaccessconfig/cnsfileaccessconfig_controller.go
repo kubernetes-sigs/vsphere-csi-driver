@@ -18,7 +18,6 @@ package cnsfileaccessconfig
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -363,70 +362,68 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 	return reconcile.Result{}, nil
 }
 
-// configureNetPermissionsForFileVolume helps to add or remove net permissions for
-// a given file volume. The callers of this method can remove or add net permissions
-// by setting the parameter removePermission to true or false respectively.
-// Returns error if any operation fails
-func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx context.Context, volumeID string, vm *vmoperatortypes.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, removePermission bool) error {
+// configureNetPermissionsForFileVolume helps to add or remove net permissions
+// for a given file volume. The callers of this method can remove or add net
+// permissions by setting the parameter removePermission to true or false
+// respectively. Returns error if any operation fails.
+func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx context.Context,
+	volumeID string, vm *vmoperatortypes.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig,
+	removePermission bool) error {
 	log := logger.GetLogger(ctx)
 	tkgVMIP, err := r.getVMExternalIP(ctx, vm)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get external facing IP address for VM: %s/%s instance. Error: %+v", vm.Namespace, vm.Name, err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "Failed to get external facing IP address for VM: %s/%s instance. Error: %+v",
+			vm.Namespace, vm.Name, err)
 	}
 	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get CNSFileVolumeClient instance. Error: %+v", err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
 	}
-	clientVms, err := cnsFileVolumeClientInstance.GetClientVMsFromIPList(ctx, instance.Namespace+"/"+instance.Spec.PvcName, tkgVMIP)
+	clientVms, err := cnsFileVolumeClientInstance.GetClientVMsFromIPList(ctx,
+		instance.Namespace+"/"+instance.Spec.PvcName, tkgVMIP)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get the list of clients VMs for IP %q. Error: %+v", tkgVMIP, err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "Failed to get the list of clients VMs for IP %q. Error: %+v", tkgVMIP, err)
 	}
 	if !removePermission {
 		if len(clientVms) == 0 {
 			err = r.configureVolumeACLs(ctx, volumeID, tkgVMIP, false)
 			if err != nil {
-				msg := fmt.Sprintf("Failed to add net permissions for file volume %q. Error: %+v", volumeID, err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "Failed to add net permissions for file volume %q. Error: %+v",
+					volumeID, err)
 			}
 		}
-		err = cnsFileVolumeClientInstance.AddClientVMToIPList(ctx, instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
+		err = cnsFileVolumeClientInstance.AddClientVMToIPList(ctx,
+			instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to add VM %q with IP %q to IPList. Error: %+v", vm.Name, tkgVMIP, err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "Failed to add VM %q with IP %q to IPList. Error: %+v",
+				vm.Name, tkgVMIP, err)
 		}
-		log.Debugf("Successfully added VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q", tkgVMIP, instance.Name, instance.Namespace)
+		log.Debugf("Successfully added VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
+			tkgVMIP, instance.Name, instance.Namespace)
 		return nil
 	}
-	// removePermission is set to true
+	// RemovePermission is set to true.
 	if len(clientVms) == 1 && clientVms[0] == vm.Name {
 		err = r.configureVolumeACLs(ctx, volumeID, tkgVMIP, true)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to remove net permissions for file volume %q. Error: %+v", volumeID, err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "Failed to remove net permissions for file volume %q. Error: %+v",
+				volumeID, err)
 		}
 	}
-	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx, instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
+	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx,
+		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to remove VM %q with IP %q to IPList. Error: %+v", vm.Name, tkgVMIP, err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q to IPList. Error: %+v", vm.Name, tkgVMIP, err)
 	}
-	log.Debugf("Successfully removed VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q", tkgVMIP, instance.Name, instance.Namespace)
+	log.Debugf("Successfully removed VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
+		tkgVMIP, instance.Name, instance.Namespace)
 	return nil
 }
 
 // configureVolumeACLs helps to prepare the CnsVolumeACLConfigureSpec
-// for a given TKG VM IP address and volumeID and invoke CNS API
-func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context, volumeID string, tkgVMIP string, delete bool) error {
+// for a given TKG VM IP address and volumeID and invoke CNS API.
+func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
+	volumeID string, tkgVMIP string, delete bool) error {
 	log := logger.GetLogger(ctx)
 	cnsVolumeID := cnstypes.CnsVolumeId{
 		Id: volumeID,
@@ -452,42 +449,37 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context, 
 	log.Debugf("CnsVolumeACLConfigSpec : %v", cnsVolumeACLConfigSpec)
 	err := r.volumeManager.ConfigureVolumeACLs(ctx, cnsVolumeACLConfigSpec)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to configure ACLs for volume: %q. Error: %+v", volumeID, err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "Failed to configure ACLs for volume: %q. Error: %+v", volumeID, err)
 	}
 	log.Debugf("Successfully configured ACLs for volume %q", volumeID)
 	return nil
 }
 
 // getVMExternalIP helps to fetch the external facing IP address for a given TKG VM
-func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context, vm *vmoperatortypes.VirtualMachine) (string, error) {
+func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
+	vm *vmoperatortypes.VirtualMachine) (string, error) {
 	log := logger.GetLogger(ctx)
 	networkProvider, err := cnsoperatorutil.GetNetworkProvider(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to identify the network provider. Error: %+v", err)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log, "Failed to identify the network provider. Error: %+v", err)
 	}
 	var nsxConfiguration bool
 	if networkProvider == "" {
-		return "", errors.New("unable to find network provider information")
+		return "", logger.LogNewError(log, "unable to find network provider information")
 	}
 	if networkProvider == cnsoperatorutil.NSXTNetworkProvider {
 		nsxConfiguration = true
 	} else if networkProvider == cnsoperatorutil.VDSNetworkProvider {
 		nsxConfiguration = false
 	} else {
-		msg := fmt.Sprintf("Unknown network provider. Error: %+v", err)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log, "Unknown network provider. Error: %+v", err)
 	}
 
-	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient, r.dynamicClient, vm.Namespace, vm.Name, nsxConfiguration)
+	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient,
+		r.dynamicClient, vm.Namespace, vm.Name, nsxConfiguration)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get external facing IP address for VM %q/%q. Err: %+v", vm.Namespace, vm.Name, err)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
+			vm.Namespace, vm.Name, err)
 	}
 	log.Debugf("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
 	return tkgVMIP, nil
