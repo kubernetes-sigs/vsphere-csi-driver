@@ -50,8 +50,9 @@ var (
 	clientLock sync.Mutex
 )
 
-// connect helps make a connection to vCenter Server
-// No actions are taken if a connection exists and alive. Otherwise, a new client will be created.
+// connect helps make a connection to vCenter Server.
+// No actions are taken if a connection exists and alive. Otherwise, a new
+// client will be created.
 func connect(ctx context.Context, vs *vSphere) {
 	clientLock.Lock()
 	var err error
@@ -71,9 +72,10 @@ func connect(ctx context.Context, vs *vSphere) {
 	vs.Client = newClient(ctx, vs)
 }
 
-// newClient creates a new client for vSphere connection
+// newClient creates a new client for vSphere connection.
 func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
-	url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk", vs.Config.Global.VCenterHostname, vs.Config.Global.VCenterPort))
+	url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",
+		vs.Config.Global.VCenterHostname, vs.Config.Global.VCenterPort))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	url.User = neturl.UserPassword(vs.Config.Global.User, vs.Config.Global.Password)
 	client, err := govmomi.NewClient(ctx, url, true)
@@ -84,7 +86,7 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	return client
 }
 
-// newCnsClient creates a new CNS client
+// newCnsClient creates a new CNS client.
 func newCnsClient(ctx context.Context, c *vim25.Client) (*cnsClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &cnsClient{sc}, nil
@@ -102,7 +104,7 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
-//newVsanHealthSvcClient returns vSANhealth client
+//newVsanHealthSvcClient returns vSANhealth client.
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &VsanClient{c, sc}, nil
