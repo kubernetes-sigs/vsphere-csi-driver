@@ -339,7 +339,8 @@ func GetK8sCloudOperatorServicePort(ctx context.Context) int {
 }
 
 // ConvertVolumeHealthStatus convert the volume health status into accessible/inaccessible status
-func ConvertVolumeHealthStatus(volHealthStatus string) (string, error) {
+func ConvertVolumeHealthStatus(ctx context.Context, volID string, volHealthStatus string) (string, error) {
+	log := logger.GetLogger(ctx)
 	switch volHealthStatus {
 	case string(pbmtypes.PbmHealthStatusForEntityRed):
 		return VolHealthStatusInaccessible, nil
@@ -354,6 +355,7 @@ func ConvertVolumeHealthStatus(volHealthStatus string) (string, error) {
 		// This implies the volume does not exist any more.
 		// Set health annotation to "Inaccessible" so that
 		// the caller can make appropriate reactions based on this status
+		log.Debugf("Volume health is not set for volume: %s", volID)
 		return VolHealthStatusInaccessible, nil
 	}
 }

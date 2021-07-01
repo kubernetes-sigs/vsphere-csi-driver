@@ -219,7 +219,7 @@ func (rc *volumeHealthReconciler) tkgUpdatePV(oldObj, newObj interface{}) {
 
 		// Add SVC PVC to work queue to add volume health annotation to statically provisioned volumes
 		objKey := rc.supervisorNamespace + "/" + newPv.Spec.CSI.VolumeHandle
-		log.Infof("Add %s to claim queue", objKey)
+		log.Infof("tkgUpdatePV: add %s to claim queue", objKey)
 		rc.svcClaimQueue.Add(objKey)
 	}
 }
