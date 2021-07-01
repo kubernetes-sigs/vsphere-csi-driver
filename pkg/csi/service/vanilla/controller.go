@@ -52,7 +52,9 @@ import (
 type NodeManagerInterface interface {
 	Initialize(ctx context.Context) error
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
-	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
+	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement,
+		tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo,
+		map[string][]map[string]string, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
@@ -125,16 +127,19 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		// Check if file service is enabled on datastore present in
 		// targetvSANFileShareDatastoreURLs.
-		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx, c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
+		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx,
+			c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
 		if err != nil {
-			msg := fmt.Sprintf("file service enablement check failed for datastore specified in TargetvSANFileShareDatastoreURLs. err=%v", err)
+			msg := fmt.Sprintf("file service enablement check failed for datastore specified in "+
+				"TargetvSANFileShareDatastoreURLs. err=%v", err)
 			log.Error(msg)
 			return errors.New(msg)
 		}
 		for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 			isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
 			if !isFSEnabled {
-				msg := fmt.Sprintf("file service is not enabled on datastore %s specified in TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+				msg := fmt.Sprintf("file service is not enabled on datastore %s specified in "+
+					"TargetvSANFileShareDatastoreURLs", targetFSDatastore)
 				log.Error(msg)
 				return errors.New(msg)
 			}
@@ -168,7 +173,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.authMgr = authMgr
 		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
 			config.Global.CSIAuthCheckIntervalInMin)
-		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx, c.manager.VcenterConfig.Host)
+		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
+			c.manager.VcenterConfig.Host)
 		if err != nil {
 			log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
 			return err
@@ -329,7 +335,8 @@ func (c *controller) ReloadConfiguration() error {
 	return nil
 }
 
-func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+func (c *controller) filterDatastores(ctx context.Context,
+	sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
 	log := logger.GetLogger(ctx)
 	dsMap := c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
 	log.Debugf("filterDatastores: dsMap %v sharedDatastores %v", dsMap, sharedDatastores)
@@ -440,12 +447,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				log.Errorf("failed to logout tagManager. err: %v", err)
 			}
 		}()
-		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
+		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx,
+			topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
 		if err != nil || len(sharedDatastores) == 0 {
 			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
 				"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 		}
-		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
+		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]",
+			sharedDatastores, topologyRequirement, datastoreTopologyMap)
 		if createVolumeSpec.ScParams.DatastoreURL != "" {
 			// Check datastoreURL specified in the storageclass is accessible from
 			// topology.
@@ -475,7 +484,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// Filter datastores which in datastoreMap from sharedDatastores.
 		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
 	}
-	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec, sharedDatastores)
+	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+		c.manager, &createVolumeSpec, sharedDatastores)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -547,7 +557,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if len(datastoreAccessibleTopology) > 0 {
 			rand.Seed(time.Now().Unix())
 			volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-			log.Debugf("volumeAccessibleTopology: [%+v] is selected for datastore: %s ", volumeAccessibleTopology, datastoreURL)
+			log.Debugf("volumeAccessibleTopology: [%+v] is selected for datastore: %s ",
+				volumeAccessibleTopology, datastoreURL)
 		}
 	}
 	if len(volumeAccessibleTopology) != 0 {
@@ -610,7 +621,8 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				"failed to create volume. Error: %+v", err)
 		}
 	} else {
-		volumeID, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla, c.manager, &createVolumeSpec)
+		volumeID, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
+			c.manager, &createVolumeSpec)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
@@ -649,7 +661,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
-			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx, c.manager.VcenterConfig.Host)
+			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
+				c.manager.VcenterConfig.Host)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to verify if vSAN file services is supported or not. Error:%+v", err)
@@ -774,7 +787,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				},
 			}
 			// Select only the backing object details.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolume failed with err=%+v", err)
@@ -784,7 +798,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					"volumeID %s not found in QueryVolume", req.VolumeId)
 			}
 
-			vSANFileBackingDetails := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+			vSANFileBackingDetails :=
+				queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 			publishInfo[common.AttributeDiskType] = common.DiskTypeFileVolume
 			nfsv4AccessPointFound := false
 			for _, kv := range vSANFileBackingDetails.AccessPoints {
@@ -818,7 +833,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					// Error is already wrapped in CSI error code.
 					return nil, err
 				}
-				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
+				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx,
+					&migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
 				if err != nil {
 					return nil, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
@@ -882,7 +898,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				},
 			}
 			// Select only the volume type.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, querySelection,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolume failed with err=%+v", err)
@@ -978,7 +995,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
 	}
 
-	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
+	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
+		c.manager.VcenterConfig.Host)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to check if online expansion is supported due to error: %v", err)
@@ -995,7 +1013,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
@@ -1062,7 +1082,8 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	// In case if feature state switch is enabled after controller is deployed,
 	// we need to initialize the volumeMigrationService.
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, c.manager.CnsConfig, false)
+	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
+		&c.manager.VolumeManager, c.manager.CnsConfig, false)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get migration service. Err: %v", err)
@@ -1082,7 +1103,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
 	var vcSnapshotSupportCheck, csiSnapshotFSSEnabled bool
-	// Report capability only if CSI Snapshot FSS is enabled and VC supports snapshot feature.
+	// Report capability only if CSI Snapshot FSS is enabled and VC supports
+	// snapshot feature.
 	csiSnapshotFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if csiSnapshotFSSEnabled {
 		// Check VC support only if internal FSS is enabled.
