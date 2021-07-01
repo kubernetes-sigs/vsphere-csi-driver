@@ -62,7 +62,8 @@ type Manager interface {
 	// CreateVolume creates a new volume given its spec.
 	CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error)
 	// AttachVolume attaches a volume to a virtual machine given the spec.
-	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, error)
+	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+		volumeID string, checkNVMeController bool) (string, error)
 	// DetachVolume detaches a volume from the virtual machine given the spec.
 	DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) error
 	// DeleteVolume deletes a volume given its spec.
@@ -189,9 +190,9 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 	log.Infof("Done resetting volume.defaultManager")
 }
 
-// createVolumeWithImprovedIdempotency leverages the VolumeOperationRequest interface to persist CNS task
-// information. It uses this persisted information to handle idempotency of CreateVolume callbacks to CNS
-// for the same volume.
+// createVolumeWithImprovedIdempotency leverages the VolumeOperationRequest
+// interface to persist CNS task information. It uses this persisted information
+// to handle idempotency of CreateVolume callbacks to CNS for the same volume.
 func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (
 	*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
@@ -250,8 +251,9 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 		return nil, err
 	}
 	defer func() {
-		// Persist the operation details before returning. Only success or error needs to be stored as
-		// InProgress details are stored when the task is created on CNS.
+		// Persist the operation details before returning. Only success or error
+		// needs to be stored as InProgress details are stored when the task is
+		// created on CNS.
 		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
 			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
@@ -262,7 +264,8 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	}()
 	if task == nil {
 		// The task object is nil in two cases:
-		// - No previous CreateVolume task for this volume was retrieved from the persistent store.
+		// - No previous CreateVolume task for this volume was retrieved from the
+		//   persistent store.
 		// - The previous CreateVolume task failed.
 		// In both cases, invoke CNS CreateVolume again.
 		task, err = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
@@ -331,8 +334,9 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 
 }
 
-// createVolume invokes CNS CreateVolume. It stores task information in an in-memory map to handle idempotency
-// of CreateVolume calls for the same volume.
+// createVolume invokes CNS CreateVolume. It stores task information in an
+// in-memory map to handle idempotency of CreateVolume calls for the same
+// volume.
 func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -458,13 +462,13 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			Vm: vm.Reference(),
 		}
 		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachSpec)
-		// Call the CNS AttachVolume
+		// Call the CNS AttachVolume.
 		task, err := m.virtualCenter.CnsClient.AttachVolume(ctx, cnsAttachSpecList)
 		if err != nil {
 			log.Errorf("CNS AttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return "", err
 		}
-		// Get the taskInfo
+		// Get the taskInfo.
 		taskInfo, err := cns.GetTaskInfo(ctx, task)
 		if err != nil || taskInfo == nil {
 			log.Errorf("failed to get taskInfo for AttachVolume task from vCenter %q with err: %v",
@@ -491,7 +495,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 			if isResourceInUseFault {
 				log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q", volumeID, vm.String())
-				// check if volume is already attached to the requested node
+				// Check if volume is already attached to the requested node.
 				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, checkNVMeController)
 				if err != nil {
 					return "", err
@@ -664,7 +668,8 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 	return err
 }
 
-// deleteVolume attempts to delete the volume on CNS. CNS task information is not persisted.
+// deleteVolume attempts to delete the volume on CNS. CNS task information
+// is not persisted.
 func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	// Construct the CNS VolumeId list.
@@ -707,9 +712,11 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	return nil
 }
 
-// deleteVolumeWithImprovedIdempotency attempts to delete the volume on CNS. CNS task information is persisted
-// by leveraging the VolumeOperationRequest interface.
-func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context, volumeID string, deleteDisk bool) error {
+// deleteVolumeWithImprovedIdempotency attempts to delete the volume on CNS.
+// CNS task information is persisted by leveraging the VolumeOperationRequest
+// interface.
+func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context,
+	volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	var (
 		// Reference to the DeleteVolume task on CNS.
@@ -728,13 +735,11 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	switch {
 	case err == nil:
 		if volumeOperationDetails.OperationDetails != nil {
-			// Validate if previous attempt was
-			// successful.
+			// Validate if previous attempt was successful.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
 				return nil
 			}
-			// Validate if previous operation is
-			// pending.
+			// Validate if previous operation is pending.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
 				volumeOperationDetails.OperationDetails.TaskID != "" {
 				taskMoRef := vim25types.ManagedObjectReference{
@@ -752,8 +757,9 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	}
 
 	defer func() {
-		// Persist the operation details before returning. Only success or error needs to be stored as
-		// InProgress details are stored when the task is created on CNS.
+		// Persist the operation details before returning. Only success or error
+		// needs to be stored as InProgress details are stored when the task is
+		// created on CNS.
 		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
 			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
@@ -765,7 +771,8 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 
 	if task == nil {
 		// The task object is nil in two cases:
-		// - No previous CreateVolume task for this volume was retrieved from the persistent store.
+		// - No previous CreateVolume task for this volume was retrieved from the
+		//   persistent store.
 		// - The previous CreateVolume task failed.
 		// In both cases, invoke CNS CreateVolume again.
 		var cnsVolumeIDList []cnstypes.CnsVolumeId
@@ -798,7 +805,8 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	// Get the taskInfo.
 	taskInfo, err := cns.GetTaskInfo(ctx, task)
 	if err != nil || taskInfo == nil {
-		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v",
+			m.virtualCenter.Config.Host, err)
 		return err
 	}
 
@@ -993,8 +1001,9 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 	return nil
 }
 
-// expandVolumeWithImprovedIdempotency leverages the VolumeOperationRequest interface to persist CNS task information.
-// It uses this persisted information to handle idempotency of ExpandVolume callbacks to CNS for the same volume.
+// expandVolumeWithImprovedIdempotency leverages the VolumeOperationRequest
+// interface to persist CNS task information. It uses this persisted information
+// to handle idempotency of ExpandVolume callbacks to CNS for the same volume.
 func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context, volumeID string, size int64) error {
 	log := logger.GetLogger(ctx)
 	var (
@@ -1050,7 +1059,8 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 
 	if task == nil {
 		// The task object is nil in two cases:
-		// - No previous ExtendVolume task for this volume was retrieved from the persistent store.
+		// - No previous ExtendVolume task for this volume was retrieved from the
+		//   persistent store.
 		// - The previous ExtendVolume task failed.
 		// In both cases, invoke CNS ExtendVolume.
 		var cnsExtendSpecList []cnstypes.CnsVolumeExtendSpec
