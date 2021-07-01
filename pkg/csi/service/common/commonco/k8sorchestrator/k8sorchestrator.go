@@ -871,7 +871,7 @@ func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID stri
 		}
 
 		if vol.HealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-			volHealthStatus, err := common.ConvertVolumeHealthStatus(vol.HealthStatus)
+			volHealthStatus, err := common.ConvertVolumeHealthStatus(ctx, vol.VolumeId.Id, vol.HealthStatus)
 			if err != nil {
 				log.Errorf("invalid health status: %s for volume: %s", vol.HealthStatus, vol.VolumeId.Id)
 				return false, err
