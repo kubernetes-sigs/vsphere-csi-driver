@@ -37,7 +37,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
 )
 
-// migrationController is responsible for processing CNS volume relocation to another StoragePool
+// migrationController is responsible for processing CNS volume relocation
+// to another StoragePool.
 type migrationController struct {
 	vc        *cnsvsphere.VirtualCenter
 	clusterID string
@@ -77,13 +78,14 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	task, err := volManager.RelocateVolume(ctx, relocateSpec)
 	log.Infof("Return from CNS Relocate API, task: %v, Error: %v", task, err)
 	if err != nil {
-		// handle case when target DS is same as source DS, i.e. volume has already relocated.
+		// Handle case when target DS is same as source DS, i.e. volume has
+		// already relocated.
 		if soap.IsSoapFault(err) {
 			soapFault := soap.ToSoapFault(err)
 			log.Debugf("type of fault: %v. SoapFault Info: %v", reflect.TypeOf(soapFault.VimFault()), soapFault)
 			_, isAlreadyExistErr := soapFault.VimFault().(vim25types.AlreadyExists)
 			if isAlreadyExistErr {
-				// volume already exists in the target SP, hence return success.
+				// Volume already exists in the target SP, hence return success.
 				return nil
 			}
 		}
@@ -104,7 +106,8 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	return nil
 }
 
-func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructured.Unstructured) (done bool, err error) {
+func (m *migrationController) migrateVolume(ctx context.Context,
+	pvc *unstructured.Unstructured) (done bool, err error) {
 	log := logger.GetLogger(ctx)
 	pvcName := pvc.GetName()
 	pvcNamespace := pvc.GetNamespace()
@@ -124,7 +127,9 @@ func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructur
 
 	pvName, found, err := unstructured.NestedString(pvc.Object, "spec", "volumeName")
 	if !found || err != nil {
-		return false, fmt.Errorf("could not get PV name bounded to PVC %v. PV info present in pvc resource: %v. Error: %v", pvcName, found, err)
+		return false, fmt.Errorf(
+			"could not get PV name bounded to PVC %v. PV info present in pvc resource: %v. Error: %v",
+			pvcName, found, err)
 	}
 	pv, err := k8sDynamicClient.Resource(pvResource).Get(ctx, pvName, metav1.GetOptions{})
 	if err != nil {
@@ -134,11 +139,15 @@ func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructur
 
 	volumeID, found, err := unstructured.NestedString(pv.Object, "spec", "csi", "volumeHandle")
 	if !found || err != nil {
-		return false, fmt.Errorf("failed to get volumeID corresponding to pv %v. VolumeID info present in spec: %v. Error: %v", pvName, found, err)
+		return false, fmt.Errorf(
+			"failed to get volumeID corresponding to pv %v. VolumeID info present in spec: %v. Error: %v",
+			pvName, found, err)
 	}
 	targetSPName, found, err := unstructured.NestedString(pvc.Object, "metadata", "annotations", targetSPAnnotationKey)
 	if !found || err != nil {
-		return false, fmt.Errorf("failed to get target StoragePool of PVC %v. target SP name present in annotations: %v. Error: %v", pvcName, found, err)
+		return false, fmt.Errorf(
+			"failed to get target StoragePool of PVC %v. target SP name present in annotations: %v. Error: %v",
+			pvcName, found, err)
 	}
 	targetSP, err := k8sDynamicClient.Resource(*spResource).Get(ctx, targetSPName, metav1.GetOptions{})
 	if err != nil {
@@ -147,7 +156,7 @@ func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructur
 	}
 	log.Debugf("Migrating volume %v to SP %v", volumeID, targetSP.GetName())
 
-	// retry the relocateCNSVolume() if we face connectivity issues with VC
+	// Retry the relocateCNSVolume() if we face connectivity issues with VC.
 	relocateFn := func() error {
 		return m.relocateCNSVolume(ctx, volumeID, targetSPName)
 	}
@@ -160,20 +169,29 @@ func (m *migrationController) migrateVolume(ctx context.Context, pvc *unstructur
 	}
 
 	log.Infof("Successfully migrated pvc %v to StoragePool %v", pvcName, targetSPName)
-	// change storagePool annotations in the PVC.
+	// Change storagePool annotations in the PVC.
 	_ = updateSourceSPAnnotationOnPVC(ctx, pvcName, pvcNamespace, targetSPName)
 	return true, nil
 }
 
-// MigrateVolumes given a list of PVC migrates the corresponding volume for each PVC to the target SP specified by
-// targetSPAnnotationKey (cns.vmware.com/migrate-to-storagepool) annotation. If the annotation is not present on the PVC
-// the corresponding migration fails. The function returns a tuple consisting of list of PVCs for which migration succeeded
-// and a list of PVCs for which migration failed. The migration is performed sequentially one by one by calling CNS Relocate API.
-// If abortOnFirstFailure is true then after encountering first migration failure it aborts remaining PVC migrations and adds them
-// to unsuccessfulMigrations list.
-// On successful migration k8scloudoperator.StoragePoolAnnotationKey annotation is updated on PVC to reflect new StoragePool
-// targetSPAnnotationKey annotation is removed from PVC for both successful and unsuccessful migrations.
-func (m *migrationController) MigrateVolumes(ctx context.Context, pvcList []*unstructured.Unstructured, abortOnFirstFailure bool) (successfulMigrations []*unstructured.Unstructured, unsuccessfulMigrations []*unstructured.Unstructured) {
+// MigrateVolumes given a list of PVC migrates the corresponding volume for
+// each PVC to the target SP specified by targetSPAnnotationKey
+// (cns.vmware.com/migrate-to-storagepool) annotation. If the annotation is
+// not present on the PVC the corresponding migration fails. The function
+// returns a tuple consisting of list of PVCs for which migration succeeded
+// and a list of PVCs for which migration failed. The migration is performed
+// sequentially one by one by calling CNS Relocate API.
+//
+// If abortOnFirstFailure is true then after encountering first migration
+// failure it aborts remaining PVC migrations and adds them to
+// unsuccessfulMigrations list.
+//
+// On successful migration k8scloudoperator.StoragePoolAnnotationKey annotation
+// is updated on PVC to reflect new StoragePool targetSPAnnotationKey annotation
+// is removed from PVC for both successful and unsuccessful migrations.
+func (m *migrationController) MigrateVolumes(ctx context.Context,
+	pvcList []*unstructured.Unstructured, abortOnFirstFailure bool) (
+	successfulMigrations []*unstructured.Unstructured, unsuccessfulMigrations []*unstructured.Unstructured) {
 	log := logger.GetLogger(ctx)
 	shouldAbort := false
 	successfulMigrations = make([]*unstructured.Unstructured, 0)
@@ -191,15 +209,17 @@ func (m *migrationController) MigrateVolumes(ctx context.Context, pvcList []*uns
 			continue
 		}
 
-		// check if disk decomm. of source StoragePool has been aborted/ terminated
-		sourceSPName, found, err := unstructured.NestedString(pvc.Object, "metadata", "annotations", k8scloudoperator.StoragePoolAnnotationKey)
+		// Check if disk decomm. of source StoragePool has been aborted/ terminated.
+		sourceSPName, found, err := unstructured.NestedString(pvc.Object, "metadata", "annotations",
+			k8scloudoperator.StoragePoolAnnotationKey)
 		if !found || err != nil || sourceSPName == "" {
-			// log the error and assume that source SP is under disk decommission
+			// Log the error and assume that source SP is under disk decommission.
 			log.Warnf("Could not get source StoragePool name for PVC %v. Error: %v", pvcName, err)
 		} else {
 			drainMode, found, err := getDrainMode(ctx, sourceSPName)
 			if (!found || (drainMode != fullDataEvacuationMM && drainMode != ensureAccessibilityMM)) && err == nil {
-				log.Infof("Disk decommission of StoragePool %v has been aborted/ terminated. Aborting migration of %v", sourceSPName, pvcName)
+				log.Infof("Disk decommission of StoragePool %v has been aborted/ terminated. Aborting migration of %v",
+					sourceSPName, pvcName)
 				_, err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
 				if err != nil {
 					log.Errorf("Failed to remove target SP annotation from PVC %v. Error: %v", pvcName, err)
@@ -223,7 +243,8 @@ func (m *migrationController) MigrateVolumes(ctx context.Context, pvcList []*uns
 		}
 		successfulMigrations = append(successfulMigrations, pvc)
 	}
-	log.Infof("Total number of successful migrations: %v, unsuccessful migrations: %v", len(successfulMigrations), len(unsuccessfulMigrations))
+	log.Infof("Total number of successful migrations: %v, unsuccessful migrations: %v",
+		len(successfulMigrations), len(unsuccessfulMigrations))
 	return successfulMigrations, unsuccessfulMigrations
 }
 
@@ -245,7 +266,8 @@ func updateSourceSPAnnotationOnPVC(ctx context.Context, pvcName, pvcNamespace, n
 			return false, err
 		}
 
-		updatedPVC, err := k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+		updatedPVC, err := k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx,
+			pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			log.Errorf("Failed to update current StoragePool label to %v for pvc %v", newSourceSPName, pvcName)
 			return false, err
@@ -259,7 +281,8 @@ func updateSourceSPAnnotationOnPVC(ctx context.Context, pvcName, pvcNamespace, n
 	return err
 }
 
-func removeTargetSPAnnotationOnPVC(ctx context.Context, pvcName, pvcNamespace string) (*unstructured.Unstructured, error) {
+func removeTargetSPAnnotationOnPVC(ctx context.Context,
+	pvcName, pvcNamespace string) (*unstructured.Unstructured, error) {
 	log := logger.GetLogger(ctx)
 	patch := map[string]interface{}{
 		"metadata": map[string]interface{}{
@@ -279,10 +302,12 @@ func removeTargetSPAnnotationOnPVC(ctx context.Context, pvcName, pvcNamespace st
 		return nil, err
 	}
 
-	updatedPVC, err := k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+	updatedPVC, err := k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx,
+		pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("Successfully removed target StoragePool information from %v. Updated PVC: %v", pvcName, updatedPVC.GetName())
+	log.Debugf("Successfully removed target StoragePool information from %v. Updated PVC: %v",
+		pvcName, updatedPVC.GetName())
 	return updatedPVC, nil
 }
