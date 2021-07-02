@@ -26,79 +26,81 @@ const (
 	GbInBytes = int64(1024 * 1024 * 1024)
 
 	// DefaultGbDiskSize is the default disk size in gibibytes.
-	// TODO: will make the DefaultGbDiskSize configurable in the future
+	// TODO: will make the DefaultGbDiskSize configurable in the future.
 	DefaultGbDiskSize = int64(10)
 
-	// DiskTypeBlockVolume is the value for the PersistentVolume's attribute "type"
+	// DiskTypeBlockVolume is the value for PersistentVolume's attribute "type".
 	DiskTypeBlockVolume = "vSphere CNS Block Volume"
 
-	// DiskTypeFileVolume is the value for the PersistentVolume's attribute "type"
+	// DiskTypeFileVolume is the value for PersistentVolume's attribute "type".
 	DiskTypeFileVolume = "vSphere CNS File Volume"
 
 	// AttributeDiskType is a PersistentVolume's attribute.
 	AttributeDiskType = "type"
 
-	// AttributeDatastoreURL represents URL of the datastore in the StorageClass
-	// For Example: DatastoreURL: "ds:///vmfs/volumes/5c9bb20e-009c1e46-4b85-0200483b2a97/"
+	// AttributeDatastoreURL represents URL of the datastore in the StorageClass.
+	// For Example: DatastoreURL: "ds:///vmfs/volumes/5c9bb20e-009c1e46-4b85-0200483b2a97/".
 	AttributeDatastoreURL = "datastoreurl"
 
-	// AttributeStoragePolicyName represents name of the Storage Policy in the Storage Class
-	// For Example: StoragePolicy: "vSAN Default Storage Policy"
+	// AttributeStoragePolicyName represents name of the Storage Policy in the
+	// Storage Class.
+	// For Example: StoragePolicy: "vSAN Default Storage Policy".
 	AttributeStoragePolicyName = "storagepolicyname"
 
-	// AttributeStoragePolicyID represents Storage Policy Id in the Storage Classs
-	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee"
+	// AttributeStoragePolicyID represents Storage Policy Id in the Storage Classs.
+	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee".
 	AttributeStoragePolicyID = "storagepolicyid"
 
-	// AttributeSupervisorStorageClass represents name of the Storage Class
-	// For example: StorageClassName: "silver"
+	// AttributeSupervisorStorageClass represents name of the Storage Class.
+	// For example: StorageClassName: "silver".
 	AttributeSupervisorStorageClass = "svstorageclass"
 
-	// AttributeFsType represents filesystem type in the Storage Classs
-	// For Example: FsType: "ext4"
+	// AttributeFsType represents filesystem type in the Storage Classs.
+	// For Example: FsType: "ext4".
 	AttributeFsType = "fstype"
 
-	// AttributeStoragePool represents name of the StoragePool on which to place the PVC
-	// For example: StoragePool: "storagepool-vsandatastore"
+	// AttributeStoragePool represents name of the StoragePool on which to place
+	// the PVC. For example: StoragePool: "storagepool-vsandatastore".
 	AttributeStoragePool = "storagepool"
 
 	// AttributeHostLocal represents the presence of HostLocal functionality in
-	// the given storage policy. For Example: HostLocal: "True"
+	// the given storage policy. For Example: HostLocal: "True".
 	AttributeHostLocal = "hostlocal"
 
 	// HostMoidAnnotationKey represents the Node annotation key that has the value
 	// of VC's ESX host moid of this node.
 	HostMoidAnnotationKey = "vmware-system-esxi-node-moid"
 
-	// Ext4FsType represents the default filesystem type for block volume
+	// Ext4FsType represents the default filesystem type for block volume.
 	Ext4FsType = "ext4"
 
-	// NfsV4FsType represents nfs4 mount type
+	// NfsV4FsType represents nfs4 mount type.
 	NfsV4FsType = "nfs4"
 
-	// NfsFsType represents nfs mount type
+	// NfsFsType represents nfs mount type.
 	NfsFsType = "nfs"
 
-	//ProviderPrefix is the prefix used for the ProviderID set on the node
+	// ProviderPrefix is the prefix used for the ProviderID set on the node.
 	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
 	ProviderPrefix = "vsphere://"
 
-	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier
+	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier.
 	AttributeFirstClassDiskUUID = "diskUUID"
 
-	// AttributeFakeAttached is the flag that indicates if a volume is fake attached
+	// AttributeFakeAttached is the flag that indicates if a volume is fake
+	// attached.
 	AttributeFakeAttached = "fake-attach"
 
-	// BlockVolumeType is the VolumeType for CNS Volume
+	// BlockVolumeType is the VolumeType for CNS Volume.
 	BlockVolumeType = "BLOCK"
 
-	// FileVolumeType is the VolumeType for CNS File Share Volume
+	// FileVolumeType is the VolumeType for CNS File Share Volume.
 	FileVolumeType = "FILE"
 
-	// Nfsv4AccessPointKey is the key for NFSv4 access point
+	// Nfsv4AccessPointKey is the key for NFSv4 access point.
 	Nfsv4AccessPointKey = "NFSv4.1"
 
-	// Nfsv4AccessPoint is the access point of file volume
+	// Nfsv4AccessPoint is the access point of file volume.
 	Nfsv4AccessPoint = "Nfsv4AccessPoint"
 
 	// MinSupportedVCenterMajor is the minimum, major version of vCenter
@@ -126,146 +128,160 @@ const (
 	SnapshotSupportedVCenterPatch int = 3
 
 	// VSphere67u3Version is the minimum vSphere version to use Vslm APIs
-	// to support volume migration feature
+	// to support volume migration feature.
 	VSphere67u3Version string = "6.7.3"
 
 	// VSphere7Version is the maximum vSphere version to use Vslm APIs
-	// to support volume migration feature
+	// to support volume migration feature.
 	VSphere7Version string = "7.0.0"
 
-	// VSphere67u3lBuildInfo is the build number for vCenter in 6.7 Update 3l GA bits
+	// VSphere67u3lBuildInfo is the build number for vCenter in 6.7 Update 3l
+	// GA bits.
 	VSphere67u3lBuildInfo int = 17137327
 
-	// VsanAffinityKey is the profile param key to indicate which node the FCD should be affinitized to.
+	// VsanAffinityKey is the profile param key to indicate which node the FCD
+	// should be affinitized to.
 	VsanAffinityKey string = "VSAN/affinity/affinity"
 
-	// VsanAffinityMandatory is the profile param key to turn on affinity of the volume to a specific ESX host.
+	// VsanAffinityMandatory is the profile param key to turn on affinity of
+	// the volume to a specific ESX host.
 	VsanAffinityMandatory string = "VSAN/affinityMandatory/affinityMandatory"
 
-	// VsanMigrateForDecom is the profile param key to set the migrate mode for the volume.
+	// VsanMigrateForDecom is the profile param key to set the migrate mode
+	// for the volume.
 	VsanMigrateForDecom string = "VSAN/migrateForDecom/migrateForDecom"
 
 	// VsanDatastoreType is the string to identify datastore type as vsan.
 	VsanDatastoreType string = "vsan"
 
 	// CSIMigrationParams helps identify if volume creation is requested by
-	// in-tree storageclass or CSI storageclass
+	// in-tree storageclass or CSI storageclass.
 	CSIMigrationParams = "csimigration"
 
-	// AttributeInitialVolumeFilepath represents the path of volume where volume is created
+	// AttributeInitialVolumeFilepath represents the path of volume where volume
+	// is created.
 	AttributeInitialVolumeFilepath = "initialvolumefilepath"
 
-	// DatastoreMigrationParam is used to supply datastore name for Volume provisioning
+	// DatastoreMigrationParam is used to supply datastore name for Volume
+	// provisioning.
 	DatastoreMigrationParam = "datastore-migrationparam"
 
-	// DiskFormatMigrationParam supplies disk foramt (thin, thick, zeoredthick) for Volume provisioning
+	// DiskFormatMigrationParam supplies disk foramt (thin, thick, zeoredthick)
+	// for Volume provisioning.
 	DiskFormatMigrationParam = "diskformat-migrationparam"
 
-	// HostFailuresToTolerateMigrationParam is raw vSAN Policy Parameter
+	// HostFailuresToTolerateMigrationParam is raw vSAN Policy Parameter.
 	HostFailuresToTolerateMigrationParam = "hostfailurestotolerate-migrationparam"
 
-	// ForceProvisioningMigrationParam is raw vSAN Policy Parameter
+	// ForceProvisioningMigrationParam is raw vSAN Policy Parameter.
 	ForceProvisioningMigrationParam = "forceprovisioning-migrationparam"
 
-	// CacheReservationMigrationParam is raw vSAN Policy Parameter
+	// CacheReservationMigrationParam is raw vSAN Policy Parameter.
 	CacheReservationMigrationParam = "cachereservation-migrationparam"
 
-	// DiskstripesMigrationParam is raw vSAN Policy Parameter
+	// DiskstripesMigrationParam is raw vSAN Policy Parameter.
 	DiskstripesMigrationParam = "diskstripes-migrationparam"
 
-	// ObjectspacereservationMigrationParam is raw vSAN Policy Parameter
+	// ObjectspacereservationMigrationParam is raw vSAN Policy Parameter.
 	ObjectspacereservationMigrationParam = "objectspacereservation-migrationparam"
 
-	// IopslimitMigrationParam is raw vSAN Policy Parameter
+	// IopslimitMigrationParam is raw vSAN Policy Parameter.
 	IopslimitMigrationParam = "iopslimit-migrationparam"
 
 	// AnnMigratedTo annotation is added to a PVC and PV that is supposed to be
-	// provisioned/deleted by its corresponding CSI driver
+	// provisioned/deleted by its corresponding CSI driver.
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
 
-	// AnnStorageProvisioner annotation is added to a PVC that is supposed to be dynamically
-	// provisioned. Its value is name of volume plugin that is supposed to provision
-	// a volume for this PVC.
+	// AnnStorageProvisioner annotation is added to a PVC that is supposed to
+	// be dynamically provisioned. Its value is name of volume plugin that is
+	// supposed to provision a volume for this PVC.
 	AnnStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 
-	// AnnDynamicallyProvisioned annotation is added to a PV that has been dynamically provisioned by
-	// Kubernetes. Its value is name of volume plugin that created the volume.
-	// It serves both user (to show where a PV comes from) and Kubernetes (to
-	// recognize dynamically provisioned PVs in its decisions).
+	// AnnDynamicallyProvisioned annotation is added to a PV that has been
+	// dynamically provisioned by Kubernetes. Its value is name of volume plugin
+	// that created the volume. It serves both user (to show where a PV comes
+	// from) and Kubernetes (to recognize dynamically provisioned PVs in its
+	// decisions).
 	AnnDynamicallyProvisioned = "pv.kubernetes.io/provisioned-by"
 
-	// InTreePluginName is the name of vsphere cloud provider in kubernetes
+	// InTreePluginName is the name of vsphere cloud provider in kubernetes.
 	InTreePluginName = "kubernetes.io/vsphere-volume"
 
-	// DsPriv is the privilege need to write on that datastore
+	// DsPriv is the privilege need to write on that datastore.
 	DsPriv = "Datastore.FileManagement"
 
-	// SysReadPriv is the privilege to view an entity
+	// SysReadPriv is the privilege to view an entity.
 	SysReadPriv = "System.Read"
 
-	// HostConfigStoragePriv is the privilege for file volumes
+	// HostConfigStoragePriv is the privilege for file volumes.
 	HostConfigStoragePriv = "Host.Config.Storage"
 
-	// AnnVolumeHealth is the key for HealthStatus annotation on volume claim
+	// AnnVolumeHealth is the key for HealthStatus annotation on volume claim.
 	AnnVolumeHealth = "volumehealth.storage.kubernetes.io/health"
 
-	// AnnFakeAttached is the key for fake attach annotation on volume claim
+	// AnnFakeAttached is the key for fake attach annotation on volume claim.
 	AnnFakeAttached = "csi.vmware.com/fake-attached"
 
-	// VolHealthStatusAccessible is volume health status for accessible volume
+	// VolHealthStatusAccessible is volume health status for accessible volume.
 	VolHealthStatusAccessible = "accessible"
 
-	// VolHealthStatusInaccessible is volume health status for inaccessible volume
+	// VolHealthStatusInaccessible is volume health status for inaccessible volume.
 	VolHealthStatusInaccessible = "inaccessible"
 
 	// AnnIgnoreInaccessiblePV is annotation key on volume claim to indicate
-	// if inaccessible PV can be fake attached
+	// if inaccessible PV can be fake attached.
 	AnnIgnoreInaccessiblePV = "pv.attach.kubernetes.io/ignore-if-inaccessible"
 
 	// TriggerCsiFullSyncCRName is the instance name of TriggerCsiFullSync
-	// All other names will be rejected by TriggerCsiFullSync controller
+	// All other names will be rejected by TriggerCsiFullSync controller.
 	TriggerCsiFullSyncCRName = "csifullsync"
 )
 
-// Supported container orchestrators
+// Supported container orchestrators.
 const (
-	Kubernetes = iota // Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s
+	// Default container orchestrator for TKC, Supervisor Cluster and Vanilla K8s.
+	Kubernetes = iota
 )
 
 // Constants related to Feature state
 const (
-	// default interval to check if the feature is enabled or not
+	// Default interval to check if the feature is enabled or not.
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
-	// VolumeHealth is the feature flag name for volume health
+	// VolumeHealth is the feature flag name for volume health.
 	VolumeHealth = "volume-health"
-	// VolumeExtend is feature flag name for volume expansion
+	// VolumeExtend is feature flag name for volume expansion.
 	VolumeExtend = "volume-extend"
-	// OnlineVolumeExtend guards the feature for online volume expansion
+	// OnlineVolumeExtend guards the feature for online volume expansion.
 	OnlineVolumeExtend = "online-volume-extend"
-	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI
+	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
-	// CSIAuthCheck is feature flag for auth check
+	// CSIAuthCheck is feature flag for auth check.
 	CSIAuthCheck = "csi-auth-check"
-	// AsyncQueryVolume is feature flag for using async query volume API
+	// AsyncQueryVolume is feature flag for using async query volume API.
 	AsyncQueryVolume = "async-query-volume"
-	// CSISVFeatureStateReplication is feature flag for SV feature state replication feature
+	// CSISVFeatureStateReplication is feature flag for SV feature state
+	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
-	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission
+	// VSANDirectDiskDecommission is feature flag for vsanD disk decommission.
 	VSANDirectDiskDecommission = "vsan-direct-disk-decommission"
-	// FileVolume is feature flag name for file volume support in WCP
+	// FileVolume is feature flag name for file volume support in WCP.
 	FileVolume = "file-volume"
-	// FakeAttach is the feature flag for fake attach support in WCP
+	// FakeAttach is the feature flag for fake attach support in WCP.
 	FakeAttach = "fake-attach"
-	// TriggerCSIFullSyync is feature flag to trigger full sync
+	// TriggerCSIFullSyync is feature flag to trigger full sync.
 	TriggerCsiFullSync = "trigger-csi-fullsync"
-	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling in CSI volume manager
+	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
+	// in CSI volume manager.
 	CSIVolumeManagerIdempotency = "improved-csi-idempotency"
-	// ImprovedVolumeTopology is the feature flag used to make the following improvements
-	// to topology feature:
+	// ImprovedVolumeTopology is the feature flag used to make the following
+	// improvements to topology feature:
 	// 1. Avoid taking in VC credentials in node daemonset.
 	ImprovedVolumeTopology = "improved-volume-topology"
-	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block volume on vSphere CSI driver.
+	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
+	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
-	// SiblingReplicaBoundPvcCheck is the feature to check whether a PVC of a given replica can be placed on a node such that it does not have PVCs of any of its sibling replicas.
+	// SiblingReplicaBoundPvcCheck is the feature to check whether a PVC of
+	// a given replica can be placed on a node such that it does not have PVCs
+	// of any of its sibling replicas.
 	SiblingReplicaBoundPvcCheck = "sibling-replica-bound-pvc-check"
 )
