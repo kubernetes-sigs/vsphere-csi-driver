@@ -18,7 +18,6 @@ package vanilla
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -121,27 +120,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
 		datacenters, err := vc.ListDatacenters(ctx)
 		if err != nil {
-			msg := fmt.Sprintf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
 		}
 		// Check if file service is enabled on datastore present in
 		// targetvSANFileShareDatastoreURLs.
 		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx,
 			c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
 		if err != nil {
-			msg := fmt.Sprintf("file service enablement check failed for datastore specified in "+
+			return logger.LogNewErrorf(log, "file service enablement check failed for datastore specified in "+
 				"TargetvSANFileShareDatastoreURLs. err=%v", err)
-			log.Error(msg)
-			return errors.New(msg)
 		}
 		for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 			isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
 			if !isFSEnabled {
-				msg := fmt.Sprintf("file service is not enabled on datastore %s specified in "+
+				return logger.LogNewErrorf(log, "file service is not enabled on datastore %s specified in "+
 					"TargetvSANFileShareDatastoreURLs", targetFSDatastore)
-				log.Error(msg)
-				return errors.New(msg)
 			}
 		}
 	}
@@ -258,9 +251,7 @@ func (c *controller) ReloadConfiguration() error {
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("failed to read config. Error: %+v", err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 	if err != nil {
@@ -277,27 +268,22 @@ func (c *controller) ReloadConfiguration() error {
 			// vCenter. Proceed only if the connection succeeds, else return error.
 			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
 			if err = newVC.Connect(ctx); err != nil {
-				msg := fmt.Sprintf("failed to connect to VirtualCenter host: %q, Err: %+v", newVCConfig.Host, err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
+					newVCConfig.Host, err)
 			}
 
 			// Reset vCenter singleton instance by passing reload flag as true.
 			log.Info("Obtaining new vCenterInstance using new credentials")
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 		} else {
 			// If it's not a VC host or VC credentials update, same singleton
 			// instance can be used and it's Config field can be updated.
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-				log.Error(msg)
-				return errors.New(msg)
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 			vcenter.Config = newVCConfig
 		}

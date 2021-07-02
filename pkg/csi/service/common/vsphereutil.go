@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
@@ -81,9 +80,8 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				break
 			}
 			if datastores == nil {
-				errMsg := fmt.Sprintf("DatastoreURL: %s specified in the create volume spec is not found.",
+				return nil, logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
 					spec.VsanDirectDatastoreURL)
-				return nil, errors.New(errMsg)
 			}
 		} else {
 			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
@@ -120,16 +118,16 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			}
 		}
 		if datastoreObj == nil {
-			errMsg := fmt.Sprintf("DatastoreURL: %s specified in the storage class is not found.", spec.ScParams.DatastoreURL)
-			log.Errorf(errMsg)
-			return nil, errors.New(errMsg)
+			return nil, logger.LogNewErrorf(log,
+				"DatastoreURL: %s specified in the storage class is not found.",
+				spec.ScParams.DatastoreURL)
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
 		} else {
-			errMsg := fmt.Sprintf("Datastore: %s specified in the storage class is not accessible to all nodes.", spec.ScParams.DatastoreURL)
-			log.Errorf(errMsg)
-			return nil, errors.New(errMsg)
+			return nil, logger.LogNewErrorf(log,
+				"Datastore: %s specified in the storage class is not accessible to all nodes.",
+				spec.ScParams.DatastoreURL)
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
@@ -208,10 +206,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}
 		if !isFound {
-			msg := fmt.Sprintf("CSI user doesn't have permission on the datastore: %s specified in storage class",
+			return "", logger.LogNewErrorf(log,
+				"CSI user doesn't have permission on the datastore: %s specified in storage class",
 				spec.ScParams.DatastoreURL)
-			log.Error(msg)
-			return "", errors.New(msg)
 		}
 	}
 
@@ -313,9 +310,7 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				}
 			}
 			if len(datastores) == 0 {
-				msg := "no file service enabled vsan datastore is present in the environment"
-				log.Error(msg)
-				return "", errors.New(msg)
+				return "", logger.LogNewError(log, "no file service enabled vsan datastore is present in the environment")
 			}
 		} else {
 			// If DatastoreURL is not specified in StorageClass, get all datastores from TargetvSANFileShareDatastoreURLs
@@ -350,10 +345,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				}
 			}
 			if !found {
-				msg := fmt.Sprintf("Datastore URL %q specified in storage class is not in the allowed list %+v",
+				return "", logger.LogNewErrorf(log,
+					"Datastore URL %q specified in storage class is not in the allowed list %+v",
 					spec.ScParams.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
-				log.Error(msg)
-				return "", errors.New(msg)
 			}
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
@@ -562,8 +556,8 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 		}
 	}
 
-	msg := fmt.Sprintf("Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
-	return vim25types.ManagedObjectReference{}, errors.New(msg)
+	return vim25types.ManagedObjectReference{}, logger.LogNewErrorf(log,
+		"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
 }
 
 // isExpansionRequired verifies if the requested size to expand a volume is greater than the current size
