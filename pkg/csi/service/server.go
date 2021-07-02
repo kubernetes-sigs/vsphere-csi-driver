@@ -17,7 +17,6 @@ limitations under the License.
 package service
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -130,11 +129,11 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	// Register the CSI services.
 	// Always require the identity service.
 	if ids == nil {
-		return errors.New("identity service is required")
+		return logger.LogNewError(log, "identity service is required")
 	}
 	// Either a Controller or Node service should be supplied.
 	if cs == nil && ns == nil {
-		return errors.New("either a controller or node service is required")
+		return logger.LogNewError(log, "either a controller or node service is required")
 	}
 
 	// Always register the identity service.
@@ -145,13 +144,13 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	mode := os.Getenv(csitypes.EnvVarMode)
 	if strings.EqualFold(mode, "controller") {
 		if cs == nil {
-			return errors.New("controller service required when running in controller mode")
+			return logger.LogNewError(log, "controller service required when running in controller mode")
 		}
 		csi.RegisterControllerServer(s.server, cs)
 		log.Info("controller service registered")
 	} else if strings.EqualFold(mode, "node") {
 		if ns == nil {
-			return errors.New("node service required when running in node mode")
+			return logger.LogNewError(log, "node service required when running in node mode")
 		}
 		csi.RegisterNodeServer(s.server, ns)
 		log.Info("node service registered")

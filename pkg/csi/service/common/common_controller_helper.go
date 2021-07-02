@@ -18,7 +18,6 @@ package common
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -165,23 +164,20 @@ func UseVslmAPIs(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, err
 	// Convert version string to int, e.g. "6.7.3" to 673, "7.0.0.0" to 700.
 	vSphereVersionInt, err := strconv.Atoi(apiVersion[0:3])
 	if err != nil {
-		msg := fmt.Sprintf("Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
-		log.Errorf(msg)
-		return false, errors.New(msg)
+		return false, logger.LogNewErrorf(log,
+			"Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
 	}
 	vSphere67u3VersionStr := strings.Join(strings.Split(VSphere67u3Version, "."), "")
 	vSphere67u3VersionInt, err := strconv.Atoi(vSphere67u3VersionStr[0:3])
 	if err != nil {
-		msg := fmt.Sprintf("Error while converting VSphere67u3Version %q to integer, err %+v", VSphere67u3Version, err)
-		log.Errorf(msg)
-		return false, errors.New(msg)
+		return false, logger.LogNewErrorf(log,
+			"Error while converting VSphere67u3Version %q to integer, err %+v", VSphere67u3Version, err)
 	}
 	vSphere7VersionStr := strings.Join(strings.Split(VSphere7Version, "."), "")
 	vSphere7VersionInt, err := strconv.Atoi(vSphere7VersionStr[0:3])
 	if err != nil {
-		msg := fmt.Sprintf("Error while converting VSphere7Version %q to integer, err %+v", VSphere7Version, err)
-		log.Errorf(msg)
-		return false, errors.New(msg)
+		return false, logger.LogNewErrorf(log,
+			"Error while converting VSphere7Version %q to integer, err %+v", VSphere7Version, err)
 	}
 	// Check if the current vSphere version is between 6.7.3 and 7.0.0.
 	if vSphereVersionInt > vSphere67u3VersionInt && vSphereVersionInt <= vSphere7VersionInt {
@@ -207,16 +203,13 @@ func UseVslmAPIs(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, err
 			if vcBuild >= VSphere67u3lBuildInfo {
 				return true, nil
 			}
-			msg := fmt.Sprintf(
+			return false, logger.LogNewErrorf(log,
 				"Found vCenter version :%q. The minimum version for CSI migration is vCenter Server 6.7 Update 3l",
 				aboutInfo.ApiVersion)
-			log.Errorf(msg)
-			return false, errors.New(msg)
 		}
 		if err != nil {
-			msg := fmt.Sprintf("Error while converting VC Build info %q to integer, err %+v", aboutInfo.Build, err)
-			log.Errorf(msg)
-			return false, errors.New(msg)
+			return false, logger.LogNewErrorf(log,
+				"Error while converting VC Build info %q to integer, err %+v", aboutInfo.Build, err)
 		}
 	}
 	// For all other versions.

@@ -18,8 +18,6 @@ package k8sorchestrator
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -95,9 +93,7 @@ func (c *K8sOrchestrator) updatePVCAnnotations(ctx context.Context, volumeID str
 		return nil
 	}
 
-	errMsg := fmt.Sprintf("could not find pvc for volumeID: %s", volumeID)
-	log.Debugf(errMsg)
-	return errors.New(errMsg)
+	return logger.LogNewErrorf(log, "could not find pvc for volumeID: %s", volumeID)
 }
 
 // isFileVolume checks if the Persistent Volume has ReadWriteMany or ReadOnlyMany support
