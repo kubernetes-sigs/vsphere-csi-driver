@@ -32,8 +32,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// getVirtualMachine gets the virtual machine instance with a name on a SV namespace
-func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client, vmName string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
+// getVirtualMachine gets the virtual machine instance with a name on a SV
+// namespace.
+func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
+	vmName string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := apitypes.NamespacedName{
@@ -48,7 +50,8 @@ func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client, vmNa
 	return virtualMachine, nil
 }
 
-// setInstanceOwnerRef sets ownerRef on CnsFileAccessConfig instance to VM instance
+// setInstanceOwnerRef sets ownerRef on CnsFileAccessConfig instance to VM
+// instance.
 func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, vmName string,
 	vmUID apitypes.UID) {
 	bController := true
@@ -66,29 +69,37 @@ func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConf
 	}
 }
 
-// getMaxWorkerThreadsToReconcileCnsFileAccessConfig returns the maximum
-// number of worker threads which can be run to reconcile CnsFileAccessConfig instances.
+// getMaxWorkerThreadsToReconcileCnsFileAccessConfig returns the maximum number
+// of worker threads which can be run to reconcile CnsFileAccessConfig instances.
 // If environment variable WORKER_THREADS_FILE_ACCESS_CONFIG is set and valid,
-// return the value read from environment variable otherwise, use the default value
+// return the value read from environment variable otherwise, use the default
+// value.
 func getMaxWorkerThreadsToReconcileCnsFileAccessConfig(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForFileAccessConfig
 	if v := os.Getenv("WORKER_THREADS_FILE_ACCESS_CONFIG"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_FILE_ACCESS_CONFIG %s is less than 1, will use the default value %d", v, defaultMaxWorkerThreadsForFileAccessConfig)
+				log.Warnf("Maximum number of worker threads to run set in env variable "+
+					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is less than 1, will use the default value %d",
+					v, defaultMaxWorkerThreadsForFileAccessConfig)
 			} else if value > defaultMaxWorkerThreadsForFileAccessConfig {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_FILE_ACCESS_CONFIG %s is greater than %d, will use the default value %d",
+				log.Warnf("Maximum number of worker threads to run set in env variable "+
+					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is greater than %d, will use the default value %d",
 					v, defaultMaxWorkerThreadsForFileAccessConfig, defaultMaxWorkerThreadsForFileAccessConfig)
 			} else {
 				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsFileAccessConfig instances is set to %d", workerThreads)
+				log.Debugf("Maximum number of worker threads to run to reconcile "+
+					"CnsFileAccessConfig instances is set to %d", workerThreads)
 			}
 		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_FILE_ACCESS_CONFIG %s is invalid, will use the default value %d", v, defaultMaxWorkerThreadsForFileAccessConfig)
+			log.Warnf("Maximum number of worker threads to run set in env variable "+
+				"WORKER_THREADS_FILE_ACCESS_CONFIG %s is invalid, will use the default value %d",
+				v, defaultMaxWorkerThreadsForFileAccessConfig)
 		}
 	} else {
-		log.Debugf("WORKER_THREADS_FILE_ACCESS_CONFIG is not set. Picking the default value %d", defaultMaxWorkerThreadsForFileAccessConfig)
+		log.Debugf("WORKER_THREADS_FILE_ACCESS_CONFIG is not set. Picking the default value %d",
+			defaultMaxWorkerThreadsForFileAccessConfig)
 	}
 	return workerThreads
 }

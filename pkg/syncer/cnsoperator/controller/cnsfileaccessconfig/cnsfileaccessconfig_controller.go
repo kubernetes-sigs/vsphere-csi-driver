@@ -59,18 +59,18 @@ const (
 	defaultMaxWorkerThreadsForFileAccessConfig = 10
 )
 
-// backOffDuration is a map of cnsfileaccessconfig name's to the time after which a request
-// for this instance will be requeued.
-// Initialized to 1 second for new instances and for instances whose latest reconcile
-// operation succeeded.
-// If the reconcile fails, backoff is incremented exponentially.
+// backOffDuration is a map of cnsfileaccessconfig name's to the time after
+// which a request for this instance will be requeued. Initialized to 1 second
+// for new instances and for instances whose latest reconcile operation
+// succeeded. If the reconcile fails, backoff is incremented exponentially.
 var (
 	backOffDuration         map[string]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CnsFileAccessConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
+// Add creates a new CnsFileAccessConfig Controller and adds it to the Manager.
+// The Manager will set fields on the Controller and Start it when the Manager
+// is Started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
@@ -78,8 +78,9 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Debug("Not initializing the CnsFileAccessConfig Controller as its a non-WCP CSI deployment")
 		return nil
 	}
-	// Initialize the k8s orchestrator interface
-	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
+	// Initialize the k8s orchestrator interface.
+	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes,
+		cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
 	if err != nil {
 		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
 		return err
@@ -88,14 +89,15 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Infof("Not initializing the CnsFileAccessConfig Controller as File volume feature is disabled on the cluster")
 		return nil
 	}
-	// Initializes kubernetes client
+	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 
-	// eventBroadcaster broadcasts events on cnsfileaccessconfig instances to the event sink
+	// eventBroadcaster broadcasts events on cnsfileaccessconfig instances to
+	// the event sink.
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(
 		&typedcorev1.EventSinkImpl{
@@ -123,7 +125,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	// create a new dynamic client for config
+	// create a new dynamic client for config.
 	dynamicClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create client using config. Err: %+v", err)
@@ -134,19 +136,24 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, dynamicClient, recorder))
 }
 
-// newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface, recorder record.EventRecorder) reconcile.Reconciler {
-	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient, dynamicClient: dynamicClient, recorder: recorder}
+// newReconciler returns a new reconcile.Reconciler.
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
+	volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface,
+	recorder record.EventRecorder) reconcile.Reconciler {
+	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(),
+		configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient,
+		dynamicClient: dynamicClient, recorder: recorder}
 }
 
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
+// add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsFileAccessConfig(ctx)
 
-	// Create a new controller
-	c, err := controller.New("cnsfileaccessconfig-controller", mgr, controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
+	// Create a new controller.
+	c, err := controller.New("cnsfileaccessconfig-controller", mgr,
+		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
 	if err != nil {
 		log.Errorf("Failed to create new CnsFileAccessConfig controller with error: %+v", err)
 		return err
@@ -154,8 +161,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	backOffDuration = make(map[string]time.Duration)
 
-	// Watch for changes to primary resource CnsFileAccessConfig
-	err = c.Watch(&source.Kind{Type: &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}}, &handler.EnqueueRequestForObject{})
+	// Watch for changes to primary resource CnsFileAccessConfig.
+	err = c.Watch(&source.Kind{Type: &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}},
+		&handler.EnqueueRequestForObject{})
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CnsFileAccessConfig resource with error: %+v", err)
 		return err
@@ -163,13 +171,14 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// blank assignment to verify that ReconcileCnsFileAccessConfig implements reconcile.Reconciler
+// Blank assignment to verify that ReconcileCnsFileAccessConfig implements
+// reconcile.Reconciler.
 var _ reconcile.Reconciler = &ReconcileCnsFileAccessConfig{}
 
-// ReconcileCnsFileAccessConfig reconciles a CnsFileAccessConfig object
+// ReconcileCnsFileAccessConfig reconciles a CnsFileAccessConfig object.
 type ReconcileCnsFileAccessConfig struct {
 	// This client, initialized using mgr.Client() above, is a split client
-	// that reads objects from the cache and writes to the apiserver
+	// that reads objects from the cache and writes to the apiserver.
 	client           client.Client
 	scheme           *runtime.Scheme
 	configInfo       *commonconfig.ConfigurationInfo
@@ -179,14 +188,16 @@ type ReconcileCnsFileAccessConfig struct {
 	recorder         record.EventRecorder
 }
 
-// Reconcile reads that state of the cluster for a CnsFileAccessConfig object and makes changes based on the state read
-// and what is in the CnsFileAccessConfig.Spec
+// Reconcile reads that cluster state for a CnsFileAccessConfig object and makes
+// changes based on the state read and what is in the CnsFileAccessConfig.Spec.
 // Note:
-// The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+// The Controller will requeue the Request to be processed again if the returned
+// error is non-nil or Result.Requeue is true, otherwise upon completion it will
+// remove the work from the queue.
+func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
+	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
-	// Fetch the CnsFileAccessConfig instance
+	// Fetch the CnsFileAccessConfig instance.
 	instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
@@ -212,7 +223,8 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 	// Get the virtualmachine instance
 	vm, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", instance.Spec.VMName, err)
+		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v",
+			instance.Spec.VMName, err)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -242,7 +254,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		// Cleanup instance entry from backOffDuration map
+		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
@@ -252,7 +264,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 	// If the CnsFileAccessConfig instance is already successful,
 	// and not deleted by the user, remove the instance from the queue.
 	if instance.Status.Done {
-		// Cleanup instance entry from backOffDuration map
+		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
@@ -281,14 +293,15 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 	vmOwnerRefExists := false
 	if len(instance.OwnerReferences) != 0 {
 		for _, ownerRef := range instance.OwnerReferences {
-			if ownerRef.Kind == reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name() && ownerRef.Name == instance.Spec.VMName && ownerRef.UID == vm.UID {
+			if ownerRef.Kind == reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name() &&
+				ownerRef.Name == instance.Spec.VMName && ownerRef.UID == vm.UID {
 				vmOwnerRefExists = true
 				break
 			}
 		}
 	}
 	if !vmOwnerRefExists {
-		// Set ownerRef on CnsFileAccessConfig instance (in-memory) to VM instance
+		// Set ownerRef on CnsFileAccessConfig instance (in-memory) to VM instance.
 		setInstanceOwnerRef(instance, instance.Spec.VMName, vm.UID)
 		err = updateCnsFileAccessConfig(ctx, r.client, instance)
 		if err != nil {
@@ -298,7 +311,8 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
-	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds", instance.Name, instance.Namespace, timeout)
+	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds",
+		instance.Name, instance.Namespace, timeout)
 	if !instance.Status.Done {
 		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
@@ -308,7 +322,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
-		// Query volume
+		// Query volume.
 		log.Debugf("Querying volume: %s for CnsFileAccessConfig request with name: %q on namespace: %q",
 			volumeID, instance.Name, instance.Namespace)
 		volume, err := common.QueryVolumeByID(ctx, r.volumeManager, volumeID)
@@ -343,8 +357,9 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context, request re
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		// Update the instance to indicate the volume registration is successful
-		msg := fmt.Sprintf("Successfully configured access points of VM: %q on the volume: %q", instance.Spec.VMName, instance.Spec.PvcName)
+		// Update the instance to indicate the volume registration is successful.
+		msg := fmt.Sprintf("Successfully configured access points of VM: %q on the volume: %q",
+			instance.Spec.VMName, instance.Spec.PvcName)
 		instance.Status.AccessPoints = accessPoints
 		err = setInstanceSuccess(ctx, r, instance, msg)
 		if err != nil {
@@ -455,7 +470,7 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 	return nil
 }
 
-// getVMExternalIP helps to fetch the external facing IP address for a given TKG VM
+// getVMExternalIP helps to fetch the external facing IP for a given TKG VM.
 func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	vm *vmoperatortypes.VirtualMachine) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -485,7 +500,8 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	return tkgVMIP, nil
 }
 
-// setInstanceSuccess sets instance to success and records an event on the CnsFileAccessConfig instance
+// setInstanceSuccess sets instance to success and records an event on the
+// CnsFileAccessConfig instance.
 func setInstanceSuccess(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, msg string) error {
 	instance.Status.Done = true
@@ -498,7 +514,8 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	return nil
 }
 
-// setInstanceError sets error and records an event on the CnsFileAccessConfig instance
+// setInstanceError sets error and records an event on the CnsFileAccessConfig
+// instance.
 func setInstanceError(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, errMsg string) {
 	log := logger.GetLogger(ctx)
@@ -510,7 +527,8 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
 }
 
-func updateCnsFileAccessConfig(ctx context.Context, client client.Client, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+func updateCnsFileAccessConfig(ctx context.Context, client client.Client,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {
@@ -520,21 +538,22 @@ func updateCnsFileAccessConfig(ctx context.Context, client client.Client, instan
 	return err
 }
 
-// recordEvent records the event, sets the backOffDuration for the instance appropriately
-// and logs the message.
+// recordEvent records the event, sets the backOffDuration for the instance
+// appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
-func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, eventtype string, msg string) {
+func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
 	switch eventtype {
 	case v1.EventTypeWarning:
-		// Double backOff duration
+		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsFileAccessConfigFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
-		// Reset backOff duration to one second
+		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsFileAccessConfigSucceeded", msg)
@@ -542,7 +561,8 @@ func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig, instance 
 	}
 }
 
-// removeFinalizerFromCRDInstance will remove the CNS Finalizer = cns.vmware.com, from a given CnsFileAccessConfig instance
+// removeFinalizerFromCRDInstance will remove the CNS Finalizer = cns.vmware.com,
+// from a given CnsFileAccessConfig instance.
 func removeFinalizerFromCRDInstance(ctx context.Context, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) {
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
