@@ -66,7 +66,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	ginkgo.AfterEach(func() {
 		ginkgo.By("Performing test cleanup")
 		if pvclaim != nil {
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace), "Failed to delete PVC ", pvclaim.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace),
+				"Failed to delete PVC ", pvclaim.Name)
 		}
 
 		if pv != nil {
@@ -74,44 +75,51 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle))
 		}
 	})
-	verifyTopologyAwareProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string, scParameters map[string]string,
-		allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	verifyTopologyAwareProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string,
+		scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, bindingMode, false, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace,
+			nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Deleting the Storage Class")
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-		// Wait for additional 30 seconds to make sure that provision volume claim remains in pending state waiting for first consumer
+		// Wait for additional 30 seconds to make sure that provision volume claim
+		// remains in pending state waiting for first consumer.
 		ginkgo.By("Waiting for 30 seconds and verifying whether the PVC is still in pending state")
 		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
 
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 
 		ginkgo.By("Creating a pod")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		if allowedTopologies == nil {
-			// Get the topology value from pod's location to verify if it matches with volume's node affinity rules
+			// Get the topology value from pod's location to verify if it matches
+			// with volume's node affinity rules.
 			ginkgo.By("Verify volume is provisioned in same zone and region as that of the Pod")
 			podRegion, podZone, err := getTopologyFromPod(pod, nodeList)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -145,41 +153,41 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		pv = nil
 	}
 
-	/*
-		Test to verify provisioning with "VolumeBindingMode = WaitForFirstConsumer" in Storage Class and "AllowedTopologies" not specified.
-		When AllowedTopologies is not specified Volume Create Request will have all zones and regions in "AccessibilityRequirement".
-
-		Steps
-		1. Create a Storage Class with "VolumeBindingMode = WaitForFirstConsumer"
-		2. Create a PVC using the above SC
-		3. Verify that the PVC is not in Bound phase
-		4. Create a Pod using the above PVC
-		5. Verify volume is created and contains NodeAffinity rules.
-		6. Verify Pod is scheduled in zone and region where volume was created.
-		7. Delete Pod and wait for disk to be detached
-		8. Delete PVC
-		9. Delete SC
-	*/
-	ginkgo.It("Verify provisioning succeeds with VolumeBindingMode set to WaitForFirstConsumer and without AllowedTopologies in the storage class ", func() {
+	// Test to verify provisioning with "VolumeBindingMode = WaitForFirstConsumer"
+	// in Storage Class and "AllowedTopologies" not specified.
+	// When AllowedTopologies is not specified Volume Create Request will have
+	// all zones and regions in "AccessibilityRequirement".
+	//
+	// Steps
+	// 1. Create a Storage Class with "VolumeBindingMode = WaitForFirstConsumer".
+	// 2. Create a PVC using the above SC.
+	// 3. Verify that the PVC is not in Bound phase.
+	// 4. Create a Pod using the above PVC.
+	// 5. Verify volume is created and contains NodeAffinity rules.
+	// 6. Verify Pod is scheduled in zone and region where volume was created.
+	// 7. Delete Pod and wait for disk to be detached.
+	// 8. Delete PVC.
+	// 9. Delete SC.
+	ginkgo.It("Verify provisioning succeeds with VolumeBindingMode set to "+
+		"WaitForFirstConsumer and without AllowedTopologies in the storage class ", func() {
 		verifyTopologyAwareProvisioning(f, client, namespace, nil, nil)
 	})
 
-	/*
-		Test to verify provisioning with "VolumeBindingMode = WaitForFirstConsumer" in Storage Class and "AllowedTopologies" also specified.
-
-		Steps
-		1. Create a Storage Class with "VolumeBindingMode = WaitForFirstConsumer"
-		2. Create a PVC using the above SC
-		3. Verify that the PVC is not in Bound phase
-		4. Create a Pod using the above PVC
-		5. Verify volume is created and contains NodeAffinity rules.
-		6. Verify Pod is scheduled in zone and region where volume was created.
-		7. Delete Pod and wait for disk to be detached
-		8. Delete PVC
-		9. Delete SC
-	*/
+	// Test to verify provisioning with "VolumeBindingMode = WaitForFirstConsumer"
+	// in Storage Class and "AllowedTopologies" also specified.
+	//
+	// Steps
+	// 1. Create a Storage Class with "VolumeBindingMode = WaitForFirstConsumer".
+	// 2. Create a PVC using the above SC.
+	// 3. Verify that the PVC is not in Bound phase.
+	// 4. Create a Pod using the above PVC.
+	// 5. Verify volume is created and contains NodeAffinity rules.
+	// 6. Verify Pod is scheduled in zone and region where volume was created.
+	// 7. Delete Pod and wait for disk to be detached.
+	// 8. Delete PVC.
+	// 9. Delete SC.
 	ginkgo.It("Verify topology aware provisioning succeeds with VolumeBindingMode set to WaitForFirstConsumer", func() {
-		// Preparing allowedTopologies using topologies with shared datastores
+		// Preparing allowedTopologies using topologies with shared datastores.
 		regionZoneValue := GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
 		verifyTopologyAwareProvisioning(f, client, namespace, nil, allowedTopologies)
