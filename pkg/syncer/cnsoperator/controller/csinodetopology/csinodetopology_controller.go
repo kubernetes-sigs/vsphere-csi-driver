@@ -18,7 +18,6 @@ package csinodetopology
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -250,9 +249,9 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		}
 	} else {
 		msg := "missing zone or region information in vSphere CSI config `Labels` section"
-		log.Error(msg)
+		err = logger.LogNewError(log, msg)
 		_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
-		return reconcile.Result{}, errors.New(msg)
+		return reconcile.Result{}, err
 	}
 
 	// On successful event, remove instance from backOffDuration.

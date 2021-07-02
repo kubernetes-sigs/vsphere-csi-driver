@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -175,7 +174,7 @@ func StartWebhookServer(ctx context.Context) error {
 		<-stopCh
 		return nil
 	}
-	return errors.New("can't start webhook. no features are enabled which requires webhook")
+	return logger.LogNewError(log, "can't start webhook. no features are enabled which requires webhook")
 }
 
 // restartWebhookServer stops the webhook server and start webhook using

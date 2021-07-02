@@ -27,7 +27,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
-	"github.com/pkg/errors"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -314,9 +313,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	if stopCh == nil {
-		msg := "Failed to sync informer caches"
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewError(log, "Failed to sync informer caches")
 	}
 	log.Infof("Initialized metadata syncer")
 
@@ -483,9 +480,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("failed to read config. Error: %+v", err)
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
@@ -494,23 +489,17 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx,
 			restClientConfig, cnsoperatorv1alpha1.GroupName)
 		if err != nil {
-			msg := fmt.Sprintf("failed to create cns operator client. Err: %v", err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "failed to create cns operator client. Err: %v", err)
 		}
 
 		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, restClientConfig)
 		if err != nil {
-			msg := fmt.Sprintf("failed to create supervisorClient. Error: %+v", err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "failed to create supervisorClient. Error: %+v", err)
 		}
 	} else {
 		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 		if err != nil {
-			msg := fmt.Sprintf("failed to get VirtualCenterConfig. err=%v", err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
 		}
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
@@ -523,10 +512,9 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				// error.
 				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
 				if err = newVC.Connect(ctx); err != nil {
-					msg := fmt.Sprintf("failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
+					return logger.LogNewErrorf(log,
+						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
 						newVCConfig.Host, err)
-					log.Error(msg)
-					return errors.New(msg)
 				}
 
 				// Reset virtual center singleton instance by passing reload flag
@@ -534,18 +522,14 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				log.Info("Obtaining new vCenterInstance using new credentials")
 				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 				if err != nil {
-					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-					log.Error(msg)
-					return errors.New(msg)
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 				}
 			} else {
 				// If it's not a VC host or VC credentials update, same singleton
 				// instance can be used and it's Config field can be updated.
 				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 				if err != nil {
-					msg := fmt.Sprintf("failed to get VirtualCenter. err=%v", err)
-					log.Error(msg)
-					return errors.New(msg)
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 				}
 				vcenter.Config = newVCConfig
 			}
