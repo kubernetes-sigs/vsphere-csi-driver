@@ -45,9 +45,9 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
 )
 
 const (
@@ -57,7 +57,7 @@ const (
 	maxAllowedBlockVolumesPerNode = 59
 )
 
-var topologyService csinodetopology.TopologyService
+var topologyService commoncotypes.NodeTopologyService
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume.
@@ -707,7 +707,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			return nil, err
 		}
 		// Fetch topology labels for given node.
-		nodeInfo := csinodetopology.NodeInfo{
+		nodeInfo := commoncotypes.NodeInfo{
 			NodeName: nodeName,
 			NodeID:   nodeID,
 		}
@@ -764,7 +764,7 @@ func initVolumeTopologyService(ctx context.Context) error {
 	}
 	// Initialize the TopologyService if not done already.
 	var err error
-	topologyService, err = csinodetopology.InitTopologyServiceInterface(ctx)
+	topologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInNode(ctx)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to init topology service. Error: %+v", err)
