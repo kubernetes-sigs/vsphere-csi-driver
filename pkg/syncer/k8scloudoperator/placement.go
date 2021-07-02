@@ -422,10 +422,12 @@ func stampPVCWithError(ctx context.Context, client kubernetes.Interface,
 }
 
 // getParentSTS finds the statefulset that currPVC belongs to.
-// It goes through all the statefulsets in currPVC's namespace and constructs the prefix for each of its volumeclaimtemplates.
+// It goes through all the statefulsets in currPVC's namespace and
+// constructs the prefix for each of its volumeclaimtemplates.
 // If the prefix matches, then that STS is the parent statefulset.
-func getParentSTS(ctx context.Context, client kubernetes.Interface, currPVC *v1.PersistentVolumeClaim, currPVCParentReplica int, currPVCPrefix string) (*appsv1.StatefulSet, error) {
-	// Find all statefulsets in currPVC's namespace
+func getParentSTS(ctx context.Context, client kubernetes.Interface, currPVC *v1.PersistentVolumeClaim,
+	currPVCParentReplica int, currPVCPrefix string) (*appsv1.StatefulSet, error) {
+	// Find all statefulsets in currPVC's namespace.
 	namespace := currPVC.Namespace
 	stsList, err := client.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -436,7 +438,8 @@ func getParentSTS(ctx context.Context, client kubernetes.Interface, currPVC *v1.
 		volumeClaimTemplates := sts.Spec.VolumeClaimTemplates
 		numberOfReplicas := sts.Spec.Replicas
 
-		// currPVC's parent replica number should be within the range of the number of replicas defined in the given sts
+		// currPVC's parent replica number should be within the range of the
+		// number of replicas defined in the given sts.
 		if *numberOfReplicas < int32(currPVCParentReplica) {
 			continue
 		}
@@ -446,8 +449,9 @@ func getParentSTS(ctx context.Context, client kubernetes.Interface, currPVC *v1.
 		}
 
 		for _, volume := range volumeClaimTemplates {
-			// Construct the prefix that the volume name will take for each replica and check weather currPVC's prefix is same as that prefix.
-			// If yes, then we have found the parent statefulset
+			// Construct the prefix that the volume name will take for each
+			// replica and check weather currPVC's prefix is same as that prefix.
+			// If yes, then we have found the parent statefulset.
 			volumePrefix := volume.ObjectMeta.Name + "-" + sts.Name
 			if currPVCPrefix == volumePrefix {
 				return &sts, nil
@@ -459,16 +463,16 @@ func getParentSTS(ctx context.Context, client kubernetes.Interface, currPVC *v1.
 	return nil, nil
 }
 
-// Finds the PVC prefix and the replica number to which the given PVC belongs to
+// Finds the PVC prefix and the replica number to which the given PVC belongs to.
 func getPvcPrefixAndParentReplicaID(ctx context.Context, pvcName string) (string, int, error) {
 	splitCurrPVCName := strings.Split(pvcName, "-")
 
 	if len(splitCurrPVCName) > 0 {
-		// Get ReplicaID for current PVC
+		// Get ReplicaID for current PVC.
 		currPVCReplicaID := splitCurrPVCName[len(splitCurrPVCName)-1]
 		currPVCReplicaIDStr, err := strconv.Atoi(currPVCReplicaID)
 
-		// Get prefix for current PVC
+		// Get prefix for current PVC.
 		splitCurrPVCName = splitCurrPVCName[:len(splitCurrPVCName)-1]
 		currPVCPrefix := strings.Join(splitCurrPVCName, "-")
 
@@ -478,38 +482,41 @@ func getPvcPrefixAndParentReplicaID(ctx context.Context, pvcName string) (string
 	return "", -1, fmt.Errorf("failed to find parent Replica ID for PVC %+v", pvcName)
 }
 
-// getCousinPVCs finds the parent statefulset of currPVC and returns a list of all of its PVCs except sibling PVCs.
-// Sibling PVCs are the ones that belong to the same replica as that of currPVC.
-func getCousinPVCs(ctx context.Context, client kubernetes.Interface, currPVC *v1.PersistentVolumeClaim) ([]string, error) {
+// getCousinPVCs finds the parent statefulset of currPVC and returns a list
+// of all of its PVCs except sibling PVCs. Sibling PVCs are the ones that
+// belong to the same replica as that of currPVC.
+func getCousinPVCs(ctx context.Context, client kubernetes.Interface,
+	currPVC *v1.PersistentVolumeClaim) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
-	// Find prefix for currPVC and the replica number that currPVC belongs to
+	// Find prefix for currPVC and the replica number that currPVC belongs to.
 	currPVCPrefix, currPVCParentReplica, err := getPvcPrefixAndParentReplicaID(ctx, currPVC.Name)
 	if err != nil {
 		log.Errorf("Failed to get prefix and replica number to which the PVC belongs. Err %+v", err)
 		return []string{}, err
 	}
 
-	// Find the statefulset that the PVC belongs to
+	// Find the statefulset that the PVC belongs to.
 	parentSTS, err := getParentSTS(ctx, client, currPVC, currPVCParentReplica, currPVCPrefix)
 	if err != nil {
 		return []string{}, err
 	}
-	// parent statefulset not found, send back empty list of cousin PVCs
+	// Parent statefulset not found, send back empty list of cousin PVCs.
 	if parentSTS == nil {
 		return []string{}, nil
 	}
 
 	cousinPVCs := []string{}
-	// Number of replicas defined in the statefulset
+	// Number of replicas defined in the statefulset.
 	numberOfReplicas := int(*parentSTS.Spec.Replicas)
 
 	for i := 0; i < numberOfReplicas; i++ {
-		// If replica under consideration is same as the one that currPVC belongs to, ignore it as it will give sibling PVC.
+		// If replica under consideration is same as the one that currPVC
+		// belongs to, ignore it as it will give sibling PVC.
 		if i == currPVCParentReplica {
 			continue
 		}
-		// Construct the cousin PVC name and add it to the list
+		// Construct the cousin PVC name and add it to the list.
 		cousinPVCName := currPVCPrefix + "-" + strconv.Itoa(i)
 		cousinPVCs = append(cousinPVCs, cousinPVCName)
 	}
@@ -517,13 +524,15 @@ func getCousinPVCs(ctx context.Context, client kubernetes.Interface, currPVC *v1
 	return cousinPVCs, nil
 }
 
-// Removes host at the given index
+// Removes host at the given index.
 func filterHost(s []string, index int) []string {
 	return append(s[:index], s[index+1:]...)
 }
 
-// Returns a map of PVC name and object for a list of PVCs in a given namespace and label selector
-func getAllPvcs(ctx context.Context, client kubernetes.Interface, namespace string, selectLabel string) (map[string]v1.PersistentVolumeClaim, error) {
+// Returns a map of PVC name and object for a list of PVCs in a given
+// namespace and label selector.
+func getAllPvcs(ctx context.Context, client kubernetes.Interface, namespace string,
+	selectLabel string) (map[string]v1.PersistentVolumeClaim, error) {
 	allPVCsMap := make(map[string]v1.PersistentVolumeClaim)
 
 	allPVCs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{
@@ -539,7 +548,7 @@ func getAllPvcs(ctx context.Context, client kubernetes.Interface, namespace stri
 	return allPVCsMap, nil
 }
 
-// Check if internal FSS to check for sibling replica bound PVCs is enabled
+// Check if internal FSS to check for sibling replica bound PVCs is enabled.
 func isSiblingReplicaBoundPvcFSSEnabled(ctx context.Context) bool {
 	log := logger.GetLogger(ctx)
 
@@ -550,7 +559,8 @@ func isSiblingReplicaBoundPvcFSSEnabled(ctx context.Context) bool {
 			log.Debugf("Failed retrieving cluster flavor. Error: %v", err)
 			return false
 		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, *admissionhandler.COInitParams)
+		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
+			common.Kubernetes, clusterFlavor, *admissionhandler.COInitParams)
 		if err != nil {
 			log.Debugf("failed to get k8s interface. err: %v", err)
 			return false
@@ -560,9 +570,11 @@ func isSiblingReplicaBoundPvcFSSEnabled(ctx context.Context) bool {
 	return containerOrchestratorUtility.IsFSSEnabled(ctx, common.SiblingReplicaBoundPvcCheck)
 }
 
-// eliminateNodesWithPvcOfSiblingReplica filters out the nodes that have bound PVCs of sibling replicas.
-// It finds cousin PVCs of currPVC and elimates all nodes which have at least one cousin PVC placed on them.
-func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernetes.Interface, currPVC *v1.PersistentVolumeClaim, candidateHosts []string) ([]string, error) {
+// eliminateNodesWithPvcOfSiblingReplica filters out the nodes that have
+// bound PVCs of sibling replicas. It finds cousin PVCs of currPVC and
+// elimates all nodes which have at least one cousin PVC placed on them.
+func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernetes.Interface,
+	currPVC *v1.PersistentVolumeClaim, candidateHosts []string) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
 	if !isSiblingReplicaBoundPvcFSSEnabled(ctx) {
@@ -570,7 +582,7 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 		return candidateHosts, nil
 	}
 
-	// Proceed only if it is a vDPP PVC
+	// Proceed only if it is a vDPP PVC.
 	pvcLabels := currPVC.GetLabels()
 	appplatformLabelVal, labelOk := pvcLabels[appplatformLabel]
 	if !labelOk {
@@ -578,7 +590,7 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 		return candidateHosts, nil
 	}
 
-	// Do not proceed if it is a standalone pod
+	// Do not proceed if it is a standalone pod.
 	pvcAnnotation := currPVC.ObjectMeta.Annotations
 	if _, ok := pvcAnnotation[nodeAffinityAnnotationKey]; ok {
 		log.Infof("Node affinity key already specified for PVC %+v, skip this step.", currPVC.Name)
@@ -586,7 +598,7 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 	}
 
 	if val, ok := pvcLabels[siblingReplicaCheckOptOutLabel]; ok && val == "true" {
-		// siblingReplicaCheckOptOutLabel is opted in by default unless specified otherwise
+		// siblingReplicaCheckOptOutLabel is opted in by default unless specified otherwise.
 		log.Infof("Sibling Replica Bound PVC check is not opted, skip this step for PVC %s.", currPVC.Name)
 		return candidateHosts, nil
 	}
@@ -605,7 +617,8 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 	for _, cousinPVC := range cousinPVCs {
 		pvc, ok := allPVCs[cousinPVC]
 		if !ok {
-			// This scenario can happen if psp-operator PVC watcher has already deleted the PVC
+			// This scenario can happen if psp-operator PVC watcher has already
+			// deleted the PVC.
 			log.Errorf("Failed to find PVC object for PVC %s", cousinPVC)
 			continue
 		}
@@ -619,9 +632,11 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 			return candidateHosts, err
 		}
 
-		// Volume Binding has to be WaitForFirstConsumer because it can only be Immediate if it has the annotation failure-domain.beta.vmware.com/node on the PVC.
-		// We have already verified that this annotation is not present on PVC as part of the validatin above.
-		// Hence, nodeAffinity value will always be defined on the PV.
+		// Volume Binding has to be WaitForFirstConsumer because it can only be
+		// Immediate if it has the annotation failure-domain.beta.vmware.com/node
+		// on the PVC. We have already verified that this annotation is not
+		// present on PVC as part of the validatin above. Hence, nodeAffinity
+		// value will always be defined on the PV.
 		hostName := pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
 
 		for i, host := range candidateHosts {
@@ -690,14 +705,16 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	pvcPlacementMutex.Lock()
 	defer pvcPlacementMutex.Unlock()
 
-	// Filter candidate hosts further to elimate nodes that may have bound PVCs of sibling replicas
+	// Filter candidate hosts further to elimate nodes that may have bound PVCs
+	// of sibling replicas.
 	hostNames, err = eliminateNodesWithPvcOfSiblingReplica(ctx, client, curPVC, hostNames)
 	if err != nil {
 		// Ignore error as this should not be a blocker for placing PVCs.
 		// A manual workaround is already documented.
 		log.Debugf("Failed to filter hosts to eliminate nodes that may have bound PVCs of sibling replicas.  Err: %+v", err)
 	} else {
-		// If there are no candidate hosts left, it means there are bound PVCs of a sibling replica on all nodes
+		// If there are no candidate hosts left, it means there are bound PVCs
+		// of a sibling replica on all nodes.
 		if len(hostNames) == 0 {
 			stampPVCWithError(ctx, client, curPVC, siblingReplicaBoundPVCErr)
 			return fmt.Errorf("no candidate hosts left for PVC %s. All nodes have bound PVCs of sibling replicas", curPVC.Name)
@@ -1085,7 +1102,8 @@ func getHostNamesFromTopology(ctx context.Context, topologyRequirement *csi.Topo
 
 // getHostCandidates returns the hostnames where the placement can be done.
 // Returns error if there is a misconfiguration.
-func getHostCandidates(ctx context.Context, curPVC *v1.PersistentVolumeClaim, tops *csi.TopologyRequirement) ([]string, error) {
+func getHostCandidates(ctx context.Context, curPVC *v1.PersistentVolumeClaim,
+	tops *csi.TopologyRequirement) ([]string, error) {
 	log := logger.GetLogger(ctx)
 	candidateHostsFromTopology := getHostNamesFromTopology(ctx, tops)
 
