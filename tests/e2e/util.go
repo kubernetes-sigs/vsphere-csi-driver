@@ -1389,6 +1389,43 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 	}
 }
 
+// verifyCNSFileAccessConfigCRDInSupervisor is a helper method to check if a given crd is created/deleted in the supervisor cluster
+// This method will fetch the List of CRD Objects for a given crdName, Version and Group and then
+// verifies if the given expectedInstanceName exist in the list
+func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.Framework, expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) {
+	//Adding an explicit wait time for the recounciler to refresh the status
+	time.Sleep(30 * time.Second)
+
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var instanceFound bool
+	for _, crd := range list.Items {
+		if crdName == "cnsfileaccessconfigs" {
+			instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSFileAccessConfig crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+		}
+	}
+	if isCreated {
+		gomega.Expect(instanceFound).To(gomega.BeTrue())
+	} else {
+		gomega.Expect(instanceFound).To(gomega.BeFalse())
+	}
+}
+
 //verifyEntityReferenceForKubEntities takes context,client, pv, pvc and pod as inputs
 //and verifies crdCNSVolumeMetadata is attached
 
