@@ -25,6 +25,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -44,6 +45,12 @@ type COCommonInterface interface {
 	MarkFakeAttached(ctx context.Context, volumeID string) error
 	// Check if the volume was fake attached, and unmark it as not fake attached.
 	ClearFakeAttached(ctx context.Context, volumeID string) error
+	// InitTopologyServiceInController initializes the necessary resources
+	// required for topology related functionality in the controller.
+	InitTopologyServiceInController(ctx context.Context) (types.ControllerTopologyService, error)
+	// InitTopologyServiceInNode initializes the necessary resources
+	// required for topology related functionality in the nodes.
+	InitTopologyServiceInNode(ctx context.Context) (types.NodeTopologyService, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

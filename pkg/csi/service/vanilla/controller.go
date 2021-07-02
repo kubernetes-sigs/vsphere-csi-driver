@@ -42,10 +42,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
-	csinodetopology "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/csinodetopology"
 )
 
 // NodeManagerInterface provides functionality to manage (VM) nodes.
@@ -63,7 +63,7 @@ type controller struct {
 	manager     *common.Manager
 	nodeMgr     NodeManagerInterface
 	authMgr     common.AuthorizationService
-	topologyMgr csinodetopology.TopologyService
+	topologyMgr commoncotypes.ControllerTopologyService
 }
 
 // volumeMigrationService holds the pointer to VolumeMigration instance.
@@ -232,7 +232,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	// Create dynamic informer for CSINodeTopology instance if FSS is enabled.
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 		// Initialize volume topology service.
-		c.topologyMgr, err = csinodetopology.InitTopologyServiceInterface(ctx)
+		c.topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 		if err != nil {
 			log.Errorf("failed to initialize topology service. Error: %+v", err)
 			return err
@@ -454,7 +454,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 			}
 		}
-		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with " +
+		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with "+
 			"datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
 		if createVolumeSpec.ScParams.DatastoreURL != "" {
 			// Check datastoreURL specified in the storageclass is accessible from

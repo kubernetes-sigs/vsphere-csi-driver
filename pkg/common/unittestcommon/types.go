@@ -20,9 +20,13 @@ import (
 	"context"
 	"sync"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
+
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
@@ -59,4 +63,17 @@ type MockVolumeMigrationService interface {
 // interface by storing the operation details in an in-memory map.
 type fakeVolumeOperationRequestInterface struct {
 	volumeOperationRequestMap map[string]*cnsvolumeoperationrequest.VolumeOperationRequestDetails
+}
+
+type mockControllerVolumeTopology struct {}
+type mockNodeVolumeTopology struct {}
+
+func (nodeTopology *mockNodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context, info *commoncotypes.NodeInfo) (
+	map[string]string, error) {
+	return nil, nil
+}
+
+func (cntrlTopology *mockControllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
+	topologyRequirement *csi.TopologyRequirement) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
+	return nil, nil, nil
 }
