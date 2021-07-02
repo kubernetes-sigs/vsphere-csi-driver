@@ -139,7 +139,8 @@ func CheckAPI(versionToCheck string,
 	}
 
 	if major < minSupportedVCenterMajor || (major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor) {
-		return fmt.Errorf("the minimum supported vCenter is %d.%d.%d", minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
+		return fmt.Errorf("the minimum supported vCenter is %d.%d.%d",
+			minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	}
 
 	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
