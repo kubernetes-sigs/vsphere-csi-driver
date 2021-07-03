@@ -239,6 +239,9 @@ const (
 	// QuerySnapshotLimit is the maximum number of snapshots that can be retrieved per QuerySnapshot call.
 	// The 128 size limit is specified by CNS QuerySnapshot API.
 	QuerySnapshotLimit = int64(128)
+
+	// VSphereCSISnapshotIdDelimiter is the delimiter for concatenating CNS VolumeID and CNS SnapshotID
+	VSphereCSISnapshotIdDelimiter = "+"
 )
 
 // Supported container orchestrators.

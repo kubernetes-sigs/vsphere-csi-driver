@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -1137,7 +1139,93 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
+
+	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+	if !isBlockVolumeSnapshotEnabled {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
+	}
+
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
+		// Validate CreateSnapshotRequest
+		if err := validateVanillaCreateSnapshotRequestRequest(ctx, req); err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"validation for CreateSnapshot Request: %+v has failed. Error: %v", *req, err)
+		}
+		volumeID := req.GetSourceVolumeId()
+
+		// Check if the source volume is migrated vSphere volume
+		if strings.Contains(volumeID, ".vmdk") {
+			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+				"cannot snapshot migrated vSphere volume. :%q", volumeID)
+		}
+
+		// Check if volume already exists
+		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: volumeIds,
+		}
+		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"The volume %q to be snapshotted is not available: %v", volumeID, err)
+		}
+
+		// Check if it is a block volume
+		if queryResult.Volumes[0].VolumeType != common.BlockVolumeType {
+			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+				"CreateSnapshot is only supported on block volume. VolumeType: %v",
+				queryResult.Volumes[0].VolumeType)
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+
+		// Get the snapshot size by getting the volume size, which is only valid for full backup use cases
+		var snapshotSize int64
+		if len(queryResult.Volumes) > 0 {
+			snapshotSize = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+		} else {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get the snapshot size by querying volume: %q", volumeID)
+		}
+
+		// the returned snapshotID below is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+"
+		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
+		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
+		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
+		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, c.manager, volumeID, req.Name)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create snapshot on volume %q: %v", volumeID, err)
+		}
+		snapshotCreateTimeInProto := timestamppb.New(*snapshotCreateTimePtr)
+
+		createSnapshotResponse := &csi.CreateSnapshotResponse{
+			Snapshot: &csi.Snapshot{
+				SizeBytes:      snapshotSize * common.MbInBytes,
+				SnapshotId:     snapshotID,
+				SourceVolumeId: volumeID,
+				CreationTime:   snapshotCreateTimeInProto,
+				ReadyToUse:     true,
+			},
+		}
+
+		log.Infof("CreateSnapshot succeeded for snapshot %s "+
+			"on volume %s size %d Time proto %d Timestamp %+v Response: %+v",
+			snapshotID, volumeID, snapshotSize*common.MbInBytes, snapshotCreateTimeInProto,
+			*snapshotCreateTimePtr, createSnapshotResponse)
+		return createSnapshotResponse, nil
+	}
+
+	start := time.Now()
+	resp, err := createSnapshotInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
@@ -1145,7 +1233,58 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
+
+	isBlockVolumeSnapshotEnabled :=
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+	if !isBlockVolumeSnapshotEnabled {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
+	}
+
+	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
+		// Validate arguments
+		// The expected format of the SnapshotId in the DeleteSnapshotRequest is,
+		// a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
+		// That is, a string of "<UUID>+<UUID>"
+		csiSnapshotID := req.GetSnapshotId()
+		if len(csiSnapshotID) == 0 {
+			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"DeleteSnapshot Snapshot ID must be provided")
+		}
+
+		// Decompose csiSnapshotID based on the expected format mentioned above
+		IDs := strings.Split(csiSnapshotID, common.VSphereCSISnapshotIdDelimiter)
+		if len(IDs) != 2 {
+			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"DeleteSnapshot provided invalid Snapshot ID")
+		}
+
+		volumeID := IDs[0]
+		snapshotID := IDs[1]
+		log.Debugf("DeleteSnapshot: Deleting snapshot %q on volume %q", snapshotID, volumeID)
+
+		err := common.DeleteSnapshotUtil(ctx, c.manager, volumeID, snapshotID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"Failed to delete snapshot %q on volume %q. Error: %+v",
+				snapshotID, volumeID, err)
+		}
+
+		log.Infof("DeleteSnapshot: successfully deleted snapshot %q on volume %q", snapshotID, volumeID)
+		return &csi.DeleteSnapshotResponse{}, nil
+	}
+
+	volumeType := prometheus.PrometheusBlockVolumeType
+	start := time.Now()
+	resp, err := deleteSnapshotInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
+
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
