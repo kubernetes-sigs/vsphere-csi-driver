@@ -31,6 +31,7 @@ import (
 var (
 	unSupportedParameters = parameterSet{
 		common.CSIMigrationParams:                   struct{}{},
+		common.DatastoreMigrationParam:              struct{}{},
 		common.DiskFormatMigrationParam:             struct{}{},
 		common.HostFailuresToTolerateMigrationParam: struct{}{},
 		common.ForceProvisioningMigrationParam:      struct{}{},
