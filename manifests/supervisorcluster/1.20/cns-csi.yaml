@@ -10,7 +10,7 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces"]
+    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces","services"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
@@ -169,6 +169,7 @@ spec:
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--default-fstype=ext4"
+            - "--use-service-for-placement-engine=false"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -178,6 +179,10 @@ spec:
               value: "6443"
             - name: VSPHERE_CLOUD_OPERATOR_SERVICE_PORT
               value: "29000"
+            - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAME
+              value: vmware-system-psp-operator-k8s-cloud-operator-service
+            - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAMESPACE
+              value: vmware-system-appplatform-operator-system                
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
@@ -251,6 +256,10 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAME
+              value: vmware-system-psp-operator-k8s-cloud-operator-service
+            - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAMESPACE
+              value: vmware-system-appplatform-operator-system               
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -343,6 +352,7 @@ data:
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
   "block-volume-snapshot": "false"
+  "use-service-for-placement-engine": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

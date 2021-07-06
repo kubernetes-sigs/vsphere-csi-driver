@@ -423,6 +423,7 @@ data:
   "file-volume": "false"
   "csi-sv-feature-states-replication": "false"
   "block-volume-snapshot": "false"
+  "use-service-for-placement-engine": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
