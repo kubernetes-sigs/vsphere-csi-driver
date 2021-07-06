@@ -325,7 +325,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			}
 		}
 
-		log.Debugf("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
+		log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 			"CnsNodeVmAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
 		diskUUID, attachErr := r.volumeManager.AttachVolume(ctx, nodeVM, volumeID, false)
@@ -439,7 +439,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		log.Debugf("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
+		log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 			"CnsNodeVmAttachment request with name: %q on namespace: %q",
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
 		detachErr := r.volumeManager.DetachVolume(ctx, nodeVM, cnsVolumeID)
