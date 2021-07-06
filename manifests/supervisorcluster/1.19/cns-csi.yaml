@@ -349,7 +349,7 @@ data:
   "fake-attach": "true"
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
-  "sibling-replica-bound-pvc-check": "false"
+  "sibling-replica-bound-pvc-check": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
