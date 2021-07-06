@@ -61,6 +61,13 @@ func TestValidateStorageClassForMigrationParameter(t *testing.T) {
 	if !strings.Contains(string(admissionResponse.Result.Reason), migrationParamErrorMessage) || admissionResponse.Allowed {
 		t.Fatalf("TestValidateStorageClassForMigrationParameter failed. admissionReview.Request: %v, admissionResponse: %v", admissionReview.Request, admissionResponse)
 	}
+	admissionReview.Request.Object = runtime.RawExtension{
+		Raw: []byte("{\n  \"kind\": \"StorageClass\",\n  \"apiVersion\": \"storage.k8s.io/v1\",\n  \"metadata\": {\n    \"name\": \"sc\",\n    \"uid\": \"a9ed134e-aab1-4624-8de4-b9d961cad861\",\n    \"creationTimestamp\": \"2020-08-27T20:57:00Z\"\n  },\n  \"provisioner\": \"csi.vsphere.vmware.com\",\n  \"parameters\": {\n    \"datastore-migrationparam\": \"vsanDatastore\"\n  },\n  \"reclaimPolicy\": \"Delete\",\n  \"volumeBindingMode\": \"Immediate\"\n}"),
+	}
+	admissionResponse = validateStorageClass(ctx, &admissionReview)
+	if !strings.Contains(string(admissionResponse.Result.Reason), migrationParamErrorMessage) || admissionResponse.Allowed {
+		t.Fatalf("TestValidateStorageClassForMigrationParameter failed. admissionReview.Request: %v, admissionResponse: %v", admissionReview.Request, admissionResponse)
+	}
 	t.Log("TestValidateStorageClassForMigrationParameter Passed")
 }
 
