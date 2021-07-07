@@ -2653,10 +2653,15 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 //toggleCSIMigrationFeatureGatesOnK8snodes to toggle CSI migration feature gates on kublets for worker nodes
 func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool) {
 	var err error
+	var found bool
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, node := range nodes.Items {
 		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+			continue
+		}
+		found = isCSIMigrationFeatureGatesEnabledOnKubelet(ctx, client, node.Name)
+		if found == shouldEnable {
 			continue
 		}
 		dh := drain.Helper{
@@ -2685,6 +2690,21 @@ func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client client
 	}
 }
 
+//isCSIMigrationFeatureGatesEnabledOnKubelet checks whether CSIMigration Feature Gates are enabled on CSI Node
+func isCSIMigrationFeatureGatesEnabledOnKubelet(ctx context.Context, client clientset.Interface, nodeName string) bool {
+	csinode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	found := false
+	for annotation, value := range csinode.Annotations {
+		framework.Logf("Annotation seen on CSI node - %s:%s", annotation, value)
+		if annotation == migratedPluginAnnotation && strings.Contains(value, vcpProvisionerName) {
+			found = true
+			break
+		}
+	}
+	return found
+}
+
 //waitForCSIMigrationFeatureGatesToggleOnkublet wait for CSIMigration Feature Gates toggle result on the csinode
 func waitForCSIMigrationFeatureGatesToggleOnkublet(ctx context.Context, client clientset.Interface, nodeName string, added bool) error {
 	var found bool
@@ -2695,7 +2715,8 @@ func waitForCSIMigrationFeatureGatesToggleOnkublet(ctx context.Context, client c
 		}
 		found = false
 		for annotation, value := range csinode.Annotations {
-			if annotation == migratedPluginAnnotation && value == vcpProvisionerName {
+			framework.Logf("Annotation seen on CSI node - %s:%s", annotation, value)
+			if annotation == migratedPluginAnnotation && strings.Contains(value, vcpProvisionerName) {
 				found = true
 				break
 			}
