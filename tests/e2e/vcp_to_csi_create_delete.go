@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cns "github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
@@ -317,8 +318,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			log.Info("Processing PVC: " + pvc.Name)
-			found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
-			gomega.Expect(found).To(gomega.BeTrue())
+			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -621,7 +622,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}()
 
 		ginkgo.By("Verify CNS entries for PVC2 and PV2")
-		err = verifyVolumeMetadataInCNS(&e2eVSphere, fcdID, pvc2.Name, pv.Name, "")
+		err = waitAndVerifyCnsVolumeMetadata(fcdID, pvc2, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -832,9 +833,16 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context, crd *mi
 
 // verifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, pod *v1.Pod) bool {
+	refferedEntityCheck := true
+	if e2eVSphere.Client.Version == cns.ReleaseVSAN67u3 {
+		refferedEntityCheck = false
+	}
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(cnsQueryResult.Volumes).NotTo(gomega.BeEmpty(), "CNS volume query yielded no results for volume id: "+volumeID)
+	if cnsQueryResult.Volumes == nil || len(cnsQueryResult.Volumes) == 0 {
+		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
+		return false
+	}
 	cnsVolume := cnsQueryResult.Volumes[0]
 	pvcEntryFound := false
 	pvEntryFound := false
@@ -864,15 +872,17 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 					break
 				}
 				if verifyPvEntry {
-					if entityMetadata.ReferredEntity == nil {
-						framework.Logf("Missing ReferredEntity in PVC entry for volume id %v", volumeID)
-						pvcEntryFound = false
-						break
-					}
-					if entityMetadata.ReferredEntity[0].EntityName != pv.Name {
-						framework.Logf("PV name '%v' in referred entity does not match PV name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pv.Name, volumeID)
-						pvcEntryFound = false
-						break
+					if refferedEntityCheck {
+						if entityMetadata.ReferredEntity == nil {
+							framework.Logf("Missing ReferredEntity in PVC entry for volume id %v", volumeID)
+							pvcEntryFound = false
+							break
+						}
+						if entityMetadata.ReferredEntity[0].EntityName != pv.Name {
+							framework.Logf("PV name '%v' in referred entity does not match PV name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pv.Name, volumeID)
+							pvcEntryFound = false
+							break
+						}
 					}
 				}
 				if pvc.Labels == nil {
@@ -930,21 +940,23 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 					podEntryFound = false
 					break
 				}
-				if verifyPvcEntry {
-					if entityMetadata.ReferredEntity == nil {
-						framework.Logf("Missing ReferredEntity in pod entry for volume id %v", volumeID)
-						podEntryFound = false
-						break
-					}
-					if entityMetadata.ReferredEntity[0].EntityName != pvc.Name {
-						framework.Logf("PVC name '%v' in referred entity does not match PVC name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pvc.Name, volumeID)
-						podEntryFound = false
-						break
-					}
-					if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
-						framework.Logf("PVC namespace '%v' does not match PVC namespace in POD metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
-						podEntryFound = false
-						break
+				if refferedEntityCheck {
+					if verifyPvcEntry {
+						if entityMetadata.ReferredEntity == nil {
+							framework.Logf("Missing ReferredEntity in pod entry for volume id %v", volumeID)
+							podEntryFound = false
+							break
+						}
+						if entityMetadata.ReferredEntity[0].EntityName != pvc.Name {
+							framework.Logf("PVC name '%v' in referred entity does not match PVC name '%v', in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName, pvc.Name, volumeID)
+							podEntryFound = false
+							break
+						}
+						if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
+							framework.Logf("PVC namespace '%v' does not match PVC namespace in POD metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+							podEntryFound = false
+							break
+						}
 					}
 				}
 				if entityMetadata.Namespace != pod.Namespace {
