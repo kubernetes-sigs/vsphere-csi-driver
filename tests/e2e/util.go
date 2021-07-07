@@ -42,6 +42,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
+
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -2800,4 +2801,25 @@ func getRestConfigClient() *rest.Config {
 		}
 	}
 	return restConfig
+}
+
+//GetResizedStatefulSetFromManifest returns a StatefulSet from a manifest stored in fileName by adding namespace and a newSize
+func GetResizedStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
+	ssManifestFilePath := filepath.Join(manifestPath, "statefulset.yaml")
+	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
+	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
+	framework.ExpectNoError(err)
+	ss, err = statefulSetFromManifest(ssManifestFilePath, ss)
+	framework.ExpectNoError(err)
+	return ss
+}
+
+// statefulSetFromManifest returns a StatefulSet from a manifest stored in fileName in the Namespace indicated by ns.
+func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+	currentSize := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage()
+	newSize := currentSize.DeepCopy()
+	newSize.Add(resource.MustParse("1Gi"))
+	ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[v1.ResourceStorage] = newSize
+
+	return ss, nil
 }
