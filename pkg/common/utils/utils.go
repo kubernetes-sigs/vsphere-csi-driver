@@ -95,3 +95,40 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 	}
 	return queryResult, nil
 }
+
+func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) ([]cnstypes.CnsSnapshotQueryResultEntry, error) {
+	log := logger.GetLogger(ctx)
+	var allQuerySnapshotResults []cnstypes.CnsSnapshotQueryResultEntry
+	var snapshotQuerySpec cnstypes.CnsSnapshotQuerySpec
+	if snapshotQueryFilter.SnapshotQuerySpecs == nil {
+		log.Infof("Attempting to retrieve all the Snapshots available in the vCenter inventory.")
+	} else {
+		snapshotQuerySpec = snapshotQueryFilter.SnapshotQuerySpecs[0]
+		log.Infof("Invoking QuerySnapshots with spec: %+v", snapshotQuerySpec)
+	}
+	iteration := 1
+	for {
+		snapshotQueryResult, err := m.QuerySnapshots(ctx, snapshotQueryFilter)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"querySnapshots failed for snapshotQueryFilter: %v. Err=%+v", snapshotQueryFilter, err.Error())
+		}
+		if snapshotQueryResult == nil {
+			log.Infof("Observed empty SnapshotQueryResult")
+			break
+		}
+		if len(snapshotQueryResult.Entries) == 0 {
+			log.Infof("QuerySnapshots retrieved no results for the spec: %+v", snapshotQuerySpec)
+		}
+		allQuerySnapshotResults = append(allQuerySnapshotResults, snapshotQueryResult.Entries...)
+		log.Infof("%v more snapshots to be queried", snapshotQueryResult.Cursor.TotalRecords-snapshotQueryResult.Cursor.Offset)
+		if snapshotQueryResult.Cursor.Offset == snapshotQueryResult.Cursor.TotalRecords {
+			log.Infof("QuerySnapshots retrieved all records (%d) for the SnapshotQuerySpec: %+v in %d iterations",
+				snapshotQueryResult.Cursor.TotalRecords, snapshotQuerySpec, iteration)
+			break
+		}
+		iteration++
+		snapshotQueryFilter.Cursor = &snapshotQueryResult.Cursor
+	}
+	return allQuerySnapshotResults, nil
+}
