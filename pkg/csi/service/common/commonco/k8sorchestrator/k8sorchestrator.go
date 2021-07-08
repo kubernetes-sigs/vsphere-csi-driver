@@ -18,7 +18,6 @@ package k8sorchestrator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -272,9 +271,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				return err
 			}
 		} else {
-			msg := "csi-sv-feature-states-replication FSS not present"
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewError(log, "csi-sv-feature-states-replication FSS not present")
 		}
 
 		// Initialize supervisor FSS map values in GC using the
