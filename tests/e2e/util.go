@@ -735,7 +735,7 @@ func getPersistentVolumeSpecForRWX(fcdID string, persistentVolumeReclaimPolicy v
 	}
 
 	if accessMode == "" {
-		// If accessMode is not specified, set the default accessMode
+		// If accessMode is not specified, set the default accessMode.
 		accessMode = v1.ReadWriteMany
 	}
 
@@ -902,8 +902,8 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 	return nil
 }
 
-// verifyVolumeTopology verifies that the Node Affinity rules in the volume
-// match the topology constraints specified in the storage class.
+// verifyVolumeTopology verifies that the Node Affinity rules in the volume.
+// Match the topology constraints specified in the storage class.
 func verifyVolumeTopology(pv *v1.PersistentVolume, zoneValues []string, regionValues []string) (string, string, error) {
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
 		return "", "", fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
@@ -2575,7 +2575,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
-	// get fresh pod info.
+	// Get fresh pod info.
 	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	if err != nil {
 		return pod, fmt.Errorf("pod Get API error: %v", err)
@@ -2683,7 +2683,7 @@ func createPodForFSGroup(client clientset.Interface, namespace string,
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
-	// get fresh pod info.
+	// Get fresh pod info.
 	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	if err != nil {
 		return pod, fmt.Errorf("pod Get API error: %v", err)
@@ -3004,7 +3004,8 @@ func getRestConfigClient() *rest.Config {
 	return restConfig
 }
 
-//GetResizedStatefulSetFromManifest returns a StatefulSet from a manifest stored in fileName by adding namespace and a newSize
+// GetResizedStatefulSetFromManifest returns a StatefulSet from a manifest
+// stored in fileName by adding namespace and a newSize.
 func GetResizedStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
 	ssManifestFilePath := filepath.Join(manifestPath, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
@@ -3015,7 +3016,8 @@ func GetResizedStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
 	return ss
 }
 
-// statefulSetFromManifest returns a StatefulSet from a manifest stored in fileName in the Namespace indicated by ns.
+// statefulSetFromManifest returns a StatefulSet from a manifest stored in
+// fileName in the Namespace indicated by ns.
 func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	currentSize := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage()
 	newSize := currentSize.DeepCopy()
