@@ -344,7 +344,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		8. Delete SC
 	*/
 
-	ginkgo.It("Verify PVC name is removed from PV entry on CNS after PVC is deleted when Reclaim Policy is set to retain.", func() {
+	ginkgo.It("[csi-block-vanilla] Verify PVC name is removed from PV entry on CNS after PVC is deleted when Reclaim Policy is set to retain.", func() {
 
 		var err error
 
