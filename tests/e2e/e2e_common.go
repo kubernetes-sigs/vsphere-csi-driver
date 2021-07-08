@@ -75,87 +75,90 @@ const (
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
-	execCommand                                = "/bin/df -T /mnt/volume1 | /bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
-	execRWXCommandPod1                         = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
-	execRWXCommandPod2                         = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
-	ext3FSType                                 = "ext3"
-	ext4FSType                                 = "ext4"
-	fcdName                                    = "BasicStaticFCD"
-	fileSizeInMb                               = int64(2048)
-	healthGreen                                = "green"
-	healthRed                                  = "red"
-	healthStatusAccessible                     = "accessible"
-	healthStatusInAccessible                   = "inaccessible"
-	healthStatusWaitTime                       = 2 * time.Minute
-	invalidFSType                              = "ext10"
-	k8sPodTerminationTimeOut                   = 7 * time.Minute
-	k8sPodTerminationTimeOutLong               = 10 * time.Minute
-	kcmManifest                                = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
-	kubeAPIPath                                = "/etc/kubernetes/manifests/"
-	kubeAPIfile                                = "kube-apiserver.yaml"
-	kubeAPIRecoveryTime                        = 1 * time.Minute
-	kubeSystemNamespace                        = "kube-system"
-	kubeletConfigYaml                          = "/var/lib/kubelet/config.yaml"
-	nfs4FSType                                 = "nfs4"
-	objOrItemNotFoundErr                       = "The object or item referred to could not be found"
-	passorwdFilePath                           = "/etc/vmware/wcp/.storageUser"
-	podContainerCreatingState                  = "ContainerCreating"
-	poll                                       = 2 * time.Second
-	pollTimeout                                = 5 * time.Minute
-	pollTimeoutShort                           = 1 * time.Minute
-	healthStatusPollTimeout                    = 15 * time.Minute
-	healthStatusPollInterval                   = 15 * time.Second
-	psodTime                                   = "120"
-	pvcHealthAnnotation                        = "volumehealth.storage.kubernetes.io/health"
-	pvcHealthTimestampAnnotation               = "volumehealth.storage.kubernetes.io/health-timestamp"
-	quotaName                                  = "cns-test-quota"
-	regionKey                                  = "failure-domain.beta.kubernetes.io/region"
-	resizePollInterval                         = 2 * time.Second
-	rqLimit                                    = "200Gi"
-	rqLimitScaleTest                           = "900Gi"
-	defaultrqLimit                             = "20Gi"
-	rqStorageType                              = ".storageclass.storage.k8s.io/requests.storage"
-	scParamDatastoreURL                        = "DatastoreURL"
-	scParamFsType                              = "csi.storage.k8s.io/fstype"
-	scParamStoragePolicyID                     = "StoragePolicyId"
-	scParamStoragePolicyName                   = "StoragePolicyName"
-	sleepTimeOut                               = 30
-	spsServiceName                             = "sps"
-	sshdPort                                   = "22"
-	startOperation                             = "start"
-	stopOperation                              = "stop"
-	supervisorClusterOperationsTimeout         = 3 * time.Minute
-	svClusterDistribution                      = "SupervisorCluster"
-	svOperationTimeout                         = 240 * time.Second
-	svStorageClassName                         = "SVStorageClass"
-	totalResizeWaitPeriod                      = 10 * time.Minute
-	tkgClusterDistribution                     = "TKGService"
-	vanillaClusterDistribution                 = "CSI-Vanilla"
-	vanillaClusterDistributionWithSpecialChar  = "CSI-\tVanilla-#Test"
-	vSphereCSIControllerPodNamePrefix          = "vsphere-csi-controller"
-	vmUUIDLabel                                = "vmware-system-vm-uuid"
-	vsanDefaultStorageClassInSVC               = "vsan-default-storage-policy"
-	vsanDefaultStoragePolicyName               = "vSAN Default Storage Policy"
-	vsanHealthServiceWaitTime                  = 15
-	vsanhealthServiceName                      = "vsan-health"
-	vsphereCloudProviderConfiguration          = "vsphere-cloud-provider.conf"
-	vsphereControllerManager                   = "vmware-system-tkg-controller-manager"
-	vSphereCSIConf                             = "csi-vsphere.conf"
-	vsphereTKGSystemNamespace                  = "vmware-system-tkg"
-	waitTimeForCNSNodeVMAttachmentReconciler   = 30 * time.Second
-	wcpServiceName                             = "wcp"
-	zoneKey                                    = "failure-domain.beta.kubernetes.io/zone"
+	execCommand                                = "/bin/df -T /mnt/volume1 | " +
+		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
+	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
+		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
+	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
+		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
+	ext3FSType                                = "ext3"
+	ext4FSType                                = "ext4"
+	fcdName                                   = "BasicStaticFCD"
+	fileSizeInMb                              = int64(2048)
+	healthGreen                               = "green"
+	healthRed                                 = "red"
+	healthStatusAccessible                    = "accessible"
+	healthStatusInAccessible                  = "inaccessible"
+	healthStatusWaitTime                      = 2 * time.Minute
+	invalidFSType                             = "ext10"
+	k8sPodTerminationTimeOut                  = 7 * time.Minute
+	k8sPodTerminationTimeOutLong              = 10 * time.Minute
+	kcmManifest                               = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
+	kubeAPIPath                               = "/etc/kubernetes/manifests/"
+	kubeAPIfile                               = "kube-apiserver.yaml"
+	kubeAPIRecoveryTime                       = 1 * time.Minute
+	kubeSystemNamespace                       = "kube-system"
+	kubeletConfigYaml                         = "/var/lib/kubelet/config.yaml"
+	nfs4FSType                                = "nfs4"
+	objOrItemNotFoundErr                      = "The object or item referred to could not be found"
+	passorwdFilePath                          = "/etc/vmware/wcp/.storageUser"
+	podContainerCreatingState                 = "ContainerCreating"
+	poll                                      = 2 * time.Second
+	pollTimeout                               = 5 * time.Minute
+	pollTimeoutShort                          = 1 * time.Minute
+	healthStatusPollTimeout                   = 15 * time.Minute
+	healthStatusPollInterval                  = 15 * time.Second
+	psodTime                                  = "120"
+	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
+	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
+	quotaName                                 = "cns-test-quota"
+	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
+	resizePollInterval                        = 2 * time.Second
+	rqLimit                                   = "200Gi"
+	rqLimitScaleTest                          = "900Gi"
+	defaultrqLimit                            = "20Gi"
+	rqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
+	scParamDatastoreURL                       = "DatastoreURL"
+	scParamFsType                             = "csi.storage.k8s.io/fstype"
+	scParamStoragePolicyID                    = "StoragePolicyId"
+	scParamStoragePolicyName                  = "StoragePolicyName"
+	sleepTimeOut                              = 30
+	spsServiceName                            = "sps"
+	sshdPort                                  = "22"
+	startOperation                            = "start"
+	stopOperation                             = "stop"
+	supervisorClusterOperationsTimeout        = 3 * time.Minute
+	svClusterDistribution                     = "SupervisorCluster"
+	svOperationTimeout                        = 240 * time.Second
+	svStorageClassName                        = "SVStorageClass"
+	totalResizeWaitPeriod                     = 10 * time.Minute
+	tkgClusterDistribution                    = "TKGService"
+	vanillaClusterDistribution                = "CSI-Vanilla"
+	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
+	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
+	vmUUIDLabel                               = "vmware-system-vm-uuid"
+	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
+	vsanDefaultStoragePolicyName              = "vSAN Default Storage Policy"
+	vsanHealthServiceWaitTime                 = 15
+	vsanhealthServiceName                     = "vsan-health"
+	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
+	vsphereControllerManager                  = "vmware-system-tkg-controller-manager"
+	vSphereCSIConf                            = "csi-vsphere.conf"
+	vsphereTKGSystemNamespace                 = "vmware-system-tkg"
+	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
+	wcpServiceName                            = "wcp"
+	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
 )
 
-// The following variables are required to know cluster type to run common e2e tests
-// These variables will be set once during test suites initialization.
+// The following variables are required to know cluster type to run common e2e
+// tests. These variables will be set once during test suites initialization.
 var (
 	vanillaCluster    bool
 	supervisorCluster bool
 	guestCluster      bool
 )
 
-// For VCP to CSI migration tests
+// For VCP to CSI migration tests.
 var (
 	envSharedDatastoreName          = "SHARED_VSPHERE_DATASTORE_NAME"
 	vcpProvisionerName              = "kubernetes.io/vsphere-volume"
@@ -170,14 +173,14 @@ var (
 	nodeMapper                      = &NodeMapper{}
 )
 
-// GetAndExpectStringEnvVar parses a string from env variable
+// GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
 	gomega.Expect(varValue).NotTo(gomega.BeEmpty(), "ENV "+varName+" is not set")
 	return varValue
 }
 
-// GetAndExpectIntEnvVar parses an int from env variable
+// GetAndExpectIntEnvVar parses an int from env variable.
 func GetAndExpectIntEnvVar(varName string) int {
 	varValue := GetAndExpectStringEnvVar(varName)
 	varIntValue, err := strconv.Atoi(varValue)
@@ -185,7 +188,7 @@ func GetAndExpectIntEnvVar(varName string) int {
 	return varIntValue
 }
 
-// GetAndExpectBoolEnvVar parses a boolean from env variable
+// GetAndExpectBoolEnvVar parses a boolean from env variable.
 func GetAndExpectBoolEnvVar(varName string) bool {
 	varValue := GetAndExpectStringEnvVar(varName)
 	varBoolValue, err := strconv.ParseBool(varValue)
@@ -193,7 +196,7 @@ func GetAndExpectBoolEnvVar(varName string) bool {
 	return varBoolValue
 }
 
-// setClusterFlavor sets the boolean variables w.r.t the Cluster type
+// setClusterFlavor sets the boolean variables w.r.t the Cluster type.
 func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
