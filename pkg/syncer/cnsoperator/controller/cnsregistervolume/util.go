@@ -18,7 +18,6 @@ package cnsregistervolume
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -108,9 +107,7 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface,
 	log := logger.GetLogger(ctx)
 	scList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get Storageclasses from API server. Error: %+v", err)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log, "Failed to get Storageclasses from API server. Error: %+v", err)
 	}
 	var scName string
 	for _, sc := range scList.Items {
@@ -133,9 +130,7 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface,
 	*/
 	quotaList, err := k8sClient.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		msg := fmt.Sprintf("Failed to get resource quotas on the namespace: %s", namespace)
-		log.Error(msg)
-		return "", errors.New(msg)
+		return "", logger.LogNewErrorf(log, "Failed to get resource quotas on the namespace: %s", namespace)
 	}
 
 	if scName != "" && len(quotaList.Items) > 0 {
@@ -152,11 +147,9 @@ func getK8sStorageClassName(ctx context.Context, k8sClient clientset.Interface,
 		}
 	}
 
-	msg := fmt.Sprintf("Failed to find matching K8s Storageclass. "+
+	return "", logger.LogNewErrorf(log, "Failed to find matching K8s Storageclass. "+
 		"Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s",
 		storagePolicyID, namespace)
-	log.Error(msg)
-	return "", errors.New(msg)
 }
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
