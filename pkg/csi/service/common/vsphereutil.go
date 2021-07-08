@@ -32,7 +32,8 @@ import (
 )
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
-func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager, spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, error) {
+func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -40,18 +41,19 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		return nil, err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
-		// Get Storage Policy ID from Storage Policy Name
+		// Get Storage Policy ID from Storage Policy Name.
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v", spec.ScParams.StoragePolicyName, err)
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v",
+				spec.ScParams.StoragePolicyName, err)
 			return nil, err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
-		// Check if datastore URL is specified by the storage pool parameter
+		// Check if datastore URL is specified by the storage pool parameter.
 		if spec.VsanDirectDatastoreURL != "" {
-			// Create Datacenter object
+			// Create Datacenter object.
 			var dcList []*vsphere.Datacenter
 			for _, dc := range vc.Config.DatacenterPaths {
 				dcList = append(dcList,
@@ -65,7 +67,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 						VirtualCenterHost: vc.Config.Host,
 					})
 			}
-			// Search the datastore from the URL in the datacenter list
+			// Search the datastore from the URL in the datacenter list.
 			var datastoreObj *vsphere.Datastore
 			for _, datacenter := range dcList {
 				datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.VsanDirectDatastoreURL)
@@ -84,16 +86,18 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 					spec.VsanDirectDatastoreURL)
 			}
 		} else {
-			//  If DatastoreURL is not specified in StorageClass, get all shared datastores
+			// If DatastoreURL is not specified in StorageClass, get all shared
+			// datastores.
 			datastores = getDatastoreMoRefs(sharedDatastores)
 		}
 	} else {
-		// Check datastore specified in the StorageClass should be shared datastore across all nodes.
-
+		// Check datastore specified in the StorageClass should be shared
+		// datastore across all nodes.
+		//
 		// vc.GetDatacenters returns datacenters found on the VirtualCenter.
-		// If no datacenters are mentioned in the VirtualCenterConfig during registration, all
-		// Datacenters for the given VirtualCenter will be returned, else only the listed
-		// Datacenters are returned.
+		// If no datacenters are mentioned in the VirtualCenterConfig during
+		// registration, all Datacenters for the given VirtualCenter will be
+		// returned, else only the listed Datacenters are returned.
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
 			log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
@@ -104,7 +108,8 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		for _, datacenter := range datacenters {
 			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
 			if err != nil {
-				log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v", spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+				log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+					spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
 			for _, sharedDatastore := range sharedDatastores {
@@ -131,7 +136,9 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
@@ -174,7 +181,8 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	return volumeInfo, nil
 }
 
-// CreateFileVolumeUtil is the helper function to create CNS file volume with datastores.
+// CreateFileVolumeUtil is the helper function to create CNS file volume with
+// datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -184,10 +192,11 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
-		// Get Storage Policy ID from Storage Policy Name
+		// Get Storage Policy ID from Storage Policy Name.
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v",
+				spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
@@ -195,8 +204,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	if spec.ScParams.DatastoreURL == "" {
 		datastoreMorefs = getDatastoreMoRefs(datastores)
 	} else {
-		// If datastoreUrl is set in storage class, then check if part of input datastores.
-		// If true, create the file volume on the datastoreUrl set in storage class.
+		// If datastoreUrl is set in storage class, then check if part of input
+		// datastores. If true, create the file volume on the datastoreUrl set
+		// in storage class.
 		var isFound bool
 		for _, dsInfo := range datastores {
 			if spec.ScParams.DatastoreURL == dsInfo.Info.Url {
@@ -212,7 +222,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 
-	// Retrieve net permissions from CnsConfig of manager and convert to required format
+	// Retrieve net permissions from CnsConfig of manager and convert to required
+	// format.
 	netPerms := make([]vsanfstypes.VsanFileShareNetPermission, 0)
 	for _, netPerm := range manager.CnsConfig.NetPermissions {
 		netPerms = append(netPerms, vsanfstypes.VsanFileShareNetPermission{
@@ -223,7 +234,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
@@ -261,8 +274,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	return volumeInfo.VolumeID.Id, nil
 }
 
-// CreateFileVolumeUtilOld is the helper function to create CNS file volume with datastores from
-// TargetvSANFileShareDatastoreURLs in vsphere conf.
+// CreateFileVolumeUtilOld is the helper function to create CNS file volume with
+// datastores from TargetvSANFileShareDatastoreURLs in vsphere conf.
 func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	manager *Manager, spec *CreateVolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -272,10 +285,11 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 		return "", err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
-		// Get Storage Policy ID from Storage Policy Name
+		// Get Storage Policy ID from Storage Policy Name.
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
 		if err != nil {
-			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v", spec.ScParams.StoragePolicyName, err)
+			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v",
+				spec.ScParams.StoragePolicyName, err)
 			return "", err
 		}
 	}
@@ -287,7 +301,7 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
 				return "", err
 			}
-			// get all vSAN datastores from VC
+			// Get all vSAN datastores from VC.
 			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 			if err != nil {
 				log.Errorf("failed to get vSAN datastores with error %+v", err)
@@ -313,8 +327,8 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				return "", logger.LogNewError(log, "no file service enabled vsan datastore is present in the environment")
 			}
 		} else {
-			// If DatastoreURL is not specified in StorageClass, get all datastores from TargetvSANFileShareDatastoreURLs
-			// in vcenter configuration.
+			// If DatastoreURL is not specified in StorageClass, get all datastores
+			// from TargetvSANFileShareDatastoreURLs in vcenter configuration.
 			for _, TargetvSANFileShareDatastoreURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
 				if err != nil {
@@ -326,8 +340,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 		}
 
 	} else {
-		// If datastoreUrl is set in storage class, then check the allowed list is empty.
-		// If true, create the file volume on the datastoreUrl set in storage class.
+		// If datastoreUrl is set in storage class, then check the allowed list
+		// is empty. If true, create the file volume on the datastoreUrl set in
+		// storage class.
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
@@ -336,7 +351,8 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			}
 			datastores = append(datastores, datastoreMoref)
 		} else {
-			// If datastoreUrl is set in storage class, then check if this is in the allowed list.
+			// If datastoreUrl is set in storage class, then check if this is in
+			// the allowed list.
 			found := false
 			for _, targetVSANFSDsURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
 				if spec.ScParams.DatastoreURL == targetVSANFSDsURL {
@@ -358,7 +374,8 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 		}
 	}
 
-	// Retrieve net permissions from CnsConfig of manager and convert to required format
+	// Retrieve net permissions from CnsConfig of manager and convert to required
+	// format.
 	netPerms := make([]vsanfstypes.VsanFileShareNetPermission, 0)
 	for _, netPerm := range manager.CnsConfig.NetPermissions {
 		netPerms = append(netPerms, vsanfstypes.VsanFileShareNetPermission{
@@ -369,7 +386,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID, manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor, manager.CnsConfig.Global.ClusterDistribution)
+	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
@@ -407,12 +426,13 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 	return volumeInfo.VolumeID.Id, nil
 }
 
-// getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's HostVsanSystem
+// getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's
+// HostVsanSystem.
 func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCenter) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("getHostVsanUUID for host moid: %v", hostMoID)
 
-	// get host vsan UUID from the HostSystem
+	// Get host vsan UUID from the HostSystem.
 	hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: hostMoID}
 	host := &vsphere.HostSystem{
 		HostSystem: object.NewHostSystem(vc.Client.Client, hostMoRef),
@@ -426,7 +446,7 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 	return nodeUUID, nil
 }
 
-// AttachVolumeUtil is the helper function to attach CNS volume to specified vm
+// AttachVolumeUtil is the helper function to attach CNS volume to specified vm.
 func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string, checkNVMeController bool) (string, error) {
@@ -441,7 +461,8 @@ func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	return diskUUID, nil
 }
 
-// DetachVolumeUtil is the helper function to detach CNS volume from specified vm
+// DetachVolumeUtil is the helper function to detach CNS volume from specified
+// vm.
 func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) error {
@@ -456,7 +477,8 @@ func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	return nil
 }
 
-// DeleteVolumeUtil is the helper function to delete CNS volume for given volumeId
+// DeleteVolumeUtil is the helper function to delete CNS volume for given
+// volumeId.
 func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, deleteDisk bool) error {
 	log := logger.GetLogger(ctx)
 	var err error
@@ -470,7 +492,8 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 	return nil
 }
 
-// ExpandVolumeUtil is the helper function to extend CNS volume for given volumeId
+// ExpandVolumeUtil is the helper function to extend CNS volume for given
+// volumeId.
 func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64, useAsyncQueryVolume,
 	isIdempotencyHandlingEnabled bool) error {
 	var err error
@@ -509,7 +532,7 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 	}
 }
 
-// QueryVolumeByID is the helper function to query volume by volumeID
+// QueryVolumeByID is the helper function to query volume by volumeID.
 func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) (*cnstypes.CnsVolume, error) {
 	log := logger.GetLogger(ctx)
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -529,7 +552,7 @@ func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID
 	return &queryResult.Volumes[0], nil
 }
 
-// Helper function to get DatastoreMoRefs
+// Helper function to get DatastoreMoRefs.
 func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.ManagedObjectReference {
 	var datastoreMoRefs []vim25types.ManagedObjectReference
 	for _, datastore := range datastores {
@@ -538,8 +561,10 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 	return datastoreMoRefs
 }
 
-// Helper function to get DatastoreMoRef for given datastoreURL in the given virtual center.
-func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL string) (vim25types.ManagedObjectReference, error) {
+// Helper function to get DatastoreMoRef for given datastoreURL in the given
+// virtual center.
+func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter,
+	datastoreURL string) (vim25types.ManagedObjectReference, error) {
 	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
@@ -560,8 +585,10 @@ func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter, datastoreURL s
 		"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
 }
 
-// isExpansionRequired verifies if the requested size to expand a volume is greater than the current size
-func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64, manager *Manager, useAsyncQueryVolume bool) (bool, error) {
+// isExpansionRequired verifies if the requested size to expand a volume is
+// greater than the current size.
+func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64,
+	manager *Manager, useAsyncQueryVolume bool) (bool, error) {
 	log := logger.GetLogger(ctx)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -574,7 +601,8 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 		},
 	}
 	// Query only the backing object details.
-	queryResult, err := utils.QueryAllVolumeUtil(ctx, manager.VolumeManager, queryFilter, querySelection, useAsyncQueryVolume)
+	queryResult, err := utils.QueryAllVolumeUtil(ctx, manager.VolumeManager,
+		queryFilter, querySelection, useAsyncQueryVolume)
 	if err != nil {
 		log.Errorf("QueryVolume failed with err=%+v", err.Error())
 		return false, err
