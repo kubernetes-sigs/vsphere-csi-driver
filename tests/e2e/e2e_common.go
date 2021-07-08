@@ -123,6 +123,7 @@ const (
 	scParamStoragePolicyID                    = "StoragePolicyId"
 	scParamStoragePolicyName                  = "StoragePolicyName"
 	sleepTimeOut                              = 30
+	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
 	sshdPort                                  = "22"
 	startOperation                            = "start"

@@ -421,8 +421,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for some time for PVC to be deleted correctly
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow PVC deletion", sleepTimeOut))
-		time.Sleep(time.Duration(sleepTimeOut) * time.Second)
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow PVC deletion", oneMinuteWaitTimeInSeconds))
+		time.Sleep(time.Duration(oneMinuteWaitTimeInSeconds) * time.Second)
 
 		_, err = e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, namespace)
 		gomega.Expect(err).To(gomega.HaveOccurred())
