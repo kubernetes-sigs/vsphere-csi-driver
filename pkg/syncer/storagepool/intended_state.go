@@ -40,50 +40,59 @@ import (
 
 const (
 	changeThresholdB = 1 * 1024 * 1024 * 1024
-	// maximum overhead space consumed during provision of a persistent volume on vSAN Direct datastore. This number is empirically obtained and can change with changes in underlying storage layer.
+	// Maximum overhead space consumed during provision of a persistent volume
+	// on vSAN Direct datastore. This number is empirically obtained and can
+	// change with changes in underlying storage layer.
 	vsanDirectOverheadSpaceB = 4 * 1024 * 1024
-	// This denotes the percentage of free space with can be utilised to provision persistent volumes on vSAN SNA after considering the overhead.
-	// This number is empirically obtained and can change with changes in underlying storage layer.
+	// This denotes the percentage of free space with can be utilised to
+	// provision persistent volumes on vSAN SNA after considering the overhead.
+	// This number is empirically obtained and can change with changes in
+	// underlying storage layer.
 	vsanSnaUtilisationPercentage = 0.96
 )
 
-// intendedState of a StoragePool from Datastore properties fetched from VC as source of truth
+// intendedState of a StoragePool from Datastore properties fetched from VC as
+// source of truth.
 type intendedState struct {
-	// Datastore moid in VC
+	// Datastore moid in VC.
 	dsMoid string
-	// Datastore type in VC
+	// Datastore type in VC.
 	dsType string
-	// StoragePool name derived from datastore's name
+	// StoragePool name derived from datastore's name.
 	spName string
-	// From Datastore.summary.capacity in VC
+	// From Datastore.summary.capacity in VC.
 	capacity *resource.Quantity
-	// From Datastore.summary.freeSpace in VC
+	// From Datastore.summary.freeSpace in VC.
 	freeSpace *resource.Quantity
-	// obtained after subtracting overhead from free space. for vSAN-SNA its 4% less of free space, for vSAN-Direct its 4 MiB less of free space.
-	// for vSAN default overhead depends on type of policy used, currently its also 4% less of free space.
+	// Obtained after subtracting overhead from free space. for vSAN-SNA its 4%
+	// less of free space, for vSAN-Direct its 4 MiB less of free space.
+	// For vSAN default overhead depends on type of policy used, currently its
+	// also 4% less of free space.
 	allocatableSpace *resource.Quantity
-	// from Datastore.summary.Url
+	// From Datastore.summary.Url.
 	url string
-	// from Datastore.summary.Accessible
+	// From Datastore.summary.Accessible.
 	accessible bool
-	// from Datastore.summary.maintenanceMode
+	// From Datastore.summary.maintenanceMode.
 	datastoreInMM bool
-	// true only when all hosts this Datastore is mounted on is in MM
+	// True only when all hosts this Datastore is mounted on is in MM.
 	allHostsInMM bool
-	// accessible list of k8s nodes on which this datastore is mounted in VC cluster
+	// Accessible list of k8s nodes on which this datastore is mounted in VC
+	// cluster.
 	nodes []string
-	// compatible list of StorageClass names computed from SPBM
+	// Compatible list of StorageClass names computed from SPBM.
 	compatSC []string
-	// is a remote vSAN Datastore mounted into this cluster - HCI Mesh feature
+	// Is a remote vSAN Datastore mounted into this cluster - HCI Mesh feature.
 	isRemoteVsan bool
 }
 
-// SpController holds the intended state updated by property collector listener and has methods to apply intended state
-// into actual k8s state
+// SpController holds the intended state updated by property collector listener
+// and has methods to apply intended state into actual k8s state.
 type SpController struct {
 	vc        *cnsvsphere.VirtualCenter
 	clusterID string
-	// intendedStateMap stores the datastoreMoid -> IntendedState for each datastore. Underlying map type map[string]*intendedState
+	// intendedStateMap stores the datastoreMoid -> IntendedState for each
+	// datastore. Underlying map type map[string]*intendedState.
 	intendedStateMap sync.Map
 }
 
@@ -94,12 +103,13 @@ func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpControl
 	}, nil
 }
 
-// newIntendedState creates a new IntendedState for a StoragePool
+// newIntendedState creates a new IntendedState for a StoragePool.
 func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	scWatchCntlr *StorageClassWatch) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
 
-	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	// Shallow copy VC to prevent nil pointer dereference exception caused due
+	// to vc.Disconnect func running in parallel.
 	vc := *scWatchCntlr.vc
 	err := vc.Connect(ctx)
 	if err != nil {
@@ -111,7 +121,8 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	clusterID := scWatchCntlr.clusterID
 	spName := makeStoragePoolName(ds.Info.Name)
 
-	// get datastore properties like capacity, freeSpace, dsURL, dsType, accessible, inMM, containerID
+	// Get datastore properties like capacity, freeSpace, dsURL, dsType,
+	// accessible, inMM, containerID.
 	dsProps := getDatastoreProperties(ctx, ds)
 	if dsProps == nil || dsProps.capacity == nil || dsProps.freeSpace == nil {
 		err := fmt.Errorf("error fetching datastore properties for %v", ds.Reference().Value)
@@ -125,9 +136,10 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		return nil, err
 	}
 
-	// only add nodes that are not inMM to the list of nodes
+	// Only add nodes that are not inMM to the list of nodes.
 	nodes := make([]string, 0)
-	// allNodesInMM makes sense to be true only when there are nodes visible for this datastore
+	// allNodesInMM makes sense to be true only when there are nodes visible
+	// for this datastore.
 	allNodesInMM := len(nodesMap) != 0
 	for node, inMM := range nodesMap {
 		if !inMM {
@@ -179,11 +191,11 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 
 func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vcclient *vim25.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
-	// if datastore type is not vsan, then return false
+	// If datastore type is not vsan, then return false.
 	if dsprops.dsType != vsanDsType {
 		return false, nil
 	}
-	// get vsan cluster uuid
+	// Get vsan cluster uuid.
 	clsMoRef := types.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
 		Value: clusterID,
@@ -200,7 +212,8 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vccli
 	dsContainerID := strings.ReplaceAll(dsprops.containerID, "-", "")
 	log.Debugf("Verifying whether vSAN Datastore %s with containerID: %s is local to cluster uuid %s",
 		dsprops.dsName, dsContainerID, vsanClsUUID)
-	// the vsan datastore is a remote mounted one if its containerID is not the same as vsan cluster uuid
+	// The vsan datastore is a remote mounted one if its containerID is not the
+	// same as vsan cluster uuid.
 	if dsContainerID != vsanClsUUID {
 		log.Infof("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
 		return true, nil
@@ -208,7 +221,7 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vccli
 	return false, nil
 }
 
-// newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool
+// newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool.
 func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatch, vsan *intendedState, node string,
 	vsanHost *cnsvsphere.VsanHostCapacity) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
@@ -222,7 +235,9 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 			compatSC = append(compatSC, scName)
 		}
 	}
-	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested capacity. Thus maximum allocatable space in vSAN-SNA is 96% of free-capacity.
+	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested
+	// capacity. Thus maximum allocatable space in vSAN-SNA is 96% of
+	// free-capacity.
 	vsanSnaDsType := fmt.Sprintf("%s-sna", vsan.dsType)
 	freeSpace := resource.NewQuantity(vsanHost.Capacity-vsanHost.CapacityUsed, resource.DecimalSI)
 	allocatableSpace := getAllocatableSpace(freeSpace, vsanSnaDsType)
@@ -235,53 +250,62 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 		freeSpace:        freeSpace,
 		allocatableSpace: allocatableSpace,
 		url:              vsan.url,
-		accessible:       true,  // If this node is in accessible node list of the vsan-ds, then sp is accessible
-		datastoreInMM:    false, // If this node is inMM - the storagepool will not exist at all
-		allHostsInMM:     false, // If this node is inMM - the storagepool will not exist at all
-		nodes:            nodes,
-		compatSC:         compatSC,
-		isRemoteVsan:     false,
+		// If this node is in accessible node list of the vsan-ds, then sp is
+		// accessible.
+		accessible: true,
+		// If this node is inMM - the storagepool will not exist at all.
+		datastoreInMM: false,
+		// If this node is inMM - the storagepool will not exist at all.
+		allHostsInMM: false,
+		nodes:        nodes,
+		compatSC:     compatSC,
+		isRemoteVsan: false,
 	}, nil
 }
 
 func getAllocatableSpace(freeSpace *resource.Quantity, dsType string) *resource.Quantity {
 	if dsType == spTypePrefix+"vsanD" {
-		// In vSAN Direct overhead to provision volume is upperbound by 4MiB space. Thus maximum allocatable space in vSAN Direct is 4MiB less than free-capacity.
+		// In vSAN Direct overhead to provision volume is upperbound by 4MiB
+		// space. Thus maximum allocatable space in vSAN Direct is 4MiB less
+		// than free-capacity.
 		allocatableSpaceInBytes := freeSpace.Value() - vsanDirectOverheadSpaceB
 		if allocatableSpaceInBytes > 0 {
 			return resource.NewQuantity(allocatableSpaceInBytes, resource.DecimalSI)
 		}
 		return resource.NewQuantity(0, resource.DecimalSI)
 	}
-	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested capacity. Thus maximum allocatable space in vSAN-SNA is 96% of free-capacity.
-	// for vSAN datastores overhead is also affected by the storage policy used, eg. ftt-0, ftt-1 etc.
+	// In vSAN-SNA overhead is upperbound by roughly 4% of volume requested
+	// capacity. Thus maximum allocatable space in vSAN-SNA is 96% of
+	// free-capacity. For vSAN datastores overhead is also affected by the
+	// storage policy used, eg. ftt-0, ftt-1 etc.
 	allocatableSpaceInBytes := int64(float64(freeSpace.Value()) * vsanSnaUtilisationPercentage)
 	return resource.NewQuantity(allocatableSpaceInBytes, resource.DecimalSI)
 }
 
 // getVsanHostCapacities queries each ESX for vSAN disk capacity information.
-// It tries to fetch as much host capacity information as possible, i.e. if there is an error fetching capacity for
-// a particular host, maybe due to it becoming unresponsive, or packet drop etc., it ignores the error and tries to fetch
-// capacity information for remaining hosts
+// It tries to fetch as much host capacity information as possible, i.e. if
+// there is an error fetching capacity for a particular host, maybe due to it
+// becoming unresponsive, or packet drop etc., it ignores the error and tries
+// to fetch capacity information for remaining hosts.
 func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*cnsvsphere.VsanHostCapacity, error) {
 	log := logger.GetLogger(ctx)
 	out := make(map[string]*cnsvsphere.VsanHostCapacity)
 
-	// fetch all hosts in VC cluster
+	// Fetch all hosts in VC cluster.
 	hosts, err := c.vc.GetHostsByCluster(ctx, c.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return out, err
 	}
 
-	// get hostMoid to k8s node names
+	// Get hostMoid to k8s node names.
 	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
 	if err != nil {
 		log.Errorf("Failed to get host Moids from k8s. Err: %+v", err)
 		return out, err
 	}
 
-	// XXX: We should consider running these in threads to speed this up
+	// XXX: We should consider running these in threads to speed this up.
 	for _, host := range hosts {
 		capacity, err := host.GetHostVsanCapacity(ctx)
 		if err != nil {
@@ -300,14 +324,16 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 	return out, nil
 }
 
-// applyIntendedState applies the given in-memory IntendedState on to the actual state of a StoragePool in the WCP cluster.
+// applyIntendedState applies the given in-memory IntendedState on to the
+// actual state of a StoragePool in the WCP cluster.
 func (c *SpController) applyIntendedState(ctx context.Context, state *intendedState) error {
 	log := logger.GetLogger(ctx)
 	spClient, spResource, err := getSPClient(ctx)
 	if err != nil {
 		return err
 	}
-	// Get StoragePool with spName and Update if already present, otherwise Create resource
+	// Get StoragePool with spName and Update if already present, otherwise
+	// Create resource.
 	sp, err := spClient.Resource(*spResource).Get(ctx, state.spName, metav1.GetOptions{})
 	if err != nil {
 		statusErr, ok := err.(*k8serrors.StatusError)
@@ -322,8 +348,8 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 			log.Debugf("Successfully created StoragePool %v", newSp)
 		}
 	} else {
-		// StoragePool already exists, so Update it
-		// We don't expect ConflictErrors since updates are synchronized with a lock
+		// StoragePool already exists, so Update it. We don't expect
+		// ConflictErrors since updates are synchronized with a lock.
 		log.Infof("Updating StoragePool instance for %s", state.spName)
 		sp := state.updateUnstructuredStoragePool(ctx, sp)
 		newSp, err := spClient.Resource(*spResource).Update(ctx, sp, metav1.UpdateOptions{})
@@ -334,7 +360,8 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 		log.Debugf("Successfully updated StoragePool %v", newSp)
 	}
 
-	// update the underlying dsType in the all the compatible storage classes for reverse mapping
+	// Update the underlying dsType in the all the compatible storage classes
+	// for reverse mapping.
 	for _, scName := range state.compatSC {
 		if err := updateSPTypeInSC(ctx, scName, state.dsType); err != nil {
 			log.Errorf("Failed to update compatibleSPTypes in storage class %s. Err: %+v", scName, err)
@@ -345,8 +372,9 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 	return nil
 }
 
-// updateIntendedState is called to apply only the DatastoreSummary properties of a StoragePool. This does not
-// recompute the `accessibleNodes` or compatible StorageClass for this StoragePool.
+// updateIntendedState is called to apply only the DatastoreSummary properties
+// of a StoragePool. This does not recompute the `accessibleNodes` or
+// compatible StorageClass for this StoragePool.
 func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, dsSummary types.DatastoreSummary,
 	scWatchCntlr *StorageClassWatch) error {
 	log := logger.GetLogger(ctx)
@@ -362,15 +390,17 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	}
 	log.Debugf("Datastore: %s, StoragePool: %s", dsMoid, intendedState.spName)
 	if intendedState.accessible != dsSummary.Accessible {
-		// the accessible nodes are not available immediately after a PC notification
+		// The accessible nodes are not available immediately after a PC
+		// notification.
 		log.Infof("Accessibility change for datastore %s. So scheduling a delayed reconcile.", dsMoid)
 		scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, c)
 		intendedState.accessible = dsSummary.Accessible
 	}
-	// For a vSAN datastore, update its own and all the vsan sna per host capacity/freeSpace only if it has had a
-	// significant change.
+	// For a vSAN datastore, update its own and all the vsan sna per host
+	// capacity/freeSpace only if it has had a significant change.
 	needToUpdateVsanCapacity := false
-	if dsSummary.Type == "vsan" && intendedState.isCapacityChangeSignificant(ctx, dsSummary.Capacity, dsSummary.FreeSpace) {
+	if dsSummary.Type == "vsan" &&
+		intendedState.isCapacityChangeSignificant(ctx, dsSummary.Capacity, dsSummary.FreeSpace) {
 		needToUpdateVsanCapacity = true
 	}
 
@@ -381,11 +411,11 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 	}
 	intendedSpName := makeStoragePoolName(dsSummary.Name)
 	oldSpName := intendedState.spName
-	// Get the changes in properties for this Datastore into the intendedState
+	// Get the changes in properties for this Datastore into the intendedState.
 	intendedState.spName = intendedSpName
 	intendedState.url = dsSummary.Url
 	intendedState.datastoreInMM = dsSummary.MaintenanceMode != string(types.DatastoreSummaryMaintenanceModeStateNormal)
-	// update StoragePool as per intendedState
+	// Update StoragePool as per intendedState.
 	if err := c.applyIntendedState(ctx, intendedState); err != nil {
 		return err
 	}
@@ -398,18 +428,20 @@ func (c *SpController) updateIntendedState(ctx context.Context, dsMoid string, d
 		}
 	}
 	if intendedSpName != oldSpName {
-		// need to also delete the older StoragePool
+		// Need to also delete the older StoragePool.
 		return deleteStoragePool(ctx, oldSpName)
 	}
 	return nil
 }
 
-/**
- * updateVsanSnaIntendedState for each host updates (creates if not exist) the vsan-sna StoragePool with vsan host's
- * capacity, compatible storage classes etc. from standard vsan StoragePool state.
- * @param  validStoragePoolNames: its an in-out param which captures the valid StoragePool. This is later used to delete
- * extraneous StoragePool from kubernetes cluster whose corresponding datastore does not exist in vCenter cluster.
- */
+// updateVsanSnaIntendedState for each host updates (creates if not exist) the
+// vsan-sna StoragePool with vsan host's capacity, compatible storage classes
+// etc. from standard vsan StoragePool state.
+//
+// @param  validStoragePoolNames: its an in-out param which captures the valid
+// StoragePool. This is later used to delete extraneous StoragePool from
+// kubernetes cluster whose corresponding datastore does not exist in vCenter
+// cluster.
 func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState *intendedState,
 	validStoragePoolNames map[string]bool, scWatchCntlr *StorageClassWatch) error {
 	log := logger.GetLogger(ctx)
@@ -419,9 +451,12 @@ func (c *SpController) updateVsanSnaIntendedState(ctx context.Context, vsanState
 	}
 	vsanHostCapacities, hostCapacityErr := c.getVsanHostCapacities(ctx)
 	if hostCapacityErr != nil {
-		// We are deferring return of hostCapacityErr, if any, after processing vsan sna capacities to prevent cases where error in
-		// getting capacity from one host would not only prevent us from updating capacities of other vsan SNA StoragePool but also
-		// could lead to deletion of other vsan SNA StoragePool as we did not mark these SP as valid in validStoragePoolNames variable.
+		// We are deferring return of hostCapacityErr, if any, after processing
+		// vsan sna capacities to prevent cases where error in getting capacity
+		// from one host would not only prevent us from updating capacities of
+		// other vsan SNA StoragePool but also could lead to deletion of other
+		// vsan SNA StoragePool as we did not mark these SP as valid in
+		// validStoragePoolNames variable.
 		log.Errorf("Error encountered fetching vSAN SNA Host capacities. Err: %v", hostCapacityErr)
 	}
 
@@ -452,9 +487,9 @@ func (c *SpController) deleteIntendedState(ctx context.Context, spName string) (
 		if ok && state.spName == spName {
 			c.intendedStateMap.Delete(key)
 			deleted = true
-			return false // break the range loop
+			return false // Break the range loop.
 		}
-		return true // iterate over next key, if any
+		return true // Iterate over next key, if any.
 	})
 	return deleted
 }
@@ -482,7 +517,8 @@ func deleteStoragePool(ctx context.Context, spName string) error {
 	return nil
 }
 
-// getStoragePoolError returns the ErrCode and Message to fill within StoragePool.Status.Error
+// getStoragePoolError returns the ErrCode and Message to fill within
+// StoragePool.Status.Error.
 func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
 	if state.datastoreInMM {
 		return v1alpha1.SpErrors[v1alpha1.ErrStateDatastoreInMM]
@@ -535,10 +571,12 @@ func (state *intendedState) createUnstructuredStoragePool(ctx context.Context) *
 	return sp
 }
 
-func (state *intendedState) updateUnstructuredStoragePool(ctx context.Context, sp *unstructured.Unstructured) *unstructured.Unstructured {
+func (state *intendedState) updateUnstructuredStoragePool(ctx context.Context,
+	sp *unstructured.Unstructured) *unstructured.Unstructured {
 	log := logger.GetLogger(ctx)
 	setNestedField(ctx, sp.Object, state.url, "spec", "parameters", "datastoreUrl")
-	setNestedField(ctx, sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""), "metadata", "labels", spTypeLabelKey)
+	setNestedField(ctx, sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""),
+		"metadata", "labels", spTypeLabelKey)
 	setNestedField(ctx, sp.Object, state.capacity.Value(), "status", "capacity", "total")
 	setNestedField(ctx, sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
 	setNestedField(ctx, sp.Object, state.allocatableSpace.Value(), "status", "capacity", "allocatableSpace")
@@ -567,18 +605,20 @@ func setNestedField(ctx context.Context, obj map[string]interface{}, value inter
 	}
 }
 
-// isCapacityChangeSignificant returns true if the capacity change from old to new
-// is deemed significant enough to warrant a remediation.
-// currently set to 1GB space change, somewhat arbitrarily.
+// isCapacityChangeSignificant returns true if the capacity change from old to
+// new is deemed significant enough to warrant a remediation.
+// Currently set to 1GB space change, somewhat arbitrarily.
 func isCapacityChangeSignificant(old int64, new int64) bool {
 	return math.Abs(float64(old-new)) > float64(changeThresholdB)
 }
 
-// Returns true if the freeCapacity is below a threshold (chosen to be 20% to match with disk capacity health) or if the
-// change in capacity or freeSpace is significant.
-func (state *intendedState) isCapacityChangeSignificant(ctx context.Context, vsanCapacity int64, vsanFreeCapacity int64) bool {
+// Returns true if the freeCapacity is below a threshold (chosen to be 20% to
+// match with disk capacity health) or if the change in capacity or freeSpace
+// is significant.
+func (state *intendedState) isCapacityChangeSignificant(ctx context.Context,
+	vsanCapacity int64, vsanFreeCapacity int64) bool {
 	log := logger.GetLogger(ctx)
-	// has the vSAN Datastore's freeSpace dropped below threshold
+	// Has the vSAN Datastore's freeSpace dropped below threshold?
 	freeSpaceThreshold := 0.2
 	vsanFreeSpaceLow := float64(vsanFreeCapacity)/float64(vsanCapacity) <= freeSpaceThreshold
 	if vsanFreeSpaceLow {
@@ -586,7 +626,7 @@ func (state *intendedState) isCapacityChangeSignificant(ctx context.Context, vsa
 		return true
 	}
 
-	// has the vSAN Datastore's capacity of freeSpace changed significantly?
+	// Has the vSAN Datastore's capacity of freeSpace changed significantly?
 	vsanCapacityChanged := isCapacityChangeSignificant(vsanCapacity, state.capacity.Value())
 	vsanFreeSpaceChanged := isCapacityChangeSignificant(vsanFreeCapacity, state.freeSpace.Value())
 	log.Debugf("vSAN freeSpace changed significantly: %t, capacity changed significantly: %t",
