@@ -51,7 +51,7 @@ const (
 )
 
 var (
-	// controllerCaps represents the capability of controller service
+	// controllerCaps represents the capability of controller service.
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
@@ -66,17 +66,17 @@ type controller struct {
 	authMgr common.AuthorizationService
 }
 
-// New creates a CNS controller
+// New creates a CNS controller.
 func New() csitypes.CnsController {
 	return &controller{}
 }
 
-// Init is initializing controller struct
+// Init is initializing controller struct.
 func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCP CSI controller")
 	var err error
-	// Get VirtualCenterManager instance and validate version
+	// Get VirtualCenterManager instance and validate version.
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 	if err != nil {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
@@ -112,7 +112,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to get vcenter. err=%v", err)
 		return err
 	}
-	// Check vCenter API Version against 6.7.3
+	// Check vCenter API Version against 6.7.3.
 	err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
 		common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
 	if err != nil {
@@ -134,7 +134,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		c.authMgr = authMgr
-		// TODO: Invoke similar method for block volumes
+		// TODO: Invoke similar method for block volumes.
 		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	}
 
@@ -158,21 +158,25 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 						time.Sleep(5 * time.Second)
 					}
 				}
-				// Handling create event for reconnecting to VC when ca file is rotated
-				// In Supervisor cluster, ca file gets rotated at the path /etc/vmware/wcp/tls/vmca.pem
-				// WCP is handling ca file rotation by creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new contents
-				// and then renaming the file back to /etc/vmware/wcp/tls/vmca.pem.
-				// For such operations, fsnotify handles the event as a CREATE event
-				// The condition below also ensures that the event is for the expected ca file path
+				// Handling create event for reconnecting to VC when ca file is
+				// rotated. In Supervisor cluster, ca file gets rotated at the path
+				// /etc/vmware/wcp/tls/vmca.pem. WCP is handling ca file rotation by
+				// creating a /etc/vmware/wcp/tls/vmca.pem.tmp file with new
+				// contents, and then renaming the file back to
+				// /etc/vmware/wcp/tls/vmca.pem. For such operations, fsnotify
+				// handles the event as a CREATE event. The condition below also
+				// ensures that the event is for the expected ca file path.
 				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
 					log.Infof("Observed ca file rotation at: %q", cnsconfig.SupervisorCAFilePath)
 					for {
 						reconnectVCErr := c.ReloadConfiguration(true)
 						if reconnectVCErr == nil {
-							log.Infof("Successfully re-established connection with VC from: %q", cnsconfig.SupervisorCAFilePath)
+							log.Infof("Successfully re-established connection with VC from: %q",
+								cnsconfig.SupervisorCAFilePath)
 							break
 						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v", reconnectVCErr)
+						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v",
+							reconnectVCErr)
 						time.Sleep(60 * time.Second)
 					}
 				}
@@ -215,12 +219,13 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	return nil
 }
 
-// ReloadConfiguration reloads configuration from the secret, and update controller's config cache
-// and VolumeManager's VC Config cache.
+// ReloadConfiguration reloads configuration from the secret, and update
+// controller's config cache and VolumeManager's VC Config cache.
 // The function takes a boolean reconnectToVCFromNewConfig as ainputs.
-// If reconnectToVCFromNewConfig is set to true, the function re-establishes connection with VC,
-// else based on the configuration data changed during reload, the function resets config, reloads VC connection
-// when credentials are changed and returns appropriate error
+// If reconnectToVCFromNewConfig is set to true, the function re-establishes
+// connection with VC, else based on the configuration data changed during
+// reload, the function resets config, reloads VC connection when credentials
+// are changed and returns appropriate error.
 func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
@@ -240,23 +245,24 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
 			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
 
-			// Verify if new configuration has valid credentials by connecting to vCenter.
-			// Proceed only if the connection succeeds, else return error.
+			// Verify if new configuration has valid credentials by connecting to
+			// vCenter. Proceed only if the connection succeeds, else return error.
 			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
 			if err = newVC.Connect(ctx); err != nil {
 				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
 					newVCConfig.Host, err)
 			}
 
-			// Reset virtual center singleton instance by passing reload flag as true
+			// Reset virtual center singleton instance by passing reload flag as
+			// true.
 			log.Info("Obtaining new vCenterInstance")
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 		} else {
-			// If it's not a VC host or VC credentials update, same singleton instance can be used
-			// and it's Config field can be updated
+			// If it's not a VC host or VC credentials update, same singleton
+			// instance can be used and it's Config field can be updated.
 			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
@@ -277,7 +283,8 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore,
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
 		if c.authMgr != nil {
 			c.authMgr.ResetvCenterInstance(ctx, vcenter)
 			log.Debugf("Updated vCenter in auth manager")
@@ -295,7 +302,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	log := logger.GetLogger(ctx)
-	// Volume Size - Default is 10 GiB
+	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
 		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
@@ -307,13 +314,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		affineToHost        string
 		storagePool         string
 		topologyRequirement *csi.TopologyRequirement
-		accessibleNodes     []string // This will be used to populate volumeAccessTopology
-		err                 error
+		// accessibleNodes will be used to populate volumeAccessTopology.
+		accessibleNodes []string
+		err             error
 	)
-	// Fetch the accessibility requirements from the request
+	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
 	var selectedDatastoreURL string
-	// Support case insensitive parameters
+	// Support case insensitive parameters.
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
 		if param == common.AttributeStoragePolicyID {
@@ -345,7 +353,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
 			} else if storagePoolType == vsanSna {
-				// Query API server to get ESX Host Moid from the hostLocalNodeName
+				// Query API server to get ESX Host Moid from the hostLocalNodeName.
 				if len(accessibleNodes) != 1 {
 					return nil, logger.LogNewErrorCode(log, codes.Internal,
 						"too many accessible nodes")
@@ -370,7 +378,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		VolumeType:             common.BlockVolumeType,
 		VsanDirectDatastoreURL: selectedDatastoreURL,
 	}
-	// Get candidate datastores for the Kubernetes cluster
+	// Get candidate datastores for the Kubernetes cluster.
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -383,7 +391,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
-	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, c.manager, &createVolumeSpec, candidateDatastores)
+	volumeInfo, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+		c.manager, &createVolumeSpec, candidateDatastores)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -398,8 +407,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			VolumeContext: attributes,
 		},
 	}
-	// Configure the volumeTopology in the response so that the external provisioner will properly sets up the
-	// nodeAffinity for this volume
+	// Configure the volumeTopology in the response so that the external
+	// provisioner will properly sets up the nodeAffinity for this volume.
 	if isValidAccessibilityRequirement(topologyRequirement) {
 		for _, hostName := range accessibleNodes {
 			volumeTopology := &csi.Topology{
@@ -419,12 +428,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	log := logger.GetLogger(ctx)
-	// ignore TopologyRequirement for file volume provisioning
+	// Ignore TopologyRequirement for file volume provisioning.
 	if req.GetAccessibilityRequirements() != nil {
 		log.Info("Ignoring TopologyRequirement for file volume")
 	}
 
-	// Volume Size - Default is 10 GiB
+	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
 		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
@@ -453,9 +462,10 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	fsEnabledClusterToDsMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
 
-	// targetvSANFileShareClusters is set in CSI secret when file volume feature is enabled
-	// on WCP. So we get datastores with privileges to create file volumes for each specified
-	// vSAN cluster, and use those datastores to create file volumes.
+	// targetvSANFileShareClusters is set in CSI secret when file volume feature
+	// is enabled on WCP. So we get datastores with privileges to create file
+	// volumes for each specified vSAN cluster, and use those datastores to
+	// create file volumes.
 	for _, targetvSANcluster := range c.manager.VcenterConfig.TargetvSANFileShareClusters {
 		if datastores, ok := fsEnabledClusterToDsMap[targetvSANcluster]; ok {
 			for _, dsInfo := range datastores {
@@ -490,7 +500,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 }
 
 // CreateVolume is creating CNS Volume using volume request specified
-// in CreateVolumeRequest
+// in CreateVolumeRequest.
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 
@@ -508,7 +518,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		} else {
 			volumeType = prometheus.PrometheusFileVolumeType
 		}
-		// Validate create request
+		// Validate create request.
 		err := validateWCPCreateVolumeRequest(ctx, req, isBlockRequest)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
@@ -517,7 +527,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		if !isBlockRequest {
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) || !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) ||
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 				return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file volume feature is disabled on the cluster")
 			}
@@ -536,7 +547,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	return resp, err
 }
 
-// DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest
+// DeleteVolume is deleting CNS Volume specified in DeleteVolumeRequest.
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 
@@ -555,7 +566,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, err
 		}
-		// TODO: Add code to determine the volume type and set volumeType for Prometheus metric accordingly.
+		// TODO: Add code to determine the volume type and set volumeType for
+		// Prometheus metric accordingly.
 		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -575,7 +587,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 }
 
 // ControllerPublishVolume attaches a volume to the Node VM.
-// volume id and node name is retrieved from ControllerPublishVolumeRequest
+// Volume id and node name is retrieved from ControllerPublishVolumeRequest.
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 	start := time.Now()
@@ -619,7 +631,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				vc.Config.Host, err)
 		}
 
-		// Connect to VC
+		// Connect to VC.
 		err = vc.Connect(ctx)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -633,22 +645,23 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				vmuuid, dcMorefValue, err)
 		}
 
-		// Attach the volume to the node
+		// Attach the volume to the node.
 		diskUUID, err := common.AttachVolumeUtil(ctx, c.manager, podVM, req.VolumeId, true)
 		if err != nil {
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
 				log.Infof("Volume attachment failed. Checking if it can be fake attached")
 				var capabilities []*csi.VolumeCapability
 				capabilities = append(capabilities, req.VolumeCapability)
-				if !common.IsFileVolumeRequest(ctx, capabilities) { //Block volume
-					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx, req.VolumeId, c.manager.VolumeManager)
+				if !common.IsFileVolumeRequest(ctx, capabilities) { // Block volume.
+					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx,
+						req.VolumeId, c.manager.VolumeManager)
 					if err != nil {
 						return nil, logger.LogNewErrorCodef(log, codes.Internal,
 							"failed to determine if volume: %s can be fake attached. Error: %+v", req.VolumeId, err)
 					}
 
 					if allowed {
-						// Mark the volume as fake attached before returning response
+						// Mark the volume as fake attached before returning response.
 						err := commonco.ContainerOrchestratorUtility.MarkFakeAttached(ctx, req.VolumeId)
 						if err != nil {
 							return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -694,7 +707,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 }
 
 // ControllerUnpublishVolume detaches a volume from the Node VM.
-// volume id and node name is retrieved from ControllerUnpublishVolumeRequest
+// Volume id and node name is retrieved from ControllerUnpublishVolumeRequest.
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
 	start := time.Now()
@@ -713,7 +726,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		volumeType = prometheus.PrometheusBlockVolumeType
 
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
-			// Check if the volume was fake attached and unmark it as not fake attached
+			// Check if the volume was fake attached and unmark it as not fake
+			// attached.
 			if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
 				msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
 				log.Error(msg)
@@ -838,19 +852,22 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+		err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
 		}
 
-		// Always set nodeExpansionRequired to true, even if requested size is equal to current size.
-		// Volume expansion may succeed on CNS but external-resizer may fail to update API server.
-		// Requests are requeued in this case. Setting nodeExpandsionRequired to false marks PVC
+		// Always set nodeExpansionRequired to true, even if requested size is
+		// equal to current size. Volume expansion may succeed on CNS but
+		// external-resizer may fail to update API server. Requests are requeued
+		// in this case. Setting nodeExpandsionRequired to false marks PVC
 		// resize as finished which prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
 		nodeExpansionRequired := true
-		// Set NodeExpansionRequired to false for raw block volumes
+		// Set NodeExpansionRequired to false for raw block volumes.
 		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
 			nodeExpansionRequired = false
 		}
