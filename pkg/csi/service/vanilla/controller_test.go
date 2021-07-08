@@ -79,15 +79,16 @@ type controllerTest struct {
 	vcenter    *cnsvsphere.VirtualCenter
 }
 
-// configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with an empty tls.Config.
+// configFromSim starts a vcsim instance and returns config for use against the
+// vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromSim() (*config.Config, func()) {
 	return configFromSimWithTLS(new(tls.Config), true)
 }
 
-// configFromSimWithTLS starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with a tls.Config. The returned client
-// config can be configured to allow/decline insecure connections.
+// configFromSimWithTLS starts a vcsim instance and returns config for use
+// against the vcsim instance. The vcsim instance is configured with a
+// tls.Config. The returned client config can be configured to allow/decline
+// insecure connections.
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
@@ -101,10 +102,10 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
 
-	// CNS Service simulator
+	// CNS Service simulator.
 	model.Service.RegisterSDK(cnssim.New())
 
-	// PBM Service simulator
+	// PBM Service simulator.
 	model.Service.RegisterSDK(pbmsim.New())
 	cfg.Global.InsecureFlag = insecureAllowed
 
@@ -114,10 +115,12 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	cfg.Global.Password, _ = s.URL.User.Password()
 	cfg.Global.Datacenters = "DC0"
 
-	// Write values to test_vsphere.conf
+	// Write values to test_vsphere.conf.
 	os.Setenv("VSPHERE_CSI_CONFIG", "test_vsphere.conf")
-	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort))
+	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
+		cfg.Global.Datacenters, cfg.Global.VCenterPort))
 	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -226,7 +229,9 @@ func (f *FakeNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.Virtua
 	return nil, nil
 }
 
-func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
+func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context,
+	topologyRequirement *csi.TopologyRequirement, tagManager *tags.Manager,
+	zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error) {
 	return nil, nil, nil
 }
 
@@ -256,11 +261,11 @@ func (f *FakeAuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cns
 
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
-		// Create context
+		// Create context.
 		ctx = context.Background()
 		config, _ := configFromEnvOrSim()
 
-		// CNS based CSI requires a valid cluster name
+		// CNS based CSI requires a valid cluster name.
 		config.Global.ClusterID = testClusterName
 
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
@@ -317,7 +322,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 				vcenter: vcenter,
 			},
 		}
-		commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		commonco.ContainerOrchestratorUtility, err =
+			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 		if err != nil {
 			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
@@ -331,16 +337,16 @@ func getControllerTest(t *testing.T) *controllerTest {
 }
 
 func TestCreateVolumeWithStoragePolicy(t *testing.T) {
-	// Create context
+	// Create context.
 	ct := getControllerTest(t)
 
-	// Create
+	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
 	}
 
-	// PBM simulator defaults
+	// PBM simulator defaults.
 	params[common.AttributeStoragePolicyName] = "vSAN Default Storage Policy"
 	if v := os.Getenv("VSPHERE_STORAGE_POLICY_NAME"); v != "" {
 		params[common.AttributeStoragePolicyName] = v
@@ -367,7 +373,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-	// Verify the volume has been create with corresponding storage policy ID
+	// Verify the volume has been created with corresponding storage policy ID.
 	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +404,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatalf("failed to match volume policy ID: %s", profileID)
 	}
 
-	// QueryAll
+	// QueryAll.
 	queryFilter = cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -416,7 +422,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// Delete
+	// Delete.
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}
@@ -425,7 +431,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Varify the volume has been deleted
+	// Verify the volume has been deleted.
 	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
@@ -436,15 +442,15 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 }
 
-//For this test, when the testbed has multiple shared datastores
-// but VC user which is usded to deploy CSI does not have Datastore.FileManagement privilege on
-// all shared datastores, the create volume should succeed.
-// This test is to simulate CSI on VMC.
+// When the testbed has multiple shared datastores, but VC user which is used
+// to deploy CSI does not have Datastore.FileManagement privilege on all shared
+// datastores, the create volume should succeed. This test is to simulate CSI
+// on VMC.
 func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
-	// Create context
+	// Create context.
 	ct := getControllerTest(t)
 
-	// Create
+	// Create.
 	params := make(map[string]string)
 
 	capabilities := []*csi.VolumeCapability{
@@ -486,7 +492,7 @@ func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// Delete
+	// Delete.
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}
@@ -495,7 +501,7 @@ func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Varify the volume has been deleted
+	// Verify the volume has been deleted.
 	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
@@ -509,7 +515,7 @@ func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
 func TestExtendVolume(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Create
+	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
@@ -537,7 +543,7 @@ func TestExtendVolume(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	// Verify the volume has been created
+	// Verify the volume has been created.
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -554,7 +560,7 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// QueryAll
+	// QueryAll.
 	queryFilter = cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -572,7 +578,7 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// Extend Volume
+	// Extend Volume.
 	newSize := 2 * common.GbInBytes
 	reqExpand := &csi.ControllerExpandVolumeRequest{
 		VolumeId: volID,
@@ -587,11 +593,12 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 	if respExpand.CapacityBytes < newSize {
-		t.Fatalf("newly expanded volume size %d is smaller than requested size %d for volume with ID: %s", respExpand.CapacityBytes, newSize, volID)
+		t.Fatalf("newly expanded volume size %d is smaller than requested size %d for volume with ID: %s",
+			respExpand.CapacityBytes, newSize, volID)
 	}
 	t.Log(fmt.Sprintf("ControllerExpandVolume succeeded: volume is expanded to requested size %d", newSize))
 
-	//  Query volume after expand volume
+	// Query volume after expand volume.
 	queryFilter = cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -608,7 +615,7 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatalf("failed to find the expanded volume with ID: %s", volID)
 	}
 
-	// Delete
+	// Delete.
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}
@@ -617,7 +624,7 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify the volume has been deleted
+	// Verify the volume has been deleted.
 	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
@@ -628,7 +635,8 @@ func TestExtendVolume(t *testing.T) {
 	}
 }
 
-// TestMigratedExtendVolume helps test ControllerExpandVolume with VolumeId having migrated volume
+// TestMigratedExtendVolume helps test ControllerExpandVolume with VolumeId
+// having migrated volume.
 func TestMigratedExtendVolume(t *testing.T) {
 	ct := getControllerTest(t)
 	reqExpand := &csi.ControllerExpandVolumeRequest{
@@ -649,7 +657,7 @@ func TestMigratedExtendVolume(t *testing.T) {
 func TestCompleteControllerFlow(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Create
+	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		params[common.AttributeDatastoreURL] = v
@@ -677,7 +685,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	// Varify the volume has been created
+	// Verify the volume has been created.
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -694,7 +702,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// QueryAll
+	// QueryAll.
 	queryFilter = cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -719,7 +727,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		NodeID = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Name
 	}
 
-	// Attach
+	// Attach.
 	reqControllerPublishVolume := &csi.ControllerPublishVolumeRequest{
 		VolumeId:         volID,
 		NodeId:           NodeID,
@@ -734,7 +742,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	diskUUID := respControllerPublishVolume.PublishContext[common.AttributeFirstClassDiskUUID]
 	t.Log(fmt.Sprintf("ControllerPublishVolume succeed, diskUUID %s is returned", diskUUID))
 
-	//Detach
+	// Detach.
 	reqControllerUnpublishVolume := &csi.ControllerUnpublishVolumeRequest{
 		VolumeId: volID,
 		NodeId:   NodeID,
@@ -746,7 +754,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 	t.Log("ControllerUnpublishVolume succeed")
 
-	// Delete
+	// Delete.
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}
@@ -755,7 +763,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Varify the volume has been deleted
+	// Verify the volume has been deleted.
 	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
