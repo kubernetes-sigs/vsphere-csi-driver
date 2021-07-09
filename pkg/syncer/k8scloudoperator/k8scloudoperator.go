@@ -52,7 +52,6 @@ const (
 	nodeAffinityAnnotationKey = "failure-domain.beta.vmware.com/node"
 	vsanDirectType            = spTypePrefix + "vsanD"
 	vsanSnaType               = spTypePrefix + "vsan-sna"
-	vsanType                  = spTypePrefix + "vsan"
 	spTypeLabelKey            = spTypePrefix + "StoragePoolType"
 	diskDecommissionModeField = "decommMode"
 )
@@ -312,6 +311,22 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 		return out, err
 	}
 
+	spTypes, present := sc.Annotations[spTypeAnnotationKey]
+	//if affinity rule is specified then storage class should be either vsan-sna or vsand type
+	if _, ok := pvc.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; ok {
+		if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
+			err := fmt.Errorf("storage class is not of type vsan direct or vsan-sna but %s annotation is provided"+
+				"aborting placement, types: %q", nodeAffinityAnnotationKey, spTypes)
+			log.Error(err)
+			return out, err
+		}
+	}
+
+	if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
+		log.Debug("storage class is not of type vsan direct or vsan-sna, aborting placement")
+		return out, nil
+	}
+
 	// Abort placement if the storage class has Immediate volume binding and
 	// nodeAffinity PVC annotation is not specified.
 	if *sc.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
@@ -320,12 +335,6 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 				"nor nodeAffinity PVC annotation is specified", pvc.Name, storagev1.VolumeBindingWaitForFirstConsumer)
 			return out, nil
 		}
-	}
-
-	spTypes, present := sc.Annotations[spTypeAnnotationKey]
-	if !present || (!strings.Contains(spTypes, vsanType) && !strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
-		log.Debug("storage class is not of type vsan direct or vsan-sna or vsan, aborting placement")
-		return out, nil
 	}
 
 	log.Debugf("Enter placementEngine %s", req)
