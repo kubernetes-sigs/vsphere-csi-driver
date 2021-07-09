@@ -18,7 +18,6 @@ package volume
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -485,9 +484,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		}
 
 		if taskResult == nil {
-			log.Errorf("taskResult is empty for AttachVolume task: %q, opId: %q",
+			return "", logger.LogNewErrorf(log, "taskResult is empty for AttachVolume task: %q, opId: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
-			return "", errors.New("taskResult is empty")
 		}
 
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -504,10 +502,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 					return diskUUID, nil
 				}
 			}
-			msg := fmt.Sprintf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+			return "", logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
 				volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return "", errors.New(msg)
 		}
 		diskUUID := interface{}(taskResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
 		log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
@@ -574,9 +570,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 					return nil
 				}
 			}
-			msg := fmt.Sprintf("failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
-			log.Error(msg)
-			return errors.New(msg)
+			return logger.LogNewErrorf(log, "failed to detach cns volume:%q from node vm: %+v. err: %v", volumeID, vm, err)
 		}
 		// Get the taskInfo.
 		taskInfo, err := cns.GetTaskInfo(ctx, task)
@@ -594,9 +588,8 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			return err
 		}
 		if taskResult == nil {
-			log.Errorf("taskResult is empty for DetachVolume task: %q, opId: %q",
+			return logger.LogNewErrorf(log, "taskResult is empty for DetachVolume task: %q, opId: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
-			return errors.New("taskResult is empty")
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
@@ -615,10 +608,8 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 					return nil
 				}
 			}
-			msg := fmt.Sprintf("failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
+			return logger.LogNewErrorf(log, "failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q",
 			volumeID, taskInfo.ActivationId, vm.String())
@@ -890,16 +881,13 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 			return err
 		}
 		if taskResult == nil {
-			log.Errorf("taskResult is empty for UpdateVolume task: %q, opId: %q",
+			return logger.LogNewErrorf(log, "taskResult is empty for UpdateVolume task: %q, opId: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
-			return errors.New("taskResult is empty")
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to update volume. updateSpec: %q, fault: %q, opID: %q",
+			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
 				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
 		}
 		log.Infof("UpdateVolumeMetadata: Volume metadata updated successfully. volumeID: %q, opId: %q",
 			spec.VolumeId.Id, taskInfo.ActivationId)
@@ -989,7 +977,7 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 		return err
 	}
 	if taskResult == nil {
-		return logger.LogNewErrorf(log, "TaskResult is empty for ExtendVolume task: %q, opID: %q",
+		return logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
 			taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -1243,16 +1231,13 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context,
 			return nil, err
 		}
 		if taskResult == nil {
-			log.Errorf("taskResult is empty for DeleteVolume task: %q, opID: %q",
+			return nil, logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
-			return nil, errors.New("taskResult is empty")
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to Query volumes: %v, fault: %q, opID: %q",
+			return nil, logger.LogNewErrorf(log, "failed to Query volumes: %v, fault: %q, opID: %q",
 				volumeIDList, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return nil, errors.New(msg)
 		}
 		volumeInfoResult := interface{}(taskResult).(*cnstypes.CnsQueryVolumeInfoResult)
 		log.Infof("QueryVolumeInfo successfully returned volumeInfo volumeIDList %v:, opId: %q",
@@ -1346,16 +1331,15 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 		}
 
 		if taskResult == nil {
-			log.Errorf("taskResult is empty for ConfigureVolumeACLs task: %q. ConfigureVolumeACLsSpec: %q",
+			return logger.LogNewErrorf(log,
+				"taskResult is empty for ConfigureVolumeACLs task: %q. ConfigureVolumeACLsSpec: %q",
 				taskInfo.ActivationId, spew.Sdump(spec))
-			return errors.New("taskResult is empty")
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
-			msg := fmt.Sprintf("failed to apply ConfigureVolumeACLs. VolumeID: %s spec: %q, fault: %q, opId: %q",
+			return logger.LogNewErrorf(log,
+				"failed to apply ConfigureVolumeACLs. VolumeID: %s spec: %q, fault: %q, opId: %q",
 				spec.VolumeId.Id, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-			log.Error(msg)
-			return errors.New(msg)
 		}
 
 		log.Infof("ConfigureVolumeACLs: Volume ACLs configured successfully. VolumeName: %q, opId: %q, volumeID: %q",
@@ -1455,10 +1439,9 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	}
 	isvSphere70U3orAbove, err := cnsvsphere.IsvSphereVersion70U3orAbove(ctx, m.virtualCenter.Client.ServiceContent.About)
 	if err != nil {
-		msg := fmt.Sprintf("Error while checking the vSphere Version %q to invoke QueryVolumeAsync, Err= %+v",
+		return nil, logger.LogNewErrorf(log,
+			"Error while checking the vSphere Version %q to invoke QueryVolumeAsync, Err= %+v",
 			m.virtualCenter.Client.ServiceContent.About.Version, err)
-		log.Errorf(msg)
-		return nil, errors.New(msg)
 	}
 	if !isvSphere70U3orAbove {
 		msg := fmt.Sprintf("QueryVolumeAsync is not supported in vSphere Version %q",
@@ -1484,16 +1467,14 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 		return nil, err
 	}
 	if queryVolumeAsyncTaskResult == nil {
-		log.Errorf("TaskResult is empty for QueryVolumeAsync task: %q, opID: %q",
+		return nil, logger.LogNewErrorf(log, "taskResult is empty for QueryVolumeAsync task: %q, opID: %q",
 			queryVolumeAsyncTaskInfo.Task.Value, queryVolumeAsyncTaskInfo.ActivationId)
-		return nil, errors.New("taskResult is empty")
 	}
 	volumeOperationRes := queryVolumeAsyncTaskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		msg := fmt.Sprintf("failed to query volumes using CnsQueryVolumeAsync, fault: %q, opID: %q",
+		return nil, logger.LogNewErrorf(log,
+			"failed to query volumes using CnsQueryVolumeAsync, fault: %q, opID: %q",
 			spew.Sdump(volumeOperationRes.Fault), queryVolumeAsyncTaskInfo.ActivationId)
-		log.Error(msg)
-		return nil, errors.New(msg)
 	}
 	queryVolumeAsyncResult := interface{}(queryVolumeAsyncTaskResult).(*cnstypes.CnsAsyncQueryResult)
 	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
