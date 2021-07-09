@@ -18,8 +18,6 @@ package volume
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -38,9 +36,7 @@ import (
 func validateManager(ctx context.Context, m *defaultManager) error {
 	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {
-		log.Error(
-			"Virtual Center connection not established")
-		return errors.New("virtual Center connection not established")
+		return logger.LogNewError(log, "virtual Center connection not established")
 	}
 	return nil
 }
@@ -290,9 +286,7 @@ func validateCreateVolumeResponseFault(ctx context.Context, name string,
 		}, nil
 	}
 
-	msg := fmt.Sprintf("failed to create volume with fault: %q", spew.Sdump(resp.Fault))
-	log.Error(msg)
-	return nil, errors.New(msg)
+	return nil, logger.LogNewErrorf(log, "failed to create volume with fault: %q", spew.Sdump(resp.Fault))
 
 }
 
