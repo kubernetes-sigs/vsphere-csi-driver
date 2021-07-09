@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/pkg/errors"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -169,9 +168,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 ) error {
 	log := logger.GetLogger(ctx)
 	if operationToStore == nil {
-		msg := "cannot store empty operation"
-		log.Error(msg)
-		return errors.New(msg)
+		return logger.LogNewError(log, "cannot store empty operation")
 	}
 	log.Debugf("Storing CnsVolumeOperationRequest instance with spec %v", spew.Sdump(operationToStore))
 
@@ -289,7 +286,8 @@ func (or *operationRequestStore) StoreRequestDetails(
 	return nil
 }
 
-// deleteRequestDetails deletes the input CnsVolumeOperationRequest instance from the operationRequestStore.
+// deleteRequestDetails deletes the input CnsVolumeOperationRequest instance
+// from the operationRequestStore.
 func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Deleting CnsVolumeOperationRequest instance with name %s/%s", csiconfig.DefaultCSINamespace, name)
@@ -309,8 +307,8 @@ func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name 
 	return nil
 }
 
-// cleanupStaleInstances cleans up CnsVolumeOperationRequest instances for volumes that are no longer present in the
-// kubernetes cluster.
+// cleanupStaleInstances cleans up CnsVolumeOperationRequest instances for
+// volumes that are no longer present in the kubernetes cluster.
 func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Minute)
 	ctx, log := logger.GetNewContextWithLogger()
