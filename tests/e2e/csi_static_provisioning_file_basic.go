@@ -95,21 +95,21 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Datastore is not found in the datacenter list")
 	})
 
-	/*
-		This test verifies the static provisioning workflow.
-
-		Test Steps:
-		1. Create File share and get the file share id.
-		2. Create PV Spec with volumeID set to file share ID created in Step-1, and PersistentVolumeReclaimPolicy is set to Delete.
-		3. Create PVC with the storage request set to PV's storage capacity.
-		4. Wait for PV and PVC to bound.
-		5. Create a POD.
-		6. Verify volume is attached to the node and volume is accessible in the pod by creating a file inside volume.
-		7. Verify container volume metadata is present in CNS cache.
-		8. Delete POD.
-		9. Delete PVC.
-		10. Verify PV is deleted automatically.
-	*/
+	// This test verifies the static provisioning workflow.
+	//
+	// Test Steps:
+	// 1. Create File share and get the file share id.
+	// 2. Create PV Spec with volumeID set to file share ID created in Step-1,
+	//    and PersistentVolumeReclaimPolicy is set to Delete.
+	// 3. Create PVC with the storage request set to PV's storage capacity.
+	// 4. Wait for PV and PVC to bound.
+	// 5. Create a POD.
+	// 6. Verify volume is attached to the node and volume is accessible in the
+	//    pod by creating a file inside volume.
+	// 7. Verify container volume metadata is present in CNS cache.
+	// 8. Delete POD.
+	// 9. Delete PVC.
+	// 10. Verify PV is deleted automatically.
 	ginkgo.It("Verify basic static provisioning workflow for file volume", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
 
-		// Deleting the volume with deleteDisk set to false
+		// Deleting the volume with deleteDisk set to false.
 		ginkgo.By("Deleting the fileshare with deleteDisk set to false")
 		cnsDeleteReq := cnstypes.CnsDeleteVolume{
 			This:       cnsVolumeManagerInstance,
@@ -152,7 +152,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		staticPVLabels["fileshare-id"] = strings.TrimPrefix(fileShareVolumeID, "file:")
 
 		ginkgo.By("Creating the PV")
-		pv = getPersistentVolumeSpecForFileShare(fileShareVolumeID, v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
+		pv = getPersistentVolumeSpecForFileShare(fileShareVolumeID,
+			v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
@@ -163,12 +164,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Wait for PV and PVC to Bind
+		// Wait for PV and PVC to Bind.
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
 
 		defer func() {
 			ginkgo.By("Deleting the PV Claim")
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace), "Failed to delete PVC", pvc.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
+				"Failed to delete PVC", pvc.Name)
 			ginkgo.By("Verify PV should be deleted automatically")
 			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 
@@ -198,20 +200,20 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 	})
 
-	/*
-		This test verifies the static provisioning workflow by creating the PV by same name twice.
-
-		Test Steps:
-		1. Create File share and get the file share id.
-		2. Create PV1 Spec with volumeID set to FCDID created in Step-1, and PersistentVolumeReclaimPolicy is set to Retain.
-		3. Wait for the volume entry to be created in CNS
-		4. Delete PV1
-		5. Wait for PV1 to be deleted, and also entry is deleted from CNS
-		6. Create a PV2 by the same name as PV1
-		7. Wait for the volume entry to be created in CNS
-		8. Delete PV2
-		9. Wait for PV2 to be deleted, and also entry is deleted from CNS
-	*/
+	// This test verifies the static provisioning workflow by creating the PV by
+	// same name twice.
+	//
+	// Test Steps:
+	// 1. Create File share and get the file share id.
+	// 2. Create PV1 Spec with volumeID set to FCDID created in Step-1, and
+	//    PersistentVolumeReclaimPolicy is set to Retain.
+	// 3. Wait for the volume entry to be created in CNS.
+	// 4. Delete PV1.
+	// 5. Wait for PV1 to be deleted, and also entry is deleted from CNS.
+	// 6. Create a PV2 by the same name as PV1.
+	// 7. Wait for the volume entry to be created in CNS.
+	// 8. Delete PV2.
+	// 9. Wait for PV2 to be deleted, and also entry is deleted from CNS.
 	ginkgo.It("Verify static provisioning for file volume workflow using same PV name twice", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -234,7 +236,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
 
-		// Deleting the volume with deleteDisk set to false
+		// Deleting the volume with deleteDisk set to false.
 		ginkgo.By("Deleting the fileshare with deleteDisk set to false")
 		cnsDeleteReq := cnstypes.CnsDeleteVolume{
 			This:       cnsVolumeManagerInstance,
@@ -254,7 +256,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		staticPVLabels["fileshare-id"] = strings.TrimPrefix(fileShareVolumeID, "file:")
 
 		ginkgo.By("Creating the PV")
-		pvSpec = getPersistentVolumeSpecForFileShare(fileShareVolumeID, v1.PersistentVolumeReclaimRetain, staticPVLabels, v1.ReadWriteMany)
+		pvSpec = getPersistentVolumeSpecForFileShare(fileShareVolumeID,
+			v1.PersistentVolumeReclaimRetain, staticPVLabels, v1.ReadWriteMany)
 
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
