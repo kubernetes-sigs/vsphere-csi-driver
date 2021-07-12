@@ -121,9 +121,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 		return nil, err
 	}
 	if pv.Spec.ClaimRef == nil {
-		errMsg := fmt.Sprintf("No Claim ref found for this PV with volumeID: %s", volumeID)
-		log.Errorf(errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, logger.LogNewErrorf(log, "No Claim ref found for this PV with volumeID: %s", volumeID)
 	}
 	podResult, err := k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
 	if err != nil {
@@ -149,10 +147,9 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 		return true, nil
 	})
 	if err != nil {
-		errMsg := fmt.Sprintf("Unable to find pod %s and annotation %s on namespace %s in timeout: %d. Err: %+v",
+		return nil, logger.LogNewErrorf(log,
+			"Unable to find pod %s and annotation %s on namespace %s in timeout: %d. Err: %+v",
 			podName, vmUUIDLabel, podNamespace, timeout, err)
-		log.Errorf(errMsg)
-		return nil, fmt.Errorf(errMsg)
 	}
 	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s",
 		vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
@@ -202,9 +199,7 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 			return &pv, nil
 		}
 	}
-	errMsg := fmt.Sprintf("failed to find PV referring to volume ID: %s", volumeID)
-	log.Errorf(errMsg)
-	return nil, fmt.Errorf(errMsg)
+	return nil, logger.LogNewErrorf(log, "failed to find PV referring to volume ID: %s", volumeID)
 }
 
 // getPod returns the pod spec for the pod satisfying the below conditions.
@@ -222,10 +217,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 	})
 
 	if err != nil {
-		errMsg := fmt.Sprintf("Cannot find pod with namespace: %s running on node: %s with error %+v",
+		return nil, logger.LogNewErrorf(log, "Cannot find pod with namespace: %s running on node: %s with error %+v",
 			pvcNamespace, nodeName, err)
-		log.Errorf(errMsg)
-		return nil, fmt.Errorf(errMsg)
 	}
 	log.Debugf("Returned pods: %+v with namespace: %s running on node: %s", spew.Sdump(pods), pvcNamespace, nodeName)
 
@@ -242,10 +235,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		}
 	}
 
-	errMsg := fmt.Sprintf("Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s",
+	return nil, logger.LogNewErrorf(log, "Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s",
 		pvcName, pvcNamespace, nodeName)
-	log.Error(errMsg)
-	return nil, fmt.Errorf(errMsg)
 }
 
 // GetHostAnnotation provide the implementation for the GetHostAnnotation
