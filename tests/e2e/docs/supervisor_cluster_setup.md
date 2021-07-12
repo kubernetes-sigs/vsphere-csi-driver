@@ -73,6 +73,8 @@ datacenters should be comma separated if deployed on multi-datacenters
     export KUBECONFIG=~/.kube/config
     export STORAGE_POLICY_FOR_SHARED_DATASTORES="shared-ds-policy"
     export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="non-shared-ds-policy"
+    # For few SVC block volume expansion tests we need a storage policy which has thick provisioning enabled
+    export STORAGE_POLICY_WITH_THICK_PROVISIONING="<policy-name>"
     # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in csi-driver-deploy.yaml
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export USER=root

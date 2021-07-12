@@ -42,6 +42,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
+	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -1603,7 +1604,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-supervisor] Verify online volume expansion when POD is deleted and re-created", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify online volume expansion when POD is deleted and re-created", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1711,7 +1712,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		7. Delete POD and PVC
 		8. Verify there should not be any PVC entry in CNS
 	*/
-	ginkgo.It("[csi-supervisor] Verify online volume expansion when PVC is deleted", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify online volume expansion when PVC is deleted", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2009,6 +2010,154 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("File system resize finished successfully")
 	})
 
+	/*
+		Verify triggering offline volume expansion and delete PVC should not keep any entry in CNSvolume
+
+		1. Create StorageClass with thickprovisioning and allowVolumeExpansion set to true.
+		2. Create PVC which uses the StorageClass created in step 1.
+		3. Wait for PV to be provisioned.
+		4. Wait for PVC's status to become Bound and note down the size
+		5. Verify there should not be any PVC entry in CNS
+	*/
+	ginkgo.It("[csi-supervisor] Verify offline volume expansion when PVC is deleted", func() {
+		ginkgo.By("Invoking Test for Volume Expansion")
+
+		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
+		if thickProvPolicy == "" {
+			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		var volHandle string
+		var err error
+
+		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
+		scParameters := make(map[string]string)
+		scParameters[scParamFsType] = ext4FSType
+		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
+		scParameters[scParamStoragePolicyID] = profileID
+		// create resource quota
+		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "", thickProvPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if pvclaim != nil {
+				err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		//resize PVC
+		// Modify PVC spec to trigger volume expansion
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaim = nil
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(queryResult.Volumes) == 0)
+
+	})
+
+	/*
+		Verify online volume expansion on deployment
+
+		1. Create StorageClass with allowVolumeExpansion set to true.
+		2. Create PVC which uses the StorageClass created in step 1.
+		3. Wait for PV to be provisioned.
+		4. Wait for PVC's status to become Bound and note down the size
+		5. Create nginx deployment DEP using above created PVC with 1 replica
+		6. wait for all the replicas to come up , verify the deployment POD
+		7. Trigger online volume expansion by editing coresponding PVC
+		8. Wait for some time for resize to be successful  and verify the PVC size
+		9. Verify the resized PVC's by doing CNS query
+		10. Make sure file system has increased
+		11. Scale down deployment set to 0 replicas and delete all pods, PVC and SC
+
+	*/
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion on deployment", func() {
+		ginkgo.By("Invoking Test for Volume Expansion")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		var err error
+
+		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
+		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		_, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if pvclaim != nil {
+				err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+		ginkgo.By("Creating a Deployment using pvc1")
+
+		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvclaim}, "", false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods, err := fdep.GetPodsForDeployment(client, dep)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod := pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, &pod)
+
+		ginkgo.By("Scale down deployment to 0 replica")
+		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = fdep.GetPodsForDeployment(client, dep)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod = pods.Items[0]
+		rep := dep.Spec.Replicas
+		*rep = 0
+		dep.Spec.Replicas = rep
+		dep, err = client.AppsV1().Deployments(namespace).Update(ctx, dep, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			framework.Logf("Delete deployment set")
+			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+	})
+
 })
 
 //increaseOnlineVolumeMultipleTimes this method increases the same volume multiple times and verifies PVC and Filesystem size
@@ -2259,7 +2408,7 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err = getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %s", fsSize)
+	framework.Logf("File system size after expansion : %v", fsSize)
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
 	// the original volume size as the filesystem is formatted for the
