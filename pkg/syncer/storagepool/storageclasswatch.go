@@ -19,7 +19,6 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -52,7 +51,7 @@ type StorageClassWatch struct {
 	clientset      *kubernetes.Clientset
 	vc             *cnsvsphere.VirtualCenter
 	policyIds      []string
-	policyToScMap  map[string][]*storagev1.StorageClass
+	policyToScMap  map[string]*storagev1.StorageClass
 	isHostLocalMap map[string]bool
 	clusterID      string
 	spController   *SpController
@@ -206,8 +205,7 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 	log := logger.GetLogger(ctx)
 
 	policyIds := make([]string, 0)
-	policyIdsSet := make(map[string]bool)
-	policyToSCMap := make(map[string][]*storagev1.StorageClass)
+	policyToSCMap := make(map[string]*storagev1.StorageClass)
 	scClient := w.clientset.StorageV1().StorageClasses()
 	scList, err := scClient.List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -219,11 +217,8 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 		if policyID == "" {
 			continue
 		}
-		if !policyIdsSet[policyID] {
-			policyIds = append(policyIds, policyID)
-			policyIdsSet[policyID] = true
-		}
-		policyToSCMap[policyID] = append(policyToSCMap[policyID], &scList.Items[idx])
+		policyIds = append(policyIds, policyID)
+		policyToSCMap[policyID] = &scList.Items[idx]
 	}
 
 	w.policyToScMap = policyToSCMap
@@ -247,29 +242,9 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 // SPBM storage policy. This function makes it so.
 func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context, profile cnsvsphere.SpbmPolicyContent) error {
 	log := logger.GetLogger(ctx)
-	cumulativeErr := ""
-	for _, sc := range w.policyToScMap[profile.ID] {
-		err := w.addStorageClassPolicyAnnotationInt(ctx, profile, sc)
-		if err != nil {
-			cumulativeErr += fmt.Sprintf("Got error while adding storage policy annotation to %s err %s", sc.Name, err)
-			log.Error(err)
-		}
-	}
-	if cumulativeErr == "" {
-		return nil
-	}
-	return fmt.Errorf(cumulativeErr)
-}
 
-// Adds policy annotation to storage class
-func (w *StorageClassWatch) addStorageClassPolicyAnnotationInt(ctx context.Context, profile cnsvsphere.SpbmPolicyContent,
-	sc *storagev1.StorageClass) error {
-	log := logger.GetLogger(ctx)
-
+	sc := w.policyToScMap[profile.ID]
 	w.isHostLocalMap[sc.Name] = isHostLocalProfile(profile)
-	if !featureSwitchStorageClassContentAnnotation {
-		return nil
-	}
 	log.Infof("sc %s is hostLocal: %t", sc.Name, w.isHostLocalMap[sc.Name])
 	profileBytes, err := json.Marshal(profile)
 	if err != nil {
@@ -293,6 +268,10 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotationInt(ctx context.Conte
 	if err != nil {
 		log.Errorf("Failed to marshal patch: %s", err)
 		return err
+	}
+
+	if !featureSwitchStorageClassContentAnnotation {
+		return nil
 	}
 
 	scClient := w.clientset.StorageV1().StorageClasses()

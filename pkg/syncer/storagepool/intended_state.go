@@ -145,10 +145,8 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	dsPolicies, ok := dsPolicyCompatMap[ds.Reference().Value]
 	if ok {
 		for _, policyID := range dsPolicies {
-			for _, sc := range scWatchCntlr.policyToScMap[policyID] {
-				scName := sc.Name
-				compatSC = append(compatSC, scName)
-			}
+			scName := scWatchCntlr.policyToScMap[policyID].Name
+			compatSC = append(compatSC, scName)
 		}
 	} else {
 		log.Infof("Failed to get compatible policies for %s", ds.Reference().Value)
