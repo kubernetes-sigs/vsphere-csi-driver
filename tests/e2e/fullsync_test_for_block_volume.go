@@ -51,7 +51,7 @@ import (
 //
 // Cleanup: Delete PVC and StorageClass and verify volume is deleted from CNS.
 
-var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
+var _ bool = ginkgo.Describe("full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
 	var (
 		client                     clientset.Interface
@@ -131,7 +131,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		}
 	})
 
-	ginkgo.It("Verify CNS volume is created after full sync when pv entry is present", func() {
+	ginkgo.It("[csi-block-vanilla] Verify CNS volume is created after full sync when pv entry is present", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -210,7 +210,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-supervisor] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -298,7 +298,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-supervisor] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
 		ginkgo.By("Invoking test to verify CNS volume creation")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -403,7 +403,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 	// 9. verify that pvc labels for pvclaim[2] has been updated.
 	// 10. verify that pv labels for pvs[3] has been updated.
 	// 11. cleanup to remove pvs and pvcliams.
-	ginkgo.It("Verify Multiple PVCs are deleted/updated after full sync", func() {
+	ginkgo.It("[csi-block-vanilla] Verify Multiple PVCs are deleted/updated after full sync", func() {
 		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ctx, cancel := context.WithCancel(context.Background())
@@ -518,7 +518,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		}
 	})
 
-	ginkgo.It("Verify PVC metadata is created in CNS after PVC is created in k8s", func() {
+	ginkgo.It("[csi-block-vanilla] Verify PVC metadata is created in CNS after PVC is created in k8s", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -598,7 +598,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	ginkgo.It("Verify PVC metadata is deleted in CNS after PVC is deleted in k8s", func() {
+	ginkgo.It("[csi-block-vanilla] Verify PVC metadata is deleted in CNS after PVC is deleted in k8s", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -694,7 +694,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] full-sync-test", func() {
 
 	})
 
-	ginkgo.It("Scale down driver deployment to zero replica and verify PV metadata is created in CNS", func() {
+	ginkgo.It("[csi-block-vanilla-destructive] Scale down driver deployment to zero replica and verify PV metadata is created in CNS", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
