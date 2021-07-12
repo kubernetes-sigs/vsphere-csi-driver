@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 
 		fsGroup = 1000

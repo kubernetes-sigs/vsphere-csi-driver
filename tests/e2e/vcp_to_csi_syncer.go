@@ -1088,9 +1088,9 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 	return nil
 }
 
-//createPodWithMultipleVolsVerifyVolMounts this method creates POD and verifies VolumeMount
+//createPodWithMultipleVolsVerifyVolMounts this method creates Pod and verifies VolumeMount
 func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client clientset.Interface, namespace string, pvclaims []*v1.PersistentVolumeClaim) *v1.Pod {
-	// Create a POD to use this PVC, and verify volume has been attached
+	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

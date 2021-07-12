@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 14. delete PVC created in step 2.
 	// 15. delete SC created in step 1.
 	ginkgo.It("Verify offline expansion triggers FS resize", func() {
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -360,7 +360,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	ginkgo.It("verify offline block volume expansion triggered when SVC CSI pod is down succeeds once SVC CSI pod comes up", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -471,7 +471,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -897,7 +897,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 13. Delete PVC created in step 2.
 	// 14. Delete SC created in step 1.
 	ginkgo.It("verify resize triggered when volume was online resumes when volumes becomes offline", func() {
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -981,7 +981,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1177,7 +1177,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1281,7 +1281,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb).To(
 			gomega.Equal(newSizeInMb), "Got wrong disk size after volume expansion")
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1421,7 +1421,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 12. delete PVC created in step 2.
 	// 13. delete SC created in step 1.
 	ginkgo.It("Verify Online volume expansion on dynamic PVC and check FS resize", func() {
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1502,7 +1502,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Verify online volume expansion when PVC resized concurrently " +
 			"with different sizes expands to largest size")
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1589,7 +1589,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 1. Create a SC with allowVolumeExpansion set to 'true'.
 	// 2. set a quota limit on the storage policy in VC.
 	// 3. create a PVC using the SC created in step 1 and wait for binding with PV.
-	// 4. Create POD using above PVC.
+	// 4. Create Pod using above PVC.
 	// 5. resize GC PVC to size bigger than what storage policy quota allows.
 	// 6. Verify resize fails.
 	// 7. Increase quota on the storage policy to allow the exapnsion.
@@ -1606,7 +1606,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		defer cancel()
 
 		ginkgo.By("Verify online expansion when resize beyond storage policy quota fails")
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2255,7 +2255,7 @@ func createStaticPVandPVCinGuestCluster(client clientset.Interface,
 
 	framework.Logf("PVC name in GC : %s", gcPVC.GetName())
 
-	// Create a POD to use this PVC, and verify volume has been attached.
+	// Create a Pod to use this PVC, and verify volume has been attached.
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{gcPVC}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

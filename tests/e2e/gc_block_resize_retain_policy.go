@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	ginkgo.It("PV with reclaim policy can be reused and resized with pod", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Create a POD to use this PVC, and verify volume has been attached.
+		// Create a Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -285,7 +285,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -503,7 +503,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a pod to attach PV again to the node")
 		pod, err := createPod(clientNewGc, namespaceNewGC, nil, []*v1.PersistentVolumeClaim{pvcNew}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

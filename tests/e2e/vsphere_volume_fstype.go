@@ -123,7 +123,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Create a POD to use this PVC, and verify volume has been attached
+	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -182,7 +182,7 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Create a POD to use this PVC, and verify volume has been attached
+	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).To(gomega.HaveOccurred())

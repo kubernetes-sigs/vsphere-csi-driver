@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume Test for ReadOnlyMany", fun
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "echo 'Hello message from Pod1' && while true ; do sleep 2 ; done")
 		pod.Spec.Volumes[0] = v1.Volume{Name: "volume1", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: true}}}
@@ -251,7 +251,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume Test for ReadOnlyMany", fun
 			queryResult2.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use the PVC created above
+		// Create a Pod to use the PVC created above
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim, pvclaim2}, false, execRWXCommandPod1)
 
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume Test for ReadOnlyMany", fun
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume Test for ReadOnlyMany", fun
 		ginkgo.By(fmt.Sprintf("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1 %s", pod.Spec.NodeName+"-"+volHandle))
 		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "echo 'Hello message from Pod1' && while true ; do sleep 2 ; done")
 		pod2.Spec.Volumes[0] = v1.Volume{Name: "volume1", VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: true}}}
