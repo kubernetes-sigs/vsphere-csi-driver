@@ -33,7 +33,8 @@ import (
 )
 
 var (
-	// reconcileAllMutex should be acquired to run ReconcileAllStoragePools so that only one thread runs at a time.
+	// reconcileAllMutex should be acquired to run ReconcileAllStoragePools so
+	// that only one thread runs at a time.
 	reconcileAllMutex sync.Mutex
 	// Run ReconcileAllStoragePools every `freq` seconds.
 	reconcileAllFreq = time.Second * 60
@@ -49,13 +50,15 @@ func startPropertyCollectorListener(ctx context.Context) {
 	initListener(ctx, scWatchCntlr, SpController, exitChannel)
 }
 
-// Initialize a PropertyCollector listener that updates the intended state of a StoragePool
-func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spController *SpController, exitChannel chan interface{}) {
+// Initialize a PropertyCollector listener that updates the intended state of
+// a StoragePool.
+func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
+	spController *SpController, exitChannel chan interface{}) {
 	log := logger.GetLogger(ctx)
 
-	// Initialize a PropertyCollector that watches all objects in the hierarchy of
-	// cluster -> hosts in the cluster -> datastores mounted on hosts. One or more StoragePool instances would be
-	// created for each Datastore.
+	// Initialize a PropertyCollector that watches all objects in the hierarchy
+	// of cluster -> hosts in the cluster -> datastores mounted on hosts. One or
+	// more StoragePool instances would be created for each Datastore.
 	clusterMoref := types.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
 		Value: spController.clusterID,
@@ -85,9 +88,10 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	filter.Spec.PropSet = append(filter.Spec.PropSet, prodHost, propDs)
 	go func() {
 		defer func() {
-			// signal managePCListenerInstance that PC listener has exited.
+			// Signal managePCListenerInstance that PC listener has exited.
 			close(exitChannel)
-			// If this goroutine panics midway during execution, we recover so as to not crash the container.
+			// If this goroutine panics midway during execution, we recover so as
+			// to not crash the container.
 			if recoveredErr := recover(); recoveredErr != nil {
 				log.Infof("Recovered Panic in initListener: %v", recoveredErr)
 			}
@@ -110,26 +114,31 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 				for _, update := range updates {
 					propChange := update.ChangeSet
 					log.Debugf("Got update for object %v properties %v", update.Obj, propChange)
-					if update.Obj.Type == "Datastore" && len(propChange) == 1 && propChange[0].Name == "summary" && propChange[0].Op == types.PropertyChangeOpAssign {
-						// Handle changes in a Datastore's summary property (that includes name, type, freeSpace, accessible) by
-						// updating only the corresponding single StoragePool instance.
+					if update.Obj.Type == "Datastore" && len(propChange) == 1 &&
+						propChange[0].Name == "summary" && propChange[0].Op == types.PropertyChangeOpAssign {
+						// Handle changes in a Datastore's summary property (that
+						// includes name, type, freeSpace, accessible) by updating
+						// only the corresponding single StoragePool instance.
 						ds := update.Obj
 						summary, ok := propChange[0].Val.(types.DatastoreSummary)
 						if !ok {
 							log.Errorf("Not able to cast to DatastoreSummary: %v", propChange[0].Val)
 							continue
 						}
-						// Datastore summary property can be updated immediately into the StoragePool
+						// Datastore summary property can be updated immediately into the StoragePool.
 						log.Debugf("Starting update for single StoragePool %s", ds.Value)
 						err := spController.updateIntendedState(ctx, ds.Value, summary, scWatchCntlr)
 						if err != nil {
 							log.Errorf("Error updating StoragePool for datastore %v. Err: %v", ds, err)
 						}
 					} else {
-						// Handle changes in "hosts in cluster", "hosts inMaintenanceMode state" and "Datastores mounted on hosts" by
-						// scheduling a reconcile of all StoragePool instances afresh. Schedule only once for a batch of updates
+						// Handle changes in "hosts in cluster", "hosts
+						// inMaintenanceMode state" and "Datastores mounted on hosts"
+						// by scheduling a reconcile of all StoragePool instances
+						// afresh. Schedule only once for a batch of updates.
 						if !reconcileAllScheduled {
-							scheduleReconcileAllStoragePools(ctx, reconcileAllFreq, reconcileAllIterations, scWatchCntlr, spController)
+							scheduleReconcileAllStoragePools(ctx, reconcileAllFreq,
+								reconcileAllIterations, scWatchCntlr, spController)
 							reconcileAllScheduled = true
 						}
 					}
@@ -149,24 +158,29 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch, spContro
 	}()
 }
 
-// managePCListenerInstance is responsible for making sure that Property collector listener is always running.
-// If the listener crashes for some reason it restarts the listener.
+// managePCListenerInstance is responsible for making sure that Property
+// collector listener is always running. If the listener crashes for some
+// reason it restarts the listener.
 func managePCListenerInstance(ctx context.Context, exitChannel chan interface{}) {
 	<-exitChannel
 	startPropertyCollectorListener(ctx)
 }
 
-// XXX: This hack should be removed once we figure out all the properties of a StoragePool that gets updates lazily.
-// Notifications for Hosts add/remove from a Cluster and Datastores un/mounted on Hosts come in too early
-// before the VC is ready. For example, the vSAN Datastore mount is not completed yet for a newly added host.
-// The Datastore does not have the vSANDirect tag yet for a newly added Datastore in a host. So this function
-// schedules a ReconcileAllStoragePools, that computes addition and deletion of StoragePool instances, to
-// run n times every f secs. Each time this function is called, the counter n is reset, so that
-// ReconcileAllStoragePools can run another n times starting now. The values for n and f can be tuned so that
-// ReconcileAllStoragePools can be retried enough number of times to discover additions and deletions of
-// StoragePool instances in all cases. See bug 2602864.
-func scheduleReconcileAllStoragePools(ctx context.Context, freq time.Duration, nTimes int, scWatchCntrl *StorageClassWatch,
-	spController *SpController) {
+// XXX: This hack should be removed once we figure out all the properties of a
+// StoragePool that gets updates lazily. Notifications for Hosts add/remove from
+// a Cluster and Datastores un/mounted on Hosts come in too early before the VC
+// is ready. For example, the vSAN Datastore mount is not completed yet for a
+// newly added host. The Datastore does not have the vSANDirect tag yet for a
+// newly added Datastore in a host. So this function schedules a
+// ReconcileAllStoragePools, that computes addition and deletion of StoragePool
+// instances, to run n times every f secs. Each time this function is called,
+// the counter n is reset, so that ReconcileAllStoragePools can run another n
+// times starting now. The values for n and f can be tuned so that
+// ReconcileAllStoragePools can be retried enough number of times to discover
+// additions and deletions of StoragePool instances in all cases.
+// -- See bug 2602864.
+func scheduleReconcileAllStoragePools(ctx context.Context, freq time.Duration,
+	nTimes int, scWatchCntrl *StorageClassWatch, spController *SpController) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Scheduled ReconcileAllStoragePools starting")
 	go func() {
@@ -193,23 +207,25 @@ func scheduleReconcileAllStoragePools(ctx context.Context, freq time.Duration, n
 	log.Infof("Scheduled ReconcileAllStoragePools started")
 }
 
-// ReconcileAllStoragePools creates/updates/deletes StoragePool instances for datastores found in this k8s cluster.
-// This should be invoked when there is a potential change in the list of datastores in the cluster.
+// ReconcileAllStoragePools creates/updates/deletes StoragePool instances for
+// datastores found in this k8s cluster. This should be invoked when there is
+// a potential change in the list of datastores in the cluster.
 func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWatch, spCtl *SpController) error {
 	log := logger.GetLogger(ctx)
 
-	// Only one thread at a time can execute ReconcileAllStoragePools
+	// Only one thread at a time can execute ReconcileAllStoragePools.
 	reconcileAllMutex.Lock()
 	defer reconcileAllMutex.Unlock()
 
-	// shallow copy VC to prevent nil pointer dereference exception caused due to vc.Disconnect func running in parallel
+	// Shallow copy VC to prevent nil pointer dereference exception caused due
+	// to vc.Disconnect func running in parallel.
 	vc := *spCtl.vc
 	err := vc.Connect(ctx)
 	if err != nil {
 		log.Errorf("failed to connect to vCenter. Err: %+v", err)
 		return err
 	}
-	// Get datastores from VC
+	// Get datastores from VC.
 	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc, spCtl.clusterID)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
@@ -217,7 +233,7 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 	}
 	datastores := append(sharedDatastores, vsanDirectDatastores...)
 	validStoragePoolNames := make(map[string]bool)
-	// create StoragePools that are missing and add them to intendedStateMap
+	// Create StoragePools that are missing and add them to intendedStateMap.
 	for _, dsInfo := range datastores {
 		spName := makeStoragePoolName(dsInfo.Info.Name)
 		validStoragePoolNames[spName] = true
@@ -232,7 +248,7 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 			continue
 		}
 
-		// create vsan-sna StoragePools for local vsan datastore
+		// Create vsan-sna StoragePools for local vsan datastore.
 		if intendedState.dsType == vsanDsType && !intendedState.isRemoteVsan {
 			err := spCtl.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
 			if err != nil {
@@ -242,7 +258,7 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 		}
 	}
 
-	// Delete unknown StoragePool instances owned by this driver
+	// Delete unknown StoragePool instances owned by this driver.
 	return deleteStoragePools(ctx, validStoragePoolNames, spCtl)
 }
 
@@ -252,7 +268,7 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 	if err != nil {
 		return err
 	}
-	// Delete unknown StoragePool instances owned by this driver
+	// Delete unknown StoragePool instances owned by this driver.
 	splist, err := spClient.Resource(*spResource).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Error getting list of StoragePool instances. Err: %v", err)
@@ -266,11 +282,10 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 				log.Infof("Deleting StoragePool %s", spName)
 				err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
 				if err != nil {
-					// log error and continue
 					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
 				}
 			}
-			// Also delete entry from intendedStateMap
+			// Also delete entry from intendedStateMap.
 			spCtl.deleteIntendedState(ctx, spName)
 		}
 	}
