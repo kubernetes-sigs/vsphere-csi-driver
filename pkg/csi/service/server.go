@@ -17,7 +17,6 @@ limitations under the License.
 package service
 
 import (
-	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -95,32 +94,24 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	log := logger.GetLoggerWithNoContext()
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		msg := fmt.Sprintf("failed to parse the endpoint %s. Err: %v", endpoint, err)
-		log.Error(msg)
-		return fmt.Errorf(msg)
+		return logger.LogNewErrorf(log, "failed to parse the endpoint %s. Err: %v", endpoint, err)
 	}
 
-	// CSI driver currently supports only unix path
+	// CSI driver currently supports only unix path.
 	if u.Scheme != "unix" {
-		msg := fmt.Sprintf("endpoint scheme %s not supported", u.Scheme)
-		log.Error(msg)
-		return fmt.Errorf(msg)
+		return logger.LogNewErrorf(log, "endpoint scheme %s not supported", u.Scheme)
 	}
 
 	addr := u.Path
 
 	// Remove UNIX sock file if present.
 	if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
-		msg := fmt.Sprintf("failed to remove %s. Err: %v", addr, err)
-		log.Error(msg)
-		return fmt.Errorf(msg)
+		return logger.LogNewErrorf(log, "failed to remove %s. Err: %v", addr, err)
 	}
 
 	listener, err := net.Listen(u.Scheme, addr)
 	if err != nil {
-		msg := fmt.Sprintf("failed to listen: %v", err)
-		log.Error(msg)
-		return fmt.Errorf(msg)
+		return logger.LogNewErrorf(log, "failed to listen: %v", err)
 	}
 
 	server := grpc.NewServer()
@@ -155,10 +146,8 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 		csi.RegisterNodeServer(s.server, ns)
 		log.Info("node service registered")
 	} else {
-		msg := fmt.Sprintf("invalid value %q specified for %s, expecting 'node' or 'controller'",
+		return logger.LogNewErrorf(log, "invalid value %q specified for %s, expecting 'node' or 'controller'",
 			mode, csitypes.EnvVarMode)
-		log.Error(msg)
-		return fmt.Errorf(msg)
 	}
 
 	log.Infof("Listening for connections on address: %s", listener.Addr())
