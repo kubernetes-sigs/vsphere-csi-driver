@@ -92,6 +92,12 @@ The section outlines how to set the env variable for running e2e test.
     export STORAGE_POLICY_WITH_THICK_PROVISIONING="<policy-name>"
     export COMPUTE_CLUSTER_NAME="<your_cluster_name>"
     export RAID_0_STORAGE_POLICY="raid-0-policy"
+    #shared VVOL datastore url
+    export SHARED_VVOL_DATASTORE_URL="<shared-VVOL-datastore-url>"
+    #shared NFS datastore url
+    export SHARED_NFS_DATASTORE_URL="<shared-NFS-datastore-url>"
+    #shared VMFS datastore url
+    export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
