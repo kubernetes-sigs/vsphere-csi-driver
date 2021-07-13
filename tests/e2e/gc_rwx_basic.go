@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] Basic File Volume Provision Test", func
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] Basic File Volume Provision Test", func
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] Basic File Volume Provision Test", func
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
 		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod2 to attach PV to the node")
 		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] Basic File Volume Provision Test", func
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] Basic File Volume Provision Test", func
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
 		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
-		// Create a POD to use this PVC, and verify volume has been attached
+		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

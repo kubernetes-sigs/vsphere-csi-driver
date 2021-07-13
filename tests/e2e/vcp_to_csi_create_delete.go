@@ -936,7 +936,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 			if verifyPodEntry {
 				podEntryFound = true
 				if entityMetadata.EntityName != pod.Name {
-					framework.Logf("POD name '%v' does not match POD name in metadata '%v', for volume id %v", pod.Name, entityMetadata.EntityName, volumeID)
+					framework.Logf("POD name '%v' does not match Pod name in metadata '%v', for volume id %v", pod.Name, entityMetadata.EntityName, volumeID)
 					podEntryFound = false
 					break
 				}
@@ -953,7 +953,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim, pv 
 							break
 						}
 						if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
-							framework.Logf("PVC namespace '%v' does not match PVC namespace in POD metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+							framework.Logf("PVC namespace '%v' does not match PVC namespace in Pod metadata referered entitry, '%v', for volume id %v", pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
 							podEntryFound = false
 							break
 						}
