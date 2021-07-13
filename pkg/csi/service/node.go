@@ -1246,9 +1246,7 @@ func rescanDevice(ctx context.Context, dev *Device) error {
 
 	err = ioutil.WriteFile(devRescanPath, []byte{'1'}, 0666)
 	if err != nil {
-		msg := fmt.Sprintf("error rescanning block device %q. %v", dev.RealDev, err)
-		log.Error(msg)
-		return fmt.Errorf(msg)
+		return logger.LogNewErrorf(log, "error rescanning block device %q. %v", dev.RealDev, err)
 	}
 	return nil
 }
