@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("Verify CnsNodeVmAttachements crd and POD is created after CSI controller comes up", func() {
+	ginkgo.It("Verify CnsNodeVmAttachements crd and Pod is created after CSI controller comes up", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -735,7 +735,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(clientNewGc,
 			framework.NewTimeoutContextWithDefaults(), namespaceNewGC, pvNew, pvcNew))
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a pod in GC2 with PVC created in GC2")
 		pod, err := createPod(clientNewGc, namespaceNewGC, nil, []*v1.PersistentVolumeClaim{pvcNew}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -749,7 +749,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-		// Create a new POD to use this PVC, and verify volume has been attached.
+		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a pod in GC1 with PVC created in GC1")
 		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		pod1, err = client.CoreV1().Pods(namespace).Get(ctx, pod1.Name, metav1.GetOptions{})

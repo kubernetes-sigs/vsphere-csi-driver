@@ -202,7 +202,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
 		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
 		if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.EntityName != PodName {
-			return fmt.Errorf("entity POD with name %s not found for volume %s", PodName, volumeID)
+			return fmt.Errorf("entity Pod with name %s not found for volume %s", PodName, volumeID)
 		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" &&
 			kubernetesMetadata.EntityName != PersistentVolumeName {
 			return fmt.Errorf("entity PV with name %s not found for volume %s", PersistentVolumeName, volumeID)

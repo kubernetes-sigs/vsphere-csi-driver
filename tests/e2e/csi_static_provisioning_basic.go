@@ -632,7 +632,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. create CNS register volume with above created VolumeID.
 	// 4. verify created PV, PVC and check the bidirectional reference.
-	// 5. Create POD , with above created PVC.
+	// 5. Create Pod , with above created PVC.
 	// 6. Verify volume is attached to the node and volume is accessible in the pod.
 	// 7. Delete POD.
 	// 8. Delete PVC.
@@ -721,7 +721,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created FCD.
 	// 4. verify PV, PVC got created , check the bidirectional reference.
-	// 5. Create POD , with above created PVC.
+	// 5. Create Pod , with above created PVC.
 	// 6. Verify volume is attached to the node and volume is accessible in the pod.
 	// 7. Delete POD.
 	// 8. Delete PVC.
@@ -815,7 +815,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 5. Verify  PVC creation fails.
 	// 6. Increase Resource quota.
 	// 7. verify PVC, PV got created , check the bidirectional reference.
-	// 8. Create POD , with above created PVC.
+	// 8. Create Pod , with above created PVC.
 	// 9. Verify volume is attached to the node and volume is accessible in the pod.
 	// 10. Delete POD.
 	// 11. Delete PVC.
@@ -1693,7 +1693,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	})
 
 	// Perform dynamic and static volume provisioning together and verify the
-	// PVC creation, Create POD and then delete namespace.
+	// PVC creation, Create Pod and then delete namespace.
 	// Make sure all PV, PVC, POd's and CNS register volume got deleted.
 	//
 	// Test Steps:
@@ -1702,11 +1702,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 3. Create CNS register volume with above created FCD.
 	// 4. Create pvc through dynamic volume provisioning.
 	// 5. verify PV, PVC got created through static volume provisioning.
-	// 6. Create POD with the PVC created in step 4 and 5.
+	// 6. Create Pod with the PVC created in step 4 and 5.
 	// 7. Delete Namespace.
 	// 8. Verify that PV's got deleted (This ensures that all PVC, CNS register
 	//    volumes and POD's are deleted).
-	ginkgo.It("[csi-supervisor] Perform static and dynamic provisioning together, Create POD and delete Namespace", func() {
+	ginkgo.It("[csi-supervisor] Perform static and dynamic provisioning together, Create Pod and delete Namespace", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

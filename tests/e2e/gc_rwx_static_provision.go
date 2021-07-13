@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use the PVC created above
+		// Create a Pod to use the PVC created above
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
 
-		// Create a POD to use this PVC
+		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod2 to attach PV to the node")
 		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
 		)
 
-		// Create a POD to use the PVC created above
+		// Create a Pod to use the PVC created above
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -329,7 +329,7 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
 
-		// Create a POD to use this PVC
+		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod2 to attach PV to the node")
 		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
