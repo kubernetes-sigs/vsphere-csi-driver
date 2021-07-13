@@ -34,7 +34,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-guest] File Volume Test for ReadOnlyMany", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-readonly")
 	var (
 		client            clientset.Interface
