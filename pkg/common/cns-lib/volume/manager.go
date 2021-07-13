@@ -96,6 +96,8 @@ type Manager interface {
 	RegisterDisk(ctx context.Context, path string, name string) (string, error)
 	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id.
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
+	// QuerySnapshots retrieves the list of snapshots based on the query filter.
+	QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1480,4 +1482,49 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
 	log.Debugf("QueryVolumeAsync returned CnsQueryResult: %+v", spew.Sdump(queryVolumeAsyncResult.QueryResult))
 	return &queryVolumeAsyncResult.QueryResult, nil
+}
+
+func (m *defaultManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+	internalQuerySnapshots := func() (*cnstypes.CnsSnapshotQueryResult, error) {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		// Set up the VC connection.
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return nil, err
+		}
+		// Call the CNS QuerySnapshots.
+		querySnapshotsTask, err := m.virtualCenter.CnsClient.QuerySnapshots(ctx, snapshotQueryFilter)
+		if err != nil {
+			log.Errorf("Failed to get the task of CNS QuerySnapshots with err: %v", err)
+			return nil, err
+		}
+		querySnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, querySnapshotsTask)
+		if err != nil {
+			log.Errorf("failed to get taskInfo for QuerySnapshots task from vCenter %q with err: %v",
+				m.virtualCenter.Config.Host, err)
+			return nil, err
+		}
+		res, err := cns.GetQuerySnapshotsTaskResult(ctx, querySnapshotsTaskInfo)
+		if err != nil {
+			log.Errorf("failed to get task result for QuerySnapshots task %s with error: %v",
+				querySnapshotsTask.Reference().Value, err)
+			return nil, err
+		}
+		return res, err
+	}
+	start := time.Now()
+	resp, err := internalQuerySnapshots()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusQuerySnapshotsOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusQuerySnapshotsOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
