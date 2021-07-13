@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -41,7 +40,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
@@ -58,12 +56,8 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 }
 
 const (
-	spTypePrefix                            = "cns.vmware.com/"
-	spTypeKey                               = spTypePrefix + "StoragePoolType"
-	defaultK8sCloudOperatorServicePort      = 10000
-	defaultK8sCloudOperatorServiceIP        = "127.0.0.1"
-	defaultK8sCloudOperatorServiceName      = "vmware-system-psp-operator-k8s-cloud-operator-service"
-	defaultK8sCloudOperatorServiceNameSpace = "vmware-system-appplatform-operator-system"
+	spTypePrefix = "cns.vmware.com/"
+	spTypeKey    = spTypePrefix + "StoragePoolType"
 )
 
 // validateCreateFileReqParam is a helper function used to validate the parameter
@@ -181,71 +175,16 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 // getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
 // k8sCloudOperator GRPC service running on syncer container
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	log := logger.GetLogger(ctx)
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
-	ip, port := GetK8sCloudOperatorServicePortForClient(ctx)
-	k8sCloudOperatorServiceAddr := ip + ":" + strconv.Itoa(port)
-	log.Infof("connecting to k8sCloudOperatorServiceAddr %s", k8sCloudOperatorServiceAddr)
+	port := common.GetK8sCloudOperatorServicePort(ctx)
+	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
 	// Connect to k8s cloud operator gRPC service
 	conn, err := grpc.Dial(k8sCloudOperatorServiceAddr, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return conn, nil
-}
-
-// GetK8sCloudOperatorServicePort return the port to connect the K8sCloudOperator gRPC service.
-// If environment variable POD_LISTENER_SERVICE_PORT is set and valid,
-// return the interval value read from environment variable
-// otherwise, use the default port
-func GetK8sCloudOperatorServicePortForClient(ctx context.Context) (string, int) {
-	k8sCloudOperatorServiceIP := defaultK8sCloudOperatorServiceIP
-	k8sCloudOperatorServicePort := defaultK8sCloudOperatorServicePort
-	log := logger.GetLogger(ctx)
-	if v := os.Getenv("POD_LISTENER_SERVICE_PORT"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Connecting to K8s Cloud Operator Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is equal or less than 0, will use the default port %d", v, defaultK8sCloudOperatorServicePort)
-			} else {
-				k8sCloudOperatorServicePort = value
-				log.Infof("Connecting to K8s Cloud Operator Service on port %d", k8sCloudOperatorServicePort)
-			}
-		} else {
-			log.Warnf("Connecting to K8s Cloud Operator Service on port set in env variable POD_LISTENER_SERVICE_PORT %s is invalid, will use the default port %d", v, defaultK8sCloudOperatorServicePort)
-		}
-	}
-	//if useServiceForPlacementEngine is enabled get ip and port from service
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseServiceForPlacementEngine) {
-		return k8sCloudOperatorServiceIP, k8sCloudOperatorServicePort
-	}
-	//get ip of the cluster
-	k8sCloudOperatorServiceName := defaultK8sCloudOperatorServiceName
-	if v := os.Getenv("VSPHERE_CLOUD_OPERATOR_SERVICE_NAME"); v != "" {
-		k8sCloudOperatorServiceName = v
-	}
-	k8sCloudOperatorServiceNameSpace := defaultK8sCloudOperatorServiceNameSpace
-	if v := os.Getenv("VSPHERE_CLOUD_OPERATOR_SERVICE_NAMESPACE"); v != "" {
-		k8sCloudOperatorServiceNameSpace = v
-	}
-	k8sClient, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
-		return k8sCloudOperatorServiceIP, k8sCloudOperatorServicePort
-	}
-	services, err := k8sClient.CoreV1().Services(k8sCloudOperatorServiceNameSpace).List(ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, service := range services.Items {
-			if strings.Contains(service.Name, k8sCloudOperatorServiceName) {
-				k8sCloudOperatorServiceIP = service.Spec.ClusterIP
-				k8sCloudOperatorServicePort = int(service.Spec.Ports[0].Port)
-				log.Infof("Found cluster ip %s and port: %s", k8sCloudOperatorServiceIP, k8sCloudOperatorServicePort)
-			}
-		}
-	} else {
-		log.Errorf("Fail to get service name: %s, namespace: %s, %s", k8sCloudOperatorServiceName, k8sCloudOperatorServiceNameSpace, err)
-	}
-	return k8sCloudOperatorServiceIP, k8sCloudOperatorServicePort
 }
 
 // GetsvMotionPlanFromK8sCloudOperatorService gets storage vMotion plan from K8sCloudOperator gRPC service

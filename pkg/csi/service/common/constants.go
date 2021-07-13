@@ -266,6 +266,4 @@ const (
 	ImprovedVolumeTopology = "improved-volume-topology"
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
-	// UseServiceForPlacementEngine is feature to use placementengine moved out of syncer
-	UseServiceForPlacementEngine = "use-service-for-placement-engine"
 )
