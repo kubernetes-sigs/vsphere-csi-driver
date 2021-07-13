@@ -45,7 +45,7 @@ const (
 )
 
 // StorageClassWatch keeps state to watch storage classes and keep
-// an in-memory cache of datastore / storage pool accessibility
+// an in-memory cache of datastore / storage pool accessibility.
 type StorageClassWatch struct {
 	scWatch        watch.Interface
 	clientset      *kubernetes.Clientset
@@ -59,17 +59,18 @@ type StorageClassWatch struct {
 	dsPolicyCompatMapCache map[string][]string
 }
 
-// Watch storage classes that pertain to our CSI driver
+// Watch storage classes that pertain to our CSI driver.
 //
 // The goal is two fold:
 // a) Keep a in-memory cache of all storage classes so when we remediate
 //    other things, like StoragePool, we have cheap access to the
 //    classes.
 // b) Put annotations on the StorageClass that contain information
-//    about the underlying Storage Policy in VC
+//    about the underlying Storage Policy in VC.
 //
-// This function starts a go-routine which processes watch fires
-func startStorageClassWatch(ctx context.Context, spController *SpController, cfg *rest.Config) (*StorageClassWatch, error) {
+// This function starts a go-routine which processes watch fires.
+func startStorageClassWatch(ctx context.Context,
+	spController *SpController, cfg *rest.Config) (*StorageClassWatch, error) {
 	log := logger.GetLogger(ctx)
 	w := &StorageClassWatch{}
 	clientset, err := kubernetes.NewForConfig(cfg)
@@ -92,9 +93,9 @@ func startStorageClassWatch(ctx context.Context, spController *SpController, cfg
 	return w, nil
 }
 
-// As our watch can and will expire, we need a helper to renew it
+// As our watch can and will expire, we need a helper to renew it.
 // Note that after we re-new it, we will get a bunch of ADDED events, triggering
-// a full remediation
+// a full remediation.
 func renewStorageClassWatch(ctx context.Context, w *StorageClassWatch) error {
 	var err error
 	scClient := w.clientset.StorageV1().StorageClasses()
@@ -132,14 +133,15 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 				err := renewStorageClassWatch(ctx, w)
 				if err != nil {
 					// XXX: Not sure how to handle this, as we need this watch.
-					// So crash and let restart perform any remediation required
+					// So crash and let restart perform any remediation required.
 					log.Error(err, "Fatal event, couldn't renew storage class watch")
 					os.Exit(3)
 					return
 				}
 				continue
 			}
-			// run this task on a separate log context that has a separate TraceId for every invocation
+			// Run this task on a separate log context that has a separate TraceId
+			// for every invocation.
 			taskCtx := logger.NewContextWithLogger(ctx)
 			if sc, ok := e.Object.(*storagev1.StorageClass); ok && w.needsRefreshStorageClassCache(taskCtx, sc, e.Type) {
 				err := w.refreshStorageClassCache(taskCtx)
@@ -152,7 +154,8 @@ func (w *StorageClassWatch) watchStorageClass(ctx context.Context) {
 	log.Info("watchStorageClass ends")
 }
 
-// isHostLocalProfile checks whether this profile has a subprofile which has the vSAN Host Local policy rule
+// isHostLocalProfile checks whether this profile has a subprofile which has
+// the vSAN Host Local policy rule.
 func isHostLocalProfile(profile cnsvsphere.SpbmPolicyContent) bool {
 	for _, sub := range profile.Profiles {
 		for _, role := range sub.Rules {
@@ -164,32 +167,35 @@ func isHostLocalProfile(profile cnsvsphere.SpbmPolicyContent) bool {
 	return false
 }
 
-// isHostLocal uses the cached info to know if a profileID refers to a policy with vSAN Host Local policy rule
+// isHostLocal uses the cached info to know if a profileID refers to a policy
+// with vSAN Host Local policy rule.
 func (w *StorageClassWatch) isHostLocal(scName string) bool {
 	return w.isHostLocalMap[scName]
 }
 
-// Returns true if the given StorageClass is not present in the cache yet, false otherwise.
+// Returns true if the given StorageClass is not present in the cache yet, false
+// otherwise.
 func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, sc *storagev1.StorageClass,
 	eventType watch.EventType) bool {
 	log := logger.GetLogger(ctx)
 
 	thisStoragePolicyID := getStoragePolicyIDFromSC(sc)
 	if thisStoragePolicyID == "" {
-		// Our cache only has StorageClasses created by vSphere
+		// Our cache only has StorageClasses created by vSphere.
 		return false
 	}
-	// Lookup StorageClass from our cache
+	// Lookup StorageClass from our cache.
 	cachedSc, found := w.policyToScMap[thisStoragePolicyID]
 	switch eventType {
 	case watch.Added, watch.Modified:
-		// Need to refresh our cache if this StorageClass is missing or anything has changed in it.
+		// Need to refresh our cache if this StorageClass is missing or anything
+		// has changed in it.
 		if !found || !reflect.DeepEqual(sc, cachedSc) {
 			log.Infof("StorageClassWatch cache refresh due to %s", sc.Name)
 			return true
 		}
 	case watch.Deleted:
-		// Need to refresh our cache since this StorageClass is going away
+		// Need to refresh our cache since this StorageClass is going away.
 		if found {
 			log.Infof("StorageClassWatch cache refresh due to delete of %s", sc.Name)
 			return true
@@ -198,9 +204,10 @@ func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, s
 	return false
 }
 
-// Refresh the storage class cache and do a full remediation
-// The cache contains a convenient lookup table mapping from policyId to storage class content
-// we also ensure to put our annotation on the storage classes
+// Refresh the storage class cache and do a full remediation.
+// The cache contains a convenient lookup table mapping from policyId to
+// storage class content. We also ensure to put our annotation on the storage
+// classes.
 func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
@@ -240,7 +247,8 @@ func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error 
 
 // We want each StorageClass to have an annotation capturing the content of the
 // SPBM storage policy. This function makes it so.
-func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context, profile cnsvsphere.SpbmPolicyContent) error {
+func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
+	profile cnsvsphere.SpbmPolicyContent) error {
 	log := logger.GetLogger(ctx)
 
 	sc := w.policyToScMap[profile.ID]
@@ -285,7 +293,7 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
 }
 
 // Perform a remediation, get policy content for all storage classes, and update
-// their annotation if necessary
+// their annotation if necessary.
 func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	if len(w.policyIds) == 0 {
@@ -307,10 +315,12 @@ func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context
 	return nil
 }
 
-// fetchPolicies for known valid policyIDs from SPBM. The PbmRetrieveContent() is a batch API that returns the profile
-// contents for given profileIds. If any of the input profile IDs are invalid, then it returns an empty list of profiles
-// and an error that lists all the invalid profile IDs. In such a case, this function removes invalid profileIds from
-// the input and makes a second call to PbmRetrieveContent() with just the valid ones.
+// fetchPolicies for known valid policyIDs from SPBM. The PbmRetrieveContent()
+// is a batch API that returns the profile contents for given profileIds. If
+// any of the input profile IDs are invalid, then it returns an empty list of
+// profiles and an error that lists all the invalid profile IDs. In such a case,
+// this function removes invalid profileIds from the input and makes a second
+// call to PbmRetrieveContent() with just the valid ones.
 func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.SpbmPolicyContent, error) {
 	log := logger.GetLogger(ctx)
 	var profiles []cnsvsphere.SpbmPolicyContent
@@ -319,7 +329,8 @@ func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.Spb
 	for i := 0; i < 2; i++ {
 		profiles, err = w.vc.PbmRetrieveContent(ctx, policyIds)
 		if err != nil {
-			// ignore non-existent stale profileIDs and continue with those that were fetched
+			// Ignore non-existent stale profileIDs and continue with those that
+			// were fetched.
 			isInvalidProfileErr, invalidProfiles := isInvalidProfileErr(ctx, err)
 			if !isInvalidProfileErr {
 				log.Errorf("Failed to retrieve policy contents for invalid profiles: %v", invalidProfiles)
@@ -329,7 +340,8 @@ func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.Spb
 				log.Errorf("Did not get the invalid profile IDs in error from SPBM. err: %v", err)
 				break
 			}
-			// remove the invalid profiles from policyIds and fetch valid profiles once again
+			// Remove the invalid profiles from policyIds and fetch valid profiles
+			// once again.
 			log.Infof("Removing invalid profileIds %v from cache: %v", invalidProfiles, w.policyIds)
 			invalidProfileMap := make(map[string]bool, len(invalidProfiles))
 			for _, p := range invalidProfiles {
@@ -350,8 +362,9 @@ func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.Spb
 	return profiles, err
 }
 
-// isInvalidProfileErr returns whether the given error is an InvalidArgument for the profileId returned by SPBM. If yes,
-// this function also returns the list of profileIds that are invalid.
+// isInvalidProfileErr returns whether the given error is an InvalidArgument
+// for the profileId returned by SPBM. If yes, this function also returns the
+// list of profileIds that are invalid.
 func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
 	log := logger.GetLogger(ctx)
 	if !soap.IsSoapFault(err) {
@@ -360,7 +373,7 @@ func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
 	soapFault := soap.ToSoapFault(err)
 	vimFault, isInvalidArgumentErr := soapFault.VimFault().(vimtypes.InvalidArgument)
 	if isInvalidArgumentErr && vimFault.InvalidProperty == "profileId" {
-		// parse the profile IDs from the error message
+		// Parse the profile IDs from the error message.
 		log.Errorf("Invalid profile error: %+v", soapFault.String)
 		if strings.HasPrefix(soapFault.String, "Profile not found. Id:") {
 			profiles := strings.TrimPrefix(soapFault.String, "Profile not found. Id:")
@@ -375,7 +388,7 @@ func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
 			log.Debugf("isInvalidProfileErr %v", profilesSlice)
 			return true, profilesSlice
 		}
-		// if the error returned from SPBM does not have profileIDs, just return nil here
+		// If the error returned from SPBM does not have profileIDs, return nil.
 		return true, nil
 	}
 	return false, nil
@@ -385,9 +398,10 @@ func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
 // is compatible with. Returns a dict of format:
 // datastoreMoId -> []string of policyIds
 //
-// If storage classes haven't recently changed, and if forceRefreshforceRefresh is false,
-// will return cached data.
-func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Context, datastores []*cnsvsphere.DatastoreInfo, forceRefresh bool) (map[string][]string, error) {
+// If storage classes haven't recently changed, and if forceRefreshforceRefresh
+// is false, will return cached data.
+func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Context,
+	datastores []*cnsvsphere.DatastoreInfo, forceRefresh bool) (map[string][]string, error) {
 	log := logger.GetLogger(ctx)
 	if !forceRefresh {
 		return w.dsPolicyCompatMapCache, nil
@@ -404,7 +418,7 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 		if err != nil {
 			isInvalidProfileErr, _ := isInvalidProfileErr(ctx, err)
 			if isInvalidProfileErr {
-				// stale policyIDs can be skipped safely
+				// Stale policyIDs can be skipped safely.
 				log.Infof("Skipping non-existent policy %s that failed in check PBM compatibility %v with error %v",
 					policyID, datastoreMorList, err)
 				continue
