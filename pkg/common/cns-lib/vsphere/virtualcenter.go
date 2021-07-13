@@ -147,6 +147,7 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 		soapClient.SetThumbprint(url.Host, vc.Config.Thumbprint)
 		log.Debugf("using thumbprint %s for url %s ", vc.Config.Thumbprint, url.Host)
 	}
+
 	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
 	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
@@ -161,7 +162,6 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 		return nil, err
 	}
 	vimClient.UserAgent = "k8s-csi-useragent"
-
 	client := &govmomi.Client{
 		Client:         vimClient,
 		SessionManager: session.NewManager(vimClient),
