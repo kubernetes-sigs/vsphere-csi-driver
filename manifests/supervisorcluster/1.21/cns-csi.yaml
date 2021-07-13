@@ -10,7 +10,7 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces","services"]
+    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces", "services"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
