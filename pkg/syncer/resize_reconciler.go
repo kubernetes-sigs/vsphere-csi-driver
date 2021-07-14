@@ -39,29 +39,29 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
-// ResizeReconciler is the interface of resizeReconclier
+// ResizeReconciler is the interface of resizeReconciler.
 type ResizeReconciler interface {
-	// Run starts the reconciler
+	// Run starts the reconciler.
 	Run(workers int, ctx context.Context)
 }
 
 type resizeReconciler struct {
-	// Tanzu Kubernetes Grid KubeClient
+	// Tanzu Kubernetes Grid KubeClient.
 	tkgClient kubernetes.Interface
-	// Supervisor Cluster KubeClient
+	// Supervisor Cluster KubeClient.
 	supervisorClient kubernetes.Interface
-	// Supervisor Cluster namespace
+	// Supervisor Cluster namespace.
 	supervisorNamespace string
-	// Tanzu Kubernetes Grid claim queue
+	// Tanzu Kubernetes Grid claim queue.
 	claimQueue workqueue.RateLimitingInterface
 
-	// Tanzu Kubernetes Grid PVC Lister
+	// Tanzu Kubernetes Grid PVC Lister.
 	pvcLister corelisters.PersistentVolumeClaimLister
-	// Tanzu Kubernetes Grid PVC Synced
+	// Tanzu Kubernetes Grid PVC Synced.
 	pvcSynced cache.InformerSynced
-	// Tanzu Kubernetes Grid PV Lister
+	// Tanzu Kubernetes Grid PV Lister.
 	pvLister corelisters.PersistentVolumeLister
-	// Tanzu Kubernetes Grid PV Synced
+	// Tanzu Kubernetes Grid PV Synced.
 	pvSynced cache.InformerSynced
 }
 
@@ -73,19 +73,19 @@ var (
 )
 
 type resizeProcessStatus struct {
-	// condition reprensents the current resize condition of PVC
+	// condition reprensents the current resize condition of PVC.
 	condition v1.PersistentVolumeClaimCondition
-	// processed represents whether this PVC is processed
+	// processed represents whether this PVC is processed.
 	processed bool
 }
 
-// newResizeReconciler returns a resizeReconciler
+// newResizeReconciler returns a resizeReconciler.
 func newResizeReconciler(
-	// Tanzu Kubernetes Grid KubeClient
+	// Tanzu Kubernetes Grid KubeClient.
 	tkgClient kubernetes.Interface,
-	// Supervisor Cluster KubeClient
+	// Supervisor Cluster KubeClient.
 	supervisorClient kubernetes.Interface,
-	// Supervisor Cluster Namespace
+	// Supervisor Cluster Namespace.
 	supervisorNamespace string,
 	resyncPeriod time.Duration,
 	informerFactory informers.SharedInformerFactory,
@@ -105,8 +105,9 @@ func newResizeReconciler(
 		pvSynced:            pvInformer.Informer().HasSynced,
 		claimQueue:          claimQueue,
 	}
-	// TODO: Need to figure out how to handle the scenario that FileSystemResizePending is not removed
-	// from SV PVC  when syncer is down and FileSystemResizePending was removed from a TKG PVC.
+	// TODO: Need to figure out how to handle the scenario that
+	// FileSystemResizePending is not removed from SV PVC  when syncer is down
+	// and FileSystemResizePending was removed from a TKG PVC.
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/591
 	pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: rc.updatePVC,
@@ -139,7 +140,8 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 		return
 	}
 
-	// Add tkgPVC to the claim queue only when the new size is bigger or oldPVC has FileSystemResizePending condition, newPVC does not have.
+	// Add tkgPVC to the claim queue only when the new size is bigger or oldPVC
+	// has FileSystemResizePending condition, newPVC does not have.
 	if newPVCSize.Cmp(oldPVCSize) > 0 || (checkFileSystemPendingOnPVC(oldPVC) && !checkFileSystemPendingOnPVC(newPVC)) {
 		objKey, err := getPVCKey(ctx, newObj)
 		if err != nil {
@@ -151,7 +153,7 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 	}
 }
 
-// Run starts the reconciler
+// Run starts the reconciler.
 func (rc *resizeReconciler) Run(ctx context.Context, workers int) {
 	log := logger.GetLogger(ctx)
 	defer rc.claimQueue.ShutDown()
@@ -210,18 +212,22 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 		return err
 	}
 
-	// Get corresponding PVC from the Supervisor Cluster given the pv in the Tanzu Kubernetes Grid
-	svcPVC, err := rc.supervisorClient.CoreV1().PersistentVolumeClaims(rc.supervisorNamespace).Get(ctx, tkgPV.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+	// Get corresponding PVC from the Supervisor Cluster given the pv in the
+	// Tanzu Kubernetes Grid.
+	svcPVC, err := rc.supervisorClient.CoreV1().PersistentVolumeClaims(rc.supervisorNamespace).Get(
+		ctx, tkgPV.Spec.CSI.VolumeHandle, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("Error get supervisor cluster pvc %s from api server in the namespace %s: %v", tkgPV.Spec.CSI.VolumeHandle, rc.supervisorNamespace, err)
+		log.Errorf("Error get supervisor cluster pvc %s from api server in the namespace %s: %v",
+			tkgPV.Spec.CSI.VolumeHandle, rc.supervisorNamespace, err)
 		return err
 	}
 
 	tkgPvcSize := tkgPVC.Status.Capacity[v1.ResourceStorage]
 	svcPvcSize := svcPVC.Status.Capacity[v1.ResourceStorage]
 
-	// Update pvc size and conditions in supervisor cluster when the size is different from pvc in tkg
-	//  or pvc is in FileSystemResizePending condition in svc but not in tkg
+	// Update pvc size and conditions in supervisor cluster when the size is
+	// different from pvc in tkg or pvc is in FileSystemResizePending condition
+	// in svc but not in tkg.
 
 	svcPvcClone := svcPVC.DeepCopy()
 	updatePVC := false
@@ -238,7 +244,8 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 	if updatePVC {
 		svcUpdatedPVC, err := patchPVCStatus(ctx, svcPVC, svcPvcClone, rc.supervisorClient)
 		if err != nil {
-			log.Errorf("cannot update Supervisor Cluster PVC  [%s] in namespace [%s]: [%v]", svcUpdatedPVC.Name, rc.supervisorNamespace, err)
+			log.Errorf("cannot update Supervisor Cluster PVC  [%s] in namespace [%s]: [%v]",
+				svcUpdatedPVC.Name, rc.supervisorNamespace, err)
 			return err
 		}
 		log.Infof("Updated Supervisor Cluster PVC %+v in namespace [%s]", svcUpdatedPVC, rc.supervisorNamespace)
@@ -246,20 +253,22 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 	return nil
 }
 
-// patchPVCStatus patch the old pvc using new pvc's status
+// patchPVCStatus patch the old pvc using new pvc's status.
 func patchPVCStatus(ctx context.Context,
 	oldPVC *v1.PersistentVolumeClaim,
 	newPVC *v1.PersistentVolumeClaim,
 	supervisorClient kubernetes.Interface) (*v1.PersistentVolumeClaim, error) {
 	patchBytes, err := createPVCPatch(oldPVC, newPVC)
 	if err != nil {
-		return nil, fmt.Errorf("failed to patch supervisor cluster PVC %q in namespace %s: %v", oldPVC.Name, oldPVC.Namespace, err)
+		return nil, fmt.Errorf("failed to patch supervisor cluster PVC %q in namespace %s: %v",
+			oldPVC.Name, oldPVC.Namespace, err)
 	}
 
 	updatedClaim, updateErr := supervisorClient.CoreV1().PersistentVolumeClaims(oldPVC.Namespace).
 		Patch(ctx, oldPVC.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if updateErr != nil {
-		return nil, fmt.Errorf("failed to supervisor cluster patch PVC %q in namespace %s: %v", oldPVC.Name, oldPVC.Namespace, updateErr)
+		return nil, fmt.Errorf("failed to supervisor cluster patch PVC %q in namespace %s: %v",
+			oldPVC.Name, oldPVC.Namespace, updateErr)
 	}
 	return updatedClaim, nil
 }
@@ -339,7 +348,7 @@ func mergeResizeConditionOnPVC(
 		}
 	}
 
-	// append all unprocessed conditions
+	// Append all unprocessed conditions.
 	for _, newCondition := range resizeConditionMap {
 		if !newCondition.processed {
 			newConditions = append(newConditions, newCondition.condition)
@@ -349,7 +358,9 @@ func mergeResizeConditionOnPVC(
 	return pvc
 }
 
-// checkFileSystemPendingOnPVC checks whether PVC has PersistentVolumeClaimFileSystemResizePending, return true if have, false if not
+// checkFileSystemPendingOnPVC checks whether PVC has
+// PersistentVolumeClaimFileSystemResizePending. Return true if have,
+// false if not.
 func checkFileSystemPendingOnPVC(
 	pvc *v1.PersistentVolumeClaim) bool {
 	conditions := pvc.Status.Conditions
