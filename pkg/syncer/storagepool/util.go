@@ -67,7 +67,8 @@ type dsProps struct {
 	freeSpace   *resource.Quantity
 }
 
-// getDatastoreProperties returns the total capacity, freeSpace, URL, type and accessibility of the given datastore
+// getDatastoreProperties returns the total capacity, freeSpace, URL, type and
+// accessibility of the given datastore.
 func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) *dsProps {
 	log := logger.GetLogger(ctx)
 	var ds mo.Datastore
@@ -101,7 +102,7 @@ func getHostMoIDToK8sNameMap(ctx context.Context) (map[string]string, error) {
 		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
 		return hostMoIDTok8sName, err
 	}
-	// TODO: Replace this direct API call with an informer
+	// TODO: Replace this direct API call with an informer.
 	nodeList, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed getting all k8s nodes in cluster, err=%+v", err)
@@ -115,9 +116,9 @@ func getHostMoIDToK8sNameMap(ctx context.Context) (map[string]string, error) {
 	return hostMoIDTok8sName, nil
 }
 
-// findAccessibleNodes returns the k8s node names of ESX hosts (limited to clusterID) on which
-// the given datastore is mounted and accessible. The values in the map tells whether the ESX
-// host is in Maintenance Mode.
+// findAccessibleNodes returns the k8s node names of ESX hosts (limited to
+// clusterID) on which the given datastore is mounted and accessible. The
+// values in the map tells whether the ESX host is in Maintenance Mode.
 func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 	clusterID string, vcclient *vim25.Client) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
@@ -132,14 +133,15 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		return nil, err
 	}
 
-	// Now find the k8s node names of these hosts
+	// Now find the k8s node names of these hosts.
 	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
 	nodes := make(map[string]bool)
 	for _, host := range hosts {
 		thisName, ok := hostMoIDTok8sName[host.Reference().Value]
 		if !ok || thisName == "" {
-			// This host on which the datastore is mounted does not have the annotation yet.
-			// So ignore this node and wait for next reconcile to pick this up.
+			// This host on which the datastore is mounted does not have the
+			// annotation yet. So ignore this node and wait for next reconcile
+			// to pick this up.
 			log.Debugf("Ignoring node %s without vmware-system-esxi-node-moid annotation", host.Reference().Value)
 			continue
 		}
@@ -154,9 +156,9 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 	return nodes, err
 }
 
-// getHostInMaintenanceMode returns whether the given host is in MaintenanceMode
+// getHostInMaintenanceMode returns whether the given host is in MaintenanceMode.
 func getHostInMaintenanceMode(ctx context.Context, host *object.HostSystem) (bool, error) {
-	// get host's runtime property
+	// Get host's runtime property.
 	var hs mo.HostSystem
 	err := host.Properties(ctx, host.Reference(), []string{"runtime"}, &hs)
 	if err != nil {
@@ -165,22 +167,23 @@ func getHostInMaintenanceMode(ctx context.Context, host *object.HostSystem) (boo
 	return hs.Runtime.InMaintenanceMode, nil
 }
 
-// makeStoragePoolName returns the given datastore name dsName with any non-alphanumeric chars replaced with '-'
+// makeStoragePoolName returns the given datastore name dsName with any
+// non-alphanumeric chars replaced with '-'.
 func makeStoragePoolName(dsName string) string {
 	reg, err := regexp.Compile(`[^\\.a-zA-Z0-9]+`)
 	if err != nil {
 		return dsName
 	}
 	spName := "storagepool-" + reg.ReplaceAllString(dsName, "-")
-	// spName should be in lower case and should not end with "-"
+	// spName should be in lower case and should not end with "-".
 	spName = strings.TrimSuffix(strings.ToLower(spName), "-")
 	return spName
 }
 
-// getSPClient returns the StoragePool dynamic client
+// getSPClient returns the StoragePool dynamic client.
 func getSPClient(ctx context.Context) (dynamic.Interface, *schema.GroupVersionResource, error) {
 	log := logger.GetLogger(ctx)
-	// Create a client to create/udpate StoragePool instances
+	// Create a client to create/udpate StoragePool instances.
 	cfg, err := config.GetConfig()
 	if err != nil {
 		log.Errorf("Failed to get Kubernetes config. Err: %+v", err)
@@ -195,7 +198,8 @@ func getSPClient(ctx context.Context) (dynamic.Interface, *schema.GroupVersionRe
 	return spclient, &spResource, nil
 }
 
-// updateSPTypeInSC adds the datastore type as an annotation in the given StorageClass
+// updateSPTypeInSC adds the datastore type as an annotation in the given
+// StorageClass.
 func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 	log := logger.GetLogger(ctx)
 	clientSet, err := k8s.NewClient(ctx)
@@ -214,18 +218,18 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 	}
 	compatSPTypes, ok := annotations[spTypeAnnotationKey]
 	if !ok {
-		// Create a new annotation by name
+		// Create a new annotation by name.
 		annotations[spTypeAnnotationKey] = dsType
 	} else {
-		// Check if dsType is already present in the annotation value
+		// Check if dsType is already present in the annotation value.
 		spTypes := strings.Split(compatSPTypes, ",")
 		for _, spType := range spTypes {
 			if spType == dsType {
-				// dsType is already present
+				// dsType is already present.
 				return nil
 			}
 		}
-		// Create a comma-separated list of dsTypes as an annotation value
+		// Create a comma-separated list of dsTypes as an annotation value.
 		compatSPTypes += "," + dsType
 		annotations[spTypeAnnotationKey] = compatSPTypes
 	}
@@ -242,8 +246,9 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 		log.Errorf("Failed to marshal patch(%s): %s", patch, err)
 		return err
 	}
-	// Patch the storage class with the updated annotation
-	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx, scName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+	// Patch the storage class with the updated annotation.
+	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx,
+		scName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to patch the storage class object with dsType. Err = %+v", err)
 		return err
@@ -252,13 +257,14 @@ func updateSPTypeInSC(ctx context.Context, scName, dsType string) error {
 	return nil
 }
 
-// Returns the StoragePolicyId referred by the given StorageClass. Needs a util function since vSphere CSI supports
-// case insensitive parameters in the StorageClass.
+// Returns the StoragePolicyId referred by the given StorageClass. Needs a util
+// function since vSphere CSI supports case insensitive parameters in the
+// StorageClass.
 func getStoragePolicyIDFromSC(sc *v1.StorageClass) string {
 	if sc.Provisioner != types.Name {
 		return ""
 	}
-	// vSphere CSI supports case insensitive parameters
+	// vSphere CSI supports case insensitive parameters.
 	for key, value := range sc.Parameters {
 		if strings.ToLower(key) == common.AttributeStoragePolicyID {
 			return value
@@ -267,8 +273,10 @@ func getStoragePolicyIDFromSC(sc *v1.StorageClass) string {
 	return ""
 }
 
-// updateDrainStatus updates the status of the disk decommission request. newStatus can either be "done" or "fail".
-// In case of "fail" we also add the reason for failure given by errorString. In case of "done" errorString is not considered.
+// updateDrainStatus updates the status of the disk decommission request.
+// NewStatus can either be "done" or "fail". In case of "fail" we also add the
+// reason for failure given by errorString. In case of "done" errorString is
+// not considered.
 func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus string, errorString string) error {
 	log := logger.GetLogger(ctx)
 	task := func() (done bool, err error) {
@@ -276,7 +284,7 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 		if err != nil {
 			return false, err
 		}
-		// try to get the current drain Mode
+		// Try to get the current drain Mode.
 		sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("Could not get StoragePool with name %v. Error: %v", storagePoolName, err)
@@ -311,15 +319,18 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 				return false, err
 			}
 
-			updatedSP, err := k8sDynamicClient.Resource(*spResource).Patch(ctx, storagePoolName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+			updatedSP, err := k8sDynamicClient.Resource(*spResource).Patch(ctx,
+				storagePoolName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 			if err != nil {
-				log.Errorf("Failed to update StoragePool instance %v with new drain status %v. Error %v", newStatus, storagePoolName, err)
+				log.Errorf("Failed to update StoragePool instance %v with new drain status %v. Error %v",
+					newStatus, storagePoolName, err)
 				return false, err
 			}
 			log.Debugf("Successfully updated drain status to %v in StoragePool %v", newStatus, updatedSP.GetName())
 			return true, nil
 		}
-		// if the decommMode was not found or current mode is not "evacuateAll"/"ensureAccessibility" then simply return
+		// If the decommMode was not found or current mode is not
+		// "evacuateAll"/"ensureAccessibility" then simply return.
 		return true, nil
 	}
 
@@ -329,7 +340,7 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 	return err
 }
 
-// getDrainMode gets the disk decommission mode for a given StoragePool
+// getDrainMode gets the disk decommission mode for a given StoragePool.
 func getDrainMode(ctx context.Context, storagePoolName string) (mode string, found bool, err error) {
 	k8sDynamicClient, spResource, err := getSPClient(ctx)
 	if err != nil {
@@ -343,7 +354,8 @@ func getDrainMode(ctx context.Context, storagePoolName string) (mode string, fou
 	return mode, found, err
 }
 
-func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace, targetSPName string) (*unstructured.Unstructured, error) {
+func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
+	targetSPName string) (*unstructured.Unstructured, error) {
 	log := logger.GetLogger(ctx)
 	pvcResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 	patch := map[string]interface{}{
@@ -366,12 +378,15 @@ func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace, targetS
 			return false, err
 		}
 
-		updatedPVC, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx, pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+		updatedPVC, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
+			pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
-			log.Errorf("Failed to update target StoragePool annotation on PVC %v in ns %v. Error: %v", pvcName, namespace, err)
+			log.Errorf("Failed to update target StoragePool annotation on PVC %v in ns %v. Error: %v",
+				pvcName, namespace, err)
 			return false, err
 		}
-		log.Debugf("Successfully updated target StoragePool information to %v. Updated PVC: %v", targetSPName, updatedPVC.GetName())
+		log.Debugf("Successfully updated target StoragePool information to %v. Updated PVC: %v",
+			targetSPName, updatedPVC.GetName())
 		return true, nil
 	}
 	baseDuration := time.Duration(100) * time.Millisecond
@@ -380,13 +395,17 @@ func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace, targetS
 	return updatedPVC, err
 }
 
-// ExponentialBackoff is an algorithm which is used to spread out repeated execution of task (usually reconnection or packet
-// sending task to avoid network congestion or to decrease server load). In exponential backoff, wait time is increased
-// exponentially till maxBackoffDuration. We have introduced jitter here to avoid thundering herd problem in future.
-func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDuration time.Duration, multiplier float64, retries int) (done bool, err error) {
+// ExponentialBackoff is an algorithm which is used to spread out repeated
+// execution of task (usually reconnection or packet sending task to avoid
+// network congestion or to decrease server load). In exponential backoff,
+// wait time is increased exponentially till maxBackoffDuration. We have
+// introduced jitter here to avoid thundering herd problem in future.
+func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDuration time.Duration,
+	multiplier float64, retries int) (done bool, err error) {
 	jitter := 0.3
 	backoffResetDuration := maxBackoffDuration * 3
-	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration, backoffResetDuration, multiplier, jitter, clock.RealClock{})
+	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration,
+		backoffResetDuration, multiplier, jitter, clock.RealClock{})
 
 	var timer clock.Timer
 	for i := 0; i < retries; i++ {
@@ -405,11 +424,16 @@ func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDurat
 	return done, err
 }
 
-// RetryOnError retries the given task function in case of error till it succeeds. Each retried is exponentially backed off
-// as per the parameter provided to the function. Wait time starts from baseDuration and on each error wait time is
-// exponentially increased by the provided multiplier till maxBackoffDuration.
-// example input: RetryOnError(func() error { return vc.ConnectVsan(ctx) }, time.Duration(100) * time.Millisecond, time.Duration(10) * time.Second, 1.5)
-func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Duration, multiplier float64, maxRetries int) error {
+// RetryOnError retries the given task function in case of error till it
+// succeeds. Each retried is exponentially backed off as per the parameter
+// provided to the function. Wait time starts from baseDuration and on each
+// error wait time is exponentially increased by the provided multiplier till
+// maxBackoffDuration. example input:
+// RetryOnError(func() error { return vc.ConnectVsan(ctx) },
+//    time.Duration(100) * time.Millisecond, time.Duration(10) * time.Second,
+//    1.5)
+func RetryOnError(task func() error, baseDuration, maxBackoffDuration time.Duration,
+	multiplier float64, maxRetries int) error {
 	taskFunc := func() (done bool, _ error) {
 		err := task()
 		if err != nil {
