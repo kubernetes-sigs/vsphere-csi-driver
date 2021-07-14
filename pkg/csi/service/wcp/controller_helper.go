@@ -46,8 +46,8 @@ import (
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
-// name received in the CreateVolume request for block volumes on WCP CSI driver
-// Returns true if the parameter name is valid, false otherwise
+// name received in the CreateVolume request for block volumes on WCP CSI driver.
+// Returns true if the parameter name is valid, false otherwise.
 func validateCreateBlockReqParam(paramName, value string) bool {
 	return paramName == common.AttributeStoragePolicyID ||
 		paramName == common.AttributeFsType ||
@@ -62,7 +62,7 @@ const (
 
 // validateCreateFileReqParam is a helper function used to validate the parameter
 // name received in the CreateVolume request for file volumes on WCP CSI driver
-// Returns true if the parameter name is valid, false otherwise
+// Returns true if the parameter name is valid, false otherwise.
 func validateCreateFileReqParam(paramName, value string) bool {
 	return paramName == common.AttributeStoragePolicyID ||
 		paramName == common.AttributeFsType
@@ -71,9 +71,10 @@ func validateCreateFileReqParam(paramName, value string) bool {
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
-// TODO: Need to remove AttributeHostLocal after external provisioner stops sending this parameter
+// TODO: Need to remove AttributeHostLocal after external provisioner stops
+// sending this parameter.
 func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRequest, isBlockRequest bool) error {
-	// Get create params
+	// Get create params.
 	params := req.GetParameters()
 	for paramName, value := range params {
 		paramName = strings.ToLower(paramName)
@@ -96,20 +97,22 @@ func validateWCPDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRe
 }
 
 // validateWCPControllerPublishVolumeRequest is the helper function to validate
-// ControllerPublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
+// ControllerPublishVolumeRequest for WCP CSI driver. Function returns error if
+// validation fails otherwise returns nil.
 func validateWCPControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
 	return common.ValidateControllerPublishVolumeRequest(ctx, req)
 }
 
-// validateWCPControllerUnpublishVolumeRequest is the helper function to validate
-// ControllerUnpublishVolumeRequest for WCP CSI driver. Function returns error if validation fails otherwise returns nil.
+// validateWCPControllerUnpublishVolumeRequest is the helper function to
+// validate ControllerUnpublishVolumeRequest for WCP CSI driver. Function
+// returns error if validation fails otherwise returns nil.
 func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
 // validateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver.
-// Function returns error if validation fails otherwise returns nil.
+// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
+// fails otherwise returns nil.
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
 	manager *common.Manager, isOnlineExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
@@ -123,7 +126,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 		// TODO: Currently we only check if disk is attached to TKG nodes
 		// We need to check if the disk is attached to a PodVM as well.
 
-		// Get datacenter object from config
+		// Get datacenter object from config.
 		vc, err := common.GetVCenter(ctx, manager)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
@@ -138,7 +141,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			VirtualCenterHost: vc.Config.Host,
 		}
 
-		// Create client to list virtualmachine instances from the supervisor cluster API server
+		// Create client to list VMs from the supervisor cluster API server.
 		cfg, err := config.GetConfig()
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
@@ -156,7 +159,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 				"failed to list virtualmachines with error: %+v", err)
 		}
 
-		// Get BIOS UUID from virtualmachine instances to create VirtualMachine object
+		// Get BIOS UUID from VMs to create VirtualMachine object.
 		for _, vmInstance := range vmList.Items {
 			biosUUID := vmInstance.Status.BiosUUID
 			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
@@ -172,14 +175,14 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
-// getK8sCloudOperatorClientConnection is a helper function that creates a clientConnection to
-// k8sCloudOperator GRPC service running on syncer container
+// getK8sCloudOperatorClientConnection is a helper function that creates a
+// clientConnection to k8sCloudOperator GRPC service running on syncer container.
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	port := common.GetK8sCloudOperatorServicePort(ctx)
 	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
-	// Connect to k8s cloud operator gRPC service
+	// Connect to k8s cloud operator gRPC service.
 	conn, err := grpc.Dial(k8sCloudOperatorServiceAddr, opts...)
 	if err != nil {
 		return nil, err
@@ -187,16 +190,19 @@ func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn,
 	return conn, nil
 }
 
-// GetsvMotionPlanFromK8sCloudOperatorService gets storage vMotion plan from K8sCloudOperator gRPC service
-func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context, storagePoolName string, maintenanceMode string) (map[string]string, error) {
+// GetsvMotionPlanFromK8sCloudOperatorService gets storage vMotion plan from
+// K8sCloudOperator gRPC service.
+func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context,
+	storagePoolName string, maintenanceMode string) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	conn, err := getK8sCloudOperatorClientConnection(ctx)
 	if err != nil {
-		log.Errorf("Failed to establish the connection to k8s cloud operator service when getting svMotion plan for SP: %s. Error: %+v", storagePoolName, err)
+		log.Errorf("Failed to establish the connection to k8s cloud operator service "+
+			"when getting svMotion plan for SP: %s. Error: %+v", storagePoolName, err)
 		return nil, err
 	}
 	defer conn.Close()
-	// Create a client stub for k8s cloud operator gRPC service
+	// Create a client stub for k8s cloud operator gRPC service.
 	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
 
 	res, err := client.GetStorageVMotionPlan(ctx,
@@ -214,20 +220,22 @@ func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context, storagePool
 	return res.SvMotionPlan, nil
 }
 
-// getVMUUIDFromK8sCloudOperatorService gets the vmuuid from K8sCloudOperator gRPC service
+// getVMUUIDFromK8sCloudOperatorService gets the vmuuid from K8sCloudOperator
+// gRPC service.
 func getVMUUIDFromK8sCloudOperatorService(ctx context.Context, volumeID string, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
 	conn, err := getK8sCloudOperatorClientConnection(ctx)
 	if err != nil {
-		log.Errorf("Failed to establish the connection to k8s cloud operator service when processing attach for volumeID: %s. Error: %+v", volumeID, err)
+		log.Errorf("Failed to establish the connection to k8s cloud operator service "+
+			"when processing attach for volumeID: %s. Error: %+v", volumeID, err)
 		return "", err
 	}
 	defer conn.Close()
 
-	// Create a client stub for k8s cloud operator gRPC service
+	// Create a client stub for k8s cloud operator gRPC service.
 	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
 
-	// Call GetPodVMUUIDAnnotation method on the client stub
+	// Call GetPodVMUUIDAnnotation method on the client stub.
 	res, err := client.GetPodVMUUIDAnnotation(ctx,
 		&k8scloudoperator.PodListenerRequest{
 			VolumeID: volumeID,
@@ -243,7 +251,8 @@ func getVMUUIDFromK8sCloudOperatorService(ctx context.Context, volumeID string, 
 	return res.VmuuidAnnotation, nil
 }
 
-// getHostMOIDFromK8sCloudOperatorService gets the host-moid from K8sCloudOperator gRPC service
+// getHostMOIDFromK8sCloudOperatorService gets the host-moid from
+// K8sCloudOperator gRPC service.
 func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
 	conn, err := getK8sCloudOperatorClientConnection(ctx)
@@ -253,10 +262,10 @@ func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string
 	}
 	defer conn.Close()
 
-	// Create a client stub for gRPC service
+	// Create a client stub for gRPC service.
 	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
 
-	// Call GetHostAnnotation method on the client stub
+	// Call GetHostAnnotation method on the client stub.
 	res, err := client.GetHostAnnotation(ctx,
 		&k8scloudoperator.HostAnnotationRequest{
 			HostName:      nodeName,
@@ -272,7 +281,8 @@ func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string
 	return res.AnnotationValue, nil
 }
 
-// getDatacenterFromConfig gets the vcenter-datacenter where WCP PodVM cluster is deployed
+// getDatacenterFromConfig gets the vcenter-datacenter where WCP PodVM cluster
+// is deployed.
 func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 	vcdcMap := make(map[string]string)
 	vcdcListMap, err := getVCDatacentersFromConfig(cfg)
@@ -285,14 +295,15 @@ func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 
 	for vcHost, dcList := range vcdcListMap {
 		if len(dcList) > 1 {
-			return vcdcMap, fmt.Errorf("found more than one datacenter instances: %+v for vcHost: %s. WCP Cluster can be deployed in only one datacenter", dcList, vcHost)
+			return vcdcMap, fmt.Errorf("found more than one datacenter instances: %+v for vcHost: %s. "+
+				"WCP Cluster can be deployed in only one datacenter", dcList, vcHost)
 		}
 		vcdcMap[vcHost] = dcList[0]
 	}
 	return vcdcMap, nil
 }
 
-// GetVCDatacenters returns list of datacenters for each vCenter that is registered
+// GetVCDatacenters returns list of datacenters for each registered vCenter.
 func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, error) {
 	var err error
 	vcdcMap := make(map[string][]string)
@@ -311,10 +322,8 @@ func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, err
 	return vcdcMap, err
 }
 
-/*
- * getVMByInstanceUUIDInDatacenter gets the VM with the given instance UUID
- * in datacenter specified using datacenter moref value.
- */
+// getVMByInstanceUUIDInDatacenter gets the VM with the given instance UUID
+// in datacenter specified using datacenter moref value.
 func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	vc *vsphere.VirtualCenter,
 	datacenter string,
@@ -329,36 +338,38 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 			}),
 		VirtualCenterHost: vc.Config.Host,
 	}
-	// Get VM by UUID from datacenter
+	// Get VM by UUID from datacenter.
 	vm, err := dc.GetVirtualMachineByUUID(ctx, vmInstanceUUID, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v", vmInstanceUUID, dc, err)
+		return nil, fmt.Errorf("failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v",
+			vmInstanceUUID, dc, err)
 	}
 	return vm, nil
 }
 
-// getDatastoreURLFromStoragePool returns the datastoreUrl that the given StoragePool represents
+// getDatastoreURLFromStoragePool returns the datastoreUrl that the given
+// StoragePool represents.
 func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string, error) {
-	// Get a config to talk to the apiserver
+	// Get a config to talk to the apiserver.
 	cfg, err := config.GetConfig()
 	if err != nil {
 		return "", fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
 	}
 
-	// create a new StoragePool client
+	// create a new StoragePool client.
 	spclient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
-	// Get StoragePool with spName
+	// Get StoragePool with spName.
 	sp, err := spclient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
-	// extract the datastoreUrl field
+	// extract the datastoreUrl field.
 	datastoreURL, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", "datastoreUrl")
 	if !found || err != nil {
 		return "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
@@ -366,34 +377,35 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	return datastoreURL, nil
 }
 
-// getStoragePoolInfo returns the accessibleNodes and the storage-pool-type pertaining to the given StoragePool
+// getStoragePoolInfo returns the accessibleNodes and the storage-pool-type
+// pertaining to the given StoragePool.
 func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, error) {
-	// Get a config to talk to the apiserver
+	// Get a config to talk to the apiserver.
 	cfg, err := config.GetConfig()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
 	}
 
-	// create a new StoragePool client
+	// Create a new StoragePool client.
 	spClient, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
 	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
-	// Get StoragePool with spName
+	// Get StoragePool with spName.
 	sp, err := spClient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
-	// extract the accessibleNodes field
+	// Extract the accessibleNodes field.
 	accessibleNodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
 	if !found || err != nil {
 		return nil, "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
 	}
 
-	// Get the storage pool type
+	// Get the storage pool type.
 	poolType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeKey)
 	if !found || err != nil {
 		return nil, "", fmt.Errorf("failed to find pool type in StoragePool %s", spName)
@@ -402,7 +414,8 @@ func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, e
 	return accessibleNodes, poolType, nil
 }
 
-// isValidAccessibilityRequirements validates if the given accessibility requirement has the necessary elements in it
+// isValidAccessibilityRequirements validates if the given accessibility
+// requirement has the necessary elements in it.
 func isValidAccessibilityRequirement(topologyRequirement *csi.TopologyRequirement) bool {
 	if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
 		return false
@@ -410,8 +423,9 @@ func isValidAccessibilityRequirement(topologyRequirement *csi.TopologyRequiremen
 	return true
 }
 
-// getOverlappingNodes returns the list of nodes that is present both in the accessibleNodes of the storagePool and the
-// host names present provided in the preferred segment of accessibility requirements
+// getOverlappingNodes returns the list of nodes that is present both in the
+// accessibleNodes of the storagePool and the host names present provided in
+// the preferred segment of accessibility requirements.
 func getOverlappingNodes(accessibleNodes []string, topologyRequirement *csi.TopologyRequirement) ([]string, error) {
 	var overlappingNodes []string
 	noOverLappingNodes := true
@@ -422,7 +436,7 @@ func getOverlappingNodes(accessibleNodes []string, topologyRequirement *csi.Topo
 	for _, topology := range topologyRequirement.GetPreferred() {
 		hostname := topology.Segments[v1.LabelHostname]
 		if accessibleNodeMap[hostname] {
-			// found an overlapping node
+			// Found an overlapping node.
 			noOverLappingNodes = false
 			overlappingNodes = append(overlappingNodes, hostname)
 		}
