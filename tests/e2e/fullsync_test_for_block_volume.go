@@ -210,7 +210,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] "+
+		"Verify labels are created in CNS after updating pvc and/or pv with new labels", func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -298,7 +299,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify CNS volume is deleted after full sync when pv entry is delete", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] "+
+		"Verify CNS volume is deleted after full sync when pv entry is delete", func() {
 		ginkgo.By("Invoking test to verify CNS volume creation")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -694,7 +696,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-block-vanilla-destructive] Scale down driver deployment to zero replica and verify PV metadata is created in CNS", func() {
+	ginkgo.It("[csi-block-vanilla-destructive] "+
+		"Scale down driver deployment to zero replica and verify PV metadata is created in CNS", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
