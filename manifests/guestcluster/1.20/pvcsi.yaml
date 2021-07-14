@@ -304,14 +304,11 @@ spec:
       - name: node-driver-registrar
         image: vmware.io/csi-node-driver-registrar:<image_tag>
         imagePullPolicy: "IfNotPresent"
-        lifecycle:
-          preStop:
-            exec:
-              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
         args:
           - "--v=5"
           - "--csi-address=$(ADDRESS)"
           - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          - "--health-port=9809"
         env:
           - name: ADDRESS
             value: /csi/csi.sock
@@ -322,6 +319,15 @@ spec:
             mountPath: /csi
           - name: registration-dir
             mountPath: /registration
+        ports:
+          - containerPort: 9809
+            name: healthz
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
       - name: vsphere-csi-node
         image: vmware.io/vsphere-csi:<image_tag>
         args:
