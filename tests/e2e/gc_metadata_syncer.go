@@ -92,21 +92,21 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
+				vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
 	})
 
-	/*
-		Steps:
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Verify CnsVolumeMetadata CRD in SV is created
-		Create a Pod with this PVC mounted as a volume
-		Verify entityReference for this volume on CNS contains entries for PV/PVC/POD in GC and PVC in SV.
-		Delete Pod
-		Delete PVC
-	*/
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify CnsVolumeMetadata CRD in SV is created.
+	// 4. Create a Pod with this PVC mounted as a volume.
+	// 5. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC/Pod in GC and PVC in SV.
+	// 6. Delete Pod.
+	// 7. Delete PVC.
 	ginkgo.It("Verify CnsVolumeMetadata's entityReference for the volume on CNS", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -125,12 +125,13 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc},
+			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName = volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -145,7 +146,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -165,34 +167,37 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas,
+			crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas,
+			crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas,
+			crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 	})
 
-	/*
-		Steps:
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		Update PVC Labels
-		Verify CnsVolumeMetadata CRD in SV is updated
-		Wait for labels to be present in CNS
-		Delete PVC Labels
-		Verify CnsVolumeMetadata CRD in SV is updated
-		Wait for labels to be deleted in CNS
-		Delete PVC
-
-	*/
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Update PVC Labels.
+	// 5. Verify CnsVolumeMetadata CRD in SV is updated.
+	// 6. Wait for labels to be present in CNS.
+	// 7. Delete PVC Labels.
+	// 8. Verify CnsVolumeMetadata CRD in SV is updated.
+	// 9. Wait for labels to be deleted in CNS.
+	// 10. Delete PVC.
 	ginkgo.It("Validate PVC labels are updated/deleted on CNS", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -212,12 +217,13 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName = volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -237,8 +243,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -250,27 +258,27 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// TODO: replace sleep with polling mechanism
+		// TODO: Replace sleep with polling mechanism.
 		framework.Logf("Sleeping for 20 seconds for the labels to be updated")
 		time.Sleep(20 * time.Second)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
 
 	})
 
-	/*
-		Steps:
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Create a Pod attached to above PV
-		Verify CnsVolumeMetadata CRD in SV is created
-		Wait for Pod name to be present in CNS
-		Verify entityReference for this volume on CNS contains entries for PV/PVC/POD in GC and PVC in SV.
-		Delete Pod and wait for disk to be detached
-		Verify CnsVolumeMetadata CRD in SV is deleted
-		Wait for Pod name to be deleted in CNS
-		Delete PVC
-	*/
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Create a Pod attached to above PV.
+	// 4. Verify CnsVolumeMetadata CRD in SV is created.
+	// 5. Wait for Pod name to be present in CNS.
+	// 6. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC/Pod in GC and PVC in SV.
+	// 7. Delete Pod and wait for disk to be detached.
+	// 8. Verify CnsVolumeMetadata CRD in SV is deleted.
+	// 9. Wait for Pod name to be deleted in CNS.
+	// 10. Delete PVC.
 	ginkgo.It("Verify Pod Name is updated/deleted on CNS", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -290,12 +298,13 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName = volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -310,7 +319,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -330,40 +340,44 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
-		// TODO: replace sleep with polling mechanism
+		// TODO: Replace sleep with polling mechanism.
 		ginkgo.By("Sleeping for 20s for update...")
 		time.Sleep(20 * time.Second)
-		//Verifying the  CnsVolumeMetadata CRD  for Pod in SV is deleted
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		// Verifying the CnsVolumeMetadata CRD for Pod in SV is deleted.
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
 	})
 
-	/*
-		Steps:
-		1. Create a Storage Class
-		2. Create a statefulset with 3 replicas
-		3. Wait for all PVCs to be in Bound phase and Pods are Ready state
-		4. Update PVC labels
-		5. Verify PVC labels are updated on CNS
-		6. Scale up number of replicas to 5
-		7. Update PV labels
-		8. Verify PV labels are updated on CNS
-		9. Scale down statefulsets to 0 replicas and delete all pods.
-		10. Delete PVCs
-		11. Delete SC
-	*/
+	// Steps:
+	// 1. Create a Storage Class.
+	// 2. Create a statefulset with 3 replicas.
+	// 3. Wait for all PVCs to be in Bound phase and Pods are Ready state.
+	// 4. Update PVC labels.
+	// 5. Verify PVC labels are updated on CNS.
+	// 6. Scale up number of replicas to 5.
+	// 7. Update PV labels.
+	// 8. Verify PV labels are updated on CNS.
+	// 9. Scale down statefulsets to 0 replicas and delete all pods.
+	// 10. Delete PVCs.
+	// 11. Delete SC.
 
 	ginkgo.It("Statefulset tests with label updates", func() {
 		var sc *storagev1.StorageClass
@@ -394,12 +408,14 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			}
 		}()
 		replicas := *(statefulset.Spec.Replicas)
-		// Waiting for pods status to be Ready
+		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPodsBeforeScaleup := fss.GetPodList(client, statefulset)
-		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
-		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
 
 		pvclabels := make(map[string]string)
 		pvclabels[pvclabelKey] = pvclabelValue
@@ -411,8 +427,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
-					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+					ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
+						pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
+					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
+						volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					pvc.Labels = pvclabels
 					_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
@@ -420,8 +438,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 					volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 					framework.Logf("value of volumeID " + volumeID)
-					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", pvclabels, volumespec.PersistentVolumeClaim.ClaimName, GetAndExpectStringEnvVar(envSupervisorClusterNamespace)))
-					err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvclabels, string(cnstypes.CnsKubernetesEntityTypePVC), volumespec.PersistentVolumeClaim.ClaimName, namespace)
+					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+						pvclabels, volumespec.PersistentVolumeClaim.ClaimName,
+						GetAndExpectStringEnvVar(envSupervisorClusterNamespace)))
+					err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvclabels,
+						string(cnstypes.CnsKubernetesEntityTypePVC), volumespec.PersistentVolumeClaim.ClaimName, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -451,7 +472,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 					framework.Logf("value of volumeID " + volumeID)
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", pvlabels, pv.Name))
-					err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvlabels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
+					err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvlabels,
+						string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -462,20 +484,19 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
 		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
-		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(), "Number of Pods in the statefulset should match with number of replicas")
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
 	})
 
-	/*
-		Steps:
-		1.Create a PVC using any replicated storage class from the SV.
-		2.Wait for PVC to be in Bound phase
-		3.Bring down csi-controller pod in SV
-		4.Update PV/PVC labels
-		5.Verify CnsVolumeMetadata CRDs are updated.
-		6.Bring up csi-controller pod in SV
-		7.Verify PV and PVC entry is updated in CNS
-		8.Delete PVC
-	*/
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Bring down csi-controller pod in SV.
+	// 4. Update PV/PVC labels.
+	// 5. Verify CnsVolumeMetadata CRDs are updated.
+	// 6. Bring up csi-controller pod in SV.
+	// 7. Verify PV and PVC entry is updated in CNS.
+	// 8. Delete PVC.
 	ginkgo.It("Verify CNS Operator receives callbacks on all objects when csi-controller was brought back up", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -495,12 +516,13 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName = volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -515,7 +537,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		var vmUUID string
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -534,9 +557,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+podUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Scaling down the csi driver to zero replica")
 		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
@@ -552,43 +578,45 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Scaling up the csi driver to one replica")
 		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
-		// TODO: replace sleep with polling mechanism
+		// TODO: Replace sleep with polling mechanism.
 		framework.Logf("Sleeping for 60 seconds")
 		time.Sleep(60 * time.Second)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
 
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 	})
-	/*
 
-		Metadata Syncer - 2
-
-		Steps
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		Update PV Labels
-		Verify CnsVolumeMetadata CRD in SV is updated
-		Wait for labels to be present in CNS
-		Delete PV Labels
-		Verify CnsVolumeMetadata CRD in SV is updated
-		Wait for labels to be deleted in CNS
-		Delete PVC
-
-	*/
+	// Metadata Syncer - 2
+	//
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Update PV Labels.
+	// 5. Verify CnsVolumeMetadata CRD in SV is updated.
+	// 6. Wait for labels to be present in CNS.
+	// 7. Delete PV Labels.
+	// 8. Verify CnsVolumeMetadata CRD in SV is updated.
+	// 9. Wait for labels to be deleted in CNS.
+	// 10. Delete PVC.
 
 	ginkgo.It("Validate PV labels are updated/deleted on CNS.", func() {
 		var err error
@@ -606,7 +634,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -623,8 +652,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -636,7 +667,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Fetching updated pv %s in namespace %s", pv.Name, pv.Namespace))
@@ -650,29 +682,27 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels  to be deleted for pv %s", pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pv.Labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	/*
-
-		Metadata Syncer - 4
-		Steps
-
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		Update PVC Labels
-		Update PV Labels
-		Verify CnsVolumeMetadata CRDs in SV are updated
-		Wait for labels to be present in CNS
-		Delete PVC Labels
-		Delete PV Labels
-		Verify CnsVolumeMetadata CRD in SV are updated
-		Wait for labels to be deleted in CNS
-		Delete PVC
-
-	*/
+	// Metadata Syncer - 4
+	// Steps:
+	//
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Update PVC Labels.
+	// 5. Update PV Labels.
+	// 6. Verify CnsVolumeMetadata CRDs in SV are updated.
+	// 7. Wait for labels to be present in CNS.
+	// 8. Delete PVC Labels.
+	// 9. Delete PV Labels.
+	// 10. Verify CnsVolumeMetadata CRD in SV are updated.
+	// 11. Wait for labels to be deleted in CNS.
+	// 12. Delete PVC.
 	ginkgo.It("Validate PV and PVC labels are updated/deleted on CNS", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -687,7 +717,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -704,8 +735,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
 
@@ -724,10 +757,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
 
 		ginkgo.By(fmt.Sprintf("Fetching updated pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
@@ -740,10 +775,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s", labels, pvc.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels,
+			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvcUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvcUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
 
 		ginkgo.By(fmt.Sprintf("Fetching updated pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
@@ -760,9 +797,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels to be deleted for pv %s", pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pv.Labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pv.Labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pv.Labels, true)
 
 		ginkgo.By(fmt.Sprintf("deleting labels for pvc %s", pvc.Name))
 		pvc.Labels = make(map[string]string)
@@ -771,29 +810,28 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels to be deleted for pvc %s", pvc.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvc.Labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pvc.Labels, true)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvc.Labels,
+			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pvc.Labels, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
-	/*
-
-		Metadata Syncer - 6
-		Steps
-
-		Create multiple PVCs using any replicated storage class from the SV.
-		Wait for PVCs to be in Bound phase
-		Create a Pod attached to above PVCs
-		Verify CnsVolumeMetadata CRD in SV is created
-		Wait for Pod name to be present in CNS
-		Verify entityReference for all volumes on CNS contains entries for PV/PVC/POD in GC and PVC in SV.
-		Delete Pod and wait for disk to be detached
-		Verify CnsVolumeMetadata CRD in SV is deleted
-		Wait for Pod name to be deleted in CNS
-		Delete PVCs
-
-	*/
+	// Metadata Syncer - 6
+	// Steps:
+	//
+	// 1. Create multiple PVCs using any replicated storage class from the SV.
+	// 2. Wait for PVCs to be in Bound phase.
+	// 3. Create a Pod attached to above PVCs.
+	// 4. Verify CnsVolumeMetadata CRD in SV is created.
+	// 5. Wait for Pod name to be present in CNS.
+	// 6. Verify entityReference for all volumes on CNS contains entries for
+	//    PV/PVC/Pod in GC and PVC in SV.
+	// 7. Delete Pod and wait for disk to be detached.
+	// 8. Verify CnsVolumeMetadata CRD in SV is deleted.
+	// 9. Wait for Pod name to be deleted in CNS.
+	// 10. Delete PVCs.
 
 	ginkgo.It("Multiple PVCs - Verify Pod Name is updated/deleted on CNS", func() {
 		var sc *storagev1.StorageClass
@@ -817,7 +855,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc1.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc1, pvc2}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc1, pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv1 := pvs[0]
@@ -844,26 +883,25 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv1.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv1.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv1.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", pv1.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
 	})
 
-	/*
-		Metadata Syncer Test-10
-		Test Steps
-
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Stop vsan-health
-		Update PV/PVC labels
-		Verify CnsVolumeMetadata CRD is updated
-		Start vsan-health
-		Verify labels are updated on CNS
-		Delete PVC in GC
-
-	*/
+	// Metadata Syncer Test-10
+	// Test Steps:
+	//
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Stop vsan-health.
+	// 4. Update PV/PVC labels.
+	// 5. Verify CnsVolumeMetadata CRD is updated.
+	// 6. Start vsan-health.
+	// 7. Verify labels are updated on CNS.
+	// 8. Delete PVC in GC.
 	ginkgo.It("Verify CnsVolumeMetadata updated after vsan health restart", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -880,7 +918,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 
@@ -898,7 +937,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		isVsanhealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
+			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		labels := make(map[string]string)
@@ -910,7 +950,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, labels, true)
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
@@ -920,25 +961,25 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		isVsanhealthServiceStopped = false
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
-	/*
-		Steps:
-		Create a PVC using any replicated storage class from the SV.
-		Wait for PVC to be in Bound phase
-		Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		Make datastore on which this volume is created inaccessible.
-		Update PVC Labels
-		Update PV Labels
-		Verify CnsVolumeMetadata CRDs in SV are updated
-		Verify labels are not updated on CNS.
-		Make datastore accessible.
-		Verify labels are updated on CNS.
-		Delete PVC
-	*/
+	// Steps:
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Make datastore on which this volume is created inaccessible.
+	// 5. Update PVC Labels.
+	// 6. Update PV Labels.
+	// 7. Verify CnsVolumeMetadata CRDs in SV are updated.
+	// 8. Verify labels are not updated on CNS.
+	// 9. Make datastore accessible.
+	// 10. Verify labels are updated on CNS.
+	// 11. Delete PVC.
 	ginkgo.It("Verify labels are not updated on inaccessible datastore", func() {
 		var err error
 		var sc *storagev1.StorageClass
@@ -957,7 +998,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -977,7 +1019,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		isVsanhealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
+			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		pvLabels := make(map[string]string)
@@ -1009,25 +1052,31 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		fmt.Println("PV uuid", pvUID)
 
-		// check pvc label update in CRD
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, volumeID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, volumeID, true, pvcLabels, true)
+		// Check pvc label update in CRD.
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, volumeID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, volumeID, true, pvcLabels, true)
 
-		// check pv label update in CRD
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, volumeID, true, pvLabels, true)
+		// Check pv label update in CRD.
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, volumeID, true, pvLabels, true)
 
 		/*
 			TODO:
-			Since we are bringing vsan-health service down to simulate data store being in-accessible to CNS. It brings down CNS as well.
-			Hence commenting the steps below until we have a better way to make the datastore inaccessible.
+			Since we are bringing vsan-health service down to simulate data store
+			being in-accessible to CNS. It brings down CNS as well.
+			Hence commenting the steps below until we have a better way to make
+			the datastore inaccessible.
 
 			ginkgo.By(fmt.Sprintf("Sleeping for %v minutes and verifying labels are not updated on CNS", pollTimeout))
 			time.Sleep(pollTimeout)
 			ginkgo.By("Checking PVC labels via CNS")
-			cnsLabels, err := e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+			cnsLabels, err := e2eVSphere.getLabelsForCNSVolume(svcVolumeID,
+				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
 			ginkgo.By("Checking PV labels via CNS")
-			cnsLabels, err = e2eVSphere.getLabelsForCNSVolume(svcVolumeID, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+			cnsLabels, err = e2eVSphere.getLabelsForCNSVolume(svcVolumeID,
+				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(len(cnsLabels)).Should(gomega.BeZero())
 		*/
@@ -1039,40 +1088,46 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		isVsanhealthServiceStopped = false
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", pvcLabels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvcLabels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+			pvcLabels, pvc.Name, pvc.Namespace))
+		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvcLabels,
+			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", pvLabels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvLabels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvLabels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	/*
-		Metadata syncer testcases
-		TC-8 - Verify static provisioning across Guest Clusters.
-		1. Create a PVC using any replicated storage class from the SV.
-		2. Wait for PVC to be in Bound phase.
-		3. Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		4. Change reclaimPolicy of PV to Retain.
-		5. Delete PVC
-		6. Verify CnsVolumeMetadata CRD is deleted
-		7. Verify PVC name is removed from volume entry on CNS
-		8. Verify entityReference for this volume on CNS contains entries for PV in GC and PVC in SV.
-		9. Delete PV
-		10.Verify CnsVolumeMetadata CRD is deleted
-		11.Verify PV entry is deleted from CNS
-		12.Verify entityReference for this volume on CNS contains entries for PVC in SV.
-
-		From a new guest cluster, do the following:
-		1. Create PV with VolumeHandle=PVC in SV
-		2. Verify CnsVolumeMetadata CRD is created
-		3. Wait for PV entry to be present in CNS
-		4. Verify entityReference for this volume on CNS contains entries for PV in GC and PVC in SV.
-		5. Delete PV on GC
-		6. Verify entityReference for this volume on CNS contains entries for and PVC in SV.
-		7. Delete the corresponding PVC on SV
-	*/
+	// Metadata syncer testcases
+	// TC-8 - Verify static provisioning across Guest Clusters.
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Change reclaimPolicy of PV to Retain.
+	// 5. Delete PVC.
+	// 6. Verify CnsVolumeMetadata CRD is deleted.
+	// 7. Verify PVC name is removed from volume entry on CNS.
+	// 8. Verify entityReference for this volume on CNS contains entries for
+	//    PV in GC and PVC in SV.
+	// 9. Delete PV.
+	// 10.Verify CnsVolumeMetadata CRD is deleted.
+	// 11.Verify PV entry is deleted from CNS.
+	// 12.Verify entityReference for this volume on CNS contains entries for
+	//    PVC in SV.
+	//
+	// From a new guest cluster, do the following:
+	// 1. Create PV with VolumeHandle=PVC in SV.
+	// 2. Verify CnsVolumeMetadata CRD is created.
+	// 3. Wait for PV entry to be present in CNS.
+	// 4. Verify entityReference for this volume on CNS contains entries for
+	//    PV in GC and PVC in SV.
+	// 5. Delete PV on GC.
+	// 6. Verify entityReference for this volume on CNS contains entries for
+	//    and PVC in SV.
+	// 7. Delete the corresponding PVC on SV.
 	ginkgo.It("MultipleGC Verify static provisioning across Guest Clusters.", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1087,7 +1142,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
-		// Create Storage class and PVC
+		// Create Storage class and PVC.
 		ginkgo.By("Creating Storage Class and PVC")
 
 		scParameters[svStorageClassName] = storagePolicyName
@@ -1106,7 +1161,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			}
 		}()
 
-		// Waiting for PVC to be bound
+		// Waiting for PVC to be bound.
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
@@ -1115,7 +1170,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName := volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -1129,16 +1184,19 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvUID, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvcUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvcUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvcUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvcUID, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-		//changing the reclaim policy of the pv to retain
+		// Changing the reclaim policy of the pv to retain.
 		ginkgo.By("Changing the volume reclaim policy")
 		pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
 		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
@@ -1153,26 +1211,30 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		framework.Logf("Expected instance %v", pv.Spec.CSI.VolumeHandle)
 		verifyCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Delete the PV %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvUID, false, nil, false)
 
 		ginkgo.By("Verifying if volume still exists in the Supervisor Cluster")
-		//svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		pvAnnotations := pv.Annotations
 		pvSpec := pv.Spec.CSI
 		pvStorageClass := pv.Spec.StorageClassName
 
-		//Create PV in New GC
+		// Create PV in New GC.
 		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
 		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
@@ -1197,7 +1259,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		scParameters = make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclassNewGC, err := createStorageClass(clientNewGc, scParameters, nil, v1.PersistentVolumeReclaimDelete, "", true, "")
+		storageclassNewGC, err := createStorageClass(clientNewGc,
+			scParameters, nil, v1.PersistentVolumeReclaimDelete, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcNew, err := createPVC(clientNewGc, namespaceNewGC, nil, "", storageclassNewGC, "")
@@ -1210,7 +1273,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		pvNewGC := getPvFromClaim(clientNewGc, pvcNew.Namespace, pvcNew.Name)
 		volumeIDNewGC := pvNewGC.Spec.CSI.VolumeHandle
-		// svcNewPVCName refers to PVC Name in the supervisor cluster
+		// svcNewPVCName refers to PVC Name in the supervisor cluster.
 		svcNewPVCName := volumeIDNewGC
 		volumeIDNewGC = getVolumeIDFromSupervisorCluster(svcNewPVCName)
 		gomega.Expect(volumeIDNewGC).NotTo(gomega.BeEmpty())
@@ -1234,7 +1297,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		ginkgo.By("verify crd in supervisor")
 		time.Sleep(10 * time.Second)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcNewClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvNewUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcNewClusterID+pvNewUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvNewUID, false, nil, false)
 		verifyCRDInSupervisor(ctx, f, gcNewClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 		defer func() {
 			if pvc != nil {
@@ -1254,8 +1318,9 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		err = clientNewGc.CoreV1().PersistentVolumes().Delete(ctx, pvNew.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvNewUID, false, nil, false)
-		//Delete PVC in SVC
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvNewUID, false, nil, false)
+		// Delete PVC in SVC.
 		pvc, err := svClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(ctx, svcPVCName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1264,31 +1329,34 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc = nil
 	})
-	/*
-		Metadata syncer testcases - TC 7
-		TC-8 - Verify static provisioning across Guest Clusters.
-		1. Create a PVC using any replicated storage class from the SV.
-		2. Wait for PVC to be in Bound phase.
-		3. Verify entityReference for this volume on CNS contains entries for PV/PVC in GC and PVC in SV.
-		4. Change reclaimPolicy of PV to Retain.
-		5. Delete PVC
-		6. Verify CnsVolumeMetadata CRD is deleted
-		7. Verify PVC name is removed from volume entry on CNS
-		8. Verify entityReference for this volume on CNS contains entries for PV in GC and PVC in SV.
-		9. Delete PV
-		10.Verify CnsVolumeMetadata CRD is deleted
-		11.Verify PV entry is deleted from CNS
-		12.Verify entityReference for this volume on CNS contains entries for PVC in SV.
 
-		13.Create PV with VolumeHandle=PVC in SV
-		14.Verify CnsVolumeMetadata CRD is created
-		15.Wait for PV entry to be present in CNS
-		16.Verify entityReference for this volume on CNS contains entries for PV in GC and PVC in SV.
-		17.Delete PV on GC
-		18.Verify entityReference for this volume on CNS contains entries for and PVC in SV.
-		19.Delete the corresponding PVC on SV
-
-	*/
+	// Metadata syncer testcases - TC 7
+	// TC-8 - Verify static provisioning across Guest Clusters.
+	// 1. Create a PVC using any replicated storage class from the SV.
+	// 2. Wait for PVC to be in Bound phase.
+	// 3. Verify entityReference for this volume on CNS contains entries for
+	//    PV/PVC in GC and PVC in SV.
+	// 4. Change reclaimPolicy of PV to Retain.
+	// 5. Delete PVC.
+	// 6. Verify CnsVolumeMetadata CRD is deleted.
+	// 7. Verify PVC name is removed from volume entry on CNS.
+	// 8. Verify entityReference for this volume on CNS contains entries for
+	//    PV in GC and PVC in SV.
+	// 9. Delete PV.
+	// 10.Verify CnsVolumeMetadata CRD is deleted.
+	// 11.Verify PV entry is deleted from CNS.
+	// 12.Verify entityReference for this volume on CNS contains entries for
+	//    PVC in SV.
+	//
+	// 13.Create PV with VolumeHandle=PVC in SV.
+	// 14.Verify CnsVolumeMetadata CRD is created.
+	// 15.Wait for PV entry to be present in CNS.
+	// 16.Verify entityReference for this volume on CNS contains entries for
+	//    PV in GC and PVC in SV.
+	// 17.Delete PV on GC.
+	// 18.Verify entityReference for this volume on CNS contains entries for
+	//    and PVC in SV.
+	// 19.Delete the corresponding PVC on SV.
 
 	ginkgo.It("Static provisioning across Guest Clusters.", func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1299,7 +1367,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
-		// Create Storage class and PVC
+		// Create Storage class and PVC.
 		ginkgo.By("Creating Storage Class and PVC")
 
 		scParameters[svStorageClassName] = storagePolicyName
@@ -1318,7 +1386,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			}
 		}()
 
-		// Waiting for PVC to be bound
+		// Waiting for PVC to be bound.
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
@@ -1331,7 +1399,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvAnnotations := pv.Annotations
 		pvSpec := pv.Spec.CSI
 
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName := volumeID
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
@@ -1345,15 +1413,17 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid " + pvUID)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvUID, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-		//changing the reclaim policy of the pv to retain
+		// Changing the reclaim policy of the pv to retain.
 		ginkgo.By("Changing the volume reclaim policy")
 		pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
 		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
@@ -1365,19 +1435,23 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvclaim = nil
 
 		ginkgo.By("verify crd in supervisor")
-		verifyCRDInSupervisorWithWait(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
+		verifyCRDInSupervisorWithWait(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Delete the PV %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvUID, false, nil, false)
 
 		ginkgo.By("Verifying if volume still exists in the Supervisor Cluster")
-		// svcPVCName refers to PVC Name in the supervisor cluster
+		// svcPVCName refers to PVC Name in the supervisor cluster.
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
@@ -1412,13 +1486,16 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By("verify crd in supervisor")
-		verifyCRDInSupervisorWithWait(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvNewUID, false, nil, false)
+		verifyCRDInSupervisorWithWait(ctx, f, gcClusterID+pvNewUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, gcClusterID+pvNewUID, false, nil, false)
 
 		ginkgo.By(fmt.Sprintf("Delete the PV %s", pvNew.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvNew.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID, crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvNewUID, false, nil, false)
+		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvNewUID,
+			crdCNSVolumeMetadatas, crdVersion, crdGroup, false, gcClusterID+pvNewUID, false, nil, false)
 
 		ginkgo.By("Delete the PVC in SVC")
 		pvc, err := svClient.CoreV1().PersistentVolumeClaims(svcNamespace).Get(ctx, svcPVCName, metav1.GetOptions{})
