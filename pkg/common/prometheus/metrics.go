@@ -42,6 +42,24 @@ const (
 	// PrometheusExpandVolumeOpType represents the ExpandVolume operation.
 	PrometheusExpandVolumeOpType = "expand-volume"
 
+	// CSI operation fault types
+
+	// PrometheusFaultInvalidArgumentType represents the InvalidArgument fault
+	// that CSI operation may failed with
+	PrometheusFaultInvalidArgumentType = "InvalidArgument"
+	// PrometheusFaultNotFoundType represents the NotFound fault
+	// that CSI operation may failed with
+	PrometheusFaultNotFoundType = "NotFound"
+	// PrometheusFaultResourceInUseType represents the ResourceInUse fault
+	// that CSI operation may failed with
+	PrometheusFaultResourceInUseType = "ResourceInUse"
+	// PrometheusFaultManagedObjectNotFoundType represents the ManagedObjectNotFound fault
+	// that CSI operation may failed with
+	PrometheusFaultManagedObjectNotFoundType = "ManagedObjectNotFound"
+	// PrometheusFaultOtherFaultType represents the fault
+	// that CSI operation may failed with other than the fault listed above
+	PrometheusFaultOtherFaultType = "OtherFault"
+
 	// CNS operation types
 
 	// PrometheusCnsCreateVolumeOpType represents the CreateVolume operation.
@@ -101,7 +119,8 @@ var (
 		// Possible voltype - "unknown", "block", "file"
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume"
 		// Possible status - "pass", "fail"
-		[]string{"voltype", "optype", "status"})
+		// Possible fault - "InvalidArgument", "NotFound", "ResourceInUse", "ManagedObjectNotFound", "CnsFault", "OtherFault"
+		[]string{"voltype", "optype", "status", "fault"})
 
 	// CnsControlOpsHistVec is a histogram vector metric to observe various control
 	// operations on CNS. Note that this captures the time taken by CNS into a bucket

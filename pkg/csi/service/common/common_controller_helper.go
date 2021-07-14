@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/codes"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 )
 
@@ -262,4 +263,22 @@ func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere
 	}
 
 	return nil
+}
+
+// ExtractCsiControlOpFaultFromError extracts the fault type from the error of
+// CsiControlOp
+func ExtractCsiControlOpFaultFromError(ctx context.Context, err error) string {
+	log := logger.GetLogger(ctx)
+	log.Infof("ExtractCsiControlOpFaultFromError called with err %v", err)
+	if strings.Contains(err.Error(), prometheus.PrometheusFaultInvalidArgumentType) {
+		return prometheus.PrometheusFaultInvalidArgumentType
+	} else if strings.Contains(err.Error(), prometheus.PrometheusFaultNotFoundType) {
+		return prometheus.PrometheusFaultNotFoundType
+	} else if strings.Contains(err.Error(), prometheus.PrometheusFaultResourceInUseType) {
+		return prometheus.PrometheusFaultResourceInUseType
+	} else if strings.Contains(err.Error(), prometheus.PrometheusFaultManagedObjectNotFoundType) {
+		return prometheus.PrometheusFaultManagedObjectNotFoundType
+	} else {
+		return prometheus.PrometheusFaultOtherFaultType
+	}
 }
