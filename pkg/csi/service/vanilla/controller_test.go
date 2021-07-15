@@ -28,6 +28,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
+	"github.com/vmware/govmomi/cns"
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -40,6 +41,8 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -771,5 +774,94 @@ func TestCompleteControllerFlow(t *testing.T) {
 
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+func TestDeleteVolumeWithSnapshots(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Create Snapshot
+	snapSpec := cnstypes.CnsSnapshotCreateSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volID,
+		},
+		Description: "Snap-1",
+	}
+	snapshotTask, err := ct.vcenter.CnsClient.CreateSnapshots(ctx, []cnstypes.CnsSnapshotCreateSpec{snapSpec})
+	if err != nil {
+		t.Fatalf("failed to create snapshot for volume: %s", volID)
+	}
+	snapTaskInfo, err := cns.GetTaskInfo(ctx, snapshotTask)
+	if err != nil {
+		t.Fatalf("failed to get snapshot taskinfo for volume: %s", volID)
+	}
+	taskResult, err := cns.GetTaskResult(ctx, snapTaskInfo)
+	if err != nil {
+		t.Fatalf("failed to get task result for snapshot operation on volume: %s", volID)
+	}
+	cnsSnapshot := taskResult.(*cnstypes.CnsSnapshotCreateResult)
+	snapshotID := cnsSnapshot.Snapshot.SnapshotId.Id
+	t.Logf("created cns snapshot: %s for volume: %s", snapshotID, volID)
+	defer func() {
+		deleteSnapSepc := cnstypes.CnsSnapshotDeleteSpec{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: volID,
+			},
+			SnapshotId: cnstypes.CnsSnapshotId{
+				Id: snapshotID,
+			},
+		}
+		_, err = ct.vcenter.CnsClient.DeleteSnapshots(ctx, []cnstypes.CnsSnapshotDeleteSpec{deleteSnapSepc})
+		if err != nil {
+			t.Errorf("failed to delete snapshot: %s for volume: %s", snapshotID, volID)
+		}
+	}()
+
+	// Attempt to delete the volume
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		delErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if delErr.Code() == codes.FailedPrecondition {
+			t.Logf("received error as expected when attempting to delete volume with snapshot, error: %+v", err)
+		} else {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.FailedPrecondition.String(), delErr.Code().String())
+		}
+	} else {
+		t.Fatal("expected error was not received when deleting volume with snapshot")
 	}
 }
