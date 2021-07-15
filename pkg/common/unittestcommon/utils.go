@@ -30,6 +30,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
@@ -95,6 +96,16 @@ func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID st
 	log := logger.GetLogger(ctx)
 	return logger.LogNewErrorCode(log, codes.Unimplemented,
 		"ClearFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+}
+
+func (c *FakeK8SOrchestrator) InitTopologyServiceInController(ctx context.Context)(
+	commoncotypes.ControllerTopologyService, error) {
+	return &mockControllerVolumeTopology{}, nil
+}
+
+func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (commoncotypes.NodeTopologyService,
+	error) {
+	return &mockNodeVolumeTopology{}, nil
 }
 
 // GetFakeVolumeMigrationService returns the mocked VolumeMigrationService
