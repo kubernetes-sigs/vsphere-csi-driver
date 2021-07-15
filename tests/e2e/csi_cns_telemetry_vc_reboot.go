@@ -35,7 +35,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] CNS-CSI Cluster Distribution Operations during VC reboot", func() {
+var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
+	"CNS-CSI Cluster Distribution Operations during VC reboot", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	var (
 		client           clientset.Interface
