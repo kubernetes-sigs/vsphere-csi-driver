@@ -63,15 +63,16 @@ type controllerTest struct {
 	vcenter    *cnsvsphere.VirtualCenter
 }
 
-// configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with an empty tls.Config.
+// configFromSim starts a vcsim instance and returns config for use against the
+// vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromSim() (*config.Config, func()) {
 	return configFromSimWithTLS(new(tls.Config), true)
 }
 
-// configFromSimWithTLS starts a vcsim instance and returns config for use against the vcsim instance.
-// The vcsim instance is configured with a tls.Config. The returned client
-// config can be configured to allow/decline insecure connections.
+// configFromSimWithTLS starts a vcsim instance and returns config for use
+// against the vcsim instance. The vcsim instance is configured with a
+// tls.Config. The returned client config can be configured to allow/decline
+// insecure connections.
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
@@ -85,10 +86,10 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
 
-	// CNS Service simulator
+	// CNS Service simulator.
 	model.Service.RegisterSDK(cnssim.New())
 
-	// PBM Service simulator
+	// PBM Service simulator.
 	model.Service.RegisterSDK(pbmsim.New())
 	cfg.Global.InsecureFlag = insecureAllowed
 
@@ -98,10 +99,12 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 	cfg.Global.Password, _ = s.URL.User.Password()
 	cfg.Global.Datacenters = "DC0"
 
-	// Write values to test_vsphere.conf
+	// Write values to test_vsphere.conf.
 	os.Setenv("VSPHERE_CSI_CONFIG", "test_vsphere.conf")
-	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort))
+	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
+		cfg.Global.Datacenters, cfg.Global.VCenterPort))
 	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -131,11 +134,11 @@ func configFromEnvOrSim() (*config.Config, func()) {
 
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
-		// Create context
+		// Create context.
 		ctx = context.Background()
 		config, _ := configFromEnvOrSim()
 
-		// CNS based CSI requires a valid cluster name
+		// CNS based CSI requires a valid cluster name.
 		config.Global.ClusterID = testClusterName
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
@@ -177,7 +180,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 	return controllerTestInstance
 }
 
-func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	clusterID string) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastoreURL string
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		sharedDatastoreURL = v
@@ -251,25 +255,22 @@ func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter, cluste
 		}, nil
 }
 
-/*
- * TestCreateVolumeWithoutStoragePolicyWcp creates volume
- * with storage policy
- */
+// TestCreateVolumeWithoutStoragePolicyWcp creates volume with storage policy.
 func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Create
+	// Create.
 	params := make(map[string]string)
 
 	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
 	if profileID == "" {
 		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
 		if storagePolicyName == "" {
-			// PBM simulator defaults
+			// PBM simulator defaults.
 			storagePolicyName = "vSAN Default Storage Policy"
 		}
 
-		// Verify the volume has been create with corresponding storage policy ID
+		// Verify the volume has been create with corresponding storage policy ID.
 		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
 		if err != nil {
 			t.Fatal(err)
@@ -327,7 +328,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatalf("failed to match volume policy ID: %s", profileID)
 	}
 
-	// QueryAll
+	// QueryAll.
 	queryFilter = cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
@@ -345,7 +346,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// Delete
+	// Delete.
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}
@@ -354,7 +355,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Varify the volume has been deleted
+	// Varify the volume has been deleted.
 	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
 	if err != nil {
 		t.Fatal(err)
