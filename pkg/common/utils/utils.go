@@ -110,8 +110,8 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 	for {
 		snapshotQueryResult, err := m.QuerySnapshots(ctx, snapshotQueryFilter)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"querySnapshots failed for snapshotQueryFilter: %v. Err=%+v", snapshotQueryFilter, err.Error())
+			log.Errorf("querySnapshots failed for snapshotQueryFilter: %v. Err=%+v", snapshotQueryFilter, err)
+			return nil, err
 		}
 		if snapshotQueryResult == nil {
 			log.Infof("Observed empty SnapshotQueryResult")

@@ -532,6 +532,32 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 	}
 }
 
+func QueryVolumeSnapshotsByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	var snapshots []string
+	querySpec := cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volumeID,
+		},
+	}
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: []cnstypes.CnsSnapshotQuerySpec{querySpec},
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  QuerySnapshotLimit,
+		},
+	}
+	queryResultEntries, err := utils.QuerySnapshotsUtil(ctx, volManager, queryFilter)
+	if err != nil {
+		log.Errorf("failed to retrieve snapshots for volume-id: %s err: %+v", volumeID, err)
+		return nil, err
+	}
+	for _, queryResult := range queryResultEntries {
+		snapshots = append(snapshots, queryResult.Snapshot.SnapshotId.Id)
+	}
+	return snapshots, nil
+}
+
 // QueryVolumeByID is the helper function to query volume by volumeID.
 func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) (*cnstypes.CnsVolume, error) {
 	log := logger.GetLogger(ctx)

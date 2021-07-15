@@ -712,6 +712,22 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
+		// Check if the volume contains CNS snapshots.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+			snapshots, err := common.QueryVolumeSnapshotsByID(ctx, c.manager.VolumeManager, req.VolumeId)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
+			}
+			if len(snapshots) == 0 {
+				log.Infof("no CNS snapshots found for volume: %s, the volume can be safely deleted",
+					req.VolumeId)
+			} else {
+				return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"volume: %s with existing snapshots %v cannot be deleted, "+
+						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+			}
+		}
 		// TODO: Add code to determine the volume type and set volumeType for
 		// Prometheus metric accordingly.
 		err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
