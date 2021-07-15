@@ -89,16 +89,14 @@ func TestValidMigratedAndLegacyVolume(t *testing.T) {
 	}
 }
 
-/*
-	This test verifies the correctness of GetSCNameFromPVC in following scenarios
-	where SC name is provided through:
-		1. Only Spec.StorageClassName
-		2. Only Metadata.Annotation
-		3. Both Spec.StorageClassName and Metadata.Annotation
-		4. Neither Spec.StorageClassName nor Metadata.Annotation
-*/
+// This test verifies the correctness of GetSCNameFromPVC in following scenarios
+// where SC name is provided through:
+//    1. Only Spec.StorageClassName
+//    2. Only Metadata.Annotation
+//    3. Both Spec.StorageClassName and Metadata.Annotation
+//    4. Neither Spec.StorageClassName nor Metadata.Annotation
 func TestGetSCNameFromPVC(t *testing.T) {
-	// Create context
+	// Create context.
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
@@ -115,7 +113,7 @@ func TestGetSCNameFromPVC(t *testing.T) {
 		return nil
 	}
 
-	// scenario 1
+	// Scenario 1.
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through only Spec.StorageClassName")
 	pvcName := testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", specSCName)
@@ -125,7 +123,7 @@ func TestGetSCNameFromPVC(t *testing.T) {
 		t.Error(err)
 	}
 
-	// scenario 2
+	// Scenario 2.
 	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through only Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", "")
@@ -136,8 +134,9 @@ func TestGetSCNameFromPVC(t *testing.T) {
 		t.Error(err)
 	}
 
-	// scenario 3
-	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through both Spec.StorageClassName and Metadata.Annotation")
+	// Scenario 3.
+	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through " +
+		"both Spec.StorageClassName and Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", specSCName)
 	pvc.Annotations = map[string]string{k8scloudoperator.ScNameAnnotationKey: annotatedSCName}
@@ -147,8 +146,9 @@ func TestGetSCNameFromPVC(t *testing.T) {
 		t.Error(err)
 	}
 
-	// scenario 4
-	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through neither Spec.StorageClassName nor Metadata.Annotation")
+	// Scenario 4.
+	t.Log("Verifying GetSCNameFromPVC for case where SC name is provided through " +
+		"neither Spec.StorageClassName nor Metadata.Annotation")
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc = getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, "", "")
 	expError := fmt.Errorf("storage class name not specified in PVC %q", pvcName)
