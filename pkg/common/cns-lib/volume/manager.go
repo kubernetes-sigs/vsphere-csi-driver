@@ -97,7 +97,8 @@ type Manager interface {
 	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id.
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
 	// QuerySnapshots retrieves the list of snapshots based on the query filter.
-	QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error)
+	QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (
+		*cnstypes.CnsSnapshotQueryResult, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1484,7 +1485,8 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	return &queryVolumeAsyncResult.QueryResult, nil
 }
 
-func (m *defaultManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+func (m *defaultManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (
+	*cnstypes.CnsSnapshotQueryResult, error) {
 	internalQuerySnapshots := func() (*cnstypes.CnsSnapshotQueryResult, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
