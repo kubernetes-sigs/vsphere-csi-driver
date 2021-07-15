@@ -52,19 +52,18 @@ import (
 
 const defaultMaxWorkerThreadsForCSINodeTopology = 1
 
-// backOffDuration is a map of csinodetopology instance name to the time after which a request
-// for this instance will be requeued.
-// Initialized to 1 second for new instances and for instances whose latest reconcile
-// operation succeeded.
-// If the reconcile fails, backoff is incremented exponentially.
+// backOffDuration is a map of csinodetopology instance name to the time after
+// which a request for this instance will be requeued. Initialized to 1 second
+// for new instances and for instances whose latest reconcile operation
+// succeeded. If the reconcile fails, backoff is incremented exponentially.
 var (
 	backOffDuration         map[string]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
-// Add creates a new CSINodeTopology Controller and adds it to the Manager, ConfigurationInfo
-// and VirtualCenterTypes. The Manager will set fields on the Controller
-// and start it when the Manager is started.
+// Add creates a new CSINodeTopology Controller and adds it to the Manager,
+// ConfigurationInfo and VirtualCenterTypes. The Manager will set fields on the
+// Controller and start it when the Manager is started.
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
@@ -73,7 +72,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes, clusterFlavor, &syncer.COInitParams)
+	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx,
+		common.Kubernetes, clusterFlavor, &syncer.COInitParams)
 	if err != nil {
 		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
 		return err
@@ -89,14 +89,16 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Errorf("creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
-	// eventBroadcaster broadcasts events on csinodetopology instances to the event sink.
+	// eventBroadcaster broadcasts events on csinodetopology instances to the
+	// event sink.
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(
 		&typedcorev1.EventSinkImpl{
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
+		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder))
 }
 
@@ -122,28 +124,31 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Initialize backoff duration map.
 	backOffDuration = make(map[string]time.Duration)
 
-	// Predicates are used to determine under which conditions
-	// the reconcile callback will be made for an instance.
+	// Predicates are used to determine under which conditions the reconcile
+	// callback will be made for an instance.
 	pred := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return true
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			// The CO calls NodeGetInfo API just once during the node registration,
-			// therefore we do not support updates to the spec after the CR has been reconciled.
+			// therefore we do not support updates to the spec after the CR has
+			// been reconciled.
 			log.Debug("Ignoring CSINodeTopology reconciliation on update event")
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			// Instances are deleted by the garbage collector automatically after the corresponding NodeVM is deleted.
-			// No reconcile operations are required.
+			// Instances are deleted by the garbage collector automatically after
+			// the corresponding NodeVM is deleted. No reconcile operations are
+			// required.
 			log.Debug("Ignoring CSINodeTopology reconciliation on delete event")
 			return false
 		},
 	}
 
 	// Watch for changes to primary resource CSINodeTopology.
-	err = c.Watch(&source.Kind{Type: &csinodetopologyv1alpha1.CSINodeTopology{}}, &handler.EnqueueRequestForObject{}, pred)
+	err = c.Watch(&source.Kind{Type: &csinodetopologyv1alpha1.CSINodeTopology{}},
+		&handler.EnqueueRequestForObject{}, pred)
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CSINodeTopology resource with error: %+v", err)
 		return err
@@ -152,7 +157,8 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// blank assignment to verify that ReconcileCSINodeTopology implements `reconcile.Reconciler`.
+// blank assignment to verify that ReconcileCSINodeTopology implements
+// `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileCSINodeTopology{}
 
 // ReconcileCSINodeTopology reconciles a CSINodeTopology object.
@@ -167,8 +173,9 @@ type ReconcileCSINodeTopology struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// Note: The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
+// Note: The Controller will requeue the Request to be processed again if the
+// returned error is non-nil or Result.Requeue is true, otherwise upon
+// completion it will remove the work from the queue.
 func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
@@ -177,7 +184,8 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Infof("CSINodeTopology resource with name %q not found. Ignoring since object must have been deleted.", request.Name)
+			log.Infof("CSINodeTopology resource with name %q not found. Ignoring since object must have been deleted.",
+				request.Name)
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("Failed to fetch the CSINodeTopology instance with name: %q. Error: %+v", request.Name, err)
@@ -206,7 +214,8 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
 
-	// TODO: Make this check generic by checking for the length of topologyCategories in future
+	// TODO: Make this check generic by checking for the length of
+	//       topologyCategories in future.
 	// Retrieve topology labels for nodeVM.
 	if r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
 		// Not a topology aware setup. No need to check for labels on nodeVM.
@@ -229,9 +238,11 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
-		// Raise error if nodeVM does not have a topology label associated with each category in the
-		// vSphere config secret `Labels` section. For now, as we support only zone, region, hardcoded the value to 2.
-		// TODO: Count the number of topology categories given and verify against that number.
+		// Raise error if nodeVM does not have a topology label associated with
+		// each category in the vSphere config secret `Labels` section. For now,
+		// as we support only zone, region, hardcoded the value to 2.
+		// TODO: Count the number of topology categories given and verify against
+		// that number.
 		if len(topologyLabels) != 2 {
 			msg := fmt.Sprintf("Detected a topology aware cluster. However, nodeVM with ID %q does not have a "+
 				"topology label for each category mentioned under the vSphere CSI config secret `Labels` section.", nodeID)
