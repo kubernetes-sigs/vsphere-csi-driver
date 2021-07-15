@@ -38,6 +38,7 @@ import (
 )
 
 var _ = ginkgo.Describe("Volume health check", func() {
+
 	f := framework.NewDefaultFramework("volume-healthcheck")
 	var (
 		client                     clientset.Interface
@@ -2520,7 +2521,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		Delete the SC
 	*/
 
-	ginkgo.It("[csi-block-vanilla] Verify pvc is not annotated with health status in vanilla setup", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify pvc is not annotated with health status in vanilla setup", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test volume health status")
