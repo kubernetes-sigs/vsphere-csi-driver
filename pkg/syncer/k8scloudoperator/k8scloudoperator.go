@@ -312,10 +312,10 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 	}
 
 	spTypes, present := sc.Annotations[spTypeAnnotationKey]
-	//if affinity rule is specified then storage class should be either vsan-sna or vsand type
+	//if affinity rule is specified then storage class should be of vsan-sna type
 	if _, ok := pvc.ObjectMeta.Annotations[nodeAffinityAnnotationKey]; ok {
-		if !present || (!strings.Contains(spTypes, vsanDirectType) && !strings.Contains(spTypes, vsanSnaType)) {
-			err := fmt.Errorf("storage class is not of type vsan direct or vsan-sna but %s annotation is provided"+
+		if !present || !strings.Contains(spTypes, vsanSnaType) {
+			err := fmt.Errorf("storage class is not compatible with vsan-sna but %s annotation is provided "+
 				"aborting placement, types: %q", nodeAffinityAnnotationKey, spTypes)
 			log.Error(err)
 			return out, err
