@@ -96,7 +96,8 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 	return queryResult, nil
 }
 
-func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) ([]cnstypes.CnsSnapshotQueryResultEntry, error) {
+func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager,
+	snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) ([]cnstypes.CnsSnapshotQueryResultEntry, error) {
 	log := logger.GetLogger(ctx)
 	var allQuerySnapshotResults []cnstypes.CnsSnapshotQueryResultEntry
 	var snapshotQuerySpec cnstypes.CnsSnapshotQuerySpec
@@ -121,7 +122,8 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 			log.Infof("QuerySnapshots retrieved no results for the spec: %+v", snapshotQuerySpec)
 		}
 		allQuerySnapshotResults = append(allQuerySnapshotResults, snapshotQueryResult.Entries...)
-		log.Infof("%v more snapshots to be queried", snapshotQueryResult.Cursor.TotalRecords-snapshotQueryResult.Cursor.Offset)
+		log.Infof("%v more snapshots to be queried",
+			snapshotQueryResult.Cursor.TotalRecords-snapshotQueryResult.Cursor.Offset)
 		if snapshotQueryResult.Cursor.Offset == snapshotQueryResult.Cursor.TotalRecords {
 			log.Infof("QuerySnapshots retrieved all records (%d) for the SnapshotQuerySpec: %+v in %d iterations",
 				snapshotQueryResult.Cursor.TotalRecords, snapshotQuerySpec, iteration)
