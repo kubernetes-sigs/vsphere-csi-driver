@@ -24,7 +24,6 @@ import (
 	"sync"
 	"time"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -271,7 +270,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(request reconcile.Request) (recon
 	}
 	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s", volume.StoragePolicyId, storageClassName, request.Namespace)
 
-	capacityInMb := volume.BackingObjectDetails.(cnstypes.BaseCnsBackingObjectDetails).GetCnsBackingObjectDetails().CapacityInMb
+	capacityInMb := volume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
 	accessMode := instance.Spec.AccessMode
 	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import
 	if accessMode == "" && instance.Spec.DiskURLPath != "" {
