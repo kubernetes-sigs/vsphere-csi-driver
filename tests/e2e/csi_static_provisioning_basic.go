@@ -822,7 +822,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 12. Verify PV is deleted automatically.
 	// 13. Verify Volume id deleted automatically.
 	// 14. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - when there is no resourcequota available", func() {
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - "+
+		"when there is no resourcequota available", func() {
 
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1189,7 +1190,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 8. Delete PVC.
 	// 9. PV and CRD gets auto deleted.
 	// 10. Delete Resource quota.
-	ginkgo.It("[csi-supervisor] Verifies static provisioning workflow on supervisor cluster - When vsanhealthService is down", func() {
+	ginkgo.It("[csi-supervisor] Verifies static provisioning workflow on supervisor cluster - "+
+		"When vsanhealthService is down", func() {
 
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1496,7 +1498,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create a storage policy.
 	// 3. Create FCD with the above created storage policy.
 	// 4. Import the volume created in step 3 to namespace created in step 1.
-	ginkgo.It("[csi-supervisor] static provisioning workflow - when tried to import volume with a storage policy that doesn't belong to the namespace", func() {
+	ginkgo.It("[csi-supervisor] static provisioning workflow - "+
+		"when tried to import volume with a storage policy that doesn't belong to the namespace", func() {
 
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1706,7 +1709,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 7. Delete Namespace.
 	// 8. Verify that PV's got deleted (This ensures that all PVC, CNS register
 	//    volumes and POD's are deleted).
-	ginkgo.It("[csi-supervisor] Perform static and dynamic provisioning together, Create Pod and delete Namespace", func() {
+	ginkgo.It("[csi-supervisor] Perform static and dynamic provisioning together, "+
+		"Create Pod and delete Namespace", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -357,7 +357,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 14. delete the pod created in step 11.
 	// 15. delete PVC created in step 2.
 	// 16. delete SC created in step 1.
-	ginkgo.It("verify offline block volume expansion triggered when SVC CSI pod is down succeeds once SVC CSI pod comes up", func() {
+	ginkgo.It("verify offline block volume expansion triggered when SVC CSI pod is down "+
+		"succeeds once SVC CSI pod comes up", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -725,7 +726,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// TODO: There is an upstream work going on to prevent PVC deletion when
 	//       resize is in progress. This test needs to be re-evaluated in the
 	//       future when the upstream happens.
-	ginkgo.It("Verify while CNS is down the volume expansion can be triggered and the volume can deleted with pending resize operation", func() {
+	ginkgo.It("Verify while CNS is down the volume expansion can be triggered and "+
+		"the volume can deleted with pending resize operation", func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
@@ -1142,7 +1144,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 14. Delete the pod created in step 11.
 	// 15. Delete PVC created in step 2.
 	// 16. Delete SC created in step 1.
-	ginkgo.It("verify offline block volume expansion succeeds when GC CSI pod is down when SVC PVC reaches FilesystemResizePending state and GC CSI comes up", func() {
+	ginkgo.It("verify offline block volume expansion succeeds when GC CSI pod is down "+
+		"when SVC PVC reaches FilesystemResizePending state and GC CSI comes up", func() {
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
