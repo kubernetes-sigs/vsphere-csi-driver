@@ -71,28 +71,33 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, when no storage policy is offered", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
+		"when no storage policy is offered", func() {
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany)
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteMany access mode with datastoreURL is set in storage class, when no storage policy is offered
+		Test to verify dynamic provisioning with ReadWriteMany access mode with
+		datastoreURL is set in storage class, when no storage policy is offered.
 		1. Create StorageClass with fsType as "nfs4"
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Wait for PVC to be Bound
 		4. Get the VolumeID from PV
-		5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify Name, Capacity, VolumeType, Health matches
+		5. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify Name, Capacity, VolumeType, Health matches.
 		6. Verify if VolumeID is created on "datastoreUrl" specified in storage class
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with datastoreURL is set in storage class, when no storage policy is offered", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with "+
+		"datastoreURL is set in storage class, when no storage policy is offered", func() {
 		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL, false)
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteMany access mode with datastoreURL specified in storage class is a non-VSAN datastore
+		Test to verify dynamic provisioning with ReadWriteMany access mode with
+		datastoreURL specified in storage class is a non-VSAN datastore.
 		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl"
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Expect the PVC to fail
@@ -100,9 +105,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with datastoreURL specified in storage class is a non-VSAN datastore, when no storage policy is offered", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with "+
+		"datastoreURL specified in storage class is a non-VSAN datastore, when no storage policy is offered", func() {
 		nonVSANDatastoreURL := GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
-		testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, nonVSANDatastoreURL)
+		testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(
+			f, client, namespace, v1.ReadWriteMany, nonVSANDatastoreURL)
 	})
 
 	/*
@@ -117,12 +124,14 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, when no storage policy is offered", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, "+
+		"when no storage policy is offered", func() {
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f, client, namespace, v1.ReadOnlyMany)
 	})
 
 	/*
-		Verify dynamic volume provisioning fails for VSAN datastore specified in "sc.datastoreUrl" but doesn't VSAN FS enabled.
+		Verify dynamic volume provisioning fails for VSAN datastore specified in
+		"sc.datastoreUrl" but doesn't VSAN FS enabled.
 		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl"
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Expect the PVC to fail.
@@ -130,7 +139,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore specified in sc.datastoreUrl but doesn't have VSAN FS enabled", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore "+
+		"specified in sc.datastoreUrl but doesn't have VSAN FS enabled", func() {
 		datastoreURL := os.Getenv(envFileServiceDisabledSharedDatastoreURL)
 		if datastoreURL == "" {
 			ginkgo.Skip("env variable FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL is not set, skip the test")
@@ -147,22 +157,28 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore in datacenter doesn't have VSAN FS enabled", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore "+
+		"in datacenter doesn't have VSAN FS enabled", func() {
 		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, "")
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteMany access mode with datastoreURL specified in TargetvSANFileShareDatastoreURLs of vsphere config
+		Test to verify dynamic provisioning with ReadWriteMany access mode with
+		datastoreURL specified in TargetvSANFileShareDatastoreURLs of vsphere
+		config.
 		1. Create StorageClass with fsType as "nfs4" and no datastoreUrl specified
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Wait for PVC to be Bound
 		4. Get the VolumeID from PV
-		5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify if Name, Capacity, VolumeType, Health match
-		6. Verify if VolumeID is created on one of the datastores listed in TargetvSANFileShareDatastoreURLs provided in vsphere.conf
+		5. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify if Name, Capacity, VolumeType, Health match.
+		6. Verify if VolumeID is created on one of the datastores listed in
+		   TargetvSANFileShareDatastoreURLs provided in vsphere.conf.
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with datastoreURL specified in TargetvSANFileShareDatastoreURLs", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode "+
+		"with datastoreURL specified in TargetvSANFileShareDatastoreURLs", func() {
 		// Verify if test is valid for the given environment
 		if len(targetDsURLs) == 0 {
 			ginkgo.Skip("TargetvSANFileShareDatastoreURLs is not set in e2eTest.conf, skipping the test")
@@ -171,18 +187,25 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteMany access mode with datastoreURL specified in storage class matching the one specified in TargetvSANFileShareDatastoreURLs of vsphere config
-		(NOTE: test makes sense when TargetvSANFileShareDatastoreURLs has more than one URL)
-		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" specified from TargetvSANFileShareDatastoreURLs
+		Test to verify dynamic provisioning with ReadWriteMany access mode with
+		datastoreURL specified in storage class matching the one specified in
+		TargetvSANFileShareDatastoreURLs of vsphere config.
+		(NOTE: test makes sense when TargetvSANFileShareDatastoreURLs has more
+		 than one URL)
+		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" specified
+		   from TargetvSANFileShareDatastoreURLs.
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Wait for PVC to be Bound
 		4. Get the VolumeID from PV
-		5. Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify if Name, Capacity, VolumeType, Health match
-		6. Verify if VolumeID is created on one of the datastores listed in "datastoreUrl" specified in storage class
+		5. Verify using CNS Query API if VolumeID retrieved from PV is present.
+		   Also verify if Name, Capacity, VolumeType, Health match.
+		6. Verify if VolumeID is created on one of the datastores listed in
+		   "datastoreUrl" specified in storage class.
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning using datastoreURL specified in storage class matching one of the URLs specified in TargetvSANFileShareDatastoreURLs", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning using datastoreURL specified "+
+		"in storage class matching one of the URLs specified in TargetvSANFileShareDatastoreURLs", func() {
 		// Verify if test is valid for the given environment
 		if len(targetDsURLs) == 0 {
 			ginkgo.Skip("TargetvSANFileShareDatastoreURLs is not set in e2eTest.conf, skipping the test")
@@ -191,15 +214,20 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteOnce access mode with datastoreURL specified in storage class matching the one specified in TargetvSANFileShareDatastoreURLs of vsphere config
-		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" specified from TargetvSANFileShareDatastoreURLs
+		Test to verify dynamic provisioning with ReadWriteOnce access mode with
+		datastoreURL specified in storage class matching the one specified in
+		TargetvSANFileShareDatastoreURLs of vsphere config.
+		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" specified
+		   from TargetvSANFileShareDatastoreURLs.
 		2. Create a PVC with "ReadWriteOnce" using the SC from above
 		3. Expect the PVC to fail.
 		4. Verify the error message returned on PVC failure is correct.
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with access mode ReadWriteOnce using datastoreURL specified in storage class matching one of the URLs specified in TargetvSANFileShareDatastoreURLs", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with access mode ReadWriteOnce "+
+		"using datastoreURL specified in storage class matching one of the URLs specified in "+
+		"TargetvSANFileShareDatastoreURLs", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Verify if test is valid for the given environment
@@ -220,7 +248,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		}
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessMode, nfs4FSType))
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -232,23 +261,29 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Expect claim to fail as the access mode %q is not supported for File volumes", accessMode))
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrMsg := "NFS fstype not supported for ReadWriteOnce volume creation"
 		ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-		isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+		isFailureFound := checkEventsforError(client, namespace,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
 	})
 
 	/*
-		Test to verify dynamic provisioning with ReadWriteMany access mode fails when datastoreURL specified in storage class does not match the one specified in TargetvSANFileShareDatastoreURLs of vsphere config
-		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" not specified in TargetvSANFileShareDatastoreURLs
+		Test to verify dynamic provisioning with ReadWriteMany access mode fails
+		when datastoreURL specified in storage class does not match the one
+		specified in TargetvSANFileShareDatastoreURLs of vsphere config.
+		1. Create StorageClass with fsType as "nfs4" and "datastoreUrl" not
+		   specified in TargetvSANFileShareDatastoreURLs.
 		2. Create a PVC with "ReadWriteMany" using the SC from above
 		3. Expect the PVC to fail.
 		4. Delete PVC
 		5. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning fails using datastoreURL specified in storage class not matching the ones specified in TargetvSANFileShareDatastoreURLs", func() {
+	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning fails using datastoreURL specified "+
+		"in storage class not matching the ones specified in TargetvSANFileShareDatastoreURLs", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Verify if test is valid for the given environment
@@ -269,7 +304,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		}
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessMode, nfs4FSType))
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -280,11 +316,14 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Expect claim to fail as the datastore URL mentioned in Storage class does not match any of the URLs mentioned in TargetvSANFileShareDatastoreURLs")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+		ginkgo.By("Expect claim to fail as the datastore URL mentioned in Storage class " +
+			"does not match any of the URLs mentioned in TargetvSANFileShareDatastoreURLs")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
-		eventList, _ := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)})
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)})
 		for _, item := range eventList.Items {
 			framework.Logf(fmt.Sprintf(item.Message))
 		}
@@ -293,7 +332,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 
 })
 
-func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
+func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -304,7 +344,8 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -331,10 +372,14 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s",
+		queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb !=
+		diskSizeInMb {
 		err = fmt.Errorf("wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -349,13 +394,16 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	// volume will change from "Unknown" to "Healthy"
 
 	// Verify if VolumeID is created on the VSAN datastores
-	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
+	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(
+		gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
 
 	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
-	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(
+		gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 }
 
-func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string, isDCEmpty bool) {
+func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, client clientset.Interface,
+	namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string, isDCEmpty bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -369,7 +417,8 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -396,10 +445,14 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s",
+		queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb !=
+		diskSizeInMb {
 		err = fmt.Errorf("wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -414,18 +467,23 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 	// volume will change from "Unknown" to "Healthy"
 
 	// Verify if VolumeID is created on the VSAN datastores
-	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
+	gomega.Expect(strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(
+		gomega.BeTrue(), "Volume is not provisioned on vSan datastore")
 
-	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf, only if datacenter list is not empty
+	// Verify if VolumeID is created on the datastore from list of datacenters
+	// provided in vsphere.conf, only if datacenter list is not empty.
 	if !isDCEmpty {
-		gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+		gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(
+			gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 	} else {
-		gomega.Expect(e2eVSphere.Config.Global.Datacenters == "").To(gomega.BeTrue(), "Volume is provisioned on the datastore not specified on config file")
+		gomega.Expect(e2eVSphere.Config.Global.Datacenters == "").To(gomega.BeTrue(),
+			"Volume is provisioned on the datastore not specified on config file")
 	}
 
 }
 
-func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
+func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.Framework,
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -439,7 +497,8 @@ func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -451,21 +510,25 @@ func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.
 	}()
 
 	ginkgo.By("Expect claim to fail provisioning volume without valid VSAN datastore specified in storage class")
-	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 	expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
 	ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-	isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+	isFailureFound := checkEventsforError(client, namespace,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
 }
 
-func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
+func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Framework,
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
 	scParameters["fstype"] = nfs4FSType
 	// Create Storage class and PVC
-	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q, fstype %q and datastoreURL:%q", accessMode, nfs4FSType, datastoreURL))
+	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q, fstype %q and datastoreURL:%q",
+		accessMode, nfs4FSType, datastoreURL))
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
@@ -473,7 +536,8 @@ func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Fra
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -485,18 +549,22 @@ func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Fra
 	}()
 
 	ginkgo.By("Expect claim fails to provision volume when file service is disabled")
-	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 	gomega.Expect(err).To(gomega.HaveOccurred())
 	expectedErrMsg := "failed to provision volume with StorageClass \"" + storageclass.Name + "\""
 	ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-	isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+	isFailureFound := checkEventsforError(client, namespace,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
 }
 
-func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
+func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework,
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ginkgo.By("Invoking test to check if the TargetvSANFileShareDatastoreURLs in vSphere config is applied when no datastore is specified in Storage Class")
+	ginkgo.By("Invoking test to check if the TargetvSANFileShareDatastoreURLs in vSphere config is applied " +
+		"when no datastore is specified in Storage Class")
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
@@ -506,7 +574,8 @@ func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework, clien
 
 	// Create Storage class and PVC
 	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %s", accessMode, nfs4FSType))
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -563,13 +632,17 @@ func createFileVolumeUsingDatastoreFromVsphereConf(f *framework.Framework, clien
 	gomega.Expect(strings.HasPrefix(targetQueryVolume.DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(gomega.BeTrue(),
 		"Volume is provisioned on %q which is not a vSan datastore", targetQueryVolume.DatastoreUrl)
 
-	// Verify if VolumeID is created in one of the datastores listed in TargetvSANFileShareDatastoreURLs provided in vsphere.conf
-	errorMsg := fmt.Sprintf("Volume is provisioned on %q which does not match any of the datastores specified in TargetvSANFileShareDatastoreURLs in the vSphere config file",
+	// Verify if VolumeID is created in one of the datastores listed in
+	// TargetvSANFileShareDatastoreURLs provided in vsphere.conf.
+	errorMsg := fmt.Sprintf("Volume is provisioned on %q which does not match any of the datastores "+
+		"specified in TargetvSANFileShareDatastoreURLs in the vSphere config file",
 		targetQueryVolume.DatastoreUrl)
-	gomega.Expect(isDatastorePresentinTargetvSANFileShareDatastoreURLs(targetQueryVolume.DatastoreUrl)).To(gomega.BeTrue(), errorMsg)
+	gomega.Expect(isDatastorePresentinTargetvSANFileShareDatastoreURLs(targetQueryVolume.DatastoreUrl)).To(
+		gomega.BeTrue(), errorMsg)
 }
 
-func createFileVolumeUsingDatastoreMatchingWithTargetURLs(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
+func createFileVolumeUsingDatastoreMatchingWithTargetURLs(f *framework.Framework,
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, datastoreURL string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -583,7 +656,8 @@ func createFileVolumeUsingDatastoreMatchingWithTargetURLs(f *framework.Framework
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -610,10 +684,14 @@ func createFileVolumeUsingDatastoreMatchingWithTargetURLs(f *framework.Framework
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s", queryResult.Volumes[0].Name, queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb, queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s",
+		queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
 
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb !=
+		diskSizeInMb {
 		err = fmt.Errorf("wrong disk size provisioned")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -629,7 +707,8 @@ func createFileVolumeUsingDatastoreMatchingWithTargetURLs(f *framework.Framework
 
 	// Verify if VolumeID is created in the datastore mentioned in the Storage class params
 	if queryResult.Volumes[0].DatastoreUrl != datastoreURL {
-		err = fmt.Errorf("volume provisioned on datastoreURL %q which is not the datatore mentioned in the storage class", queryResult.Volumes[0].DatastoreUrl)
+		err = fmt.Errorf("volume provisioned on datastoreURL %q which is not the datatore mentioned in the storage class",
+			queryResult.Volumes[0].DatastoreUrl)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
