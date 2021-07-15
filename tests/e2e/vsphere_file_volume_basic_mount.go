@@ -32,7 +32,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files when created with same PVC (dynamically provisioned) with access mode ReadWriteMany", func() {
+var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files "+
+	"when created with same PVC (dynamically provisioned) with access mode ReadWriteMany", func() {
 	f := framework.NewDefaultFramework("file-volume-basic")
 	var (
 		client    clientset.Interface
@@ -73,8 +74,10 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Two Pods can read the files written by each other, when both have same pvc mounted", func() {
-		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, false, false, false)
+	ginkgo.It("[csi-file-vanilla] Verify Two Pods can read the files written by each other, "+
+		"when both have same pvc mounted", func() {
+		invokeTestForCreateFileVolumeAndMount(f, client,
+			namespace, accessMode, filePath1, filePath2, false, false, false)
 	})
 
 	/*
@@ -96,7 +99,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, which is deleted, when both have same pvc mounted", func() {
+	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, "+
+		"which is deleted, when both have same pvc mounted", func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, true, false, false)
 	})
 
@@ -118,7 +122,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod created as root user, when both have same pvc mounted", func() {
+	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod created as root user, "+
+		"when both have same pvc mounted", func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, false, true, false)
 	})
 
@@ -141,7 +146,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, which is deleted, when the Pod has pvc statically provisoned on same vsan file share", func() {
+	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, "+
+		"which is deleted, when the Pod has pvc statically provisoned on same vsan file share", func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, true, false, true)
 	})
 	/*
@@ -211,7 +217,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
 		}()
 
 		//Create file1.txt on Pod1
@@ -231,12 +238,14 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
 
 		// Create Pod 2 on statically provisioned pvc
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["volumeId"] = "NewVolume"
-		pv := getPersistentVolumeSpecFromVolume(volHandle, v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
+		pv := getPersistentVolumeSpecFromVolume(volHandle,
+			v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim = getPersistentVolumeClaimSpecFromVolume(namespace, pv.Name, staticPVLabels, v1.ReadOnlyMany)
@@ -258,7 +267,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod2.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod2.Spec.NodeName))
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod2.Spec.NodeName))
 		}()
 
 		//Read file1.txt created from Pod2
@@ -280,15 +290,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 	})
 })
 
-/*
-This is an internal method for multiple tests for file share
-This method take care of creating 2 Pods mounted on same PVC or PVCs sharing same vsan file share and
-Verify if both Pod can read files written by other Pod
-Pod2 is created as normal user if secondPodForNonRootUser is true
-Pod1 is deleted if isDeletePodAfterFileCreation is true
-Pod2 is mounted on statically provisioned pvc backed by same file share id as Pvc1 if staticProvisionedPVCForSecondPod true
-*/
-func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode, filePath1 string, filePath2 string, isDeletePodAfterFileCreation bool, secondPodForNonRootUser bool, staticProvisionedPVCForSecondPod bool) {
+// This is an internal method for multiple tests for file share. This method
+// take care of creating 2 Pods mounted on same PVC or PVCs sharing same vsan
+// file share and verify if both Pod can read files written by other Pod.
+// Pod2 is created as normal user if secondPodForNonRootUser is true.
+// Pod1 is deleted if isDeletePodAfterFileCreation is true.
+// Pod2 is mounted on statically provisioned pvc backed by same file share id
+// as Pvc1 if staticProvisionedPVCForSecondPod true.
+func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client clientset.Interface,
+	namespace string, accessMode v1.PersistentVolumeAccessMode, filePath1 string, filePath2 string,
+	isDeletePodAfterFileCreation bool, secondPodForNonRootUser bool, staticProvisionedPVCForSecondPod bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -299,7 +310,8 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, accessMode)
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -339,7 +351,8 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
 		}
 	}()
 
@@ -361,7 +374,8 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod1.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod1.Spec.NodeName))
 	}
 
 	// Create Pod 2 on statically provisioned pvc
@@ -370,7 +384,8 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		// PVC will use this label as Selector to find PV
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["volumeId"] = "NewVolume"
-		pv := getPersistentVolumeSpecFromVolume(volHandle, v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
+		pv := getPersistentVolumeSpecFromVolume(volHandle,
+			v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim = getPersistentVolumeClaimSpecFromVolume(namespace, pv.Name, staticPVLabels, v1.ReadOnlyMany)
@@ -397,7 +412,8 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod2.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod2.Spec.NodeName))
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod2.Spec.NodeName))
 	}()
 
 	//Read file1.txt created from Pod1
