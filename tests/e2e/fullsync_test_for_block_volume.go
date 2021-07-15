@@ -79,7 +79,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		if vanillaCluster {
-			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+			csiControllerNamespace = "kube-system"
 		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")

@@ -43,7 +43,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		if vanillaCluster {
-			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+			csiControllerNamespace = "kube-system"
 		}
 		bootstrap(true)
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)

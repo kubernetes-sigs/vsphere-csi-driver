@@ -126,7 +126,7 @@ spec:
           effect: NoSchedule
       priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
-        - name: csi-attacher
+        - name: csi-attacher # my yaml changes
           image: vmware.io/csi-attacher:<image_tag>
           args:
             - "--v=4"
