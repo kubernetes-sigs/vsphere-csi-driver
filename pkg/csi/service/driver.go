@@ -127,7 +127,7 @@ func (driver *vsphereCSIDriver) BeforeServe(
 		// Controller service is needed.
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
-			log.Errorf("failed to read config. Error: %+v", err)
+			log.Errorf("failed to read config during controller init. Error: %+v", err)
 			return err
 		}
 		if err := driver.cnscs.Init(cfg, Version); err != nil {
