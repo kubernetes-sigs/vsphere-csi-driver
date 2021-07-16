@@ -56,7 +56,7 @@ deps:
 ##                                VERSIONS                                    ##
 ################################################################################
 # Ensure the version is injected into the binaries via a linker flag.
-export VERSION ?= $(shell git describe --always --dirty)
+export VERSION ?= $(shell git describe --tags '$(git rev-list --tags --max-count=1)')
 
 .PHONY: version
 version:
