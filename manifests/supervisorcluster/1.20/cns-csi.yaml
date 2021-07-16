@@ -192,6 +192,7 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--worker-threads=25"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
