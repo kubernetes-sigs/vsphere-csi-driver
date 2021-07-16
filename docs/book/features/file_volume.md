@@ -11,6 +11,8 @@ Proceed to the requirements section below to enable this feature in your environ
 Check the [CSI vSphere compatibility matrix](../compatiblity_matrix.md) and the [supported features](../supported_features_matrix.md) section to verify if your environment conforms to all the required versions. Also check the [limits](../limits.md) section to understand if this feature can cater to your needs.
 In order to utilize this feature in your vSphere environment, you need to make sure of the following:
 
+- Verify if your vSphere user for CSI driver has the required roles and privileges to create file volumes. Refer to the roles and privileges section in the [CSI driver deployment pre-requisites](../driver-deployment/prerequisites.md) page for more information.
+
 - Enable and configure the file service in your vSAN cluster configuration. You must configure the necessary file service domains, IP pools, network etc in order to create file share volumes. Refer to [vSphere 7.0 vSAN File service](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-82565B82-C911-42F7-85B1-E9EF973EE90C.html) documentation to get started.
 
 - Establish a dedicated file share network connecting all the kubernetes nodes and make sure this network is routable to the vSAN File Share network.  Refer to [Network Access of vSAN File Share](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.storage.doc/GUID-EFC00FFF-E720-44F1-B229-4C13687E6B85.html) to understand the setup better.
