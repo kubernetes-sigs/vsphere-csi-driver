@@ -110,24 +110,19 @@ cluster-distribution = "<cluster-distribution>"
 ca-file = <ca file path> # optional, use with insecure-flag set to false
 
 [NetPermissions "A"]
-ips = "*"
-permissions = "READ_WRITE"
-rootsquash = false
-
-[NetPermissions "B"]
 ips = "10.20.20.0/24"
 permissions = "READ_ONLY"
 rootsquash = true
 
-[NetPermissions "C"]
+[NetPermissions "B"]
 ips = "10.30.30.0/24"
 permissions = "NO_ACCESS"
 
-[NetPermissions "D"]
+[NetPermissions "C"]
 ips = "10.30.10.0/24"
 rootsquash = true
 
-[NetPermissions "E"]
+[NetPermissions "D"]
 ips = "10.30.1.0/24"
 
 [VirtualCenter "<IP or FQDN>"]
@@ -149,7 +144,7 @@ Some of the parameters have been explained in the previous section for block vol
 
 The parameters grouped by `NetPermissions` are as follows:
 
-- `Ips` - defines the IP range or IP subnet to which these restrictions will be levied upon. The default value for `Ips` is "*" which means all the IPs.
+- `Ips` - defines the IP range or IP subnet to which these restrictions will be levied upon. The default value for `Ips` is "*" which means all the IPs. Make sure there are no clashes in the IP ranges across all the NetPermissions as this will lead to undefined behavior for the clashing IPs.
 
 - `Permissions` - can either be "READ_WRITE", "READ_ONLY" or "NO_ACCESS". The default value for `Permissions` is "READ_WRITE" for the given IP range.
 
