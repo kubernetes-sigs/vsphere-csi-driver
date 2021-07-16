@@ -91,7 +91,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -100,7 +101,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -120,7 +122,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s", queryResult.Volumes[0].Name,
+		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s",
+			queryResult.Volumes[0].Name,
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
 			queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
@@ -138,18 +141,22 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
+		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
 		framework.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
@@ -159,7 +166,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		staticPVLabels := make(map[string]string)
 
 		ginkgo.By("Creating the PV in guest cluster")
-		pv2 := getPersistentVolumeSpecForRWX(volHandle, v1.PersistentVolumeReclaimDelete, staticPVLabels, "2Gi", "", v1.ReadWriteMany)
+		pv2 := getPersistentVolumeSpecForRWX(volHandle, v1.PersistentVolumeReclaimDelete,
+			staticPVLabels, "2Gi", "", v1.ReadWriteMany)
 		pv2, err = client.CoreV1().PersistentVolumes().Create(ctx, pv2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -169,7 +177,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
+			framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
 
 		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod2 to attach PV to the node")
@@ -183,28 +192,34 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
+		cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
 		framework.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")
-		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
+		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
 		output = framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "echo 'Hello message from test into Pod2' > /mnt/volume1/Pod1.html"}
+		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod1.html"}
 		framework.RunKubectlOrDie(namespace, wrtiecmd2...)
 		output = framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
@@ -244,7 +259,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -253,7 +269,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -273,7 +290,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s", queryResult.Volumes[0].Name,
+		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s",
+			queryResult.Volumes[0].Name,
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
 			queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
 			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
@@ -292,14 +310,17 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
+		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
 		framework.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
@@ -310,14 +331,16 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
 		// Creating label for PV
 		// PVC will use this label as Selector to find PV
 		staticPVLabels := make(map[string]string)
 
 		ginkgo.By("Creating the PV in guest cluster")
-		pv2 := getPersistentVolumeSpecForRWX(volHandle, v1.PersistentVolumeReclaimDelete, staticPVLabels, "2Gi", "", v1.ReadWriteMany)
+		pv2 := getPersistentVolumeSpecForRWX(volHandle, v1.PersistentVolumeReclaimDelete,
+			staticPVLabels, "2Gi", "", v1.ReadWriteMany)
 		pv2, err = client.CoreV1().PersistentVolumes().Create(ctx, pv2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -327,7 +350,8 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
+			framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
 
 		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod2 to attach PV to the node")
@@ -341,18 +365,22 @@ var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", fun
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle, crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")
-		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "cat /mnt/volume1/Pod1.html "}
+		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
 		output = framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "echo 'Hello message from test into Pod2' > /mnt/volume1/Pod1.html"}
+		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod1.html"}
 		framework.RunKubectlOrDie(namespace, wrtiecmd2...)
 		output = framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
