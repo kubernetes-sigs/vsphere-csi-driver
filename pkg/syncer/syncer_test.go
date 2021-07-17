@@ -384,7 +384,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	newPVCLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName = testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, oldPVCLabel, pv.Name, "")
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(
+		ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -713,7 +714,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	pvcLabel[testPVCLabelName] = testPVCLabelValue
 	pvcName := testPVCName + "-" + uuid.New().String()
 	pvc := getPersistentVolumeClaimSpec(pvcName, namespace, pvcLabel, pv.Name, "")
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Create(
+		ctx, pvc, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -774,7 +776,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = newTestPVCLabelValue
 	pvc.Labels = newPVCLabel
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(ctx, pvc, metav1.UpdateOptions{}); err != nil {
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+		ctx, pvc, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()
@@ -818,7 +821,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Delete(
+		ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
 	if err = k8sclient.CoreV1().Pods(testNamespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0)); err != nil {
