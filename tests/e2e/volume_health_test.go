@@ -726,15 +726,15 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	//
 	// Steps
 	// 1. Create a Storage Class.
-	// 2.	Create a PVC using above SC.
-	// 3.	Wait for PVC to be in Bound phase.
-	// 4.	Verify annotation added on the PVC in accessible.
-	// 5.	Kubectl edit on the annotation of the PVC and change the annotation
+	// 2. Create a PVC using above SC.
+	// 3. Wait for PVC to be in Bound phase.
+	// 4. Verify annotation added on the PVC in accessible.
+	// 5. Kubectl edit on the annotation of the PVC and change the annotation
 	//    to inaccessible state.
-	// 6.	Wait for the default time interval.
-	// 7.	Verify health annotation is added on the PVC is accessible.
-	// 8.	Delete PVC.
-	// 9.	Verify PV entry is deleted from CNS.
+	// 6. Wait for the default time interval.
+	// 7. Verify health annotation is added on the PVC is accessible.
+	// 8. Delete PVC.
+	// 9. Verify PV entry is deleted from CNS.
 	// 10. Delete the SC.
 
 	ginkgo.It("[csi-supervisor] Verify changing the annotated values on the PVC to random value", func() {
@@ -908,7 +908,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			healthStatusWaitTime))
 		time.Sleep(healthStatusWaitTime)
 
-		// Get the list of Volumes attached to Pods before scale dow.
+		// Get the list of Volumes attached to Pods before scale down.
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
 			// _, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
