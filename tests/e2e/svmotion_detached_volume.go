@@ -102,7 +102,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 		}
 
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+		storageclass, pvclaim, err := createPVCAndStorageClass(client,
+			namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -113,7 +114,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		pvclaims = append(pvclaims, pvclaim)
@@ -123,7 +125,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 
 		fcdID = persistentvolumes[0].Spec.CSI.VolumeHandle
 
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", persistentvolumes[0].Spec.CSI.VolumeHandle))
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s",
+			persistentvolumes[0].Spec.CSI.VolumeHandle))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(persistentvolumes[0].Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -140,11 +143,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Relocate detached volume ", func() 
 		// Relocate volume
 		err = e2eVSphere.relocateFCD(ctx, fcdID, sourceDatastore.Reference(), destDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to finish FCD relocation:%s to sync with pandora", defaultPandoraSyncWaitTime, fcdID))
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to finish FCD relocation:%s to sync with pandora",
+			defaultPandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(defaultPandoraSyncWaitTime) * time.Second)
 
 		// verify disk is relocated to the specified destination datastore
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s after relocating the disk", persistentvolumes[0].Spec.CSI.VolumeHandle))
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s after relocating the disk",
+			persistentvolumes[0].Spec.CSI.VolumeHandle))
 		queryResult, err = e2eVSphere.queryCNSVolumeWithResult(persistentvolumes[0].Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
