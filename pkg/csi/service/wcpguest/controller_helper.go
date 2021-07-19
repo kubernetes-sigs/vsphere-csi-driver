@@ -39,13 +39,16 @@ import (
 )
 
 const (
-	// default timeout for provision, used unless overridden by user in csi-controller YAML
+	// Default timeout for provision, used unless overridden by user in
+	// csi-controller YAML.
 	defaultProvisionTimeoutInMin = 4
 
-	// timeout for attach and detach operation for watching on VirtualMachines instances, used unless overridden by user in csi-controller YAML
+	// Timeout for attach and detach operation for watching on VirtualMachines
+	// instances, used unless overridden by user in csi-controller YAML.
 	defaultAttacherTimeoutInMin = 4
 
-	// default timeout for resize, used unless overridden by user in csi-controller YAML
+	// Default timeout for resize, used unless overridden by user in
+	// csi-controller YAML.
 	defaultResizeTimeoutInMin = 4
 )
 
@@ -75,7 +78,8 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 		return status.Error(codes.InvalidArgument, msg)
 	}
 	// Fail file volume creation if file volume feature gate is disabled
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) &&
+		common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		return status.Error(codes.InvalidArgument, "File volume not supported.")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
@@ -90,28 +94,34 @@ func validateGuestClusterDeleteVolumeRequest(ctx context.Context, req *csi.Delet
 
 // validateGuestClusterControllerPublishVolumeRequest is the helper function to validate
 // pvcsi ControllerPublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+func validateGuestClusterControllerPublishVolumeRequest(ctx context.Context,
+	req *csi.ControllerPublishVolumeRequest) error {
 	return common.ValidateControllerPublishVolumeRequest(ctx, req)
 }
 
 // validateGuestClusterControllerUnpublishVolumeRequest is the helper function to validate
 // pvcsi ControllerUnpublishVolumeRequest. Function returns error if validation fails otherwise returns nil.
-func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
+func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context,
+	req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context,
+	req *csi.ControllerExpandVolumeRequest) error {
 	return common.ValidateControllerExpandVolumeRequest(ctx, req)
 }
 
-// checkForSupervisorPVCCondition returns nil if the PVC condition is set as required in the supervisor cluster before timeout, otherwise returns error
-func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType, timeout time.Duration) error {
+// checkForSupervisorPVCCondition returns nil if the PVC condition is set as
+// required in the supervisor cluster before timeout, otherwise returns error.
+func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interface,
+	claim *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType, timeout time.Duration) error {
 	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
 	timeoutSeconds := int64(timeout.Seconds())
 
-	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition", timeoutSeconds, pvcName, ns, reqCondition)
+	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition",
+		timeoutSeconds, pvcName, ns, reqCondition)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
 		ctx,
 		metav1.ListOptions{
@@ -120,7 +130,8 @@ func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interf
 			Watch:          true,
 		})
 	if err != nil {
-		errMsg := fmt.Errorf("failed to watch supervisor PersistentVolumeClaim %s in namespace %s with Error: %+v", pvcName, ns, err)
+		errMsg := fmt.Errorf("failed to watch supervisor PersistentVolumeClaim %s in namespace %s with Error: %+v",
+			pvcName, ns, err)
 		log.Error(errMsg)
 		return errMsg
 	}
@@ -135,15 +146,18 @@ func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interf
 			return nil
 		}
 	}
-	return fmt.Errorf("supervisor persistentVolumeClaim %s in namespace %s not in %q condition within %d seconds", pvcName, ns, reqCondition, timeoutSeconds)
+	return fmt.Errorf("supervisor persistentVolumeClaim %s in namespace %s not in %q condition within %d seconds",
+		pvcName, ns, reqCondition, timeoutSeconds)
 }
 
-func checkPVCCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType) bool {
+func checkPVCCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	reqCondition v1.PersistentVolumeClaimConditionType) bool {
 	log := logger.GetLogger(ctx)
 	for _, condition := range pvc.Status.Conditions {
 		log.Debugf("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name, pvc.Namespace, condition.Type)
 		if condition.Type == reqCondition {
-			log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name, pvc.Namespace, condition.Type)
+			log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition",
+				pvc.Name, pvc.Namespace, condition.Type)
 			return true
 		}
 	}
@@ -165,7 +179,8 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 }
 
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
-func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string, storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
+	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
 
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -187,14 +202,17 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 	return claim
 }
 
-// isPVCInSupervisorClusterBound return true if the PVC is bound in the supervisor cluster before timeout, otherwise return false
-func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+// isPVCInSupervisorClusterBound return true if the PVC is bound in the
+// supervisor cluster before timeout, otherwise return false.
+func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interface,
+	claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
 	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
 	timeoutSeconds := int64(timeout.Seconds())
 
-	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s", timeoutSeconds, pvcName, ns, v1.ClaimBound)
+	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s",
+		timeoutSeconds, pvcName, ns, v1.ClaimBound)
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
 		ctx,
 		metav1.ListOptions{
@@ -214,13 +232,15 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 		if !ok {
 			continue
 		}
-		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v", pvcName, ns, pvc.Status.Phase, event)
+		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v",
+			pvcName, ns, pvc.Status.Phase, event)
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Name == pvcName {
 			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s", pvcName, ns, pvc.Status.Phase)
 			return true, nil
 		}
 	}
-	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds", pvcName, ns, v1.ClaimBound, timeoutSeconds)
+	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
+		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
 // getProvisionTimeoutInMin() return the timeout for volume provision.
@@ -233,13 +253,15 @@ func getProvisionTimeoutInMin(ctx context.Context) int {
 	if v := os.Getenv("PROVISION_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf(" provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
+				log.Warnf(" provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s "+
+					"is equal or less than 0, will use the default timeout", v)
 			} else {
 				provisionTimeoutInMin = value
 				log.Infof("provisionTimeout is set to %d minutes", provisionTimeoutInMin)
 			}
 		} else {
-			log.Warnf("provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
+			log.Warnf("provisionTimeout set in env variable PROVISION_TIMEOUT_MINUTES %s is invalid, "+
+				"will use the default timeout", v)
 		}
 	}
 	return provisionTimeoutInMin
@@ -255,13 +277,15 @@ func getResizeTimeoutInMin(ctx context.Context) int {
 	if v := os.Getenv("RESIZE_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout of %d minutes", v, resizeTimeoutInMin)
+				log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is equal or less than 0, "+
+					"will use the default timeout of %d minutes", v, resizeTimeoutInMin)
 			} else {
 				resizeTimeoutInMin = value
 				log.Infof("resizeTimeout is set to %d minutes", resizeTimeoutInMin)
 			}
 		} else {
-			log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is invalid, will use the default timeout of %d minutes", v, resizeTimeoutInMin)
+			log.Warnf("resizeTimeout set in env variable RESIZE_TIMEOUT_MINUTES %s is invalid, "+
+				"will use the default timeout of %d minutes", v, resizeTimeoutInMin)
 		}
 	}
 	return resizeTimeoutInMin
@@ -277,13 +301,15 @@ func getAttacherTimeoutInMin(ctx context.Context) int {
 	if v := os.Getenv("ATTACHER_TIMEOUT_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is equal or less than 0, will use the default timeout", v)
+				log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is equal or less than 0, "+
+					"will use the default timeout", v)
 			} else {
 				attacherTimeoutInMin = value
 				log.Infof("attacherTimeout is set to %d minutes", attacherTimeoutInMin)
 			}
 		} else {
-			log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is invalid, will use the default timeout", v)
+			log.Warnf("attacherTimeout set in env variable ATTACHER_TIMEOUT_MINUTES %s is invalid, "+
+				"will use the default timeout", v)
 		}
 	}
 	return attacherTimeoutInMin
