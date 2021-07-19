@@ -50,7 +50,8 @@ Steps
 
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] Volume Filesystem Group Test", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] "+
+	"Volume Filesystem Group Test", func() {
 	f := framework.NewDefaultFramework("volume-fsgroup")
 	var (
 		client            clientset.Interface
@@ -90,18 +91,21 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamDatastoreURL] = datastoreURL
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -111,7 +115,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
@@ -131,14 +136,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 
 		fsGroupInt64 := &fsGroup
 		runAsUserInt64 := &runAsUser
-		pod, err := createPodForFSGroup(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand, fsGroupInt64, runAsUserInt64)
+		pod, err := createPodForFSGroup(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			false, execCommand, fsGroupInt64, runAsUserInt64)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := persistentvolumes[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
 		var vmUUID string
 		var exists bool
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		if vanillaCluster {
 			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
 		} else if guestCluster {
@@ -157,7 +164,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and filegroup type is as expected")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "ls -lh /mnt/volume1/fstype "}
+		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"ls -lh /mnt/volume1/fstype "}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(fsGroup)))).NotTo(gomega.BeFalse())
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(runAsUser)))).NotTo(gomega.BeFalse())
@@ -170,11 +178,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		if supervisorCluster {
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, vmUUID))
 			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
-			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pv.Spec.CSI.VolumeHandle))
+			gomega.Expect(err).To(gomega.HaveOccurred(),
+				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+					vmUUID, pv.Spec.CSI.VolumeHandle))
 		} else {
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}
 	})
 })
