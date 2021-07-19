@@ -111,7 +111,9 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes",
+					pv.Spec.CSI.VolumeHandle))
 		}
 	})
 
@@ -134,7 +136,9 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 			createResourceQuota(client, namespace, "100Gi", storagePolicyName)
 		}
 
-		storageclass, err = client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false), metav1.CreateOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Create(ctx,
+			getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false),
+			metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -144,7 +148,8 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		ginkgo.By("Creating PVCs using the Storage Class")
 		count := 0
 		for count < volumeOpsScale {
-			pvclaims[count], err = fpv.CreatePVC(client, namespace, getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
+			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
@@ -167,7 +172,8 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		ginkgo.By("Verify the volumes are attached to the node vm")
 		for _, pv := range persistentvolumes {
 			var exists bool
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if vanillaCluster {
@@ -181,14 +187,16 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 			}
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume: %s is not attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume: %s is not attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}
 
 		ginkgo.By("Verify all volumes are accessible in the pod")
 		for index := range persistentvolumes {
 			// Verify Volumes are accessible by creating an empty file on the volume
 			filepath := filepath.Join("/mnt/", fmt.Sprintf("volume%v", index+1), "/emptyFile.txt")
-			_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+				[]string{"/bin/touch", filepath}, "", time.Minute)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -198,16 +206,22 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		ginkgo.By("Verify volumes are detached from the node")
 		for _, pv := range persistentvolumes {
 			if vanillaCluster {
-				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+					pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			} else {
-				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+					pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
-				gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", vmUUID, pod.Spec.NodeName))
+				gomega.Expect(err).To(gomega.HaveOccurred(),
+					fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+						vmUUID, pod.Spec.NodeName))
 			}
 		}
 	})
@@ -225,7 +239,8 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		7. Delete Namespace  and Wait for volumes to be deleted and Volume Disk to be detached from the Node.
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] Delete namespace to confirm all volumes and pods are deleted", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] "+
+		"Delete namespace to confirm all volumes and pods are deleted", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
@@ -258,7 +273,8 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		count := 0
 		for count < volumeOpsScale {
 			ginkgo.By("Creating PVCs using the Storage Class")
-			pvclaims[count], err = fpv.CreatePVC(client, namespace, getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
+			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
@@ -301,10 +317,13 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 				volumeID = getVolumeIDFromSupervisorCluster(volumeID)
 			}
 
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume: %s is not attached to the node: %s", pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume: %s is not attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
 			podCount++
 		}
 
