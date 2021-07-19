@@ -33,32 +33,32 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-/*
-
-Test to verify fstype specified in storage-class is being honored after volume creation.
-
-Steps
-1. Create StorageClass with fstype set to valid type (default case included).
-2. Create PVC which uses the StorageClass created in step 1.
-3. Wait for PV to be provisioned.
-4. Wait for PVC's status to become Bound.
-5. Create pod using PVC on specific node.
-6. Wait for Disk to be attached to the node.
-7. Execute command in the pod to get fstype.
-8. Delete pod and Wait for Volume Disk to be detached from the Node.
-9. Delete PVC, PV and Storage Class.
-
-Test to verify if an invalid fstype specified in storage class fails pod creation.
-
- Steps
- 1. Create StorageClass with inavlid.
- 2. Create PVC which uses the StorageClass created in step 1.
- 3. Wait for PV to be provisioned.
- 4. Wait for PVC's status to become Bound.
- 5. Create pod using PVC.
- 6. Verify if the pod creation fails.
- 7. Verify if the MountVolume.MountDevice fails because it is unable to find the file system executable file on the node.
-*/
+// Test to verify fstype specified in storage-class is being honored after
+// volume creation.
+//
+// Steps
+// 1. Create StorageClass with fstype set to valid type (default case included).
+// 2. Create PVC which uses the StorageClass created in step 1.
+// 3. Wait for PV to be provisioned.
+// 4. Wait for PVC's status to become Bound.
+// 5. Create pod using PVC on specific node.
+// 6. Wait for Disk to be attached to the node.
+// 7. Execute command in the pod to get fstype.
+// 8. Delete pod and Wait for Volume Disk to be detached from the Node.
+// 9. Delete PVC, PV and Storage Class.
+//
+// Test to verify if an invalid fstype specified in storage class fails pod
+// creation.
+//
+// Steps
+// 1. Create StorageClass with inavlid.
+// 2. Create PVC which uses the StorageClass created in step 1.
+// 3. Wait for PV to be provisioned.
+// 4. Wait for PVC's status to become Bound.
+// 5. Create pod using PVC.
+// 6. Verify if the pod creation fails.
+// 7. Verify if the MountVolume.MountDevice fails because it is unable to find
+//    the file system executable file on the node.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func() {
 	f := framework.NewDefaultFramework("volume-fstype")
@@ -92,7 +92,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 	})
 })
 
-func invokeTestForFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
+func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
+	namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ginkgo.By(fmt.Sprintf("Invoking Test for fstype: %s", fstype))
@@ -137,7 +138,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
+	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Delete POD
@@ -148,10 +150,12 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface, nam
 	ginkgo.By("Verify volume is detached from the node")
 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+		fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 }
 
-func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface, namespace string, fstype string, storagePolicyName string, profileID string) {
+func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interface,
+	namespace string, fstype string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -189,7 +193,8 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 
 	pv := persistentvolumes[0]
 	expectedErrorMsg := `MountVolume.MountDevice failed for volume "` + pv.Name
-	isFailureFound := checkEventsforError(client, namespace, metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name)}, expectedErrorMsg)
+	isFailureFound := checkEventsforError(client, namespace,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name)}, expectedErrorMsg)
 	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify MountVolume.MountDevice failure")
 
 	// pod.Spec.NodeName may not be set yet when pod just created
@@ -209,5 +214,6 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	ginkgo.By("Verify volume is detached from the node")
 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, podNodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskDetached).To(gomega.BeTrue(), fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, podNodeName))
+	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+		fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, podNodeName))
 }
