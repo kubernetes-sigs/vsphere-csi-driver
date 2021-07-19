@@ -120,7 +120,8 @@ func (nm *NodeMapper) GenerateNodeMap(vs *vSphere, nodeList v1.NodeList) error {
 					zones := retrieveZoneInformationForNode(n.Name, res.vs, hostSystemRef)
 					framework.Logf("Found node %s as vm=%+v placed on host=%+v under zones %s in vc=%s and datacenter=%s",
 						n.Name, vm, hostSystemRef, zones, res.vs.Config.Global.VCenterHostname, res.datacenter.Name())
-					nodeInfo := &NodeInfo{Name: n.Name, DataCenterRef: res.datacenter.Reference(), VirtualMachineRef: vm.Reference(), HostSystemRef: hostSystemRef, vSphere: res.vs, Zones: zones}
+					nodeInfo := &NodeInfo{Name: n.Name, DataCenterRef: res.datacenter.Reference(),
+						VirtualMachineRef: vm.Reference(), HostSystemRef: hostSystemRef, vSphere: res.vs, Zones: zones}
 					nm.SetNodeInfo(n.Name, nodeInfo)
 					break
 				}
@@ -155,7 +156,8 @@ func withTagsClient(ctx context.Context, connection *vSphere, f func(c *rest.Cli
 }
 
 // Iterates over each node and retrieves the zones in which they are placed
-func retrieveZoneInformationForNode(nodeName string, connection *vSphere, hostSystemRef types.ManagedObjectReference) []string {
+func retrieveZoneInformationForNode(nodeName string, connection *vSphere,
+	hostSystemRef types.ManagedObjectReference) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var zones []string

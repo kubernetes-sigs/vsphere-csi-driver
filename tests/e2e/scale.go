@@ -58,7 +58,8 @@ var _ = ginkgo.Describe("Scale Test", func() {
 		//Delete storage class if already present
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if err == nil && sc != nil {
-			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(
+				ctx, sc.Name, *metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
 		if guestCluster {
@@ -76,7 +77,8 @@ var _ = ginkgo.Describe("Scale Test", func() {
 		}
 
 		for _, pvc := range pvclaims {
-			pvclaimToDelete, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			pvclaimToDelete, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
+				ctx, pvc.Name, metav1.GetOptions{})
 			if err == nil {
 				err := fpv.DeletePersistentVolumeClaim(client, pvclaimToDelete.Name, pvclaimToDelete.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
