@@ -99,7 +99,9 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes", pv.Spec.CSI.VolumeHandle))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from kubernetes",
+					pv.Spec.CSI.VolumeHandle))
 		}
 
 		if sc != nil {
@@ -142,7 +144,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -163,8 +166,10 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+			labels, pvc.Name, pvc.Namespace))
+		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// power off the node where vsphere-csi-controller pod is currently running
@@ -198,7 +203,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// power on vm
@@ -221,7 +227,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		9. Delete the storage class.
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Stop kubelet on the node where vsphere-csi-controller pod is running", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] "+
+		"Stop kubelet on the node where vsphere-csi-controller pod is running", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
@@ -238,7 +245,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -259,13 +267,16 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+			labels, pvc.Name, pvc.Namespace))
+		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// stop the kubelet on the node where vsphere-csi-controller pod is currently running
 		nodeNameOfvSphereCSIControllerPod := nodeList[0]
-		ginkgo.By(fmt.Sprintf("Stop kubelet for node %s with IP %s", nodeNameOfvSphereCSIControllerPod, nodeNameIPMap[nodeNameOfvSphereCSIControllerPod]))
+		ginkgo.By(fmt.Sprintf("Stop kubelet for node %s with IP %s",
+			nodeNameOfvSphereCSIControllerPod, nodeNameIPMap[nodeNameOfvSphereCSIControllerPod]))
 
 		sshCmd := "systemctl stop kubelet.service"
 		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
