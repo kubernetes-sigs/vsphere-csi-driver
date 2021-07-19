@@ -57,7 +57,11 @@ const (
 	maxAllowedBlockVolumesPerNode = 59
 )
 
-var topologyService csinodetopology.TopologyService
+var (
+	topologyService csinodetopology.TopologyService
+	// defaultFileMountOptions are the mount flag options used by default while publishing a file volume.
+	defaultFileMountOptions = []string{"hard", "sec=sys", "vers=4", "minorversion=1"}
+)
 
 type nodeStageParams struct {
 	// volID is the identifier for the underlying volume.
@@ -1176,9 +1180,8 @@ func publishFileVol(
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
 	}
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
-		mntFlags = append(mntFlags, "hard")
-	}
+	// Add defaultFileMountOptions to the mntFlags.
+	mntFlags = append(mntFlags, defaultFileMountOptions...)
 	// Retrieve the file share access point from publish context.
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
