@@ -104,7 +104,8 @@ func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*o
 }
 
 // getDatastoresMountedOnHost returns the datastore references of all the datastores mounted on the specified host
-func (vs *vSphere) getDatastoresMountedOnHost(ctx context.Context, host vim25types.ManagedObjectReference) []vim25types.ManagedObjectReference {
+func (vs *vSphere) getDatastoresMountedOnHost(ctx context.Context,
+	host vim25types.ManagedObjectReference) []vim25types.ManagedObjectReference {
 	connect(ctx, vs)
 	var hostMo mo.HostSystem
 	err := vs.Client.RetrieveOne(ctx, host, []string{"datastore"}, &hostMo)
@@ -134,7 +135,8 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 }
 
 // getHostFromVMReference returns host object reference of the host on which the specified VM resides
-func (vs *vSphere) getHostFromVMReference(ctx context.Context, vm vim25types.ManagedObjectReference) vim25types.ManagedObjectReference {
+func (vs *vSphere) getHostFromVMReference(ctx context.Context,
+	vm vim25types.ManagedObjectReference) vim25types.ManagedObjectReference {
 	connect(ctx, vs)
 	var vmMo mo.VirtualMachine
 	err := vs.Client.RetrieveOne(ctx, vm, []string{"summary.runtime.host"}, &vmMo)
@@ -144,7 +146,8 @@ func (vs *vSphere) getHostFromVMReference(ctx context.Context, vm vim25types.Man
 }
 
 // getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout
-func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context, vmUUID string, timeout time.Duration) (object.Reference, error) {
+func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context,
+	vmUUID string, timeout time.Duration) (object.Reference, error) {
 	connect(ctx, vs)
 	dcList, err := vs.getAllDatacenters(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -200,7 +203,8 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 
 // waitForVolumeDetachedFromNode checks volume is detached from the node
 // This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
-func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface, volumeID string, nodeName string) (bool, error) {
+func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
+	volumeID string, nodeName string) (bool, error) {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		var vmUUID string
 		if vanillaCluster {
@@ -241,7 +245,8 @@ func (vs *vSphere) VerifySpbmPolicyOfVolume(volumeID string, storagePolicyName s
 		}
 	associatedDisks, err := pbmClient.QueryAssociatedEntity(ctx, ProfileID, virtualDiskUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(associatedDisks).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to find associated disks for storage policy: %s", profileID))
+	gomega.Expect(associatedDisks).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to find associated disks for storage policy: %s", profileID))
 	for _, ad := range associatedDisks {
 		if ad.Key == volumeID {
 			framework.Logf("Volume: %s is associated with storage policy: %s", volumeID, profileID)
@@ -268,7 +273,8 @@ func (vs *vSphere) GetSpbmPolicyID(storagePolicyName string) string {
 
 // getLabelsForCNSVolume executes QueryVolume API on vCenter for requested volumeid and returns
 // volume labels for requested entityType, entityName and entityNamespace
-func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string, entityName string, entityNamespace string) (map[string]string, error) {
+func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
+	entityName string, entityNamespace string) (map[string]string, error) {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return nil, err
@@ -279,16 +285,19 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string, ent
 	gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
 	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
 		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-		if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName && kubernetesMetadata.Namespace == entityNamespace {
+		if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName &&
+			kubernetesMetadata.Namespace == entityNamespace {
 			return getLabelsMapFromKeyValue(kubernetesMetadata.Labels), nil
 		}
 	}
-	return nil, fmt.Errorf("entity %s with name %s not found in namespace %s for volume %s", entityType, entityName, entityNamespace, volumeID)
+	return nil, fmt.Errorf("entity %s with name %s not found in namespace %s for volume %s",
+		entityType, entityName, entityNamespace, volumeID)
 }
 
 // waitForLabelsToBeUpdated executes QueryVolume API on vCenter and verifies
 // volume labels are updated by metadata-syncer
-func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string, entityType string, entityName string, entityNamespace string) error {
+func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
+	entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
@@ -308,13 +317,15 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 			if guestCluster {
 				k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
 			}
-			if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName && kubernetesMetadata.Namespace == entityNamespace {
+			if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
+				kubernetesMetadata.Namespace == entityNamespace {
 				if matchLabels == nil {
 					return true, nil
 				}
 				labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
 				if guestCluster {
-					labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels), matchLabels)
+					labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+						matchLabels)
 				}
 				if labelsMatch {
 					return true, nil
@@ -325,7 +336,8 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 	})
 	if err != nil {
 		if err == wait.ErrWaitTimeout {
-			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s", matchLabels, entityType, entityName, volumeID)
+			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+				matchLabels, entityType, entityName, volumeID)
 		}
 		return err
 	}
@@ -335,7 +347,8 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 
 // waitForMetadataToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume metadata for given volume has been deleted
-func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string, entityName string, entityNamespace string) error {
+func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string,
+	entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
@@ -351,7 +364,8 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 				continue
 			}
 			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-			if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName && kubernetesMetadata.Namespace == entityNamespace {
+			if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName &&
+				kubernetesMetadata.Namespace == entityNamespace {
 				return false, nil
 			}
 		}
@@ -359,7 +373,8 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 	})
 	if err != nil {
 		if err == wait.ErrWaitTimeout {
-			return fmt.Errorf("entityName %s of entityType %s is not deleted for volume %s", entityName, entityType, volumeID)
+			return fmt.Errorf("entityName %s of entityType %s is not deleted for volume %s",
+				entityName, entityType, volumeID)
 		}
 		return err
 	}
@@ -409,7 +424,8 @@ func (vs *vSphere) waitForCNSVolumeToBeCreated(volumeID string) error {
 }
 
 // createFCD creates an FCD disk
-func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
+func (vs *vSphere) createFCD(ctx context.Context, fcdname string,
+	diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
 	KeepAfterDeleteVM := false
 	spec := vim25types.VslmCreateSpec{
 		Name:              fcdname,
@@ -440,7 +456,8 @@ func (vs *vSphere) createFCD(ctx context.Context, fcdname string, diskCapacityIn
 }
 
 // createFCD with valid storage policy
-func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string, profileID string, diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
+func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname string,
+	profileID string, diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference) (string, error) {
 	KeepAfterDeleteVM := false
 	spec := vim25types.VslmCreateSpec{
 		Name:              fcdname,
@@ -495,7 +512,8 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types
 }
 
 // relocateFCD relocates an FCD disk
-func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc vim25types.ManagedObjectReference, dsRefDest vim25types.ManagedObjectReference) error {
+func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string,
+	dsRefSrc vim25types.ManagedObjectReference, dsRefDest vim25types.ManagedObjectReference) error {
 	spec := vim25types.VslmRelocateSpec{
 		VslmMigrateSpec: vim25types.VslmMigrateSpec{
 			DynamicData: vim25types.DynamicData{},
@@ -524,22 +542,24 @@ func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string, dsRefSrc vim25
 	return nil
 }
 
-// verifyVolPropertiesFromCnsQueryResults verify file volume properties like capacity, volume type, datastore type and datacenter
+// verifyVolPropertiesFromCnsQueryResults verify file volume properties like
+// capacity, volume type, datastore type and datacenter.
 func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string) {
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s accesspoint: %s", queryResult.Volumes[0].Name,
+	ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s accesspoint: %s",
+		queryResult.Volumes[0].Name,
 		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
 		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
 		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints))
 
 	//Verifying disk size specified in PVC is honored
 	ginkgo.By("Verifying disk size specified in PVC is honored")
-	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb == diskSizeInMb).
-		To(gomega.BeTrue(), "wrong disk size provisioned")
+	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).
+		CapacityInMb == diskSizeInMb).To(gomega.BeTrue(), "wrong disk size provisioned")
 
 	//Verifying volume type specified in PVC is honored
 	ginkgo.By("Verifying volume type specified in PVC is honored")
@@ -636,7 +656,8 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 //VsanQueryObjectIdentities return list of vsan uuids
 //example: For a PVC, It returns the vSAN object UUIDs to their identities
 //It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
-func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
+func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
+	cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
 		This:    VsanQueryObjectIdentitiesInstance,
 		Cluster: &cluster,
@@ -650,8 +671,11 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context, cluster vim2
 	return res.Returnval, nil
 }
 
-//QueryVsanObjects takes vsan uuid as input and returns the vSANObj related information like lsom_objects and disk_objects
-//example return values: "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06": ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
+// QueryVsanObjects takes vsan uuid as input and returns the vSANObj related
+// information like lsom_objects and disk_objects.
+// Example return values:
+//  "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
+//     ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
 	computeCluster := os.Getenv("CLUSTER_NAME")
 	if computeCluster == "" {
