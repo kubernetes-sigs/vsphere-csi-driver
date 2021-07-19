@@ -57,25 +57,28 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}
 	})
 
-	/*
-		1. Create a Storage Class with spec containing valid region and zone in “AllowedTopologies”. Ensure that there are multiple nodes in this zone and region.
-		2. Create Stateful set with replica=1 attached to above PV
-		3. Verify PV is created in the specified zone and region
-		4. Verify Pod is scheduled on node within the specified zone and region
-		5. Power off node on which Pod is running
-		6. Wait for 7 minutes for k8s to detach the volume and schedule the pod on other node
-		7. Force delete the pod
-		8. Wait for 7 minutes for k8s to attach the volume on other node
-		9. Verify Stateful set is in running state on a node within this zone and region
-		10. Delete Stateful set and wait for disk to be detached
-		11. Delete PVC
-		12. Delete SC
-	*/
+	// 1. Create a Storage Class with spec containing valid region and zone in
+	//    “AllowedTopologies”. Ensure that there are multiple nodes in this zone
+	//    and region.
+	// 2. Create Stateful set with replica=1 attached to above PV.
+	// 3. Verify PV is created in the specified zone and region.
+	// 4. Verify Pod is scheduled on node within the specified zone and region.
+	// 5. Power off node on which Pod is running.
+	// 6. Wait for 7 minutes for k8s to detach the volume and schedule the pod
+	//    on other node.
+	// 7. Force delete the pod.
+	// 8. Wait for 7 minutes for k8s to attach the volume on other node.
+	// 9. Verify Stateful set is in running state on a node within this zone and
+	//    region.
+	// 10. Delete Stateful set and wait for disk to be detached.
+	// 11. Delete PVC.
+	// 12. Delete SC.
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after node power off", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Preparing allowedTopologies using topologies with shared and non shared datastores
-		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(GetAndExpectStringEnvVar(envRegionZoneWithSharedDS))
+		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(
+			GetAndExpectStringEnvVar(envRegionZoneWithSharedDS))
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageclassname, nil, allowedTopologies, "", "", false)
@@ -94,7 +97,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
 
 		podList := fss.GetPodList(client, statefulset)
-		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
 
 		pod := podList.Items[0]
@@ -139,12 +143,14 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Forcefully deleting the pod")
 		DeleteStatefulPodAtIndex(client, 0, statefulset)
 
-		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and start the pod successfully on other node")
+		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and " +
+			"start the pod successfully on other node")
 		time.Sleep(k8sPodTerminationTimeOut)
 		fss.WaitForRunning(client, 1, 1, statefulset)
 
 		ginkgo.By(fmt.Sprintf("Wait until the Volume is detached the node: %v", nodeNameToPowerOff))
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, nodeNameToPowerOff)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, nodeNameToPowerOff)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
@@ -185,20 +191,22 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}
 	})
 
-	/*
-		1. Create a Storage Class with spec containing valid region and zone in “AllowedTopologies”. Ensure that there is only one  node in this zone and region.
-		2. Create Stateful set with replica=1 attached to above PV
-		3. Verify PV is created in the specified zone and region
-		4. Power off node on which Pod is running
-		5. Wait for 7 minutes for k8s to detach the volume and schedule the pod on same node
-		6. Force delete the pod
-		7. Wait for 7 minutes for k8s to attach the volume on same node
-		8. Verify Stateful set is in running state on the same node
-		9. Delete Stateful set and wait for disk to be detached
-		10. Delete PVC
-		11. Delete SC
-	*/
-	ginkgo.It("Verify if stateful set do not get scheduled on other zone after powering off the only node in current zone", func() {
+	// 1. Create a Storage Class with spec containing valid region and zone in
+	//    “AllowedTopologies”. Ensure that there is only one  node in this zone
+	//    and region.
+	// 2. Create Stateful set with replica=1 attached to above PV.
+	// 3. Verify PV is created in the specified zone and region.
+	// 4. Power off node on which Pod is running.
+	// 5. Wait for 7 minutes for k8s to detach the volume and schedule the pod
+	//    on same node.
+	// 6. Force delete the pod.
+	// 7. Wait for 7 minutes for k8s to attach the volume on same node.
+	// 8. Verify Stateful set is in running state on the same node.
+	// 9. Delete Stateful set and wait for disk to be detached.
+	// 10. Delete PVC.
+	// 11. Delete SC.
+	ginkgo.It("Verify if stateful set do not get scheduled on other zone "+
+		"after powering off the only node in current zone", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		topologyValue := GetAndExpectStringEnvVar(envTopologyWithOnlyOneNode)
@@ -221,7 +229,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
 
 		podList := fss.GetPodList(client, statefulset)
-		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(), fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
 
 		pod := podList.Items[0]
@@ -266,7 +275,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		time.Sleep(k8sPodTerminationTimeOut)
 
 		ginkgo.By(fmt.Sprintf("Wait until the Volume is detached the node: %v", nodeNameBeforePowerOff))
-		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, nodeNameBeforePowerOff)
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, nodeNameBeforePowerOff)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
@@ -275,7 +285,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		nodeNameAfterPodReschedule := pod.Spec.NodeName
 		ginkgo.By("Verify if the pod was not scheduled on other node")
 		if nodeNameAfterPodReschedule != "" {
-			gomega.Expect(nodeNameAfterPodReschedule).To(gomega.BeEmpty(), fmt.Sprintf("Pod was scheduled on node: %v", nodeNameAfterPodReschedule))
+			gomega.Expect(nodeNameAfterPodReschedule).To(gomega.BeEmpty(),
+				fmt.Sprintf("Pod was scheduled on node: %v", nodeNameAfterPodReschedule))
 		}
 
 		ginkgo.By(fmt.Sprintf("Power on the previous node: %v", nodeNameBeforePowerOff))
