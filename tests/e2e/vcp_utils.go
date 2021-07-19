@@ -32,7 +32,9 @@ import (
 )
 
 // getVcpVSphereStorageClassSpec to get VCP storage class spec
-func getVcpVSphereStorageClassSpec(name string, scParameters map[string]string, zones []string, ReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool) *storagev1.StorageClass {
+func getVcpVSphereStorageClassSpec(name string, scParameters map[string]string, zones []string,
+	ReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode,
+	allowVolumeExpansion bool) *storagev1.StorageClass {
 	if bindingMode == "" {
 		bindingMode = storagev1.VolumeBindingImmediate
 	}
@@ -74,17 +76,23 @@ func getVcpVSphereStorageClassSpec(name string, scParameters map[string]string, 
 
 // createVcpStorageClass helps creates a VCP storage class with specified name, storageclass parameters
 func createVcpStorageClass(client clientset.Interface, scParameters map[string]string, zones []string,
-	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
+	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode,
+	allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and zones: %+v and ReclaimPolicy: %+v and allowVolumeExpansion: %t", scName, scParameters, zones, scReclaimPolicy, allowVolumeExpansion))
-	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVcpVSphereStorageClassSpec(scName, scParameters, zones, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
+	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and zones: %+v and "+
+		"ReclaimPolicy: %+v and allowVolumeExpansion: %t",
+		scName, scParameters, zones, scReclaimPolicy, allowVolumeExpansion))
+	storageclass, err := client.StorageV1().StorageClasses().Create(ctx,
+		getVcpVSphereStorageClassSpec(scName, scParameters, zones, scReclaimPolicy, bindingMode, allowVolumeExpansion),
+		metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
 }
 
 // getvSphereVolumePathFromClaim fetches vSphere Volume Path from PVC which used VCP PV
-func getvSphereVolumePathFromClaim(ctx context.Context, client clientset.Interface, namespace string, claimName string) string {
+func getvSphereVolumePathFromClaim(ctx context.Context, client clientset.Interface,
+	namespace string, claimName string) string {
 	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
@@ -98,8 +106,10 @@ func getUUIDFromProviderID(providerID string) string {
 	return strings.TrimPrefix(providerID, providerPrefix)
 }
 
-// getVcpPersistentVolumeSpec function to create vsphere volume spec with given VMDK volume path, Reclaim Policy and labels
-func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string) *v1.PersistentVolume {
+// getVcpPersistentVolumeSpec function to create vsphere volume spec with
+// given VMDK volume path, Reclaim Policy and labels.
+func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy,
+	labels map[string]string) *v1.PersistentVolume {
 	annotations := make(map[string]string)
 	annotations[pvAnnotationProvisionedBy] = vcpProvisionerName
 	pv := fpv.MakePersistentVolume(fpv.PersistentVolumeConfig{
@@ -122,7 +132,8 @@ func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy
 }
 
 // getVcpPersistentVolumeClaimSpec function to get vsphere persistent volume spec with given selector labels.
-func getVcpPersistentVolumeClaimSpec(namespace string, size string, storageclass *storagev1.StorageClass, pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+func getVcpPersistentVolumeClaimSpec(namespace string, size string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
 	pvc := getPersistentVolumeClaimSpecWithStorageClass(namespace, size, storageclass, pvclaimlabels, accessMode)
 	annotations := make(map[string]string)
 	annotations[pvcAnnotationStorageProvisioner] = vcpProvisionerName
