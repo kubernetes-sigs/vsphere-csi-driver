@@ -69,7 +69,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer cancel()
 		ginkgo.By("Performing test cleanup")
 		if pvclaim != nil {
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace), "Failed to delete PVC ", pvclaim.Name)
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace),
+				"Failed to delete PVC ", pvclaim.Name)
 		}
 
 		if pv != nil {
@@ -97,14 +98,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with shared datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologies, "", false, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Expect claim to pass provisioning volume")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
@@ -113,14 +116,19 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify if volume is provisioned in zone and region containing shared datastore")
-		gomega.Expect(strings.Contains(topologyWithSharedDS, pvRegion)).To(gomega.BeTrue(), fmt.Sprintf("Topology with shared datatore %q does not contain region in which volume is provisioned: %q", topologyWithSharedDS, pvRegion))
-		gomega.Expect(strings.Contains(topologyWithSharedDS, pvZone)).To(gomega.BeTrue(), fmt.Sprintf("Topology with shared datatore %q does not contain zone in which volume is provisioned: %q", topologyWithSharedDS, pvZone))
+		gomega.Expect(strings.Contains(topologyWithSharedDS, pvRegion)).To(gomega.BeTrue(),
+			fmt.Sprintf("Topology with shared datatore %q does not contain region in which volume is provisioned: %q",
+				topologyWithSharedDS, pvRegion))
+		gomega.Expect(strings.Contains(topologyWithSharedDS, pvZone)).To(gomega.BeTrue(),
+			fmt.Sprintf("Topology with shared datatore %q does not contain zone in which volume is provisioned: %q",
+				topologyWithSharedDS, pvZone))
 
 		ginkgo.By("Creating a pod")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
