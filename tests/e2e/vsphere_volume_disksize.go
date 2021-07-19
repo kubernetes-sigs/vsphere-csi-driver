@@ -43,7 +43,8 @@ import (
 	4. Verify disk size specified is being honored
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] Volume Disk Size ", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
+	"Volume Disk Size ", func() {
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
 		client            clientset.Interface
@@ -94,18 +95,21 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamDatastoreURL] = datastoreURL
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -115,7 +119,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		pvclaims = append(pvclaims, pvclaim)
