@@ -110,7 +110,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
+				vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
 
@@ -206,148 +207,165 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		}
 	})
 
-	/*
-		Verify volume entry is updated in CNS when PVC bound to statically created PV is deleted in K8s (when CNS was down)
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC
-		3.	Create vmdk1
-		4.	Create PV1 using vmdk1 and SC1
-		5.	Create PVC1 using SC1 and wait for binding with PV1
-		6.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		7.	Stop vsan-health on VC
-		8.	Delete PVC1
-		9.	Start vsan-health on VC
-		10.	Verify PV1 and vmdk1 are delete
-		11.	Verify CNS entries for PVC1 and PV1 are removed
-		12.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		13.	Delete the SC1
-		14.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Verify volume entry is updated in CNS when PVC is bound to statically created PV in K8s (when CNS was down)
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC
-		3.	Create vmdk1
-		4.	Create PV1 using vmdk1 and SC1
-		5.	Stop vsan-health on VC
-		6.	Create PVC1 using SC1 and wait for binding with PV1
-		7.	Start vsan-health on VC
-		8.	Sleep double the Full Sync interval
-		9.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		10.	Verify CNS entries for PVC1 and PV1
-		11.	Delete the PVC1
-		12.	Verify PV1 and vmdk1 are deleted
-		13.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		14.	Verify CNS entries are removed for PVC1 and PV1
-		15.	Delete the SC1
-		16.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Verify volume entry is updated in CNS when PVC bound to PV with reclaim policy Retain is deleted in K8s (when CNS was down)
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC with reclaim policy Retain
-		3.	Create PVC1 using SC1 and wait for binding with PV1
-		4.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		5.	Verify CNS entries for PVC1 and PV1
-		6.	Stop vsan-health on VC
-		7.	Delete PVC1
-		8.	Start vsan-health on VC
-		9.	Sleep double the Full Sync interval
-		10.	Verify PVC name is removed from CNS entry for PV1
-		11.	Verify CNS entry for PVC1 is removed
-		12.	Delete PV1 and vmdk1
-		13.	Verify CNS entry for PV1 is removed
-		14.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		15.	Delete the SC1
-		16.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Verify volume entries are deleted in CNS when PVC and PC with reclaim policy Retain are deleted in K8s (when CNS was down)
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC with reclaim policy Retain
-		3.	Create PVC1 using SC1 and wait for binding with PV1
-		4.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		5.	Verify CNS entries for PVC1 and PV1
-		6.	Stop vsan-health on VC
-		7.	Delete PVC1
-		8.	Delete PV1
-		9.	Start vsan-health on VC
-		10.	Sleep double the Full Sync interval
-		11.	Verify CNS entry for PVC1 and PV1 is removed
-		12.	Delete vmdk1
-		13.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		14.	Delete the SC1
-		15.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Add PV and PVC labels when CNS is down
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC
-		3.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
-		4.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		5.	Verify CNS entries for PVC1 and PV1
-		6.	Stop vsan-health on VC
-		7.	Update labels on PV1 and PVC1
-		8.	Start vsan-health on VC
-		9.	Sleep double the Full Sync interval
-		10.	Verify CNS entries for PVC1 and PV1
-		11.	Delete the PVC1
-		12.	Verify PV1 and underlying vmdk are also deleted
-		13.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		14.	Verify CNS entries are removed for PVC1, PV1
-		15.	Delete the SC1
-		16.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Remove PV and PVC labels when CNS is down
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create SC1 VCP SC
-		3.	Create PVC1 using SC1 and wait for binding with PV (say PV1)
-		4.	Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1
-		5.	Update labels on PV1 and PVC1
-		6.	Verify CNS entries for PVC1 and PV1
-		7.	Stop vsan-health on VC
-		8.	Remove labels on PV1 and PVC1
-		9.	Start vsan-health on VC
-		10.	Sleep double the Full Sync interval
-		11.	Verify CNS entries for PVC1 and PV1
-		12.	Delete the PVC1
-		13.	Verify PV1 and underlying vmdk are also deleted
-		14.	Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1
-		15.	Verify CNS entries are removed for PVC1, PV1
-		16.	Delete the SC1
-		17.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-
-		Perform multiple operations when CNS is down
-		Steps:
-		1.	Enable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-		2.	Create VCP SC SC1 with ReclaimPolicy=Delete
-		3.	Create VCP SC SC2 with ReclaimPolicy=Retain
-		4.	Create 4 PVCs (1..4) using SC1
-		5.	Create 4 PVCs (7..10) using SC2
-		6.	Wait for all PVCs to be in Bound phase.
-		7.	Add labels to PVC 4, PVC 10, PV4, PV10
-		8.	Verify cnsvspherevolumemigrations crds are created for all PV/PVCs
-		9.	Verify CNS entries for all PVC/PVs
-		10.	Stop vsan-health
-		11.	Create PVCs 5, 6 using SC1
-		12.	Create PVCs 11, 12 using SC2
-		13.	Update labels on 4 PVCs (1, 2, 5, 7, 8, 12) and their PVs.
-		14.	Delete 4 PVCs (2, 3, 8, 9)
-		15.	Modify labels on PVC 4, PVC 10, PV4, PV10
-		16.	start vsan-health
-		17.	Sleep double the Full Sync interval
-		18.	Verify the deleted PVCs and PVs are no longer present in CNS cache
-		19.	Verify the CNS entries for remaining PV/PVCs are correct with lables and PVC names for PVs
-		20.	Verify cnsvspherevolumemigrations crds are created for all PV/PVCs
-		21.	Delete remaining PVCs
-		22.	Delete remaining PVs
-		23.	Delete vmdks for PVs with ReclaimPolicy=Retain
-		24.	Verify cnsvspherevolumemigrations crds are deleted for all PV/PVCs
-		25.	Delete both SCs
-		26.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
-	*/
+	// Verify volume entry is updated in CNS when PVC bound to statically created
+	// PV is deleted in K8s (when CNS was down).
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC.
+	// 3. Create vmdk1.
+	// 4. Create PV1 using vmdk1 and SC1.
+	// 5. Create PVC1 using SC1 and wait for binding with PV1.
+	// 6. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 7. Stop vsan-health on VC.
+	// 8. Delete PVC1.
+	// 9. Start vsan-health on VC.
+	// 10. Verify PV1 and vmdk1 are delete.
+	// 11. Verify CNS entries for PVC1 and PV1 are removed.
+	// 12. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 13. Delete the SC1.
+	// 14. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Verify volume entry is updated in CNS when PVC is bound to statically
+	// created PV in K8s (when CNS was down).
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC.
+	// 3. Create vmdk1.
+	// 4. Create PV1 using vmdk1 and SC1.
+	// 5. Stop vsan-health on VC.
+	// 6. Create PVC1 using SC1 and wait for binding with PV1.
+	// 7. Start vsan-health on VC.
+	// 8. Sleep double the Full Sync interval.
+	// 9. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 10. Verify CNS entries for PVC1 and PV1.
+	// 11. Delete the PVC1.
+	// 12. Verify PV1 and vmdk1 are deleted.
+	// 13. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 14. Verify CNS entries are removed for PVC1 and PV1.
+	// 15. Delete the SC1.
+	// 16. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Verify volume entry is updated in CNS when PVC bound to PV with reclaim
+	// policy Retain is deleted in K8s (when CNS was down).
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC with reclaim policy Retain.
+	// 3. Create PVC1 using SC1 and wait for binding with PV1.
+	// 4. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 5. Verify CNS entries for PVC1 and PV1.
+	// 6. Stop vsan-health on VC.
+	// 7. Delete PVC1.
+	// 8. Start vsan-health on VC.
+	// 9. Sleep double the Full Sync interval.
+	// 10. Verify PVC name is removed from CNS entry for PV1.
+	// 11. Verify CNS entry for PVC1 is removed.
+	// 12. Delete PV1 and vmdk1.
+	// 13. Verify CNS entry for PV1 is removed.
+	// 14. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 15. Delete the SC1.
+	// 16. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Verify volume entries are deleted in CNS when PVC and PC with reclaim
+	// policy Retain are deleted in K8s (when CNS was down).
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC with reclaim policy Retain.
+	// 3. Create PVC1 using SC1 and wait for binding with PV1.
+	// 4. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 5. Verify CNS entries for PVC1 and PV1.
+	// 6. Stop vsan-health on VC.
+	// 7. Delete PVC1.
+	// 8. Delete PV1.
+	// 9. Start vsan-health on VC.
+	// 10. Sleep double the Full Sync interval.
+	// 11. Verify CNS entry for PVC1 and PV1 is removed.
+	// 12. Delete vmdk1.
+	// 13. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 14. Delete the SC1.
+	// 15. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Add PV and PVC labels when CNS is down.
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC.
+	// 3. Create PVC1 using SC1 and wait for binding with PV (say PV1).
+	// 4. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 5. Verify CNS entries for PVC1 and PV1.
+	// 6. Stop vsan-health on VC.
+	// 7. Update labels on PV1 and PVC1.
+	// 8. Start vsan-health on VC.
+	// 9. Sleep double the Full Sync interval.
+	// 10. Verify CNS entries for PVC1 and PV1.
+	// 11. Delete the PVC1.
+	// 12. Verify PV1 and underlying vmdk are also deleted.
+	// 13. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 14. Verify CNS entries are removed for PVC1, PV1.
+	// 15. Delete the SC1.
+	// 16. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Remove PV and PVC labels when CNS is down.
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create SC1 VCP SC.
+	// 3. Create PVC1 using SC1 and wait for binding with PV (say PV1).
+	// 4. Verify cnsvspherevolumemigrations crds are created for PVC1 and PV1.
+	// 5. Update labels on PV1 and PVC1.
+	// 6. Verify CNS entries for PVC1 and PV1.
+	// 7. Stop vsan-health on VC.
+	// 8. Remove labels on PV1 and PVC1.
+	// 9. Start vsan-health on VC.
+	// 10. Sleep double the Full Sync interval.
+	// 11. Verify CNS entries for PVC1 and PV1.
+	// 12. Delete the PVC1.
+	// 13. Verify PV1 and underlying vmdk are also deleted.
+	// 14. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
+	// 15. Verify CNS entries are removed for PVC1, PV1.
+	// 16. Delete the SC1.
+	// 17. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
+	//
+	// Perform multiple operations when CNS is down.
+	// Steps:
+	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 2. Create VCP SC SC1 with ReclaimPolicy=Delete.
+	// 3. Create VCP SC SC2 with ReclaimPolicy=Retain.
+	// 4. Create 4 PVCs (1..4) using SC1.
+	// 5. Create 4 PVCs (7..10) using SC2.
+	// 6. Wait for all PVCs to be in Bound phase..
+	// 7. Add labels to PVC 4, PVC 10, PV4, PV10.
+	// 8. Verify cnsvspherevolumemigrations crds are created for all PV/PVCs.
+	// 9. Verify CNS entries for all PVC/PVs.
+	// 10. Stop vsan-health.
+	// 11. Create PVCs 5, 6 using SC1.
+	// 12. Create PVCs 11, 12 using SC2.
+	// 13. Update labels on 4 PVCs (1, 2, 5, 7, 8, 12) and their PVs.
+	// 14. Delete 4 PVCs (2, 3, 8, 9).
+	// 15. Modify labels on PVC 4, PVC 10, PV4, PV10.
+	// 16. Start vsan-health.
+	// 17. Sleep double the Full Sync interval.
+	// 18. Verify the deleted PVCs and PVs are no longer present in CNS cache.
+	// 19. Verify the CNS entries for remaining PV/PVCs are correct with lables
+	//     and PVC names for PVs.
+	// 20. Verify cnsvspherevolumemigrations crds are created for all PV/PVCs.
+	// 21. Delete remaining PVCs.
+	// 22. Delete remaining PVs.
+	// 23. Delete vmdks for PVs with ReclaimPolicy=Retain.
+	// 24. Verify cnsvspherevolumemigrations crds are deleted for all PV/PVCs.
+	// 25. Delete both SCs.
+	// 26. Disable CSIMigration and CSIMigrationvSphere feature gates on
+	//     kube-controller-manager (& restart).
 	ginkgo.It("Multiple operations when CNS is down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -364,7 +382,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpScs = append(vcpScs, vcpSc)
 
 		ginkgo.By("Create VCP SC SC2 with ReclaimPolicy=Retain")
-		vcpScRetain, err := createVcpStorageClass(client, scParams, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
+		vcpScRetain, err := createVcpStorageClass(client, scParams, nil,
+			v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpScs = append(vcpScs, vcpScRetain)
 
@@ -441,7 +460,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		ginkgo.By("Verify annotations on PV/PVCs")
 		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true) // static provisioned volumes
+		// Static provisioned volumes.
+		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
@@ -451,7 +471,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown", vsanHealthServiceWaitTime))
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
+			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		ginkgo.By("Create PVCs 5, 6 using SC1")
@@ -503,7 +524,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, vcpPvcsPostMig[5].Name, *metav1.NewDeleteOptions(0))
+		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx,
+			vcpPvcsPostMig[5].Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete one PV with Retain policy for which PVC was also deleted above")
@@ -539,7 +561,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvsCreatedDuringCnsDown, err := fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig[8:], framework.ClaimProvisionTimeout)
+		pvsCreatedDuringCnsDown, err := fpv.WaitForPVClaimBoundPhase(client,
+			vcpPvcsPostMig[8:], framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvsPostMig = append(vcpPvsPostMig, pvsCreatedDuringCnsDown...)
 
@@ -595,7 +618,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		15.	Delete the SC1
 		16.	Disable CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager (& restart)
 	*/
-	ginkgo.It("Verify volume entry is updated in CNS when PVC is bound to statically created PV in K8s (when SPS was down)", func() {
+	ginkgo.It("Verify volume entry is updated in CNS when PVC is bound to statically created PV in K8s "+
+		"(when SPS was down)", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		scParams := make(map[string]string)
@@ -662,8 +686,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 	})
 })
 
-//verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvs verify CnsVolumeMetadata and CnsVSphereVolumeMigration crd for given pvcs
-func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvsWithoutPvc(ctx context.Context, client clientset.Interface, namespace string, pvs []*v1.PersistentVolume) {
+// verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvs verify
+// CnsVolumeMetadata and CnsVSphereVolumeMigration crd for given pvcs.
+func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvsWithoutPvc(ctx context.Context,
+	client clientset.Interface, namespace string, pvs []*v1.PersistentVolume) {
 	for _, pv := range pvs {
 		if pv.Spec.ClaimRef != nil {
 			continue
@@ -677,7 +703,8 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvsWithoutPvc(ctx 
 }
 
 //updatePvcLabel updates the labels on the given PVC
-func updatePvcLabel(ctx context.Context, client clientset.Interface, namespace string, pvc *v1.PersistentVolumeClaim, labels map[string]string) *v1.PersistentVolumeClaim {
+func updatePvcLabel(ctx context.Context, client clientset.Interface, namespace string,
+	pvc *v1.PersistentVolumeClaim, labels map[string]string) *v1.PersistentVolumeClaim {
 	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pvc.Labels = labels
@@ -687,7 +714,8 @@ func updatePvcLabel(ctx context.Context, client clientset.Interface, namespace s
 }
 
 //updatePvLabel updates the labels on the given PV
-func updatePvLabel(ctx context.Context, client clientset.Interface, namespace string, pv *v1.PersistentVolume, labels map[string]string) *v1.PersistentVolume {
+func updatePvLabel(ctx context.Context, client clientset.Interface, namespace string,
+	pv *v1.PersistentVolume, labels map[string]string) *v1.PersistentVolume {
 	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pv.Labels = labels
