@@ -457,7 +457,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	if err = k8sclient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
+	if err = k8sclient.CoreV1().PersistentVolumeClaims(namespace).
+		Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0)); err != nil {
 		t.Fatal(err)
 	}
 	if err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0)); err != nil {
