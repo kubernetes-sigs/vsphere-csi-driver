@@ -236,6 +236,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				// the expected ca file path.
 				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
 					for {
+						// Invoking ReloadConfiguration with forceReconnectToVC set to true.
 						reconnectVCErr := ReloadConfiguration(metadataSyncer, true)
 						if reconnectVCErr == nil {
 							log.Infof("Successfully re-established connection with VC from: %q",
@@ -470,12 +471,12 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 
 // ReloadConfiguration reloads configuration from the secret, and update
 // controller's cached configs. The function takes metadatasyncerInformer and
-// reconnectToVCFromNewConfig as parameters. If reconnectToVCFromNewConfig
+// forceReconnectToVC as parameters. If forceReconnectToVC
 // is set to true, the function re-establishes connection with VC. Otherwise,
 // based on the configuration data changed during reload, the function resets
 // config, reloads VC connection when credentials are changed and returns
 // appropriate error.
-func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
+func ReloadConfiguration(metadataSyncer *metadataSyncInformer, forceReconnectToVC bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
@@ -506,7 +507,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			if metadataSyncer.host != newVCConfig.Host ||
 				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
 				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
-				reconnectToVCFromNewConfig {
+				forceReconnectToVC {
 				// Verify if new configuration has valid credentials by connecting
 				// to vCenter. Proceed only if the connection succeeds, else return
 				// error.

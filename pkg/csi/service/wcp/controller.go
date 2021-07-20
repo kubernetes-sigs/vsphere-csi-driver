@@ -221,12 +221,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 // ReloadConfiguration reloads configuration from the secret, and update
 // controller's config cache and VolumeManager's VC Config cache.
-// The function takes a boolean reconnectToVCFromNewConfig as ainputs.
-// If reconnectToVCFromNewConfig is set to true, the function re-establishes
+// The function takes a boolean forceReconnectToVC as ainputs.
+// If forceReconnectToVC is set to true, the function re-establishes
 // connection with VC, else based on the configuration data changed during
 // reload, the function resets config, reloads VC connection when credentials
 // are changed and returns appropriate error.
-func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
+func (c *controller) ReloadConfiguration(forceReconnectToVC bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := common.GetConfig(ctx)
@@ -243,7 +243,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		var vcenter *cnsvsphere.VirtualCenter
 		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
-			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
+			c.manager.VcenterConfig.Password != newVCConfig.Password || forceReconnectToVC {
 
 			// Verify if new configuration has valid credentials by connecting to
 			// vCenter. Proceed only if the connection succeeds, else return error.
