@@ -48,7 +48,7 @@ This section describes the step by step instructions to provision a PersistentVo
     parameters:
       storagepolicyname: "vSAN Default Storage Policy"  #Optional Parameter
     # datastoreurl: "ds:///vmfs/volumes/vsan:52cdfa80721ff516-ea1e993113acfc77/" #Optional Parameter
-    # csi.storage.k8s.io/fstype: "ext4" #Optional Parameter
+    # csi.storage.k8s.io/fstype: "ext4" #Optional Parameter. Can be either "ext4" or "xfs".
     ```
 
 - Import this `StorageClass` into `Vanilla Kubernetes` cluster:
