@@ -18,7 +18,12 @@ package common
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 )
@@ -389,4 +394,53 @@ func TestParseStorageClassParamsWithMigrationDisabled(t *testing.T) {
 		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
 	}
 	t.Logf("expected err received. err: %v", err)
+}
+
+func TestParseCSISnapshotID(t *testing.T) {
+	type args struct {
+		ctx           context.Context
+		csiSnapshotID string
+	}
+	sampleCnsVolumeID := uuid.New().String()
+	sampleCnsSnapshotID := uuid.New().String()
+	tests := []struct {
+		name                  string
+		args                  args
+		expectedCnsVolumeID   string
+		expectedCnsSnapshotID string
+		expectedErr           error
+	}{
+		{
+			name:                  "ExpectedCSISnapshotID",
+			args:                  args{ctx: context.TODO(), csiSnapshotID: sampleCnsVolumeID + "+" + sampleCnsSnapshotID},
+			expectedCnsVolumeID:   sampleCnsVolumeID,
+			expectedCnsSnapshotID: sampleCnsSnapshotID,
+			expectedErr:           nil,
+		},
+		{
+			name:                  "EmptyCSISnapshotID",
+			args:                  args{ctx: context.TODO(), csiSnapshotID: ""},
+			expectedCnsVolumeID:   "",
+			expectedCnsSnapshotID: "",
+			expectedErr:           errors.New("csiSnapshotID from the input is empty"),
+		},
+		{
+			name:                  "UnexpectedFormattedCSISnapshotID",
+			args:                  args{ctx: context.TODO(), csiSnapshotID: sampleCnsVolumeID},
+			expectedCnsVolumeID:   "",
+			expectedCnsSnapshotID: "",
+			expectedErr:           fmt.Errorf("unexpected format in csiSnapshotID: %v", sampleCnsVolumeID),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualCnsVolumeID, actualCnsSnapshotID, actualErr := ParseCSISnapshotID(tt.args.csiSnapshotID)
+			assert.Equal(t, tt.expectedErr == nil, actualErr == nil)
+			if tt.expectedErr != nil && actualErr != nil {
+				assert.Equal(t, tt.expectedErr.Error(), actualErr.Error())
+			}
+			assert.Equal(t, tt.expectedCnsVolumeID, actualCnsVolumeID)
+			assert.Equal(t, tt.expectedCnsSnapshotID, actualCnsSnapshotID)
+		})
+	}
 }

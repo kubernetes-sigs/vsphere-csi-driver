@@ -20,6 +20,7 @@ require (
 	github.com/rexray/gocsi v1.2.2
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
+	github.com/stretchr/testify v1.7.0
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
 	github.com/vmware/govmomi v0.26.1-0.20210616182200-66b9538af589
