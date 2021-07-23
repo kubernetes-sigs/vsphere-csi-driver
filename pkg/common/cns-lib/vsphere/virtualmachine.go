@@ -372,3 +372,85 @@ func GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*VirtualMachine) (
 	}
 	return sharedDatastores, nil
 }
+
+// GetTopologyLabels populates the topology labels of the nodeVM in topologyCategories
+// parameter given the category names.
+func (vm *VirtualMachine) GetTopologyLabels(ctx context.Context, tagManager *tags.Manager,
+	topologyCategories map[string]string) error {
+	log := logger.GetLogger(ctx)
+
+	// Get NodeVM ancestors.
+	objects, err := vm.GetAncestors(ctx)
+	if err != nil {
+		log.Errorf("GetAncestors failed for %v with err %v", vm.Reference(), err)
+		return err
+	}
+	// Search the hierarchy, example order: ["Host", "Cluster", "Datacenter", "Folder"].
+	for i := range objects {
+		obj := objects[len(objects)-1-i]
+		log.Debugf("Name: %s, Type: %s", obj.Self.Value, obj.Self.Type)
+		objTags, err := tagManager.ListAttachedTags(ctx, obj)
+		if err != nil {
+			log.Errorf("Cannot list attached tags. Err: %v", err)
+			return err
+		}
+		// Check if object has tags.
+		if len(objTags) > 0 {
+			log.Debugf("Object [%v] has attached Tags [%v]", obj, objTags)
+		}
+		for _, value := range objTags {
+			// Get tag.
+			tag, err := tagManager.GetTag(ctx, value)
+			if err != nil {
+				log.Errorf("failed to get tag:%s, error:%v", value, err)
+				return err
+			}
+			log.Debugf("Found tag: %s for object %v", tag.Name, obj)
+			// Get category for tag.
+			category, err := tagManager.GetCategory(ctx, tag.CategoryID)
+			if err != nil {
+				log.Errorf("failed to get category for tag: %s, error: %v", tag.Name, tag)
+				return err
+			}
+			log.Infof("Found category: %s for object %v with tag: %s", category.Name, obj, tag.Name)
+			// Check if the category belongs to a topology domain recognised by the driver.
+			val, exists := topologyCategories[category.Name]
+			if exists {
+				// Update the value if it doesn't already exist.
+				if val == "" {
+					topologyCategories[category.Name] = tag.Name
+				} else {
+					// Error out on duplicate values for the same category.
+					return logger.LogNewErrorf(log, "duplicate values detected for category %s as %q and %q",
+						category.Name, val, tag.Name)
+				}
+			}
+			// Check if values for all topology domains have been retrieved.
+			// If yes, then return.
+			if len(findMissingCategories(topologyCategories)) == 0 {
+				log.Infof("Tags related to all topology categories found. Skipping tag check on following "+
+					"entities: %v", objects[:len(objects)-1-i])
+				return nil
+			}
+		}
+	}
+	// Raise error if nodeVM does not have a topology label associated with
+	// each category in the vSphere config secret `Labels` section.
+	missing := findMissingCategories(topologyCategories)
+	if len(missing) != 0 {
+		return logger.LogNewErrorf(log, "nodeVM %s does not have labels for the following categories: %+v",
+			vm.Reference(), missing)
+	}
+	return nil
+}
+
+// findMissingCategories returns the list of keys with an empty string as value.
+func findMissingCategories(topologyCategories map[string]string) []string {
+	missing := make([]string, 0)
+	for key, val := range topologyCategories {
+		if val == "" {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}

@@ -272,17 +272,20 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 		}
 		switch csiNodeTopologyInstance.Status.Status {
 		case csinodetopologyv1alpha1.CSINodeTopologySuccess:
+			// Status set to success. Read the labels and return.
 			accessibleTopology := make(map[string]string)
 			for _, label := range csiNodeTopologyInstance.Status.TopologyLabels {
 				accessibleTopology[label.Key] = label.Value
 			}
 			return accessibleTopology, nil
 		case csinodetopologyv1alpha1.CSINodeTopologyError:
+			// There was an error collecting topology information from nodes.
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to retrieve topology information for Node: %q. Error: %q", nodeInfo.NodeName,
 				csiNodeTopologyInstance.Status.ErrorMessage)
 		}
 	}
+	// Timed out waiting for topology labels to be updated.
 	return nil, logger.LogNewErrorCodef(log, codes.Internal,
 		"timed out while waiting for topology labels to be updated in %q CSINodeTopology instance.",
 		nodeInfo.NodeName)
@@ -398,18 +401,18 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		segments := topology.GetSegments()
 		// Fetch nodes with topology labels matching the topology segments.
 		log.Debugf("Getting list of nodeVMs for topology segments %+v", segments)
-		nodeVMsInZoneRegion, err := volTopology.getNodesMatchingTopologySegment(ctx, segments)
+		matchingNodeVMs, err := volTopology.getNodesMatchingTopologySegment(ctx, segments)
 		if err != nil {
 			log.Errorf("Failed to find nodes in topology segment %+v. Error: %+v", segments, err)
 			return nil, nil, err
 		}
 
 		// Fetch shared datastores for the matching nodeVMs.
-		log.Infof("Obtained list of nodeVMs %+v", nodeVMsInZoneRegion)
-		sharedDatastoresInTopology, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
+		log.Infof("Obtained list of nodeVMs %+v", matchingNodeVMs)
+		sharedDatastoresInTopology, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, matchingNodeVMs)
 		if err != nil {
 			log.Errorf("Failed to get shared datastores for nodes: %+v in topology segment %+v. Error: %+v",
-				nodeVMsInZoneRegion, segments, err)
+				matchingNodeVMs, segments, err)
 			return nil, nil, err
 		}
 

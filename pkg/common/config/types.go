@@ -75,10 +75,18 @@ type Config struct {
 	// Guest Cluster configurations, only used by GC
 	GC GCConfig
 
-	// Tag categories and tags which correspond to "built-in node labels: zones and region"
+	// Labels will list the topology domains the CSI driver is expected
+	// to pick up from the inventory. This info will later be used while provisioning volumes.
 	Labels struct {
-		Zone   string `gcfg:"zone"`
-		Region string `gcfg:"region"`
+		// Zone and Region correspond to the vSphere categories
+		// created to tag specific topology domains in the inventory.
+		Zone   string `gcfg:"zone"`   // Deprecated
+		Region string `gcfg:"region"` // Deprecated
+		// TopologyCategories is a comma separated string of topology domains
+		// which will correspond to the `Categories` the vSphere admin will
+		// create in the inventory using the UI.
+		// Maximum number of categories allowed is 5.
+		TopologyCategories string `gcfg:"topology-categories"`
 	}
 }
 

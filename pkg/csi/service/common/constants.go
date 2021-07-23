@@ -242,6 +242,10 @@ const (
 
 	// VSphereCSISnapshotIdDelimiter is the delimiter for concatenating CNS VolumeID and CNS SnapshotID
 	VSphereCSISnapshotIdDelimiter = "+"
+
+	// TopologyLabelsDomain is the domain name used to identify user-defined
+	// topology labels applied on the node by vSphere CSI driver.
+	TopologyLabelsDomain = "topology.csi.vmware.com"
 )
 
 // Supported container orchestrators.
