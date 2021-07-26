@@ -25,7 +25,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -33,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
@@ -96,29 +94,19 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 	// Create CRD's for WCP flavor.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		// Create CnsNodeVmAttachment CRD.
-		crdKindNodeVMAttachment := reflect.TypeOf(cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}).Name()
-		crdNameNodeVMAttachment := cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural + "." +
-			cnsoperatorv1alpha1.SchemeGroupVersion.Group
-		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameNodeVMAttachment,
-			cnsoperatorv1alpha1.CnsNodeVMAttachmentSingular, cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural,
-			crdKindNodeVMAttachment, cnsoperatorv1alpha1.SchemeGroupVersion.Group,
-			cnsoperatorv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+		// Create CnsNodeVmAttachment CRD
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnsnodevmattachments.yaml")
 		if err != nil {
+			crdNameNodeVMAttachment := cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural +
+				"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
 			log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVMAttachment, err)
 			return err
 		}
 
-		// Create CnsVolumeMetadata CRD.
-		crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
-		crdNameVolumeMetadata := cnsoperatorv1alpha1.CnsVolumeMetadataPlural + "." +
-			cnsoperatorv1alpha1.SchemeGroupVersion.Group
-
-		err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdNameVolumeMetadata,
-			cnsoperatorv1alpha1.CnsVolumeMetadataSingular, cnsoperatorv1alpha1.CnsVolumeMetadataPlural,
-			crdKindVolumeMetadata, cnsoperatorv1alpha1.SchemeGroupVersion.Group,
-			cnsoperatorv1alpha1.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+		// Create CnsVolumeMetadata CRD
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnsvolumemetadata.yaml")
 		if err != nil {
+			crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
 			log.Errorf("failed to create %q CRD. Err: %+v", crdKindVolumeMetadata, err)
 			return err
 		}
@@ -169,10 +157,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 			// Create CSINodeTopology CRD.
-			csiNodeTopologyCRDName := csinodetopology.CRDPlural + "." + csinodetopologyv1alpha1.GroupName
-			err := k8s.CreateCustomResourceDefinitionFromSpec(ctx, csiNodeTopologyCRDName, csinodetopology.CRDSingular,
-				csinodetopology.CRDPlural, reflect.TypeOf(csinodetopologyv1alpha1.CSINodeTopology{}).Name(),
-				csinodetopologyv1alpha1.GroupName, csinodetopologyv1alpha1.Version, apiextensionsv1beta1.ClusterScoped)
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_csinodetopologies.yaml")
 			if err != nil {
 				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
 				return err
