@@ -9,4 +9,4 @@ allowVolumeExpansion: true  # Optional: only applicable to vSphere 7.0U1 and abo
 parameters:
   datastoreurl: "ds:///vmfs/volumes/vsan:52cdfa80721ff516-ea1e993113acfc77/"  # Optional Parameter
   storagepolicyname: "vSAN Default Storage Policy"  # Optional Parameter
-  csi.storage.k8s.io/fstype: "ext4"  # Optional Parameter. Can be either "ext4" or "xfs".
+  csi.storage.k8s.io/fstype: "ext4"  # Optional Parameter

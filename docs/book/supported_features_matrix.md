@@ -16,7 +16,7 @@ The latest vSphere CSI Driver release is recommended for better stability and pe
 | Offline Volume Expansion support (beta) (Block Volume only)                                 | v2.0.0 to v2.3.0                          | ✅             | ✅             | ✅           | ❌             |
 | Encryption support via VMcrypt (Block Volume only)                                          | v2.0.0 to v2.3.0                          | ✅             | ✅             | ✅           | ❌             |
 | Dynamic File PV support through vSAN 7.0 File Services on vSAN Datastores                   | v2.0.0 to v2.3.0                          | ✅             | ✅             | ✅           | ❌             |
-| In-tree vSphere volume migration to CSI                                                     | v2.3.0                                    | ✅             | ✅             | ✅           | ✅             |
+| In-tree vSphere volume migration to CSI                                                     | v2.3.0                                    | ✅             | ✅             | ✅           | ❌             |
 | Online Volume Expansion support (beta) (Block Volume only)                                  | v2.2.0 to v2.3.0                          | ✅             | ❌             | ❌           | ❌             |
 | XFS Filesystem support (alpha)                                                              | v2.3.0                                    | ✅             | ✅             | ✅           | ✅             |
 | Raw Block Volume support (alpha)                                                            | v2.3.0                                    | ✅             | ✅             | ✅           | ✅             |
