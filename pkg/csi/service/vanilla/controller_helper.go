@@ -19,6 +19,8 @@ package vanilla
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -93,6 +95,34 @@ func validateVanillaCreateSnapshotRequestRequest(ctx context.Context, req *csi.C
 	if len(req.Name) == 0 {
 		return logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"Snapshot name must be provided")
+	}
+	return nil
+}
+
+func validateVanillaListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsRequest) error {
+	log := logger.GetLogger(ctx)
+	maxEntries := req.MaxEntries
+	if maxEntries < 0 {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"ListSnapshots MaxEntries: %d cannot be negative", maxEntries)
+	}
+	// validate the starting token by verifying that it can be converted to a int
+	if req.StartingToken != "" {
+		_, err := strconv.Atoi(req.StartingToken)
+		if err != nil {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots StartingToken: %s cannot be parsed", req.StartingToken)
+		}
+	}
+	// validate snapshot-id conforms to vSphere CSI driver format if specified.
+	if req.SnapshotId != "" {
+		// check for the delimiter "+" in the snapshot-id.
+		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
+		if !check {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
+				req.StartingToken)
+		}
 	}
 	return nil
 }

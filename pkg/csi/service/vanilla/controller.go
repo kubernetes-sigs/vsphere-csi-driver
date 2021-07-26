@@ -780,7 +780,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		}
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			snapshots, err := common.QueryVolumeSnapshotsByID(ctx, c.manager.VolumeManager, req.VolumeId)
+			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
+				common.QuerySnapshotLimit)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
@@ -1254,7 +1255,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 
 		log.Infof("CreateSnapshot succeeded for snapshot %s "+
-			"on volume %s size %d Time proto %d Timestamp %+v Response: %+v",
+			"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
 			snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
 			*snapshotCreateTimePtr, createSnapshotResponse)
 		return createSnapshotResponse, nil
@@ -1313,10 +1314,48 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshots")
+	start := time.Now()
+	volumeType := prometheus.PrometheusBlockVolumeType
+	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
+		log.Infof("ListSnapshots: called with args %+v", *req)
+		err := validateVanillaListSnapshotRequest(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		maxEntries := common.QuerySnapshotLimit
+		if req.MaxEntries != 0 {
+			maxEntries = int64(req.MaxEntries)
+		}
+		snapshots, nextToken, err := common.ListSnapshotsUtil(ctx, c.manager.VolumeManager, req.SourceVolumeId,
+			req.SnapshotId, req.StartingToken, maxEntries)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal, " failed to retrieve the snapshots, err: %+v", err)
+		}
+		var entries []*csi.ListSnapshotsResponse_Entry
+		for _, snapshot := range snapshots {
+			entry := &csi.ListSnapshotsResponse_Entry{
+				Snapshot: snapshot,
+			}
+			entries = append(entries, entry)
+		}
+		resp := &csi.ListSnapshotsResponse{
+			Entries:   entries,
+			NextToken: nextToken,
+		}
+		log.Infof("ListSnapshot served %d results, token for next set: %s", len(entries), nextToken)
+		return resp, nil
+	}
+	resp, err := listSnapshotsInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
