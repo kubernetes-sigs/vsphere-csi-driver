@@ -28,7 +28,7 @@ import (
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -357,21 +357,21 @@ func getClientThroughput(ctx context.Context, isSupervisorClient bool) (float32,
 // CreateCustomResourceDefinitionFromSpec creates the custom resource definition
 // from given spec. If there is error, function will do the clean up.
 func CreateCustomResourceDefinitionFromSpec(ctx context.Context, crdName string, crdSingular string, crdPlural string,
-	crdKind string, crdGroup string, crdVersion string, crdScope apiextensionsv1beta1.ResourceScope) error {
-	crdSpec := &apiextensionsv1beta1.CustomResourceDefinition{
+	crdKind string, crdGroup string, crdVersion string, crdScope apiextensionsv1.ResourceScope) error {
+	crdSpec := &apiextensionsv1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: crdName,
 		},
-		Spec: apiextensionsv1beta1.CustomResourceDefinitionSpec{
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 			Group: crdGroup,
-			Versions: []apiextensionsv1beta1.CustomResourceDefinitionVersion{
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 				{
 					Name:    crdVersion,
 					Served:  true,
 					Storage: true,
 				}},
 			Scope: crdScope,
-			Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
 				Plural:   crdPlural,
 				Singular: crdSingular,
 				Kind:     crdKind,
@@ -396,7 +396,7 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName st
 
 // createCustomResourceDefinition takes a custom resource definition spec and
 // creates it on the API server.
-func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1beta1.CustomResourceDefinition) error {
+func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1.CustomResourceDefinition) error {
 	log := logger.GetLogger(ctx)
 	// Get a config to talk to the apiserver.
 	cfg, err := GetKubeConfig(ctx)
@@ -411,10 +411,10 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 	}
 
 	crdName := newCrd.ObjectMeta.Name
-	crd, err := apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx,
+	crd, err := apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
 		crdName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx,
+		_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Create(ctx,
 			newCrd, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("Failed to create %q CRD with err: %+v", crdName, err)
@@ -425,7 +425,7 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 		// Update the existing CRD with new CRD.
 		crd.Spec = newCrd.Spec
 		crd.Status = newCrd.Status
-		_, err = apiextensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Update(ctx,
+		_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Update(ctx,
 			crd, metav1.UpdateOptions{})
 		if err != nil {
 			log.Errorf("Failed to update %q CRD with err: %+v", crdName, err)
@@ -447,19 +447,19 @@ func waitForCustomResourceToBeEstablished(ctx context.Context,
 	clientSet apiextensionsclientset.Interface, crdName string) error {
 	log := logger.GetLogger(ctx)
 	err := wait.Poll(pollTime, timeout, func() (bool, error) {
-		crd, err := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+		crd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
 			return false, err
 		}
 		for _, cond := range crd.Status.Conditions {
 			switch cond.Type {
-			case apiextensionsv1beta1.Established:
-				if cond.Status == apiextensionsv1beta1.ConditionTrue {
+			case apiextensionsv1.Established:
+				if cond.Status == apiextensionsv1.ConditionTrue {
 					return true, err
 				}
-			case apiextensionsv1beta1.NamesAccepted:
-				if cond.Status == apiextensionsv1beta1.ConditionFalse {
+			case apiextensionsv1.NamesAccepted:
+				if cond.Status == apiextensionsv1.ConditionFalse {
 					log.Debugf("Name conflict while waiting for %q CRD creation", cond.Reason)
 				}
 			}
@@ -470,7 +470,7 @@ func waitForCustomResourceToBeEstablished(ctx context.Context,
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {
 		log.Infof("Cleanup %q CRD because the CRD created was not successfully established. Err: %+v", crdName, err)
-		deleteErr := clientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(ctx,
+		deleteErr := clientSet.ApiextensionsV1().CustomResourceDefinitions().Delete(ctx,
 			crdName, *metav1.NewDeleteOptions(0))
 		if deleteErr != nil {
 			log.Errorf("Failed to delete %q CRD with err: %+v", crdName, deleteErr)
@@ -480,8 +480,8 @@ func waitForCustomResourceToBeEstablished(ctx context.Context,
 }
 
 // getCRDFromManifest reads a .json/yaml file and returns the CRD in it.
-func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1beta1.CustomResourceDefinition, error) {
-	var crd apiextensionsv1beta1.CustomResourceDefinition
+func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1.CustomResourceDefinition, error) {
+	var crd apiextensionsv1.CustomResourceDefinition
 	log := logger.GetLogger(ctx)
 
 	fullPath := filepath.Join(manifestPath, fileName)

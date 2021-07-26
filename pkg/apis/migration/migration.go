@@ -19,7 +19,6 @@ package migration
 import (
 	"context"
 	"net/url"
-	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -29,7 +28,6 @@ import (
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -121,10 +119,8 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 			log.Info("Initializing volume migration service...")
 			// This is idempotent if CRD is pre-created then we continue with
 			// initialization of volumeMigrationInstance.
-			volumeMigrationServiceInitErr := k8s.CreateCustomResourceDefinitionFromSpec(ctx,
-				CRDName, CRDSingular, CRDPlural, reflect.TypeOf(migrationv1alpha1.CnsVSphereVolumeMigration{}).Name(),
-				migrationv1alpha1.SchemeGroupVersion.Group, migrationv1alpha1.SchemeGroupVersion.Version,
-				apiextensionsv1beta1.ClusterScoped)
+			volumeMigrationServiceInitErr := k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				"cns.vmware.com_cnsvspherevolumemigrations.yaml")
 			if volumeMigrationServiceInitErr != nil {
 				log.Errorf("failed to create volume migration CRD. Error: %v", volumeMigrationServiceInitErr)
 				return nil, volumeMigrationServiceInitErr
