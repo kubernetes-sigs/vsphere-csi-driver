@@ -348,6 +348,7 @@ func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels ma
 		storageclass.Name, ds, pvclaimlabels, accessMode))
 	pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
 	return pvclaim, err
 }
 

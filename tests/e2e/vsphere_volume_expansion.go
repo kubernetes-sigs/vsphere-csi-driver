@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 3. Wait for PV to be provisioned.
 	// 4. Wait for PVC's status to become Bound.
 	// 5. Modify PVC's size to trigger offline volume expansion.
-	// 6. Verify if the PVC expansion fails.
+	// 6. Verify if the PVC expansion fails.
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] Verify volume expansion not allowed", func() {
 		invokeTestForInvalidVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
