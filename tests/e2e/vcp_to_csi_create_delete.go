@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		for _, sc := range vcpScs {
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created after migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created " +
 			"before and after migration")
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs")
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
 		for _, pvc := range vcpPvcsPostMig {
@@ -572,10 +572,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, namespace, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
-		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, namespace, vcpPvcsPreMig)
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc1.Name)
 		found, crd := getCnsVSphereVolumeMigrationCrd(ctx, vpath)
@@ -654,15 +654,17 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 // waitForMigAnnotationsPvcPvLists waits for the list PVs and PVCs to have migration related annotatations
 func waitForMigAnnotationsPvcPvLists(ctx context.Context, c clientset.Interface,
-	namespace string, pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume, isMigratedVol bool) {
+	pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume, isMigratedVol bool) {
 	for i := 0; i < len(pvcs); i++ {
 		pvc := pvcs[i]
-		pvc, err := waitForPvcMigAnnotations(ctx, c, pvc.Name, namespace, isMigratedVol)
+		framework.Logf("Checking PVC %v", pvc.Name)
+		pvc, err := waitForPvcMigAnnotations(ctx, c, pvc.Name, pvc.Namespace, isMigratedVol)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs[i] = pvc
 	}
 	for i := 0; i < len(pvs); i++ {
 		pv := pvs[i]
+		framework.Logf("Checking PV %v", pv.Name)
 		pv, err := waitForPvMigAnnotations(ctx, c, pv.Name, isMigratedVol)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvs[i] = pv
@@ -732,6 +734,8 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 			return true, pvc
 		}
 	}
+	framework.Logf(
+		"Annotations found on PVC: %v in namespace:%v are,\n%v", pvcName, pvc.Namespace, spew.Sdump(annotations))
 	return false, pvc
 }
 
@@ -774,6 +778,8 @@ func pvHasMigAnnotations(ctx context.Context, c clientset.Interface,
 			return true, pv
 		}
 	}
+	framework.Logf(
+		"Annotations found on PV: %v are,\n%v", pvName, spew.Sdump(annotations))
 	return false, pv
 }
 
