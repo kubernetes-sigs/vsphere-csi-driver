@@ -408,6 +408,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: NODEGETINFO_WATCH_TIMEOUT_MINUTES
+              value: "1"
           securityContext:
             privileged: true
             capabilities:

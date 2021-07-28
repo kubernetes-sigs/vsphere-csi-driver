@@ -22,14 +22,17 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
 	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
@@ -95,6 +98,37 @@ func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID st
 	log := logger.GetLogger(ctx)
 	return logger.LogNewErrorCode(log, codes.Unimplemented,
 		"ClearFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+}
+
+// GetNodeTopologyLabels fetches the topology information of a node from the CSINodeTopology CR.
+func (nodeTopology *mockNodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context, info *commoncotypes.NodeInfo) (
+	map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	return nil, logger.LogNewError(log, "GetNodeTopologyLabels is not yet implemented.")
+}
+
+// GetSharedDatastoresInTopology retrieves shared datastores of nodes which satisfy a given topology requirement.
+func (cntrlTopology *mockControllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
+	topologyRequirement *csi.TopologyRequirement) ([]*cnsvsphere.DatastoreInfo, map[string][]map[string]string,
+	error) {
+	log := logger.GetLogger(ctx)
+	return nil, nil, logger.LogNewError(log, "GetSharedDatastoresInTopology is not yet implemented.")
+}
+
+// InitTopologyServiceInController returns a singleton implementation of the
+// commoncotypes.ControllerTopologyService interface for the FakeK8SOrchestrator.
+func (c *FakeK8SOrchestrator) InitTopologyServiceInController(ctx context.Context) (
+	commoncotypes.ControllerTopologyService, error) {
+	// TODO: Mock the k8sClients, node manager and informer.
+	return &mockControllerVolumeTopology{}, nil
+}
+
+// InitTopologyServiceInNode returns a singleton implementation of the
+//commoncotypes.NodeTopologyService interface for the FakeK8SOrchestrator.
+func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (commoncotypes.NodeTopologyService,
+	error) {
+	// TODO: Mock the custom k8sClients and watchers.
+	return &mockNodeVolumeTopology{}, nil
 }
 
 // GetFakeVolumeMigrationService returns the mocked VolumeMigrationService

@@ -207,7 +207,7 @@ func (nodes *Nodes) GetSharedDatastoresInTopology(
 			log.Debugf("Obtained list of nodeVMs [%+v] for zone [%s] and region [%s]",
 				nodeVMsInZoneRegion, zone, region)
 			sharedDatastoresInZoneRegion, err :=
-				nodes.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
+				cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMsInZoneRegion)
 			if err != nil {
 				log.Errorf("Failed to get shared datastores for nodes: %+v in zone [%s] and region [%s]. Error: %+v",
 					nodeVMsInZoneRegion, zone, region, err)
@@ -272,48 +272,11 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
 	}
-	sharedDatastores, err := nodes.GetSharedDatastoresForVMs(ctx, nodeVMs)
+	sharedDatastores, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMs)
 	if err != nil {
 		log.Errorf("failed to get shared datastores for node VMs. Err: %+v", err)
 		return nil, err
 	}
 	log.Debugf("sharedDatastores : %+v", sharedDatastores)
-	return sharedDatastores, nil
-}
-
-// GetSharedDatastoresForVMs returns shared datastores accessible to specified
-// nodeVMs list.
-func (nodes *Nodes) GetSharedDatastoresForVMs(
-	ctx context.Context, nodeVMs []*cnsvsphere.VirtualMachine) (
-	[]*cnsvsphere.DatastoreInfo, error) {
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	log := logger.GetLogger(ctx)
-	for _, nodeVM := range nodeVMs {
-		log.Debugf("Getting accessible datastores for node %s", nodeVM.VirtualMachine)
-		accessibleDatastores, err := nodeVM.GetAllAccessibleDatastores(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(sharedDatastores) == 0 {
-			sharedDatastores = accessibleDatastores
-		} else {
-			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
-			for _, sharedDs := range sharedDatastores {
-				// Check if sharedDatastores is found in accessibleDatastores.
-				for _, accessibleDs := range accessibleDatastores {
-					// Intersection is performed based on the datastoreUrl as this
-					// uniquely identifies the datastore.
-					if sharedDs.Info.Url == accessibleDs.Info.Url {
-						sharedAccessibleDatastores = append(sharedAccessibleDatastores, sharedDs)
-						break
-					}
-				}
-			}
-			sharedDatastores = sharedAccessibleDatastores
-		}
-		if len(sharedDatastores) == 0 {
-			return nil, fmt.Errorf("no shared datastores found for nodeVm: %+v", nodeVM)
-		}
-	}
 	return sharedDatastores, nil
 }
