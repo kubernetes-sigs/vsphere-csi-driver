@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
@@ -61,9 +62,10 @@ type NodeManagerInterface interface {
 }
 
 type controller struct {
-	manager *common.Manager
-	nodeMgr NodeManagerInterface
-	authMgr common.AuthorizationService
+	manager     *common.Manager
+	nodeMgr     NodeManagerInterface
+	authMgr     common.AuthorizationService
+	topologyMgr commoncotypes.ControllerTopologyService
 }
 
 // volumeMigrationService holds the pointer to VolumeMigration instance.
@@ -229,7 +231,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
-
+	// Create dynamic informer for CSINodeTopology instance if FSS is enabled.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+		// Initialize volume topology service.
+		c.topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize topology service. Error: %+v", err)
+			return err
+		}
+	}
 	// Go module to keep the metrics http server running all the time.
 	go func() {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
@@ -413,36 +423,46 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement := req.GetAccessibilityRequirements()
 	if topologyRequirement != nil {
 		// Get shared accessible datastores for matching topology requirement.
-		if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
-			// If zone and region label (vSphere category names) not specified in
-			// the config secret, then return NotFound error.
-			return nil, logger.LogNewErrorCode(log, codes.NotFound,
-				"zone/region vsphere category names not specified in the vsphere config secret")
-		}
-		vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
-				"failed to get vCenter. Err: %v", err)
-		}
-		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
-				"failed to get tagManager. Err: %v", err)
-		}
-		defer func() {
-			err := tagManager.Logout(ctx)
-			if err != nil {
-				log.Errorf("failed to logout tagManager. err: %v", err)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+			sharedDatastores, datastoreTopologyMap, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+				topologyRequirement)
+			if err != nil || len(sharedDatastores) == 0 {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
+					topologyRequirement, err)
 			}
-		}()
-		sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx,
-			topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
-		if err != nil || len(sharedDatastores) == 0 {
-			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
-				"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
+		} else {
+			if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
+				// If zone and region label (vSphere category names) not specified in
+				// the config secret, then return NotFound error.
+				return nil, logger.LogNewErrorCode(log, codes.Internal,
+					"zone/region vsphere category names not specified in the vsphere config secret")
+			}
+			vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Err: %v", err)
+			}
+			tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get tagManager. Err: %v", err)
+			}
+			defer func() {
+				err := tagManager.Logout(ctx)
+				if err != nil {
+					log.Errorf("failed to logout tagManager. err: %v", err)
+				}
+			}()
+			sharedDatastores, datastoreTopologyMap, err = c.nodeMgr.GetSharedDatastoresInTopology(ctx,
+				topologyRequirement, tagManager, c.manager.CnsConfig.Labels.Zone, c.manager.CnsConfig.Labels.Region)
+			if err != nil || len(sharedDatastores) == 0 {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
+			}
 		}
-		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with datastoreTopologyMap [+%v]",
-			sharedDatastores, topologyRequirement, datastoreTopologyMap)
+		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with "+
+			"datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
 		if createVolumeSpec.ScParams.DatastoreURL != "" {
 			// Check datastoreURL specified in the storageclass is accessible from
 			// topology.

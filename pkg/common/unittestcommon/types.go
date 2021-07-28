@@ -60,3 +60,11 @@ type MockVolumeMigrationService interface {
 type fakeVolumeOperationRequestInterface struct {
 	volumeOperationRequestMap map[string]*cnsvolumeoperationrequest.VolumeOperationRequestDetails
 }
+
+// mockControllerVolumeTopology is a mock of the k8sorchestrator controllerVolumeTopology type.
+type mockControllerVolumeTopology struct {
+}
+
+// mockNodeVolumeTopology is a mock of the k8sorchestrator nodeVolumeTopology type.
+type mockNodeVolumeTopology struct {
+}
