@@ -173,6 +173,25 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
+	// Handle the case of CreateVolumeFromSnapshot by checking if
+	// the ContentSourceSnapshotID is available in CreateVolumeSpec
+	if spec.ContentSourceSnapshotID != "" {
+		// Parse spec.ContentSourceSnapshotID into CNS VolumeID and CNS SnapshotID using "+" as the delimiter
+		cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(spec.ContentSourceSnapshotID)
+		if err != nil {
+			return nil, err
+		}
+
+		createSpec.VolumeSource = &cnstypes.CnsSnapshotVolumeSource{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: cnsVolumeID,
+			},
+			SnapshotId: cnstypes.CnsSnapshotId{
+				Id: cnsSnapshotID,
+			},
+		}
+	}
+
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
 	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
@@ -672,16 +691,21 @@ func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, 
 }
 
 // DeleteSnapshotUtil is the helper function to delete CNS snapshot for given snapshotId
-func DeleteSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, snapshotID string) error {
+func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID string) error {
 	log := logger.GetLogger(ctx)
 
-	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", snapshotID, volumeID)
-	err := manager.VolumeManager.DeleteSnapshot(ctx, volumeID, snapshotID)
+	cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(csiSnapshotID)
 	if err != nil {
-		log.Errorf("failed to delete snapshot %q on volume %q with error %+v", snapshotID, volumeID, err)
 		return err
 	}
-	log.Debugf("Successfully deleted snapshot %q on volume %q", snapshotID, volumeID)
+
+	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", cnsSnapshotID, cnsVolumeID)
+	err = manager.VolumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to delete snapshot %q on volume %q with error %+v",
+			cnsSnapshotID, cnsVolumeID, err)
+	}
+	log.Debugf("Successfully deleted snapshot %q on volume %q", cnsSnapshotID, cnsVolumeID)
 
 	return nil
 }
