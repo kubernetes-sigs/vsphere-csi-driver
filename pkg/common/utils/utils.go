@@ -134,3 +134,37 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager,
 	}
 	return allQuerySnapshotResults, nil
 }
+
+// Query Capacity in MB for block volume snapshot
+func QueryCapacityForBlockVolumeSnapshotUtil(ctx context.Context, m cnsvolume.Manager, sourceVolumeID,
+	blockVolumeType string) (int64, error) {
+	log := logger.GetLogger(ctx)
+	// Check if volume already exists
+	volumeIds := []cnstypes.CnsVolumeId{{Id: sourceVolumeID}}
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+	}
+	queryResult, err := m.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to query the block volume %q to be snapshotted: %v", sourceVolumeID, err)
+	}
+
+	// Check if it is a block volume.
+	if queryResult.Volumes[0].VolumeType != blockVolumeType {
+		return 0, logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"createSnapshot is only supported on block volume. VolumeType: %v",
+			queryResult.Volumes[0].VolumeType)
+	}
+
+	// Get the snapshot size by getting the volume size, which is only valid for full backup use cases
+	var snapshotSizeInMb int64
+	if len(queryResult.Volumes) > 0 {
+		snapshotSizeInMb = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+	} else {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get the snapshot size by querying volume: %q", sourceVolumeID)
+	}
+
+	return snapshotSizeInMb, nil
+}

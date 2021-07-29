@@ -361,6 +361,37 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
+	// Check if the feature state of block-volume-snapshot is enabled
+	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+	// Check if requested volume size and source snapshot size matches
+	volumeSource := req.GetVolumeContentSource()
+	var contentSourceSnapshotID string
+	if isBlockVolumeSnapshotEnabled && volumeSource != nil {
+		sourceSnapshot := volumeSource.GetSnapshot()
+		if sourceSnapshot == nil {
+			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "unsupported VolumeContentSource type")
+		}
+		contentSourceSnapshotID = sourceSnapshot.GetSnapshotId()
+
+		cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
+		if err != nil {
+			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
+		}
+
+		snapshotSizeInMB, err := utils.QueryCapacityForBlockVolumeSnapshotUtil(
+			ctx, c.manager.VolumeManager, cnsVolumeID, common.BlockVolumeType)
+		if err != nil {
+			return nil, err
+		}
+
+		snapshotSizeInBytes := snapshotSizeInMB * common.MbInBytes
+		if volSizeBytes != snapshotSizeInBytes {
+			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"size mismatches, requested volume size %d and source snapshot size %d",
+				volSizeBytes, snapshotSizeInBytes)
+		}
+	}
+
 	// Fetching the feature state for csi-migration before parsing storage class
 	// params.
 	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
@@ -410,10 +441,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 	var createVolumeSpec = common.CreateVolumeSpec{
-		CapacityMB: volSizeMB,
-		Name:       req.Name,
-		ScParams:   scParams,
-		VolumeType: common.BlockVolumeType,
+		CapacityMB:              volSizeMB,
+		Name:                    req.Name,
+		ScParams:                scParams,
+		VolumeType:              common.BlockVolumeType,
+		ContentSourceSnapshotID: contentSourceSnapshotID,
 	}
 
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
@@ -575,6 +607,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 	}
+
+	// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
+	if contentSourceSnapshotID != "" {
+		resp.Volume.ContentSource = &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{
+					SnapshotId: contentSourceSnapshotID,
+				},
+			},
+		}
+	}
+
 	return resp, nil
 }
 
@@ -1180,33 +1224,13 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				"cannot snapshot migrated vSphere volume. :%q", volumeID)
 		}
 
-		// Check if volume already exists
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: volumeIds,
-		}
-		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+		// Query Capacity in MB for block volume snapshot
+		snapshotSizeInMB, err := utils.QueryCapacityForBlockVolumeSnapshotUtil(
+			ctx, c.manager.VolumeManager, volumeID, common.BlockVolumeType)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"The volume %q to be snapshotted is not available: %v", volumeID, err)
-		}
-
-		// Check if it is a block volume
-		if queryResult.Volumes[0].VolumeType != common.BlockVolumeType {
-			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"CreateSnapshot is only supported on block volume. VolumeType: %v",
-				queryResult.Volumes[0].VolumeType)
+			return nil, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
-
-		// Get the snapshot size by getting the volume size, which is only valid for full backup use cases
-		var snapshotSize int64
-		if len(queryResult.Volumes) > 0 {
-			snapshotSize = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
-		} else {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get the snapshot size by querying volume: %q", volumeID)
-		}
 
 		// the returned snapshotID below is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+"
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
@@ -1221,7 +1245,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
-				SizeBytes:      snapshotSize * common.MbInBytes,
+				SizeBytes:      snapshotSizeInMB * common.MbInBytes,
 				SnapshotId:     snapshotID,
 				SourceVolumeId: volumeID,
 				CreationTime:   snapshotCreateTimeInProto,
@@ -1231,7 +1255,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 		log.Infof("CreateSnapshot succeeded for snapshot %s "+
 			"on volume %s size %d Time proto %d Timestamp %+v Response: %+v",
-			snapshotID, volumeID, snapshotSize*common.MbInBytes, snapshotCreateTimeInProto,
+			snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
 			*snapshotCreateTimePtr, createSnapshotResponse)
 		return createSnapshotResponse, nil
 	}
@@ -1261,35 +1285,15 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
-		// Validate arguments
-		// The expected format of the SnapshotId in the DeleteSnapshotRequest is,
-		// a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
-		// That is, a string of "<UUID>+<UUID>"
 		csiSnapshotID := req.GetSnapshotId()
-		if len(csiSnapshotID) == 0 {
-			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-				"DeleteSnapshot Snapshot ID must be provided")
-		}
-
-		// Decompose csiSnapshotID based on the expected format mentioned above
-		IDs := strings.Split(csiSnapshotID, common.VSphereCSISnapshotIdDelimiter)
-		if len(IDs) != 2 {
-			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-				"DeleteSnapshot provided invalid Snapshot ID")
-		}
-
-		volumeID := IDs[0]
-		snapshotID := IDs[1]
-		log.Debugf("DeleteSnapshot: Deleting snapshot %q on volume %q", snapshotID, volumeID)
-
-		err := common.DeleteSnapshotUtil(ctx, c.manager, volumeID, snapshotID)
+		err := common.DeleteSnapshotUtil(ctx, c.manager, csiSnapshotID)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Failed to delete snapshot %q on volume %q. Error: %+v",
-				snapshotID, volumeID, err)
+				"Failed to delete snapshot %q. Error: %+v",
+				csiSnapshotID, err)
 		}
 
-		log.Infof("DeleteSnapshot: successfully deleted snapshot %q on volume %q", snapshotID, volumeID)
+		log.Infof("DeleteSnapshot: successfully deleted snapshot %q", csiSnapshotID)
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 

@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -375,4 +376,25 @@ func ConvertVolumeHealthStatus(ctx context.Context, volID string, volHealthStatu
 		log.Debugf("Volume health is not set for volume: %s", volID)
 		return VolHealthStatusInaccessible, nil
 	}
+}
+
+// ParseCSISnapshotID parses the SnapshotID from CSI RPC such as DeleteSnapshot, CreateVolume from snapshot
+// into a pair of CNS VolumeID and CNS SnapshotID.
+func ParseCSISnapshotID(csiSnapshotID string) (string, string, error) {
+	if csiSnapshotID == "" {
+		return "", "", errors.New("csiSnapshotID from the input is empty")
+	}
+
+	// The expected format of the SnapshotId in the DeleteSnapshotRequest is,
+	// a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
+	// That is, a string of "<UUID>+<UUID>". Decompose csiSnapshotID based on the expected format.
+	IDs := strings.Split(csiSnapshotID, VSphereCSISnapshotIdDelimiter)
+	if len(IDs) != 2 {
+		return "", "", fmt.Errorf("unexpected format in csiSnapshotID: %v", csiSnapshotID)
+	}
+
+	cnsVolumeID := IDs[0]
+	cnsSnapshotID := IDs[1]
+
+	return cnsVolumeID, cnsSnapshotID, nil
 }

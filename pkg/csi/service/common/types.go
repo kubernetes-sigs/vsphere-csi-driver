@@ -70,9 +70,10 @@ type CreateVolumeSpec struct {
 	StoragePolicyID string
 	CapacityMB      int64
 	// TODO: Move this StorageClassParams
-	AffineToHost           string
-	VolumeType             string
-	VsanDirectDatastoreURL string // Datastore URL from vSan direct storage pool
+	AffineToHost            string
+	VolumeType              string
+	VsanDirectDatastoreURL  string // Datastore URL from vSan direct storage pool
+	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
 }
 
 // StorageClassParams represents the storage class parameterss
