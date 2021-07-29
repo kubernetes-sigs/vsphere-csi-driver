@@ -216,7 +216,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
-	volInfo, err := r.volumeManager.CreateVolume(ctx, createSpec)
+	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		msg := "failed to create CNS volume"
 		log.Errorf(msg)
@@ -252,7 +252,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
 		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
 		// Untag the CNS volume which was created previously.
-		err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+		_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
 		if err != nil {
 			log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 		}
@@ -263,7 +263,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Errorf("Volume: %s doesn't have storage policy associated with it", volumeID)
 		setInstanceError(ctx, r, instance, "Volume in the spec doesn't have storage policy associated with it")
 		// Untag the CNS volume which was created previously.
-		err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+		_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
 		if err != nil {
 			log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 		}
@@ -360,7 +360,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				log.Errorf(msg)
 				setInstanceError(ctx, r, instance, msg)
 				// Untag the CNS volume which was created previously.
-				err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+				_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
 				if err != nil {
 					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 				} else {

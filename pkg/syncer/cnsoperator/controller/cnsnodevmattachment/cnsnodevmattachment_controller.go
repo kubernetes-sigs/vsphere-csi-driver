@@ -328,7 +328,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 			"CnsNodeVmAttachment request with name: %q on namespace: %q",
 			volumeID, nodeVM, request.Name, request.Namespace)
-		diskUUID, attachErr := r.volumeManager.AttachVolume(ctx, nodeVM, volumeID, false)
+		diskUUID, _, attachErr := r.volumeManager.AttachVolume(ctx, nodeVM, volumeID, false)
 
 		if attachErr != nil {
 			log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
@@ -442,7 +442,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 			"CnsNodeVmAttachment request with name: %q on namespace: %q",
 			cnsVolumeID, nodeVM, request.Name, request.Namespace)
-		detachErr := r.volumeManager.DetachVolume(ctx, nodeVM, cnsVolumeID)
+		_, detachErr := r.volumeManager.DetachVolume(ctx, nodeVM, cnsVolumeID)
 		if detachErr != nil {
 			if cnsvsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 				msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
