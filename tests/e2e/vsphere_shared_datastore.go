@@ -45,7 +45,9 @@ import (
 // 1. SHARED_VSPHERE_DATASTORE_URL (set to shared datastore URL).
 // 2. NONSHARED_VSPHERE_DATASTORE_URL (set to non-shared datastor URL).
 
-var _ = ginkgo.Describe("[csi-block-vanilla] Datastore Based Volume Provisioning With No Storage Policy", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
+	"Datastore Based Volume Provisioning With No Storage Policy", func() {
+
 	f := framework.NewDefaultFramework("e2e-vsphere-volume-provisioning-no-storage-policy")
 	var (
 		client                clientset.Interface

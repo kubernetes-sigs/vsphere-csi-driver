@@ -54,7 +54,8 @@ import (
 		10. Delete storage class.
 */
 
-var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() {
+var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Volume Operations Storm", func() {
+
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
 	const defaultVolumeOpsScale = 30
@@ -239,7 +240,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] Volume Operations Storm", func() 
 		7. Delete Namespace  and Wait for volumes to be deleted and Volume Disk to be detached from the Node.
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] "+
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-block-vanilla-parallelized] "+
 		"Delete namespace to confirm all volumes and pods are deleted", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

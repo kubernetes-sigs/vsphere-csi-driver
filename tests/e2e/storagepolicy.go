@@ -49,7 +49,9 @@ import (
 // 7. Delete pod and Wait for Volume Disk to be detached from the Node.
 // 8. Delete PVC, PV and Storage Class.
 
-var _ = ginkgo.Describe("[csi-block-vanilla] Storage Policy Based Volume Provisioning", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
+	"Storage Policy Based Volume Provisioning", func() {
+
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	var (
 		client    clientset.Interface

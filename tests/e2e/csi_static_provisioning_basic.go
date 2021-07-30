@@ -49,6 +49,7 @@ import (
 )
 
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
+
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
 
 	var (
@@ -268,7 +269,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] Verify basic static provisioning workflow", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow", func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -375,7 +376,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 7. Wait for the volume entry to be created in CNS.
 	// 8. Delete PV2.
 	// 9. Wait for PV2 to be deleted, and also entry is deleted from CNS.
-	ginkgo.It("[csi-block-vanilla] Verify static provisioning workflow using same PV name twice", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
+		"Verify static provisioning workflow using same PV name twice", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
