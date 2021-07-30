@@ -879,7 +879,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.  Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Volume expansion on shared VVOL datastore", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Volume expansion on shared VVOL datastore", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -893,6 +893,10 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running on SVC setup - " +
 				"This test covers Offline and Online expansion on PVC created on VVOL datastore")
+		}
+		if guestCluster {
+			ginkgo.By("CNS_TEST: Running on GC setup - This test covers Offline" +
+				"and Online expansion on PVC created on VVOL datastore")
 		}
 
 		sharedVVOLdatastoreURL := os.Getenv(envSharedVVOLDatastoreURL)
@@ -918,8 +922,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			pvclaim, pod, vmUUID = offlineVolumeExpansionOnSupervisorPVC(client, f, namespace, volHandle, pvclaim)
 		}
 
-		if vanillaCluster {
-			ginkgo.By("Create Pod using the above PVC")
+		if vanillaCluster || guestCluster {
+			ginkgo.By("Create POD using the above PVC")
 			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 		}
 
@@ -962,7 +966,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.  Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Volume expansion on shared NFS datastore", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Volume expansion on shared NFS datastore", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -976,6 +980,10 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running on SVC setup - " +
 				"This test covers Offline and Online expansion on PVC created on NFS datastore")
+		}
+		if guestCluster {
+			ginkgo.By("CNS_TEST: Running on GC setup - This test covers Offline and" +
+				"Online expansion on PVC created on NFS datastore")
 		}
 
 		sharedNFSdatastoreURL := os.Getenv(envSharedNFSDatastoreURL)
@@ -997,12 +1005,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		if supervisorCluster {
-			ginkgo.By("Trigger offline volume expansion on PVC on shared VMFS datastore")
+			ginkgo.By("Trigger offline volume expansion on PVC on shared NFS datastore")
 			pvclaim, pod, vmUUID = offlineVolumeExpansionOnSupervisorPVC(client, f, namespace, volHandle, pvclaim)
 		}
 
-		if vanillaCluster {
-			ginkgo.By("Create Pod using the above PVC")
+		if vanillaCluster || guestCluster {
+			ginkgo.By("Create POD using the above PVC")
 			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 		}
 
@@ -1046,7 +1054,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.  Make sure file system has increased
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Volume expansion on shared VMFS datastore", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Volume expansion on shared VMFS datastore", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1060,6 +1068,10 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running on SVC setup - " +
 				"This test covers Offline and Online expansion on PVC created on NFS datastore")
+		}
+		if guestCluster {
+			ginkgo.By("CNS_TEST: Running on GC setup - This test covers Offline " +
+				"and Online expansion on PVC created on NFS datastore")
 		}
 
 		sharedVMFSdatastoreURL := os.Getenv(envSharedVMFSDatastoreURL)
@@ -1085,8 +1097,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			pvclaim, pod, vmUUID = offlineVolumeExpansionOnSupervisorPVC(client, f, namespace, volHandle, pvclaim)
 		}
 
-		if vanillaCluster {
-			ginkgo.By("Create Pod using the above PVC")
+		if vanillaCluster || guestCluster {
+			ginkgo.By("Create POD using the above PVC")
 			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
 		}
 
@@ -1701,8 +1713,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-supervisor] [csi-block-vanilla] "+
-		"Verify online volume expansion when Pod is deleted and re-created", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] [csi-guest] "+
+		"Verify online volume expansion when POD is deleted and re-created", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1822,7 +1834,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		7. Delete Pod and PVC
 		8. Verify there should not be any PVC entry in CNS
 	*/
-	ginkgo.It("[csi-supervisor] [csi-block-vanilla] Verify online volume expansion when PVC is deleted", func() {
+	ginkgo.It("[csi-supervisor] [csi-block-vanilla] [csi-guest] "+
+		"Verify online volume expansion when PVC is deleted", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2230,7 +2243,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Scale down deployment set to 0 replicas and delete all pods, PVC and SC
 
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Verify online volume expansion on deployment", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] Verify online volume expansion on deployment", func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
