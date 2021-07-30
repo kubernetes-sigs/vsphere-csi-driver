@@ -1422,6 +1422,12 @@ func ensureMountVol(ctx context.Context, log *zap.SugaredLogger,
 	fs := common.GetVolumeCapabilityFsType(ctx, volCap)
 	mntFlags := mountVol.GetMountFlags()
 
+	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
+	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
+	if fs == "xfs" {
+		mntFlags = append(mntFlags, "nouuid")
+	}
+
 	return fs, mntFlags, nil
 }
 
