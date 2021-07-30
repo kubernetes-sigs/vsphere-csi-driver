@@ -1451,7 +1451,7 @@ func createVmdk(host string, size string, objType string, diskFormat string) (st
 	if size == "" {
 		size = "2g"
 	}
-	rand.Seed(time.Now().UnixNano())
+
 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)

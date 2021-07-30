@@ -56,6 +56,7 @@ import (
 // 11. Wait for volume to be detached.
 
 var _ = ginkgo.Describe("Data Persistence", func() {
+
 	f := framework.NewDefaultFramework("e2e-data-persistence")
 	var (
 		client            clientset.Interface
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] "+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized] "+
 		"Should create and delete pod with the same volume source", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

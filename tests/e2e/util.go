@@ -475,8 +475,8 @@ func updateDeploymentReplica(client clientset.Interface,
 	*deployment.Spec.Replicas = count
 	deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Waiting for update operation on deployment to take effect")
-	time.Sleep(1 * time.Minute)
+	err = fdep.WaitForDeploymentComplete(client, deployment)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return deployment
 }
 
