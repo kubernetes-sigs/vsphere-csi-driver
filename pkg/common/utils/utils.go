@@ -21,6 +21,8 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/vmware/govmomi/vim25/types"
+
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -240,4 +242,47 @@ func QueryCapacityForBlockVolumeSnapshotUtil(ctx context.Context, m cnsvolume.Ma
 	}
 
 	return snapshotSizeInMb, nil
+}
+
+// Get the datastore reference by datastore URL from a list of datastore references.
+// If the datastore with dsURL can be found in the same datacenter as the given VC
+// and it is also found in the given datastoreList, return the reference of the datastore.
+// Otherwise, return error.
+func GetDatastoreRefByURLFromGivenDatastoreList(
+	ctx context.Context, vc *cnsvsphere.VirtualCenter, datastoreList []types.ManagedObjectReference, dsURL string) (
+	*types.ManagedObjectReference, error) {
+	log := logger.GetLogger(ctx)
+	// get all datacenters in the virtualcenter
+	datacenters, err := vc.GetDatacenters(ctx)
+	if err != nil {
+		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+		return nil, err
+	}
+	var candidateDsObj *cnsvsphere.Datastore
+	// traverse each datacenter and find the datastore with the specified dsURL
+	for _, datacenter := range datacenters {
+		candidateDsObj, err = datacenter.GetDatastoreByURL(ctx, dsURL)
+		if err != nil {
+			log.Errorf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+				dsURL, datacenter.InventoryPath, vc.Config.Host, err)
+			continue
+		}
+		break
+	}
+
+	if candidateDsObj == nil {
+		// fail if the candidate datastore is not found in the virtualcenter
+		return nil, logger.LogNewErrorf(log,
+			"failed to find datastore with URL %q in VC %q", dsURL, vc.Config.Host)
+	}
+
+	for _, datastoreRef := range datastoreList {
+		if datastoreRef == candidateDsObj.Reference() {
+			log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsURL, datastoreRef)
+			return &datastoreRef, nil
+		}
+	}
+
+	return nil, logger.LogNewErrorf(log,
+		"failed to find datastore with URL %q from the input datastore list, %v", dsURL, datastoreList)
 }

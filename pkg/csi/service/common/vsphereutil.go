@@ -195,6 +195,30 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				Id: cnsSnapshotID,
 			},
 		}
+
+		// select the compatible datastore for the case of create volume from snapshot
+		// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
+		// as the source volume
+		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to query datastore for the snapshot %s with error %+v",
+				spec.ContentSourceSnapshotID, err)
+		}
+
+		// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
+		compatibleDatastore, err := utils.GetDatastoreRefByURLFromGivenDatastoreList(
+			ctx, vc, createSpec.Datastores, cnsVolume.DatastoreUrl)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
+				spec.ContentSourceSnapshotID, err)
+		}
+		// overwrite the datatstores field in create spec with the compatible datastore
+		log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
+			"when create volume from snapshot %s", createSpec.Datastores, *compatibleDatastore,
+			spec.ContentSourceSnapshotID)
+		createSpec.Datastores = []vim25types.ManagedObjectReference{*compatibleDatastore}
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))

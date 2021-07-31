@@ -7,11 +7,16 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/vmware/govmomi/vim25/mo"
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
@@ -22,29 +27,32 @@ const (
 )
 
 var (
-	csiConfig            *cnsconfig.Config
-	ctx                  context.Context
-	cnsVCenterConfig     *cnsvsphere.VirtualCenterConfig
-	err                  error
-	virtualCenterManager cnsvsphere.VirtualCenterManager
-	virtualCenter        *cnsvsphere.VirtualCenter
-	volumeManager        cnsvolumes.Manager
-	cancel               context.CancelFunc
+	ctx                     context.Context
+	commonUtilsTestInstance *commonUtilsTest
+	onceForControllerTest   sync.Once
 )
+
+type commonUtilsTest struct {
+	config  *cnsconfig.Config
+	vcenter *cnsvsphere.VirtualCenter
+}
 
 // configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
 // The vcsim instance is configured with an empty tls.Config.
 func configFromSim() (*cnsconfig.Config, func()) {
-	return configFromSimWithTLS(new(tls.Config), true)
+	return configFromCustomizedSimWithTLS(new(tls.Config), true)
 }
 
-// configFromSimWithTLS starts a vcsim instance and returns config for use against the vcsim instance.
+// configFromCustomizedSimWithTLS starts a vcsim instance and returns config for use against the vcsim instance.
 // The vcsim instance is configured with a tls.Config. The returned client
 // config can be configured to allow/decline insecure connections.
-func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconfig.Config, func()) {
+func configFromCustomizedSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconfig.Config, func()) {
 	cfg := &cnsconfig.Config{}
 	model := simulator.VPX()
 	defer model.Remove()
+
+	// configure multiple datastores in the vcsim instance
+	model.Datastore = 3
 
 	err := model.Create()
 	if err != nil {
@@ -100,47 +108,44 @@ func configFromEnvOrSim() (*cnsconfig.Config, func()) {
 	return cfg, func() {}
 }
 
+func getCommonUtilsTest(t *testing.T) *commonUtilsTest {
+	onceForControllerTest.Do(func() {
+		// Create context
+		ctx = context.Background()
+		csiConfig, _ := configFromEnvOrSim()
+
+		// CNS based CSI requires a valid cluster name
+		csiConfig.Global.ClusterID = testClusterName
+
+		// Init VC configuration
+		cnsVCenterConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, csiConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		virtualCenterManager := cnsvsphere.GetVirtualCenterManager(ctx)
+		virtualCenter, err := virtualCenterManager.RegisterVirtualCenter(ctx, cnsVCenterConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commonUtilsTestInstance = &commonUtilsTest{
+			config:  csiConfig,
+			vcenter: virtualCenter,
+		}
+	})
+	return commonUtilsTestInstance
+}
+
 func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
-	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	t.Log("TestQuerySnapshotsUtil: start")
-	var cleanup func()
-	csiConfig, cleanup = configFromEnvOrSim()
-	defer cleanup()
-
-	// CNS based CSI requires a valid cluster name
-	csiConfig.Global.ClusterID = testClusterName
-
-	// Init VC configuration
-	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, csiConfig)
-	if err != nil {
-		t.Errorf("failed to get virtualCenter. err=%v", err)
-		t.Fatal(err)
-	}
-
-	virtualCenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
-
-	virtualCenter, err = virtualCenterManager.RegisterVirtualCenter(ctx, cnsVCenterConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = virtualCenter.ConnectCns(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if virtualCenter != nil {
-			err = virtualCenter.Disconnect(ctx)
-			if err != nil {
-				t.Error(err)
-			}
-		}
-	}()
-
-	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false)
+	volumeManager := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false)
 	queryFilter := types.CnsSnapshotQueryFilter{
 		SnapshotQuerySpecs: nil,
 		Cursor: &types.CnsCursor{
@@ -156,5 +161,101 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	t.Log("Snapshots: ")
 	for _, entry := range queryResultEntries {
 		t.Log(entry)
+	}
+}
+
+func TestGetDatastoreRefByURLFromGivenDatastoreList(t *testing.T) {
+	type funcArgs struct {
+		ctx         context.Context
+		vc          *cnsvsphere.VirtualCenter
+		dsMoRefList []vim25types.ManagedObjectReference
+		dsURL       string
+	}
+
+	// Create context
+	commonUtilsTestInstance := getCommonUtilsTest(t)
+
+	dsReferenceList := simulator.Map.AllReference("Datastore")
+	var dsEntityList []mo.Entity
+	var dsMoRefList []vim25types.ManagedObjectReference
+	for _, dsReference := range dsReferenceList {
+		dsMoRefList = append(dsMoRefList, dsReference.Reference())
+		dsEntityList = append(dsEntityList, dsReference.(mo.Entity))
+	}
+
+	// case 2: a list of all datastore MoRef except the last one
+	dsMoRefListButLastOne := dsMoRefList[:len(dsMoRefList)-1]
+
+	// the datastore url for the last one in the list
+	dsReferenceFortheLast := dsReferenceList[len(dsReferenceList)-1].Reference()
+	dsUrl := dsEntityList[len(dsEntityList)-1].(*simulator.Datastore).Info.GetDatastoreInfo().Url
+
+	// an invalid datastore url
+	invalidDsUrl := "an-invalid-datastore-url"
+
+	tests := []struct {
+		name          string
+		args          funcArgs
+		expectedDsRef *vim25types.ManagedObjectReference
+		expectedErr   error
+	}{
+		{
+			name: "CompatibleDatastoreFound",
+			args: funcArgs{
+				ctx:         context.TODO(),
+				vc:          commonUtilsTestInstance.vcenter,
+				dsMoRefList: dsMoRefList,
+				dsURL:       dsUrl,
+			},
+			expectedDsRef: &dsReferenceFortheLast,
+			expectedErr:   nil,
+		},
+		{
+			name: "FailToFindGivenDatastoreInCompatibleList",
+			args: funcArgs{
+				ctx:         context.TODO(),
+				vc:          commonUtilsTestInstance.vcenter,
+				dsMoRefList: dsMoRefListButLastOne,
+				dsURL:       dsUrl,
+			},
+			expectedDsRef: nil,
+			expectedErr: fmt.Errorf("failed to find datastore with URL %q from "+
+				"the input datastore list, %v", dsUrl, dsMoRefListButLastOne),
+		},
+		{
+			name: "FailToFindGivenDatastoreInVC",
+			args: funcArgs{
+				ctx:         context.TODO(),
+				vc:          commonUtilsTestInstance.vcenter,
+				dsMoRefList: dsMoRefList,
+				dsURL:       invalidDsUrl,
+			},
+			expectedDsRef: nil,
+			expectedErr: fmt.Errorf("failed to find datastore with URL %q in VC %q",
+				invalidDsUrl, commonUtilsTestInstance.vcenter.Config.Host),
+		},
+		{
+			name: "EmptyDatastoreURLFromInput",
+			args: funcArgs{
+				ctx:         context.TODO(),
+				vc:          commonUtilsTestInstance.vcenter,
+				dsMoRefList: dsMoRefList,
+				dsURL:       "",
+			},
+			expectedDsRef: nil,
+			expectedErr: fmt.Errorf("failed to find datastore with URL %q in VC %q",
+				"", commonUtilsTestInstance.vcenter.Config.Host),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actualDsRef, actualErr := GetDatastoreRefByURLFromGivenDatastoreList(
+				test.args.ctx, test.args.vc, test.args.dsMoRefList, test.args.dsURL)
+			assert.Equal(t, test.expectedErr == nil, actualErr == nil)
+			if test.expectedErr != nil && actualErr != nil {
+				assert.Equal(t, test.expectedErr.Error(), actualErr.Error())
+			}
+			assert.Equal(t, test.expectedDsRef, actualDsRef)
+		})
 	}
 }
