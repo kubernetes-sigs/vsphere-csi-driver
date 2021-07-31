@@ -139,6 +139,11 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		Datacenters:  cfg.Global.Datacenters,
 	}
 
+	// set up the default global maximum of number of snapshots if unset
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = config.DefaultGlobalMaxSnapshotsPerBlockVolume
+	}
+
 	return cfg, func() {
 		s.Close()
 		model.Remove()
@@ -867,7 +872,7 @@ func TestDeleteVolumeWithSnapshots(t *testing.T) {
 	}
 }
 
-func TestSnapshotVolume(t *testing.T) {
+func TestCreateBlockVolumeSnapshot(t *testing.T) {
 	ct := getControllerTest(t)
 
 	// Create.
@@ -933,45 +938,78 @@ func TestSnapshotVolume(t *testing.T) {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
 	}
 
-	// Snapshot a volume
+	defer func() {
+		// Delete volume.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	// Create the configured max number of snapshots on the source volume.
+	configured_max_snapshot_num := ct.controller.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+	for i := 0; i < configured_max_snapshot_num; i++ {
+		reqCreateSnapshot := &csi.CreateSnapshotRequest{
+			SourceVolumeId: volID,
+			Name:           "snapshot-" + uuid.New().String(),
+		}
+
+		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+		defer func() {
+			// Delete the snapshot
+			reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+				SnapshotId: snapID,
+			}
+
+			_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}()
+	}
+
+	// error expected when create the fourth snapshot
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
 	}
+	expectedErr := fmt.Errorf("the number of snapshots on the source volume %s reaches "+
+		"the configured maximum (%v)", volID, configured_max_snapshot_num)
 
-	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	_, err = ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
 	if err != nil {
-		t.Fatal(err)
-	}
-	snapID := respCreateSnapshot.Snapshot.SnapshotId
-
-	// Delete the snapshot
-	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
-		SnapshotId: snapID,
-	}
-
-	_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Delete.
-	reqDelete := &csi.DeleteVolumeRequest{
-		VolumeId: volID,
-	}
-	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify the volume has been deleted.
-	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(queryResult.Volumes) != 0 {
-		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+		delErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type.", err)
+		}
+		if delErr.Code() == codes.FailedPrecondition && delErr.Message() == expectedErr.Error() {
+			t.Logf("received error as expected when attempting to create snapshot on volume "+
+				"when existing number of snapshots reaches the configured maximum, error: %+v.", err)
+		} else {
+			t.Fatalf("unexpected error received, expected: %s received: %s.",
+				expectedErr.Error(), delErr.Message())
+		}
+	} else {
+		t.Fatal("expected error was not received create snapshot on volume " +
+			"with configured maximum number of snapshots.")
 	}
 }
 
@@ -1304,7 +1342,7 @@ func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
 
 func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 	ct := getControllerTest(t)
-	numOfSnapshots := 5
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
 	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
@@ -1426,7 +1464,7 @@ func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 
 func TestListSnapshots(t *testing.T) {
 	ct := getControllerTest(t)
-	numOfSnapshots := 5
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
 	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
@@ -1547,7 +1585,7 @@ func TestListSnapshots(t *testing.T) {
 
 func TestListSnapshotsWithToken(t *testing.T) {
 	ct := getControllerTest(t)
-	numOfSnapshots := 5
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
 	// Create.
 	params := make(map[string]string)
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {

@@ -192,6 +192,22 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 			cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = maxSnaps
 		}
 	}
+	if v := os.Getenv("GRANULAR_MAX_SNAPSHOTS_PER_BLOCK_VOLUME_VSAN"); v != "" {
+		maxSnaps, err := strconv.Atoi(v)
+		if err != nil {
+			log.Errorf("failed to parse GRANULAR_MAX_SNAPSHOTS_PER_BLOCK_VOLUME_VSAN: %s", err)
+		} else {
+			cfg.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN = maxSnaps
+		}
+	}
+	if v := os.Getenv("GRANULAR_MAX_SNAPSHOTS_PER_BLOCK_VOLUME_VVOL"); v != "" {
+		maxSnaps, err := strconv.Atoi(v)
+		if err != nil {
+			log.Errorf("failed to parse GRANULAR_MAX_SNAPSHOTS_PER_BLOCK_VOLUME_VVOL: %s", err)
+		} else {
+			cfg.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL = maxSnaps
+		}
+	}
 	// Build VirtualCenter from ENVs.
 	for _, e := range os.Environ() {
 		pair := strings.Split(e, "=")

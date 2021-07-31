@@ -35,6 +35,7 @@ import (
 	"github.com/vmware/govmomi/vapi/tags"
 	"google.golang.org/grpc/codes"
 
+	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -378,7 +379,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
 		}
 
-		snapshotSizeInMB, err := utils.QueryCapacityForBlockVolumeSnapshotUtil(
+		snapshotSizeInMB, _, err := utils.QueryCapacityAndDsUrlForVolumeUtil(
 			ctx, c.manager.VolumeManager, cnsVolumeID, common.BlockVolumeType)
 		if err != nil {
 			return nil, err
@@ -1243,13 +1244,54 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				"cannot snapshot migrated vSphere volume. :%q", volumeID)
 		}
 
-		// Query Capacity in MB for block volume snapshot
-		snapshotSizeInMB, err := utils.QueryCapacityForBlockVolumeSnapshotUtil(
+		// Query capacity in MB and datastore url for block volume snapshot
+		snapshotSizeInMB, datastoreUrl, err := utils.QueryCapacityAndDsUrlForVolumeUtil(
 			ctx, c.manager.VolumeManager, volumeID, common.BlockVolumeType)
 		if err != nil {
 			return nil, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
+
+		// Check if snapshots number of this volume reaches the granular limit on VSAN/VVOL
+		maxSnapshotsPerBlockVolume := c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+		log.Infof("The limit of the maximum number of snapshots per block volume is "+
+			"set to the global maximum (%v) by default.", maxSnapshotsPerBlockVolume)
+		if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN > 0 ||
+			c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
+
+			var isGranularMaxEnabled bool
+			if strings.Contains(datastoreUrl, strings.ToLower(string(types.HostFileSystemVolumeFileSystemTypeVsan))) {
+				if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN > 0 {
+					maxSnapshotsPerBlockVolume = c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN
+					isGranularMaxEnabled = true
+
+				}
+			} else if strings.Contains(datastoreUrl, strings.ToLower(string(types.HostFileSystemVolumeFileSystemTypeVVOL))) {
+				if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
+					maxSnapshotsPerBlockVolume = c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL
+					isGranularMaxEnabled = true
+				}
+			}
+
+			if isGranularMaxEnabled {
+				log.Infof("The limit of the maximum number of snapshots per block volume on datastore %q is "+
+					"overridden by the granular maximum (%v).", datastoreUrl, maxSnapshotsPerBlockVolume)
+			}
+		}
+
+		// Check if snapshots number of this volume reaches the limit
+		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(
+			ctx, c.manager.VolumeManager, volumeID, common.QuerySnapshotLimit)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to query snapshots of volume %s for the limit check. Error: %v", volumeID, err)
+		}
+
+		if len(snapshotList) >= maxSnapshotsPerBlockVolume {
+			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"the number of snapshots on the source volume %s reaches the configured maximum (%v)",
+				volumeID, c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+		}
 
 		// the returned snapshotID below is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+"
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both

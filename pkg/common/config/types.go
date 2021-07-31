@@ -142,4 +142,10 @@ type GCConfig struct {
 type SnapshotConfig struct {
 	// GlobalMaxSnapshotsPerBlockVolume specifies the maximum number of block volume snapshots per volume.
 	GlobalMaxSnapshotsPerBlockVolume int `gcfg:"global-max-snapshots-per-block-volume"`
+	// GranularMaxSnapshotsPerBlockVolumeInVSAN specifies the maximum number of block volume snapshots
+	// per volume in VSAN datastores.
+	GranularMaxSnapshotsPerBlockVolumeInVSAN int `gcfg:"granular-max-snapshots-per-block-volume-vsan"`
+	// GranularMaxSnapshotsPerBlockVolumeInVVOL specifies the maximum number of block volume snapshots
+	// per volume in VVOL datastores.
+	GranularMaxSnapshotsPerBlockVolumeInVVOL int `gcfg:"granular-max-snapshots-per-block-volume-vvol"`
 }
