@@ -2416,7 +2416,6 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 	curtimeinstring := strconv.FormatInt(curtime, 10)
 	fcdID, err := e2eVSphere.createFCD(ctx, "BasicStaticFCD"+curtimeinstring, diskSizeInMb, defaultDatastore.Reference())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("FCD ID :", fcdID)
 
 	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 		pandoraSyncWaitTime, fcdID))
