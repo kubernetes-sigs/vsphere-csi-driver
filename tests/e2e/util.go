@@ -876,12 +876,14 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 	}()
 
 	// remote copy this input file to VC
-	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'", path, e2eVSphere.Config.Global.VCenterHostname)
+	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
+		path, e2eVSphere.Config.Global.VCenterHostname)
 	fmt.Printf("Executing the command: %s\n", copyCmd)
 	_, err = exec.Command("/bin/sh", "-c", copyCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sshCmd := fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
+	sshCmd := fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s",
+		user)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
@@ -3023,8 +3025,15 @@ func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.S
 
 // writeConfigToSecretString takes in a structured config data and serializes that into a string
 func writeConfigToSecretStringInWCP(cfg e2eTestConfig) (string, error) {
-	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\nca-file = \"%s\"\ncluster-id = \"%s\"\ncnsregistervolumes-cleanup-intervalinmin = \"%d\"\ncluster-distribution = \"%s\"\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\ntargetvSANFileShareClusters = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.CaFile, cfg.Global.ClusterID, cfg.Global.CnsRegisterVolumesCleanupIntervalInMin, cfg.Global.ClusterDistribution, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Global.TargetvSANFileShareClusters)
+	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\""+
+		"\nca-file = \" %s\"\ncluster-id = \"%s\"\ncnsregistervolumes-cleanup-intervalinmin = \"%d\""+
+		"\ncluster-distribution = \"%s\"\n[VirtualCenter \"%s\"]\nuser = \""+
+		"%s\"\npassword = \"%s\"\ndatacenters = \""+
+		"%s\"\nport = \"%s\"\ntargetvSANFileShareClusters = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.CaFile, cfg.Global.ClusterID,
+		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin, cfg.Global.ClusterDistribution,
+		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters,
+		cfg.Global.VCenterPort, cfg.Global.TargetvSANFileShareClusters)
 	return result, nil
 }
 
@@ -3037,7 +3046,8 @@ func simulatePasswordRotation(file, host string) error {
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		framework.Logf("Result : %s", result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v",
+			sshCmd, err)
 	}
 
 	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
@@ -3052,7 +3062,8 @@ func simulatePasswordRotation(file, host string) error {
 	return nil
 }
 
-// Scale scales ss to count replicas. we are using customized methods from framework due to uncustomizable timeouts in framework.
+// Scale scales ss to count replicas. we are using customized methods
+// from framework due to uncustomizable timeouts in framework.
 func scaleSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
@@ -3071,12 +3082,15 @@ func scaleSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*apps
 	if pollErr != nil {
 		unhealthy := []string{}
 		for _, statefulPod := range statefulPodList.Items {
-			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase, podutils.IsPodReady(&statefulPod)
+			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase,
+				podutils.IsPodReady(&statefulPod)
 			if delTs != nil || phase != v1.PodRunning || !readiness {
-				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v", statefulPod.Name, delTs, phase, readiness))
+				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v",
+					statefulPod.Name, delTs, phase, readiness))
 			}
 		}
-		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
+		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. Remaining pods:\n%v",
+			count, StatefulSetTimeout, unhealthy)
 	}
 	return ss, nil
 }
@@ -3103,7 +3117,8 @@ func update(c clientset.Interface, ns, name string, update func(ss *appsv1.State
 
 // DeleteAllStatefulSets deletes all StatefulSet API Objects in Namespace ns.
 func deleteAllStatefulSets(c clientset.Interface, ns string) {
-	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(),
+		metav1.ListOptions{LabelSelector: labels.Everything().String()})
 	framework.ExpectNoError(err)
 
 	// Scale down each statefulset, then delete it completely.
@@ -3119,7 +3134,8 @@ func deleteAllStatefulSets(c clientset.Interface, ns string) {
 		framework.Logf("Deleting statefulset %v", ss.Name)
 		// Use OrphanDependents=false so it's deleted synchronously.
 		// We already made sure the Pods are gone inside ScaleSts().
-		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name, metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
+		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name,
+			metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
 			errList = append(errList, fmt.Sprintf("%v", err))
 		}
 	}
@@ -3128,7 +3144,8 @@ func deleteAllStatefulSets(c clientset.Interface, ns string) {
 	pvNames := sets.NewString()
 	// TODO: Don't assume all pvcs in the ns belong to a statefulset
 	pvcPollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
-		pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+		pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(),
+			metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		if err != nil {
 			framework.Logf("WARNING: Failed to list pvcs, retrying %v", err)
 			return false, nil
@@ -3136,8 +3153,10 @@ func deleteAllStatefulSets(c clientset.Interface, ns string) {
 		for _, pvc := range pvcList.Items {
 			pvNames.Insert(pvc.Spec.VolumeName)
 			// TODO: Double check that there are no pods referencing the pvc
-			framework.Logf("Deleting pvc: %v with volume %v", pvc.Name, pvc.Spec.VolumeName)
-			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(), pvc.Name, metav1.DeleteOptions{}); err != nil {
+			framework.Logf("Deleting pvc: %v with volume %v",
+				pvc.Name, pvc.Spec.VolumeName)
+			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(),
+				pvc.Name, metav1.DeleteOptions{}); err != nil {
 				return false, nil
 			}
 		}
@@ -3148,7 +3167,8 @@ func deleteAllStatefulSets(c clientset.Interface, ns string) {
 	}
 
 	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
-		pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{LabelSelector: labels.Everything().String()})
+		pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
+			metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		if err != nil {
 			framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
 			return false, nil

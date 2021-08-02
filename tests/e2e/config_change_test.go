@@ -130,7 +130,8 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		if !isPasswordChanged {
 			framework.Logf("Removing input_copy.txt")
 			// remove the input_copy.txt file from VC
-			removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'", e2eVSphere.Config.Global.VCenterHostname)
+			removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
+				e2eVSphere.Config.Global.VCenterHostname)
 			_, err = exec.Command("/bin/sh", "-c", removeCmd).Output()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
