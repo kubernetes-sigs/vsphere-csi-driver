@@ -9,17 +9,17 @@ The latest vSphere CSI Driver release is recommended for better stability and pe
 | Enhanced Object Health in UI for vSAN Datastores                                            | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
 | Dynamic Block PV support (`Read-Write-Once` Access Mode)                                    | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
 | Dynamic Virtual Volume (vVOL) PV support                                                    | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
-| Topology/Availability Zone support (beta) (Block Volume only)                               | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
+| Topology/Availability Zone support (Block Volume only)                                      | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
 | Static PV Provisioning                                                                      | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
 | K8s Multi-node Control Plane support                                                        | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
-| [WaitForFirstConsumer](https://kubernetes.io/docs/concepts/storage/storage-classes/) (beta) | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
-| Offline Volume Expansion support (beta) (Block Volume only)                                 | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ❌            |
+| [WaitForFirstConsumer](https://kubernetes.io/docs/concepts/storage/storage-classes/)        | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ✅            |
+| Offline Volume Expansion support (Block Volume only)                                        | Beta         | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ❌            |
 | Encryption support via VMcrypt (Block Volume only)                                          | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ❌            |
 | Dynamic File PV support through vSAN 7.0 File Services on vSAN Datastores                   | GA           | v2.0.0 to v2.3.0                          | ✅            | ✅            | ✅           | ❌            |
-| In-tree vSphere volume migration to CSI (beta)                                              | Beta         | v2.1.0 to v2.3.0                          | ✅            | ✅            | ❌           | ❌            |
-| Online Volume Expansion support (beta) (Block Volume only)                                  | Beta         | v2.2.0 to v2.3.0                          | ✅            | ❌            | ❌           | ❌            |
-| XFS Filesystem support (alpha)                                                              | Alpha        | v2.3.0                                    | ✅            | ✅            | ✅           | ✅            |
-| Raw Block Volume support (alpha)                                                            | Alpha        | v2.3.0                                    | ✅            | ✅            | ✅           | ✅            |
+| In-tree vSphere volume migration to CSI                                                     | Beta         | v2.1.0 to v2.3.0                          | ✅            | ✅            | ❌           | ❌            |
+| Online Volume Expansion support (Block Volume only)                                         | Beta         | v2.2.0 to v2.3.0                          | ✅            | ❌            | ❌           | ❌            |
+| XFS Filesystem support                                                                      | Alpha        | v2.3.0                                    | ✅            | ✅            | ✅           | ✅            |
+| Raw Block Volume support                                                                    | Alpha        | v2.3.0                                    | ✅            | ✅            | ✅           | ✅            |
 
 Each feature can be categorized based on its qualification and support level.
 
