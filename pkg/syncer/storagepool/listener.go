@@ -50,6 +50,19 @@ func startPropertyCollectorListener(ctx context.Context) {
 	initListener(ctx, scWatchCntlr, SpController, exitChannel)
 }
 
+// managePCListenerInstance is responsible for making sure that Property
+// collector listener is always running. If the listener crashes for some
+// reason it restarts the listener after 1 minute. The delay is so that we
+// don't overwhelm VC with connection requests.
+func managePCListenerInstance(ctx context.Context, exitChannel chan interface{}) {
+	<-exitChannel
+	log := logger.GetLogger(ctx)
+	sleepTime := time.Minute
+	log.Infof("Will restart property collector in %v secs", sleepTime.Seconds())
+	time.Sleep(time.Minute)
+	startPropertyCollectorListener(ctx)
+}
+
 // Initialize a PropertyCollector listener that updates the intended state of
 // a StoragePool.
 func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
@@ -156,14 +169,6 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 			}
 		}
 	}()
-}
-
-// managePCListenerInstance is responsible for making sure that Property
-// collector listener is always running. If the listener crashes for some
-// reason it restarts the listener.
-func managePCListenerInstance(ctx context.Context, exitChannel chan interface{}) {
-	<-exitChannel
-	startPropertyCollectorListener(ctx)
 }
 
 // XXX: This hack should be removed once we figure out all the properties of a
