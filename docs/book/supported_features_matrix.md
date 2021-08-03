@@ -2,7 +2,7 @@
 
 # vSphere CSI Driver - Supported Features Matrix
 
-The latest vSphere CSI Driver release is recommended for better stability and performance. Please refer to [Compatibility Matrix](compatiblity_matrix.md) for more detail.
+The latest vSphere CSI Driver release is recommended for better stability and performance. Please refer to the [Compatibility Matrix](compatiblity_matrix.md) for more details.
 
 | **Feature**                                                                                 | **Supported vSphere CSI Driver Releases** | vSphere 7.0u2 | vSphere 7.0u1 | vSphere 7.0 | vSphere 6.7U3 |
 |---------------------------------------------------------------------------------------------|-------------------------------------------|---------------|---------------|-------------|---------------|
@@ -20,6 +20,27 @@ The latest vSphere CSI Driver release is recommended for better stability and pe
 | Online Volume Expansion support (beta) (Block Volume only)                                  | v2.2.0 to v2.3.0                          | ✅             | ❌             | ❌           | ❌             |
 | XFS Filesystem support (alpha)                                                              | v2.3.0                                    | ✅             | ✅             | ✅           | ✅             |
 | Raw Block Volume support (alpha)                                                            | v2.3.0                                    | ✅             | ✅             | ✅           | ✅             |
+
+Each feature can be categorized based on its qualification and support level.
+
+## Alpha
+
+* Alpha features are developer-qualified and may run into unknown issues when used extensively.
+* VMware's Global Support team does **not** support issues reported for these features. Developer support will only be best-effort and prioritised accordingly.
+* Not recommended for production use.
+
+## Beta
+
+* Beta features are more extensively qualified than Alpha features.
+* These features may not support every combination of deployment or configurations.  
+* VMware's Global Support team does **not** support issues reported for these features. Developer support will only be best-effort and prioritised accordingly.
+* Not recommended for production use.
+
+## GA
+
+* GA'd features are fully qualified by VMware Inc.
+* Issues reported with these features can be routed through VMware's Global Support.
+* Can be used in production.
 
 _Notes_:
 
