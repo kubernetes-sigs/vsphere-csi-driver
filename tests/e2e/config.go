@@ -39,6 +39,14 @@ type e2eTestConfig struct {
 		User string `gcfg:"user"`
 		// vCenter password in clear text.
 		Password string `gcfg:"password"`
+		// vmc vCentre cloudadmin username
+		VmcCloudUser string `gcfg:"vmc-cloudadminuser"`
+		// vmc vCentre cloudadmin password
+		VmcCloudPassword string `gcfg:"cloudadminpassword"`
+		// vmc vCentre Devops username
+		VmcDevopsUser string `gcfg:"vmc-devopsuser"`
+		// vmc vCentre Devops password
+		VmcDevopsPassword string `gcfg:"vmc-devopspassword"`
 		// vCenter Hostname.
 		VCenterHostname string `gcfg:"hostname"`
 		// vCenter port.

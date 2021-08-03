@@ -148,7 +148,12 @@ const (
 	vsphereTKGSystemNamespace                 = "vmware-system-tkg"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
+	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
+	devopsTKG                                 = "test-cluster-e2e-script"
+	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
+	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
+		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 )
 
 // The following variables are required to know cluster type to run common e2e

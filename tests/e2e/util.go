@@ -19,10 +19,14 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -804,6 +808,124 @@ func invokeVCenterServiceControl(command, service, host string) error {
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return nil
+}
+
+//httpGet takes client and http Request as input and performs GET operation
+// and returns bodybytes
+func httpGet(client *http.Client, req *http.Request) []byte {
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer resp.Body.Close()
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("API Response status %d", resp.StatusCode)
+	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
+
+	return bodyBytes
+
+}
+
+//httpPost takes client and http Request as input and performs POST operation
+// and returns bodybytes and status code
+func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer resp.Body.Close()
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("API Response status %d", resp.StatusCode)
+
+	return bodyBytes, resp.StatusCode
+}
+
+//createGC method creates GC and takes WCP host and bearer token as input param
+func createGC(wcpHost string, wcpToken string) {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	createGCURL := "https://" + wcpHost + tkgAPI
+	framework.Logf("URL %v", createGCURL)
+	tkg_yaml, err := filepath.Abs(gcManifestPath + "tkg.yaml")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Taking yaml from %v", tkg_yaml)
+	gcBytes, err := ioutil.ReadFile(tkg_yaml)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req, err := http.NewRequest("POST", createGCURL, bytes.NewBuffer(gcBytes))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", "Bearer "+wcpToken)
+	req.Header.Add("Accept", "application/yaml")
+	req.Header.Add("Content-Type", "application/yaml")
+	bodyBytes, statusCode := httpPost(client, req)
+
+	response := string(bodyBytes)
+	framework.Logf(response)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
+}
+
+//getGC polls for the GC status, returns error if its not in running phase
+func getGC(wcpHost string, wcpToken string, gcName string) error {
+	var response string
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + gcName
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
+		framework.Logf("Polling for New GC status")
+		bodyBytes := httpGet(client, req)
+		response = string(bodyBytes)
+
+		if strings.Contains(response, "\"phase\":\"running\"") {
+			framework.Logf("new gc is up and running")
+			return true, nil
+		}
+		return false, nil
+	})
+	framework.Logf(response)
+	return waitErr
+}
+
+//getWCPSessionId returns the bearer token for given user
+func getWCPSessionId(hostname string, username string, password string) string {
+	type WcpSessionID struct {
+		Session_id string
+	}
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	URL := "https://" + hostname + "/wcp/login"
+	framework.Logf("URL %s", URL)
+
+	req, err := http.NewRequest("POST", URL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+	req.SetBasicAuth(username, password)
+	bodyBytes, statusCode := httpPost(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+
+	var wcpSessionID WcpSessionID
+	err = json.Unmarshal(bodyBytes, &wcpSessionID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SessionID: %s", wcpSessionID.Session_id)
+
+	return wcpSessionID.Session_id
+
 }
 
 // replacePasswordRotationTime invokes the given command to replace the password
