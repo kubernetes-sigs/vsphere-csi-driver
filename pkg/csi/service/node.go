@@ -1176,9 +1176,7 @@ func publishFileVol(
 	if params.ro {
 		mntFlags = append(mntFlags, "ro")
 	}
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
-		mntFlags = append(mntFlags, "hard")
-	}
+	mntFlags = append(mntFlags, "hard")
 	// Retrieve the file share access point from publish context.
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
