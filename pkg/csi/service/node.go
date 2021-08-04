@@ -436,6 +436,7 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	volID := req.GetVolumeId()
 	target := req.GetTargetPath()
 
+	log.Infof("NodeUnpublishVolume: target :%q", target)
 	if target == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 			"target path %q not set", target)
@@ -473,12 +474,17 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	}
 
 	// Figure out if the target path is a file or block volume.
-	isFileMount, _ := common.IsFileVolumeMount(ctx, target, mnts)
+	isFileMount, err := common.IsFileVolumeMount(ctx, target, mnts)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"could not find out if file volume mounted: %q", err.Error())
+	}
 	isPublished := true
 	if !isFileMount {
 		isPublished, err = isBlockVolumePublished(ctx, volID, target)
 		if err != nil {
-			return nil, err
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"could not find out if block volume published: %q", err.Error())
 		}
 	}
 
