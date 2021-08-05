@@ -148,7 +148,7 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 			Limit:  10,
 		},
 	}
-	queryResultEntries, err := QuerySnapshotsUtil(ctx, volumeManager, queryFilter)
+	queryResultEntries, _, err := QuerySnapshotsUtil(ctx, volumeManager, queryFilter, DefaultQuerySnapshotLimit)
 	if err != nil {
 		t.Error(err)
 	}
