@@ -34,10 +34,10 @@ import (
 )
 
 const (
-	manifestPath     = "tests/e2e/testing-manifests/statefulset/nginx"
-	mountPath        = "/usr/share/nginx/html"
-	storageclassname = "nginx-sc"
-	servicename      = "nginx"
+	manifestPath                 = "tests/e2e/testing-manifests/statefulset/nginx"
+	mountPath                    = "/usr/share/nginx/html"
+	defaultNginxStorageClassName = "nginx-sc"
+	servicename                  = "nginx"
 )
 
 /*
@@ -63,6 +63,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		client            clientset.Interface
 		storagePolicyName string
 		scParameters      map[string]string
+		storageClassName  string
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -70,7 +71,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
-		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageclassname, metav1.GetOptions{})
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
@@ -95,7 +96,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 	})
 
 	ginkgo.It("Statefulset testing with default podManagementPolicy", func() {
-		scName := "nginx-sc-default"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -103,15 +103,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
+			storageClassName = "nginx-sc-default"
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
+			storageClassName = defaultNginxStorageClassName
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, scName)
+			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 		}
 
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -127,7 +129,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -289,7 +291,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		9. Delete the storage class.
 	*/
 	ginkgo.It("Statefulset testing with parallel podManagementPolicy", func() {
-		scName := "nginx-sc-parallel"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -297,15 +298,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
+			storageClassName = "nginx-sc-parallel"
 		} else {
+			storageClassName = defaultNginxStorageClassName
 			ginkgo.By("Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(scName)
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, scName)
+			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -323,7 +326,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		*(statefulset.Spec.Replicas) = 8
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -484,7 +487,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			11. delete statefulset and all PVC's and SC's
 	*/
 	ginkgo.It("Verify online volume expansion on statefulset", func() {
-		scName := "nginx-sc-expansion"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvcSizeBeforeExpansion int64
@@ -492,18 +494,20 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		scParameters[scParamFsType] = ext4FSType
 
 		if vanillaCluster {
+			storageClassName = "nginx-sc-expansion"
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
 		} else {
+			storageClassName = defaultNginxStorageClassName
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, scName)
+			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", true)
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -519,7 +523,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -578,7 +582,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 

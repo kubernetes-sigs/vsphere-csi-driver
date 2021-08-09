@@ -75,6 +75,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		fcdID               string
 		storagePolicyName   string
 		scParameters        map[string]string
+		storageClassName    string
 	)
 	const (
 		fcdName = "BasicStaticFCD"
@@ -626,22 +627,23 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		11. Delete SC
 	*/
 	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful set.", func() {
-		scName := "nginx-sc-label-updates"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
+			storageClassName = "nginx-sc-label-updates"
 		} else {
+			storageClassName = defaultNginxStorageClassName
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, scName)
+			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -652,7 +654,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ginkgo.By("Creating statefulset")
 		statefulset := GetStatefulSetFromManifest(namespace)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))

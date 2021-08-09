@@ -49,6 +49,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		client            clientset.Interface
 		storagePolicyName string
 		scParameters      map[string]string
+		storageClassName  string
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -56,8 +57,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
-		scName := "nginx-sc-telemtery"
-		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).
 				NotTo(gomega.HaveOccurred())
@@ -100,16 +100,19 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			clusterDistributionValue = vanillaClusterDistribution
+			storageClassName = "nginx-sc-telemtery"
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
+			storageClassName = defaultNginxStorageClassName
 			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, storageclassname)
+			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 			clusterDistributionValue = svClusterDistribution
 
 		} else {
 			ginkgo.By("Set Resource quota for GC")
+			storageClassName = defaultNginxStorageClassName
 			scParameters[svStorageClassName] = storagePolicyName
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
@@ -117,8 +120,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		}
 
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scName := "nginx-sc-telemtery"
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

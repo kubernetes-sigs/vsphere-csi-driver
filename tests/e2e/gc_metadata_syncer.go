@@ -388,7 +388,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
-		scSpec := getVSphereStorageClassSpec(storageclassname, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
 		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
