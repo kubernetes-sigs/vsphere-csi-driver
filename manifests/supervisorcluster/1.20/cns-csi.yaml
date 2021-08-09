@@ -352,7 +352,6 @@ data:
   "async-query-volume": "false"
   "improved-csi-idempotency": "false"
   "block-volume-snapshot": "false"
-  "use-service-for-placement-engine": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
