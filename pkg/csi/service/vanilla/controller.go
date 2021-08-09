@@ -1082,6 +1082,24 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
+	// Check if the volume contains CNS snapshots.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+			common.QuerySnapshotLimit)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+		}
+		if len(snapshots) == 0 {
+			log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
+				req.VolumeId)
+		} else {
+			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"volume: %s with existing snapshots %v cannot be expanded. "+
+					"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+		}
+	}
+
 	err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
