@@ -298,6 +298,8 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      hostNetwork: true
+      dnsPolicy: "ClusterFirstWithHostNet"
       serviceAccountName: vsphere-csi-node
       priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
