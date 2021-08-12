@@ -210,10 +210,12 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 	return allQuerySnapshotResults, "", nil
 }
 
-// Query Capacity in MB for block volume snapshot
-func QueryCapacityForBlockVolumeSnapshotUtil(ctx context.Context, m cnsvolume.Manager, sourceVolumeID,
-	blockVolumeType string) (int64, error) {
+// Query Capacity in MB and datastore URL for the source volume with expected volume type
+func QueryCapacityAndDsUrlForVolumeUtil(ctx context.Context, m cnsvolume.Manager, sourceVolumeID,
+	volumeType string) (int64, string, error) {
 	log := logger.GetLogger(ctx)
+	var snapshotSizeInMB int64
+	var datastoreUrl string
 	// Check if volume already exists
 	volumeIds := []cnstypes.CnsVolumeId{{Id: sourceVolumeID}}
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -221,27 +223,28 @@ func QueryCapacityForBlockVolumeSnapshotUtil(ctx context.Context, m cnsvolume.Ma
 	}
 	queryResult, err := m.QueryVolume(ctx, queryFilter)
 	if err != nil {
-		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to query the block volume %q to be snapshotted: %v", sourceVolumeID, err)
 	}
 
-	// Check if it is a block volume.
-	if queryResult.Volumes[0].VolumeType != blockVolumeType {
-		return 0, logger.LogNewErrorCodef(log, codes.Unimplemented,
-			"createSnapshot is only supported on block volume. VolumeType: %v",
-			queryResult.Volumes[0].VolumeType)
+	// Check if the volume type of the queried volume matched the expected volume type.
+	if queryResult.Volumes[0].VolumeType != volumeType {
+		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"queried volume doesn't have the expected volume type. Expected VolumeType: %v. "+
+				"Queried VolumeType: %v", volumeType, queryResult.Volumes[0].VolumeType)
 	}
 
 	// Get the snapshot size by getting the volume size, which is only valid for full backup use cases
-	var snapshotSizeInMb int64
+
 	if len(queryResult.Volumes) > 0 {
-		snapshotSizeInMb = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+		snapshotSizeInMB = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+		datastoreUrl = queryResult.Volumes[0].DatastoreUrl
 	} else {
-		return 0, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get the snapshot size by querying volume: %q", sourceVolumeID)
+		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to querying capacity and datastore url for the source volume: %q", sourceVolumeID)
 	}
 
-	return snapshotSizeInMb, nil
+	return snapshotSizeInMB, datastoreUrl, nil
 }
 
 // Get the datastore reference by datastore URL from a list of datastore references.
