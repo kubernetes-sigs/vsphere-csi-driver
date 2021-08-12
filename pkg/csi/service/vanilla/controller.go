@@ -514,23 +514,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with "+
 			"datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
-		if createVolumeSpec.ScParams.DatastoreURL != "" {
-			// Check datastoreURL specified in the storageclass is accessible from
-			// topology.
-			isDataStoreAccessible := false
-			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == createVolumeSpec.ScParams.DatastoreURL {
-					isDataStoreAccessible = true
-					break
-				}
-			}
-			if !isDataStoreAccessible {
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"datastore URL: %s specified in the storage class is not accessible in the topology:[+%v]",
-					createVolumeSpec.ScParams.DatastoreURL, topologyRequirement)
-			}
-		}
-
 	} else {
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
@@ -647,9 +630,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
-	// Ignore TopologyRequirement for file volume provisioning.
+	// Error out if TopologyRequirement is provided during file volume provisioning
+	// as this is not supported yet.
 	if req.GetAccessibilityRequirements() != nil {
-		log.Info("Ignoring TopologyRequirement for file volume")
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"volume topology feature for file volumes is not supported.")
 	}
 
 	// Volume Size - Default is 10 GiB.
