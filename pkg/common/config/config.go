@@ -78,6 +78,8 @@ const (
 	DefaultCnsVolumeOperationRequestCleanupIntervalInMin = 1440
 	// DefaultGlobalMaxSnapshotsPerBlockVolume is the default maximum number of block volume snapshots per volume.
 	DefaultGlobalMaxSnapshotsPerBlockVolume = 3
+	// MaxNumberOfTopologyCategories is the max number of topology domains/categories allowed.
+	MaxNumberOfTopologyCategories = 5
 )
 
 // Errors
@@ -370,6 +372,24 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
 		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = DefaultGlobalMaxSnapshotsPerBlockVolume
 	}
+
+	// Labels section validation - the customer can either provide topology
+	// domain info using zone,region parameters or by using the topologyCategories
+	// parameter. Specifying all the 3 parameters is not allowed.
+	if strings.TrimSpace(cfg.Labels.TopologyCategories) != "" &&
+		(strings.TrimSpace(cfg.Labels.Zone) != "" || strings.TrimSpace(cfg.Labels.Region) != "") {
+		return logger.LogNewErrorf(log,
+			"zone and region parameters should be skipped when topologyCategories is specified.")
+	}
+
+	// Validate length of topologyCategories in Labels section
+	if strings.TrimSpace(cfg.Labels.TopologyCategories) != "" {
+		if len(strings.Split(cfg.Labels.TopologyCategories, ",")) > MaxNumberOfTopologyCategories {
+			return logger.LogNewErrorf(log, "maximum limit of topology categories exceeded. Only %d allowed.",
+				MaxNumberOfTopologyCategories)
+		}
+	}
+
 	return nil
 }
 
