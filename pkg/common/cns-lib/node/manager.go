@@ -51,6 +51,8 @@ type Manager interface {
 	// GetNodeByName refreshes and returns the VirtualMachine for a registered
 	// node given its name.
 	GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
+	// GetNodeNameByUUID fetches the name of the node given the VM UUID.
+	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	// GetAllNodes refreshes and returns VirtualMachine for all registered
 	// nodes. If nodes are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
@@ -147,6 +149,24 @@ func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*v
 	m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
 	return m.GetNode(ctx, k8snodeUUID, nil)
 
+}
+
+// GetNodeNameByUUID fetches the name of the node given the VM UUID.
+func (m *defaultManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error) {
+	log := logger.GetLogger(ctx)
+	var nodeName string
+	m.nodeNameToUUID.Range(func(key, value interface{}) bool {
+		if value.(string) == nodeUUID {
+			nodeName = key.(string)
+			log.Debugf("Retrieved node name %q for node UUID %q", nodeName, nodeUUID)
+			return false
+		}
+		return true
+	})
+	if nodeName == "" {
+		return "", logger.LogNewErrorf(log, "failed to find node name for node with UUID: %q", nodeUUID)
+	}
+	return nodeName, nil
 }
 
 // GetNode refreshes and returns the VirtualMachine for a registered node
