@@ -19,6 +19,7 @@ package csinodetopology
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -214,11 +215,10 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
 
-	// TODO: Make this check generic by checking for the length of
-	//       topologyCategories in future.
 	// Retrieve topology labels for nodeVM.
-	if r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
-		// Not a topology aware setup. No need to check for labels on nodeVM.
+	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
+		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+		// Not a topology aware setup.
 		// Set the Status to Success and return.
 		instance.Status.TopologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
 		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
@@ -226,7 +226,8 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-	} else if r.configInfo.Cfg.Labels.Zone != "" && r.configInfo.Cfg.Labels.Region != "" {
+	} else if r.configInfo.Cfg.Labels.TopologyCategories != "" ||
+		(r.configInfo.Cfg.Labels.Zone != "" && r.configInfo.Cfg.Labels.Region != "") {
 		log.Infof("Detected a topology aware cluster")
 
 		// Fetch topology labels for nodeVM.
@@ -234,19 +235,6 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		if err != nil {
 			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM with ID %q", nodeID)
 			log.Errorf("%s. Error: %v", msg, err)
-			_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
-
-		// Raise error if nodeVM does not have a topology label associated with
-		// each category in the vSphere config secret `Labels` section. For now,
-		// as we support only zone, region, hardcoded the value to 2.
-		// TODO: Count the number of topology categories given and verify against
-		// that number.
-		if len(topologyLabels) != 2 {
-			msg := fmt.Sprintf("Detected a topology aware cluster. However, nodeVM with ID %q does not have a "+
-				"topology label for each category mentioned under the vSphere CSI config secret `Labels` section.", nodeID)
-			log.Error(msg)
 			_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -330,16 +318,50 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 		}
 	}()
 
-	// Get zone, region info for NodeVM.
-	zone, region, err := nodeVM.GetZoneRegion(ctx, cfg.Labels.Zone, cfg.Labels.Region, tagManager)
+	// Create a map of topologyCategories with category as key and value as empty string.
+	var isZoneRegion bool
+	zoneCat := strings.TrimSpace(cfg.Labels.Zone)
+	regionCat := strings.TrimSpace(cfg.Labels.Region)
+	topologyCategories := make(map[string]string)
+	if strings.TrimSpace(cfg.Labels.TopologyCategories) != "" {
+		categories := strings.Split(cfg.Labels.TopologyCategories, ",")
+		for _, cat := range categories {
+			topologyCategories[strings.TrimSpace(cat)] = ""
+		}
+	} else if zoneCat != "" && regionCat != "" {
+		isZoneRegion = true
+		topologyCategories[zoneCat] = ""
+		topologyCategories[regionCat] = ""
+	}
+
+	// Populate topology labels for NodeVM corresponding to each category in topologyCategories map.
+	err = nodeVM.GetTopologyLabels(ctx, tagManager, topologyCategories)
 	if err != nil {
 		log.Errorf("failed to get accessibleTopology for nodeVM: %v, Error: %v", nodeVM.Reference(), err)
 		return nil, err
 	}
-	log.Infof("NodeVM %q belongs to zone: %q and region: %q", nodeVM.Reference(), zone, region)
-	topologyLabels := []csinodetopologyv1alpha1.TopologyLabel{
-		{Key: corev1.LabelTopologyZone, Value: zone},
-		{Key: corev1.LabelTopologyRegion, Value: region},
+	log.Infof("NodeVM %q belongs to topology: %+v", nodeVM.Reference(), topologyCategories)
+	topologyLabels := make([]csinodetopologyv1alpha1.TopologyLabel, 0)
+	if isZoneRegion {
+		// In order to keep backward compatibility, we will use the kubernetes
+		// standard topology labels for zone and region.
+		for key, val := range topologyCategories {
+			switch key {
+			case zoneCat:
+				topologyLabels = append(topologyLabels,
+					csinodetopologyv1alpha1.TopologyLabel{Key: corev1.LabelTopologyZone, Value: val})
+			case regionCat:
+				topologyLabels = append(topologyLabels,
+					csinodetopologyv1alpha1.TopologyLabel{Key: corev1.LabelTopologyRegion, Value: val})
+			}
+		}
+	} else {
+		// Prefix user-defined topology labels with TopologyLabelsDomain name to distinctly
+		// identify the topology labels on the kubernetes node object added by our driver.
+		for key, val := range topologyCategories {
+			topologyLabels = append(topologyLabels,
+				csinodetopologyv1alpha1.TopologyLabel{Key: common.TopologyLabelsDomain + "/" + key, Value: val})
+		}
 	}
 	return topologyLabels, nil
 }

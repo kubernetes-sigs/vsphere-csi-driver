@@ -455,8 +455,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// Get accessibility.
 	topologyRequirement := req.GetAccessibilityRequirements()
 	if topologyRequirement != nil {
-		// Get shared accessible datastores for matching topology requirement.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+
+			// Check if topology domains have been provided in the vSphere CSI config secret.
+			// NOTE: We do not support kubernetes.io/hostname as a topology label.
+			if c.manager.CnsConfig.Labels.TopologyCategories == "" && c.manager.CnsConfig.Labels.Zone == "" &&
+				c.manager.CnsConfig.Labels.Region == "" {
+				return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"topology category names not specified in the vsphere config secret")
+			}
+			// Get shared accessible datastores for matching topology requirement.
 			sharedDatastores, datastoreTopologyMap, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
 				topologyRequirement)
 			if err != nil || len(sharedDatastores) == 0 {
