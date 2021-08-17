@@ -51,35 +51,24 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.2.rc-1
-          args:
-            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
-            - "--fss-namespace=$(CSI_NAMESPACE)"
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.2-rc.1
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
-              value: unix:///csi/csi.sock
+              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
             - name: X_CSI_MODE
               value: "controller"
             - name: VSPHERE_CSI_CONFIG
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
-            - name: INCLUSTER_CLIENT_QPS
-              value: "100"
-            - name: INCLUSTER_CLIENT_BURST
-              value: "100"
-            - name: CSI_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
             - name: X_CSI_SERIAL_VOL_ACCESS_TIMEOUT
               value: 3m
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
-            - mountPath: /csi
+            - mountPath: /var/lib/csi/sockets/pluginproxy/
               name: socket-dir
           ports:
             - name: healthz
@@ -96,17 +85,17 @@ spec:
         - name: liveness-probe
           image: quay.io/k8scsi/livenessprobe:v2.1.0
           args:
-            - "--v=4"
-            - "--csi-address=/csi/csi.sock"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
           volumeMounts:
-            - name: socket-dir
-              mountPath: /csi
+            - mountPath: /var/lib/csi/sockets/pluginproxy/
+              name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.2.rc-1
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.1.2-rc.1
           args:
             - "--leader-election"
-            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
-            - "--fss-namespace=$(CSI_NAMESPACE)"
           imagePullPolicy: "Always"
           env:
             - name: FULL_SYNC_INTERVAL_MINUTES
@@ -115,14 +104,6 @@ spec:
               value: "/etc/cloud/csi-vsphere.conf"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
-            - name: INCLUSTER_CLIENT_QPS
-              value: "100"
-            - name: INCLUSTER_CLIENT_BURST
-              value: "100"
-            - name: CSI_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
@@ -153,17 +134,16 @@ spec:
 ---
 apiVersion: v1
 data:
-  "csi-migration": "false" # csi-migration feature is only available for vSphere 7.0U1
+  "csi-migration": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
   namespace: kube-system
 ---
-apiVersion: storage.k8s.io/v1 # For k8s 1.17 or lower use storage.k8s.io/v1beta1
+apiVersion: storage.k8s.io/v1beta1
 kind: CSIDriver
 metadata:
   name: csi.vsphere.vmware.com
 spec:
   attachRequired: true
   podInfoOnMount: false
----
