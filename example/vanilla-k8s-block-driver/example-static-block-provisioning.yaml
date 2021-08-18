@@ -4,7 +4,7 @@ metadata:
   name: static-vanilla-block-pv
   annotations:
     pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
-    labels:
+  labels:
       static-pv-label-key: static-pv-label-value  # This label is optional, it is used as a selector to bind with volume claim. This can be any unique key-value to identify PV.
 spec:
   capacity:
