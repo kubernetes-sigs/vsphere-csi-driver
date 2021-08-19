@@ -38,6 +38,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -767,6 +768,139 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
 			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Attach volume to a new pod when CNS is down and verify volume metadata in CNS post full sync
+		Steps:
+			1.	create a pvc pvc1, wait for pvc bound to pv
+			2.	create a pod pod1, using pvc1
+			3.	stop vsan-health on VC
+			4.	when vsan-health is stopped, delete pod1
+			5.	create a new pod pod2, using pvc1
+			6.	start vsan-health on VC
+			7.	after fullsync is triggered verify the CNS metadata for the volume backing pvc1
+			8.	delete pod2
+			9.	delete pvc1
+	*/
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] "+
+		"Attach volume to a new pod when CNS is down and verify volume metadata in CNS post full sync", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("create a pvc pvc1, wait for pvc bound to pv")
+		volHandle, pvc, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
+			f, client, "", storagePolicyName, namespace)
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if pvc != nil {
+				err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
+
+		ginkgo.By("create a pod pod1, using pvc1")
+		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvc, volHandle)
+		defer func() {
+			err := fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Stopping vsan-health on the vCenter host")
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isVsanhealthServiceStopped = true
+		err := invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// TODO: Replace static wait with polling
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
+			vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+
+		ginkgo.By("when vsan-health is stopped, delete pod1")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("create a new pod pod2, using pvc1")
+		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
+		pod2.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod2, err = client.CoreV1().Pods(namespace).Create(ctx, pod2, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := fpod.DeletePodWithWait(client, pod2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Starting vsan-health on the vCenter host")
+		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// TODO: Replace static wait with polling
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		isVsanhealthServiceStopped = false
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+
+		ginkgo.By("Waiting for pod pod2, to be running")
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod2.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume metadata is matching the one in CNS")
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var vmUUID string
+		var exists bool
+		pod2, err = client.CoreV1().Pods(namespace).Get(ctx, pod2.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			vmUUID = getNodeUUID(client, pod2.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod2.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			annotations := pod2.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod2 doesn't have %s annotation", vmUUIDLabel))
+		}
+
+		ginkgo.By("delete pod2")
+		err = fpod.DeletePodWithWait(client, pod2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node")
+		if supervisorCluster {
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volHandle, vmUUID))
+			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+			gomega.Expect(err).To(gomega.HaveOccurred(),
+				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+					vmUUID, volHandle))
+		} else {
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, vmUUID))
+		}
+
+		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
+		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Waiting for CNS volume %s to be deleted", volHandle))
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 
 })
