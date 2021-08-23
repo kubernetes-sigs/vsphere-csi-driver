@@ -81,7 +81,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 2. Upgrade kubernetes to 1.19 release.
 3. Ensure that your version of kubectl is also at 1.19 or later.
 4. Install vSphere Cloud Provider Interface (CPI). Please follow guideline mentioned at https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html#vsphere_cpi
-5. Install vSphere CSI Driver. Use deployment manifests and RBAC files published at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla (version v2.1.0) or https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.2.0/manifests/v2.2.0 (version 2.2.0)
+5. Install vSphere CSI Driver [v2.3.0](https://github.com/kubernetes-sigs/vsphere-csi-driver/releases/tag/v2.3.0)
    - Make sure to enable csi-migration feature gate in the deployment yaml file.
 
            apiVersion: v1
@@ -90,7 +90,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
            kind: ConfigMap
            metadata:
              name: internal-feature-states.csi.vsphere.vmware.com
-             namespace: kube-system
+             namespace: vmware-system-csi
 
 6. Install admission webhook.
    - vSphere CSI driver does not support provisioning of volume by specifying migration specific parameters in the StorageClass.
@@ -112,34 +112,39 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 
    - Pre-requisite: `kubectl`, `openssl` and `base64` commands should be pre-installed on the system from where we can invoke admission webhook installation scripts.
    - Installation steps:
-     1. Create Private key, Certificate Signing Request and webhook secret containing Kubernetes signed Certificate and Private Key. Script is available to preform this task and it is located at `vsphere-csi-driver/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/` on the repository.
+     - Script is available to deploy the admission webhook and it is located at https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.3.0/manifests/vanilla on the repository.
+        - Download the scripts
 
-            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/generate-signed-webhook-certs.sh
-            $ ./generate-signed-webhook-certs.sh 
-              creating certs in tmpdir /var/folders/vy/_6dvxx7j5db9sq9n38qjymwr002gzv/T/tmp.mclIK6Jn 
-              Generating RSA private key, 2048 bit long modulus
-              ..............................+++
-              ..................................................................................................+++
-              e is 65537 (0x10001)
-              certificatesigningrequest.certificates.k8s.io "vsphere-webhook-svc.kube-system" deleted
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.3.0/manifests/vanilla/generate-signed-webhook-certs.sh
+
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.3.0/manifests/vanilla/create-validation-webhook.sh
+
+            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.3.0/manifests/vanilla/validatingwebhook.yaml
+
+        - Generate the self-signed certificate
+
+            $ bash generate-signed-webhook-certs.sh
+              creating certs in tmpdir /tmp/tmp.jmZqh2bAwJ
+              Generating RSA private key, 2048 bit long modulus (2 primes)
+              ........................................+++++
+              ............+++++
+              e is 65537 (0x010001)
+              certificatesigningrequest.certificates.k8s.io "vsphere-webhook-svc.vmware-system-csi" deleted
               Warning: certificates.k8s.io/v1beta1 CertificateSigningRequest is deprecated in v1.19+, unavailable in v1.22+; use certificates.k8s.io/v1 CertificateSigningRequest
-              certificatesigningrequest.certificates.k8s.io/vsphere-webhook-svc.kube-system created
-              NAME                              AGE   SIGNERNAME                     REQUESTOR          CONDITION
-              vsphere-webhook-svc.kube-system   0s    kubernetes.io/legacy-unknown   kubernetes-admin   Pending
-              certificatesigningrequest.certificates.k8s.io/vsphere-webhook-svc.kube-system approved
+              certificatesigningrequest.certificates.k8s.io/vsphere-webhook-svc.vmware-system-csi created
+              NAME                                    AGE   SIGNERNAME                     REQUESTOR          CONDITION
+              vsphere-webhook-svc.vmware-system-csi   0s    kubernetes.io/legacy-unknown   kubernetes-admin   Pending
+              certificatesigningrequest.certificates.k8s.io/vsphere-webhook-svc.vmware-system-csi approved
               secret/vsphere-webhook-certs configured
+        - Create the validation webhook
 
-     2. Create ValidatingWebhookConfiguration, WebHook Deployment Pod, Service Accounts, Cluster Role,  Role Bindings, Service to bind with webhook pod.
-
-            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/validatingwebhook.yaml
-            $ curl -O https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/release-2.1/manifests/v2.1.0/vsphere-7.0u1/vanilla/deploy/create-validation-webhook.sh
-            $ ./create-validation-webhook.sh
-            service/vsphere-webhook-svc created
-            validatingwebhookconfiguration.admissionregistration.k8s.io/validation.csi.vsphere.vmware.com created
-            serviceaccount/vsphere-csi-webhook created
-            clusterrole.rbac.authorization.k8s.io/vsphere-csi-webhook-role created
-            clusterrolebinding.rbac.authorization.k8s.io/vsphere-csi-webhook-role-binding created
-            deployment.apps/vsphere-csi-webhook created
+            $ bash create-validation-webhook.sh
+              service/vsphere-webhook-svc created
+              validatingwebhookconfiguration.admissionregistration.k8s.io/validation.csi.vsphere.vmware.com created
+              serviceaccount/vsphere-csi-webhook created
+              role.rbac.authorization.k8s.io/vsphere-csi-webhook-role created
+              rolebinding.rbac.authorization.k8s.io/vsphere-csi-webhook-role-binding created
+              deployment.apps/vsphere-csi-webhook created
 
 7. Enable feature flags `CSIMigration` and `CSIMigrationvSphere`
 
@@ -178,7 +183,7 @@ To try out vSphere CSI migration in beta for vSphere plugin, perform the followi
 
          $ kubectl drain k8s-node1 --force --ignore-daemonsets
           node/k8s-node1 cordoned
-          WARNING: deleting Pods not managed by ReplicationController, ReplicaSet, Job, DaemonSet or StatefulSet: default/vcppod; ignoring DaemonSet-managed Pods: kube-system/kube-flannel-ds-amd64-gs7fr, kube-system/kube-proxy-rbjx4, kube-system/vsphere-csi-node-fh9f6
+          WARNING: deleting Pods not managed by ReplicationController, ReplicaSet, Job, DaemonSet or StatefulSet: default/vcppod; ignoring DaemonSet-managed Pods: kube-system/kube-flannel-ds-amd64-gs7fr, kube-system/kube-proxy-rbjx4, vmware-system-csi/vsphere-csi-node-fh9f6
           evicting pod default/vcppod
             pod/vcppod evicted
             node/k8s-node1 evicted
