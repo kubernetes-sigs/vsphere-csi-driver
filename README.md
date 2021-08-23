@@ -13,6 +13,7 @@ Documentation for vSphere CSI Driver is available here:
 
 ## vSphere CSI Driver Releases
 
+* [v2.3.0](docs/book/releases/v2.3.0.md)
 * [v2.2.1](docs/book/releases/v2.2.1.md)
 * [v2.2.0](docs/book/releases/v2.2.0.md)
 * [v2.1.1](docs/book/releases/v2.1.1.md)

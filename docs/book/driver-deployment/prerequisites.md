@@ -6,6 +6,7 @@
 - [Setting up the management network](#setup_management_network)
 - [Virtual Machine Configuration](#vm_configuration)
 - [vSphere Cloud Provider Interface (CPI)](#vsphere_cpi)
+- [CoreDNS configurations for vSAN file share volumes](#coredns)
 
 ## Compatible vSphere and ESXi versions <a id="compatible_vsphere_esxi_versions"></a>
 
@@ -207,3 +208,46 @@ ProviderID: vsphere://<provider-id5>
 ```
 
 vSphere CSI driver needs the `ProviderID` field to be set for all nodes.
+
+## CoreDNS configurations for vSAN file share volumes<a id="coredns"></a>
+
+[v2.3.0](../releases/v2.3.0.md) release of the driver requires DNS forwarding configuration in CoreDNS ConfigMap to help resolve vSAN file share hostname.
+
+Modify the CoreDNS ConfigMap and add the conditional forwarder configuration:
+
+   ```bash
+   kubectl -n kube-system edit configmap coredns
+   ```
+
+Output:
+
+   ```bash
+   .:53 {
+    errors
+    health {
+       lameduck 5s
+    }
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf {
+       max_concurrent 1000
+    }
+    cache 30
+    loop
+    reload
+    loadbalance
+   }
+   vsanfs-sh.prv:53 {
+   errors
+   cache 30
+   forward . 10.161.191.241
+   }
+   ```
+
+In the above configuration `vsanfs-sh.prv` is the DNS suffix for vSAN file Service and `10.161.191.241` is the DNS server that helps resolve file share hostname.
+DNS suffix and DNS IP address can be obtained from vCenter (vSphere Cluster -> Configure -> vSAN -> Services -> File Service)

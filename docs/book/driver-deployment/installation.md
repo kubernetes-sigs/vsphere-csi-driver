@@ -9,13 +9,20 @@ Note that this installation guide only applies to Vanilla Kubernetes clusters. P
 
 The following steps need to be performed on the k8s node where the vSphere CSI drivers controller will be deployed. We recommend installing vSphere CSI driver on your k8s master node.
 
+- [Create vmware-system-csi namespace](#create_namespace)
 - [Taint Master Node](#taint_master_node)
 - [Create a configuration file with vSphere credentials](#create_csi_vsphereconf)
   - [vSphere configuration file for block volumes](#vsphereconf_for_block)
   - [vSphere configuration file for file volumes](#vsphereconf_for_file)
 - [Create a kubernetes secret for vSphere credentials](#create_k8s_secret)
 - [Install vSphere CSI driver](#install)
-- [Verify that CSI has been successfully deployed](#verify)
+- [Verify that vSphere CSI Driver has been deployed successfully](#verify)
+
+## Create `vmware-system-csi` namespace for vSphere CSI Driver<a id="create_namespace"></a>
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.3.0/manifests/vanilla/namespace.yaml
+```
 
 ## Taint Master Node <a id="taint_master_node"></a>
 
@@ -164,13 +171,13 @@ Create a Kubernetes secret that will contain configuration details to connect to
 Create the secret by running the following command:
 
 ```bash
-kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf --namespace=kube-system
+kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf --namespace=vmware-system-csi
 ```
 
 Verify that the credential secret is successfully created in the kube-system namespace.
 
 ```bash
-$ kubectl get secret vsphere-config-secret --namespace=kube-system
+$ kubectl get secret vsphere-config-secret --namespace=vmware-system-csi
 NAME                    TYPE     DATA   AGE
 vsphere-config-secret   Opaque   1      43s
 ```
@@ -183,38 +190,29 @@ rm csi-vsphere.conf
 
 ## Install vSphere CSI driver <a id="install"></a>
 
-Before you deploy the vSphere CSI driver, refer to the [Compatibility](../compatiblity_matrix.md) page to view the supported kubernetes versions for a particular vSphere CSI version and [feature support](../supported_features_matrix.md) page to see what features are supported on that version.
+Before deploying the vSphere CSI driver, refer to the [Compatibility](../compatiblity_matrix.md) page to view the supported Kubernetes versions and [feature support](../supported_features_matrix.md) page.
 
-- Get the deployment manifests pertaining to the version of vSphere CSI driver.
-  - [v2.2.0](../releases/v2.2.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.2.0/manifests/v2.2.0
-  - [v2.1.1](../releases/v2.1.1.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/v2.1.1/manifests/v2.1.1
-  - [v2.1.0](../releases/v2.1.0.md) deployment manifests - https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/release-2.1/manifests/v2.1.0
+NOTE: Refer [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
 
-  NOTE: Refer [vSphere CSI Driver - Deployment with Topology](deploying_csi_with_zones.md) to deploy your kubernetes cluster with topology aware provisioning feature.
+### Pre-requisites
 
-- Create the roles, cluster roles and service accounts needed for installation of vSphere CSI Driver by deploying the YAML files available in the `rbac` folder of the vSphere CSI driver version you have chosen.
+Make sure to perform Prerequisites steps mentioned [here](https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html) before installing vSphere CSI Driver.
 
-    ```bash
-    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/rbac/vsphere-csi-controller-rbac.yaml
-    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/rbac/vsphere-csi-node-rbac.yaml
-    ```
+### Install vSphere CSI Driver
 
-- Deploy the CSI controller and node daemonset using the YAML files available in the `deploy` folder of the same version.
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.3.0/manifests/vanilla/vsphere-csi-driver.yaml
+```
 
-    ```bash
-    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-controller-deployment.yaml
-    $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/v2.2.0/manifests/v2.2.0/deploy/vsphere-csi-node-ds.yaml
-    ```
-
-## Verify that CSI has been successfully deployed <a id="verify"></a>
+### Verify that vSphere CSI Driver has been deployed successfully <a id="verify"></a>
 
 To verify that the CSI driver has been successfully deployed, you should observe that there is one instance of the vsphere-csi-controller running on the master node and that an instance of the vsphere-csi-node is running on each of the worker nodes.
 
 ```bash
-$ kubectl get deployment --namespace=kube-system
+$ kubectl get deployment --namespace=vmware-system-csi
 NAME                          READY   AGE
 vsphere-csi-controller        1/1     2m58s
-$ kubectl get daemonsets vsphere-csi-node --namespace=kube-system
+$ kubectl get daemonsets vsphere-csi-node --namespace=vmware-system-csi
 NAME               DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
 vsphere-csi-node   4         4         4       4            4           <none>          3m51s
 ```
@@ -227,7 +225,7 @@ $ kubectl describe csidrivers
   Namespace:
   Labels:       <none>
   Annotations:  <none>
-  API Version:  storage.k8s.io/v1beta1
+  API Version:  storage.k8s.io/v1
   Kind:         CSIDriver
   Metadata:
     Creation Timestamp:  2020-04-14T20:46:07Z
