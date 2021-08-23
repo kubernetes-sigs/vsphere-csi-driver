@@ -1,17 +1,18 @@
 # Compatibility Matrix for vSphere CSI Driver
 
-- vSphere CSI driver is released with specific version of CSI sidecar containers which has the minimum and maximum kubernetes version requirement.
+- vSphere CSI driver is released with specific version of CSI sidecar containers which dictates the minimum and maximum Kubernetes version requirement.
 
 Note:
 
-- vmware supports the deprecated release of the driver until End Of Life date.
+- VMware supports the deprecated release of the driver until the End Of Life date.
 
 | vSphere CSI Driver | Minimum Kubernetes Release | Maximum Kubernetes Release            | Deprecated | End of Life  |
 |--------------------|----------------------------|---------------------------------------| -----------|--------------|
-| [v2.2.1](./releases/v2.2.1.md)             | 1.18                    | 1.20       | No         | -            |
-| [v2.2.0](./releases/v2.2.0.md)             | 1.18                    | 1.20       | No         | -            |
-| [v2.1.1](./releases/v2.1.1.md)             | 1.17                    | 1.19       | No         | -            |
-| [v2.1.0](./releases/v2.1.0.md)             | 1.17                    | 1.19       | No         | -            |
+| [v2.3.0](./releases/v2.3.0.md)             | 1.19                    | 1.21       | No         | -            |
+| [v2.2.1](./releases/v2.2.1.md)             | 1.18                    | 1.20       | Yes        | August 2022  |
+| [v2.2.0](./releases/v2.2.0.md)             | 1.18                    | 1.20       | Yes        | August 2022  |
+| [v2.1.1](./releases/v2.1.1.md)             | 1.17                    | 1.19       | Yes        | August 2022  |
+| [v2.1.0](./releases/v2.1.0.md)             | 1.17                    | 1.19       | Yes        | August 2022  |
 | [v2.0.1](./releases/v2.0.1.md)             | 1.17                    | 1.19       | Yes        | January 2022 |
 | [v2.0.0](./releases/v2.0.0.md)             | 1.16                    | 1.18       | Yes        | January 2022 |
 | [v1.0.3](./releases/v1.0.3.md)             | 1.14                    | 1.16       | Yes        | June 2021    |
