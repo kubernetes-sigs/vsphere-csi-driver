@@ -35,7 +35,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployments", func() {
+var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy, Update and Scale Deployments", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-deployment")
 	var (
 		namespace         string
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		svNamespace       string
 	)
 	ginkgo.BeforeEach(func() {
-		ctx, cancel := context.WithCancel(context.Background())
+		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
@@ -60,10 +60,10 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 
-		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageclassname, metav1.GetOptions{})
-		if err == nil && sc != nil {
-			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
-		}
+		// sc, err := client.StorageV1().StorageClasses().Get(ctx, storageclassname, metav1.GetOptions{})
+		// if err == nil && sc != nil {
+		// 	gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		// }
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 	})
@@ -165,7 +165,8 @@ var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy Update and Scale Deployment
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("replica count after scale up of deployments %v", dep.Status.Replicas)
 		gomega.Expect((dep.Status.Replicas) == replica).To(gomega.BeTrue(), "Number of containers in the deployment should match with number of replicas")
-
+		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pods, err = fdep.GetPodsForDeployment(client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod = pods.Items[0]
