@@ -2283,7 +2283,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Creating a Deployment using pvc1")
 
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim}, "", false)
+			[]*v1.PersistentVolumeClaim{pvclaim}, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pods, err := fdep.GetPodsForDeployment(client, dep)
