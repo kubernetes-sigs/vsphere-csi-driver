@@ -34,7 +34,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-guest] File Volume static Provision Test", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-static")
 	var (
 		client            clientset.Interface
