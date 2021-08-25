@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // ErrNodeAlreadyExists is returned if there's exists a node with

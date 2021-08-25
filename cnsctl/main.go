@@ -17,7 +17,7 @@ limitations under the License.
 package main
 
 import (
-	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd"
+	"sigs.k8s.io/vsphere-csi-driver/v2/cnsctl/cmd"
 )
 
 // Version of the tool. This should be set via ldflags.

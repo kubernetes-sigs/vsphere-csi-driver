@@ -1,4 +1,4 @@
-module sigs.k8s.io/vsphere-csi-driver
+module sigs.k8s.io/vsphere-csi-driver/v2
 
 go 1.16
 

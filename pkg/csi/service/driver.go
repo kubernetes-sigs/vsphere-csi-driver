@@ -26,14 +26,14 @@ import (
 	"github.com/rexray/gocsi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/vanilla"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcp"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/wcpguest"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcpguest"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const (

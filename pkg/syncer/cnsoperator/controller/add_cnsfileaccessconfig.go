@@ -17,7 +17,7 @@ limitations under the License.
 package controller
 
 import (
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/cnsoperator/controller/cnsfileaccessconfig"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/controller/cnsfileaccessconfig"
 )
 
 func init() {

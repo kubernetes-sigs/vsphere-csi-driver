@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
 
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"

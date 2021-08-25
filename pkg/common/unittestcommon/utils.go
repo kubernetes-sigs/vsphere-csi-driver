@@ -25,17 +25,17 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
-	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 var mapVolumePathToID map[string]map[string]string
@@ -189,7 +189,7 @@ func (f *fakeVolumeOperationRequestInterface) GetRequestDetails(
 ) (*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
 	instance, ok := f.volumeOperationRequestMap[name]
 	if !ok {
-		return nil, apierrors.NewNotFound(cnsvolumeoperationrequestv1alpha1.Resource(
+		return nil, apierrors.NewNotFound(cnsvolumeoprequestv1alpha1.Resource(
 			"cnsvolumeoperationrequests"), name)
 	}
 	return instance, nil
