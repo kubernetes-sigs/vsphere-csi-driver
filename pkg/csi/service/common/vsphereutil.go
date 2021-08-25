@@ -866,7 +866,9 @@ func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, 
 	log.Debugf("Successfully created snapshot %q with description, %q, on volume: %q at timestamp %q",
 		cnsSnapshotInfo.SnapshotID, snapshotName, volumeID, cnsSnapshotInfo.SnapshotCreationTimestamp)
 
-	return volumeID + VSphereCSISnapshotIdDelimiter + cnsSnapshotInfo.SnapshotID, &cnsSnapshotInfo.SnapshotCreationTimestamp, nil
+	csiSnapshotID := volumeID + VSphereCSISnapshotIdDelimiter + cnsSnapshotInfo.SnapshotID
+
+	return csiSnapshotID, &cnsSnapshotInfo.SnapshotCreationTimestamp, nil
 }
 
 // DeleteSnapshotUtil is the helper function to delete CNS snapshot for given snapshotId
