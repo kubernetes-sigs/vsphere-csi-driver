@@ -22,8 +22,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd/ov"
-	"sigs.k8s.io/vsphere-csi-driver/cnsctl/cmd/ova"
+	"sigs.k8s.io/vsphere-csi-driver/v2/cnsctl/cmd/ov"
+	"sigs.k8s.io/vsphere-csi-driver/v2/cnsctl/cmd/ova"
 )
 
 // rootCmd represents the base command when called without any subcommands

@@ -19,8 +19,8 @@ package controller
 import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	volumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 )
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager

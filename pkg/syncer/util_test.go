@@ -10,7 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/k8scloudoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
 )
 
 var (

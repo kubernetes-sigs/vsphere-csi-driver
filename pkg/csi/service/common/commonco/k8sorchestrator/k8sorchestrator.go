@@ -39,16 +39,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates"
-	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates"
+	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 const informerCreateRetryInterval = 5 * time.Minute

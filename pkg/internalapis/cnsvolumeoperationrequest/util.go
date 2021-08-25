@@ -19,7 +19,7 @@ package cnsvolumeoperationrequest
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 const (
@@ -84,8 +84,8 @@ func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capa
 // OperationDetails to the OperationDetails type defined by the
 // CnsVolumeOperationRequest Custom Resource.
 func convertToCnsVolumeOperationRequestDetails(
-	details OperationDetails) *cnsvolumeoperationrequestv1alpha1.OperationDetails {
-	return &cnsvolumeoperationrequestv1alpha1.OperationDetails{
+	details OperationDetails) *cnsvolumeoprequestv1alpha1.OperationDetails {
+	return &cnsvolumeoprequestv1alpha1.OperationDetails{
 		TaskInvocationTimestamp: details.TaskInvocationTimestamp,
 		TaskID:                  details.TaskID,
 		OpID:                    details.OpID,

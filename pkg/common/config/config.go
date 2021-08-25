@@ -31,7 +31,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 const (

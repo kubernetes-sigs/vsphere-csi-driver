@@ -30,11 +30,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	csiconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
-	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 // VolumeOperationRequest is an interface that supports handling idempotency
@@ -85,10 +85,10 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 			crdName,
 			crdSingular,
 			crdPlural,
-			reflect.TypeOf(cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{}).
+			reflect.TypeOf(cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}).
 				Name(),
-			cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group,
-			cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Version,
+			cnsvolumeoprequestv1alpha1.SchemeGroupVersion.Group,
+			cnsvolumeoprequestv1alpha1.SchemeGroupVersion.Version,
 			apiextensionsv1beta1.NamespaceScoped,
 		)
 		if err != nil {
@@ -104,7 +104,7 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		}
 
 		// Create client to API server.
-		k8sclient, err := k8s.NewClientForGroup(ctx, config, cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group)
+		k8sclient, err := k8s.NewClientForGroup(ctx, config, cnsvolumeoprequestv1alpha1.SchemeGroupVersion.Group)
 		if err != nil {
 			log.Errorf("failed to create k8sClient with error: %v", err)
 			return nil, err
@@ -138,7 +138,7 @@ func (or *operationRequestStore) GetRequestDetails(
 	instanceKey := client.ObjectKey{Name: name, Namespace: csiconfig.DefaultCSINamespace}
 	log.Debugf("Getting CnsVolumeOperationRequest instance with name %s/%s", instanceKey.Namespace, instanceKey.Name)
 
-	instance := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{}
+	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
 	err := or.k8sclient.Get(ctx, instanceKey, instance)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 	log.Debugf("Storing CnsVolumeOperationRequest instance with spec %v", spew.Sdump(operationToStore))
 
 	operationDetailsToStore := convertToCnsVolumeOperationRequestDetails(*operationToStore.OperationDetails)
-	instance := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{}
+	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
 	instanceKey := client.ObjectKey{Name: operationToStore.Name, Namespace: csiconfig.DefaultCSINamespace}
 
 	if err := or.k8sclient.Get(ctx, instanceKey, instance); err != nil {
@@ -181,20 +181,20 @@ func (or *operationRequestStore) StoreRequestDetails(
 			// Create new instance on API server if it doesnt exist.
 			// Implies that this is the first time this object is
 			// being stored.
-			newInstance := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{
+			newInstance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      instanceKey.Name,
 					Namespace: instanceKey.Namespace,
 				},
-				Spec: cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestSpec{
+				Spec: cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestSpec{
 					Name: instanceKey.Name,
 				},
-				Status: cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestStatus{
+				Status: cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestStatus{
 					VolumeID:              operationToStore.VolumeID,
 					SnapshotID:            operationToStore.SnapshotID,
 					Capacity:              operationToStore.Capacity,
 					FirstOperationDetails: *operationDetailsToStore,
-					LatestOperationDetails: []cnsvolumeoperationrequestv1alpha1.OperationDetails{
+					LatestOperationDetails: []cnsvolumeoprequestv1alpha1.OperationDetails{
 						*operationDetailsToStore,
 					},
 				},
@@ -291,7 +291,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Deleting CnsVolumeOperationRequest instance with name %s/%s", csiconfig.DefaultCSINamespace, name)
-	err := or.k8sclient.Delete(ctx, &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest{
+	err := or.k8sclient.Delete(ctx, &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: csiconfig.DefaultCSINamespace,
@@ -318,7 +318,7 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 
 		instanceMap := make(map[string]bool)
 
-		cnsVolumeOperationRequestList := &cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequestList{}
+		cnsVolumeOperationRequestList := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestList{}
 		err := or.k8sclient.List(ctx, cnsVolumeOperationRequestList)
 		if err != nil {
 			log.Errorf("failed to list CnsVolumeOperationRequests with error %v. Abandoning "+

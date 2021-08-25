@@ -23,7 +23,7 @@ import (
 
 	"github.com/vmware/govmomi/cns"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 var (
