@@ -19,6 +19,7 @@ package e2e
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -107,6 +108,7 @@ const (
 	poll                                      = 2 * time.Second
 	pollTimeout                               = 5 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
+	pollTimeoutSixMin                         = 6 * time.Minute
 	healthStatusPollTimeout                   = 15 * time.Minute
 	healthStatusPollInterval                  = 15 * time.Second
 	psodTime                                  = "120"
@@ -127,7 +129,9 @@ const (
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
 	sshdPort                                  = "22"
+	svcRunningMessage                         = "Running"
 	startOperation                            = "start"
+	svcStoppedMessage                         = "Stopped"
 	stopOperation                             = "stop"
 	supervisorClusterOperationsTimeout        = 3 * time.Minute
 	svClusterDistribution                     = "SupervisorCluster"
@@ -137,6 +141,7 @@ const (
 	tkgClusterDistribution                    = "TKGService"
 	vanillaClusterDistribution                = "CSI-Vanilla"
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
+	vpxdServiceName                           = "vpxd"
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
@@ -163,6 +168,7 @@ var (
 	vanillaCluster    bool
 	supervisorCluster bool
 	guestCluster      bool
+	rwxAccessMode     bool
 )
 
 // For VCP to CSI migration tests.
@@ -212,5 +218,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 		guestCluster = true
 	default:
 		vanillaCluster = true
+	}
+
+	// Check if the access mode is set for File volume setups
+	kind := os.Getenv("ACCESS_MODE")
+	if strings.TrimSpace(string(kind)) == "RWX" {
+		rwxAccessMode = true
 	}
 }
