@@ -2810,7 +2810,7 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 
 		// Adding a explicit wait of one min for the Cluster-distribution to
 		// reflect latest value.
-		time.Sleep(time.Duration(pollTimeoutShort))
+		time.Sleep(time.Duration(poll))
 
 		framework.Logf("Cluster distribution value is now set to = %s", clusterDistribution)
 
