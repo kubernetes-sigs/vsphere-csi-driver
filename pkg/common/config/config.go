@@ -419,7 +419,7 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 	var cfg *Config
 	// Read in the vsphere.conf if it exists.
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		log.Infof("Could not stat %s, reading config params from env", cfgPath)
+		log.Infof("Could not stat %s (file not found), reading config params from env", cfgPath)
 		// Config from Env var only.
 		cfg = &Config{}
 		if fromEnvErr := FromEnv(ctx, cfg); fromEnvErr != nil {
