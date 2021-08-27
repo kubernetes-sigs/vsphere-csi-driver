@@ -240,6 +240,8 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
             - "--default-fstype=ext4"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
