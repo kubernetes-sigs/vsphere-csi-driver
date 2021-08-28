@@ -2808,9 +2808,10 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 		_, err := client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Adding a explicit wait of one min for the Cluster-distribution to
-		// reflect latest value.
-		time.Sleep(time.Duration(pollTimeoutShort))
+		// TODO: Adding a explicit wait of two min for the Cluster-distribution to
+		// reflect latest value. This should be replaced with a polling mechanism
+		// to watch on csi-vsphere.conf inside the CSI containers.
+		time.Sleep(time.Duration(2 * time.Minute))
 
 		framework.Logf("Cluster distribution value is now set to = %s", clusterDistribution)
 
