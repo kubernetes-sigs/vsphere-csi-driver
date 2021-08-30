@@ -852,21 +852,23 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 //
 // The returned string is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
 // The returned *time.Time denotes the creation time of snapshot from the storage system, i.e., CNS.
-func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, desc string) (string,
+func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, snapshotName string) (string,
 	*time.Time, error) {
 	log := logger.GetLogger(ctx)
 
-	log.Debugf("vSphere CSI driver is creating snapshot with description, %q, on volume: %q", desc, volumeID)
-	snapshotID, _, _, snapshotCreateTimePtr, err := manager.VolumeManager.CreateSnapshot(ctx, volumeID, desc)
+	log.Debugf("vSphere CSI driver is creating snapshot with description, %q, on volume: %q", snapshotName, volumeID)
+	cnsSnapshotInfo, err := manager.VolumeManager.CreateSnapshot(ctx, volumeID, snapshotName)
 	if err != nil {
 		log.Errorf("failed to create snapshot on volume %q with description %q with error %+v",
-			volumeID, desc, err)
+			volumeID, snapshotName, err)
 		return "", nil, err
 	}
 	log.Debugf("Successfully created snapshot %q with description, %q, on volume: %q at timestamp %q",
-		snapshotID, desc, volumeID, *snapshotCreateTimePtr)
+		cnsSnapshotInfo.SnapshotID, snapshotName, volumeID, cnsSnapshotInfo.SnapshotCreationTimestamp)
 
-	return volumeID + VSphereCSISnapshotIdDelimiter + snapshotID, snapshotCreateTimePtr, nil
+	csiSnapshotID := volumeID + VSphereCSISnapshotIdDelimiter + cnsSnapshotInfo.SnapshotID
+
+	return csiSnapshotID, &cnsSnapshotInfo.SnapshotCreationTimestamp, nil
 }
 
 // DeleteSnapshotUtil is the helper function to delete CNS snapshot for given snapshotId
