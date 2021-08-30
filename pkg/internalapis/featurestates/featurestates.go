@@ -34,10 +34,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis"
-	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/featurestates/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
+	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 const (

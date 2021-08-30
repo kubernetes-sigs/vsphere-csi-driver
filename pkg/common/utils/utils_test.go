@@ -17,9 +17,9 @@ import (
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
+	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 )
 
 const (

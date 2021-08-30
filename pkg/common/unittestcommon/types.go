@@ -20,10 +20,10 @@ import (
 	"context"
 	"sync"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/internalapis/cnsvolumeoperationrequest"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 // FakeK8SOrchestrator is used to mock common K8S Orchestrator instance to store FSS values
