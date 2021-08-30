@@ -21,12 +21,12 @@ import (
 	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // ContainerOrchestratorUtility represents the singleton instance of

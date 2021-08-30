@@ -21,7 +21,7 @@ import (
 
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vslm"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // NewVslmClient creates a new Vslm client

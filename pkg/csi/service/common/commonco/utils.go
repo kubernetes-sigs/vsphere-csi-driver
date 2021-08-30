@@ -22,9 +22,9 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	csiconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco/k8sorchestrator"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
+	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // SetInitParams initializes the parameters required to create a container

@@ -36,12 +36,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	apis "sigs.k8s.io/vsphere-csi-driver/pkg/apis/cnsoperator"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/syncer/admissionhandler"
+	apis "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/admissionhandler"
 )
 
 var (

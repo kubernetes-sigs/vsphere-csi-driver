@@ -45,7 +45,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/apis/migration/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
 )
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func() {

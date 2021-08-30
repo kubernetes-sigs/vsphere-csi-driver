@@ -21,7 +21,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 )
 
 // NodeInfo contains the information required for the TopologyService to
