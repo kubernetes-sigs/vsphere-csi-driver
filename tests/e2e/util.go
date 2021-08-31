@@ -2710,7 +2710,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 // selector.
 func createDeployment(ctx context.Context, client clientset.Interface, replicas int32,
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
-	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool) (*appsv1.Deployment, error) {
+	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
 	if len(command) == 0 {
 		command = "trap exit TERM; while true; do sleep 1; done"
 	}
@@ -2735,7 +2735,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 					Containers: []v1.Container{
 						{
 							Name:    "write-pod",
-							Image:   busyBoxImageOnGcr,
+							Image:   image,
 							Command: []string{"/bin/sh"},
 							Args:    []string{"-c", command},
 							SecurityContext: &v1.SecurityContext{
