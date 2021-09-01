@@ -1174,17 +1174,19 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 	deleteResourceQuota(client, namespace)
 
 	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("existingResourceQuota name %s", existingResourceQuota.GetName())
-	requestStorageQuota := updatedSpec4ExistingResourceQuota(existingResourceQuota.GetName(), size)
-	testResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(
-		ctx, requestStorageQuota, metav1.UpdateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-	// TODO: Add polling instead of static wait time and assert against the
-	// updated quota.
-	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds", sleepTimeOut))
-	time.Sleep(sleepTimeOut * time.Second)
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("existingResourceQuota name %s", existingResourceQuota.GetName())
+		requestStorageQuota := updatedSpec4ExistingResourceQuota(existingResourceQuota.GetName(), size)
+		testResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(
+			ctx, requestStorageQuota, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+		// TODO: Add polling instead of static wait time and assert against the
+		// updated quota.
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds", sleepTimeOut))
+		time.Sleep(sleepTimeOut * time.Second)
+	}
 
 }
 
