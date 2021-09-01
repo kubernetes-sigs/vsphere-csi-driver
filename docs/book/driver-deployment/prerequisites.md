@@ -86,12 +86,12 @@ Refer to the [Deployment with Zones](deploying_csi_with_zones.md) to understand 
 
 Make sure to configure all the VMs that form the Kubernetes cluster with the following:
 
+- VMware Tools need to be installed on the Node Virtual Machines. Refer to this [KB Article](https://kb.vmware.com/s/article/2004754) to know about installation steps.
 - We recommend using the VMware Paravirtual SCSI controller for Primary Disk on the Node VMs.
 - Set the `disk.EnableUUID` parameter to `TRUE` for each node VM. This step is necessary so that the VMDK always presents a consistent UUID to the VM, thus allowing the disk to be mounted properly.
   - This can be done on the VirtualCenter User Interface by right-clicking on the VM → Edit Settings → VM Options → Advanced → Edit Configuration.
 - VM Hardware version must be 15 or higher.
   - This can be done on the VirtualCenter User Interface by right-clicking on the VM → Compatibility → Upgrade VM Compatibility.
-
 The VMs can also be configured by using the `govc` command-line tool.
 
 - Install `govc` on your devbox/workstation.
