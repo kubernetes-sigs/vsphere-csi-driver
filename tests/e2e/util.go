@@ -1629,6 +1629,8 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.
 				ginkgo.By(fmt.Sprintf("Found CNSFileAccessConfig crd: %v, expected: %v", instance, expectedInstanceName))
 				instanceFound = true
 				break
+			} else {
+				ginkgo.By(fmt.Sprintf("Expecting CNSFileAccessConfig crd: %v, found: %v", expectedInstanceName, instance))
 			}
 		}
 	}
