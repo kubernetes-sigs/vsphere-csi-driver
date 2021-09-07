@@ -42,7 +42,7 @@ const DefaultQuerySnapshotLimit = int64(128)
 // query filters, query selection as params. Returns queryResult when query
 // volume succeeds, otherwise returns appropriate errors.
 func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
-	querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+	querySelection *cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	var queryAsyncNotSupported bool
 	var queryResult *cnstypes.CnsQueryResult
@@ -77,7 +77,7 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 // instance, query filters, query selection as params. Returns queryResult
 // when query volume succeeds, otherwise returns appropriate errors.
 func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
-	querySelection cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+	querySelection *cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	var queryAsyncNotSupported bool
 	var queryResult *cnstypes.CnsQueryResult
@@ -96,7 +96,10 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 		}
 	}
 	if !useQueryVolumeAsync || queryAsyncNotSupported {
-		queryResult, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
+		if querySelection == nil {
+			querySelection = &cnstypes.CnsQuerySelection{}
+		}
+		queryResult, err = m.QueryAllVolume(ctx, queryFilter, *querySelection)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"queryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())

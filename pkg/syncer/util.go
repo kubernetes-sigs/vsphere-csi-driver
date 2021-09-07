@@ -169,7 +169,7 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 	var allQueryResults []*cnstypes.CnsQueryResult
 	for {
 		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
-		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, cnstypes.CnsQuerySelection{},
+		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, nil,
 			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,

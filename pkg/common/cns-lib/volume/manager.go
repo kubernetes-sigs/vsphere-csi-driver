@@ -81,7 +81,7 @@ type Manager interface {
 	// volume fields would be returned as part of the CnsQueryResult, if the
 	// querySelection parameters are not specified.
 	QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
-		querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+		querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 	// QueryVolume returns volumes matching the given filter.
 	QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
 	// RelocateVolume migrates volumes to their target datastore as specified in relocateSpecList.
@@ -1438,7 +1438,7 @@ func (m *defaultManager) RetrieveVStorageObject(ctx context.Context,
 // fields would be returned as part of the CnsQueryResult if the querySelection
 // parameters are not specified.
 func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
-	querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	err := validateManager(ctx, m)
 	if err != nil {
