@@ -527,7 +527,7 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 			},
 		}
 		queryAllResult, err := utils.QueryAllVolumeUtil(ctx, *volumeMigrationInstance.volumeManager, queryFilter,
-			cnstypes.CnsQuerySelection{}, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			nil, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			log.Warnf("failed to queryAllVolume with err %+v", err)
 			continue
