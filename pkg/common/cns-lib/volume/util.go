@@ -18,6 +18,7 @@ package volume
 
 import (
 	"context"
+	"reflect"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -27,10 +28,16 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+)
+
+const (
+	vimFaultPrefix = "vim.fault."
 )
 
 func validateManager(ctx context.Context, m *defaultManager) error {
@@ -293,7 +300,7 @@ func validateCreateVolumeResponseFault(ctx context.Context, name string,
 // getCnsVolumeInfoFromTaskResult retrieves the datastoreURL and returns the
 // CnsVolumeInfo object.
 func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter, volumeName string,
-	volumeID cnstypes.CnsVolumeId, taskResult cnstypes.BaseCnsVolumeOperationResult) (*CnsVolumeInfo, error) {
+	volumeID cnstypes.CnsVolumeId, taskResult cnstypes.BaseCnsVolumeOperationResult) (*CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var datastoreURL string
 	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
@@ -310,8 +317,10 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 		var dsMo mo.Datastore
 		pc := property.DefaultCollector(virtualCenter.Client.Client)
 		err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
+		faultType := ""
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return nil, faultType, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
 		}
 		datastoreURL = dsMo.Summary.Url
 	}
@@ -322,7 +331,50 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	return &CnsVolumeInfo{
 		DatastoreURL: datastoreURL,
 		VolumeID:     volumeID,
-	}, nil
+	}, "", nil
+}
+
+// ExtractFaultTypeFromErr extracts the fault type from err.
+// Return the vim fault type if the input err is a SoapFault, and can exract the fault type of VimFault.
+// Otherwise, it returns fault type as "csi.fault.Internal".
+func ExtractFaultTypeFromErr(ctx context.Context, err error) string {
+	log := logger.GetLogger(ctx)
+	var faultType string
+	if soap.IsSoapFault(err) {
+		soapFault := soap.ToSoapFault(err)
+		// faultType has the format like "type.XXX", XXX is the specific VimFault type.
+		// For example, when VimFault in the error is NotFound, faultType will be "type.NotFound".
+		faultType = reflect.TypeOf(soapFault.VimFault()).String()
+		log.Infof("Extract vimfault type: +%v. SoapFault Info: +%v from err +%v", faultType, soapFault, err)
+		slice := strings.Split(faultType, ".")
+		vimFaultType := vimFaultPrefix + slice[1]
+		return vimFaultType
+	}
+	log.Infof("err %+v is not a SoapFault\n", err)
+	return csifault.CSIInternalFault
+}
+
+// ExtractFaultTypeFromVolumeResponseResult extracts the fault type from CnsVolumeOperationResult.
+// Return the vim fault type is CnsVolumeOperationResult.Fault is set, and can extract the fault type of VimFault.
+// Return "" if CnsVolumeOperationResult.Fault not set.
+func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
+	resp *cnstypes.CnsVolumeOperationResult) string {
+	log := logger.GetLogger(ctx)
+	var faultType string
+	fault := resp.Fault
+	if fault != nil {
+		// faultType has the format like "*type.XXX", XXX is the specific VimFault type.
+		// For example, when CnsVolumeOperationrResult failed with ResourceInUse, faultType will be "*type.ResourceInUse".
+		faultType = reflect.TypeOf(fault.Fault).String()
+		log.Infof("Extract vimfault type: +%v  vimFault: +%v Fault: %+v from resp: +%v",
+			faultType, fault.Fault, fault, resp)
+		slice := strings.Split(faultType, ".")
+		vimFaultType := vimFaultPrefix + slice[1]
+		return vimFaultType
+	}
+	log.Info("No fault in resp +%v", resp)
+	return ""
+
 }
 
 // invokeCNSCreateSnapshot invokes CreateSnapshot operation for that volume on CNS.

@@ -1110,7 +1110,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			}
 			log.Debugf("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v",
 				oldPv.Name, spew.Sdump(createSpec))
-			_, err := metadataSyncer.volumeManager.CreateVolume(ctx, createSpec)
+			_, _, err := metadataSyncer.volumeManager.CreateVolume(ctx, createSpec)
 			if err != nil {
 				log.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
 			} else {
@@ -1211,7 +1211,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {
 			log.Infof("PVDeleted: Volume: %q is not in use by any other entity. Removing CNS tag.",
 				pv.Spec.CSI.VolumeHandle)
-			err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
+			_, err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
 			if err != nil {
 				log.Errorf("PVDeleted: Failed to delete volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
 				return
@@ -1244,7 +1244,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
 
-		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, false); err != nil {
+		if _, err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, false); err != nil {
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {

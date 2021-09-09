@@ -202,7 +202,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 		if _, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
 			log.Debugf("FullSync: Calling CreateVolume for volume id: %q with createSpec %+v",
 				volumeID, spew.Sdump(createSpec))
-			_, err := metadataSyncer.volumeManager.CreateVolume(ctx, &createSpec)
+			_, _, err := metadataSyncer.volumeManager.CreateVolume(ctx, &createSpec)
 			if err != nil {
 				log.Warnf("FullSync: Failed to create volume with the spec: %+v. Err: %+v", spew.Sdump(createSpec), err)
 				continue
@@ -287,7 +287,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 			if !inUsebyOtherK8SCluster {
 				log.Infof("FullSync: fullSyncDeleteVolumes: Calling DeleteVolume for volume %v with delete disk %v",
 					volume.VolumeId.Id, deleteDisk)
-				err := metadataSyncer.volumeManager.DeleteVolume(ctx, volume.VolumeId.Id, deleteDisk)
+				_, err := metadataSyncer.volumeManager.DeleteVolume(ctx, volume.VolumeId.Id, deleteDisk)
 				if err != nil {
 					log.Warnf("FullSync: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v",
 						volume.VolumeId.Id, err)

@@ -33,18 +33,21 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, error) {
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
 		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		return nil, err
+		// TODO: need to extract fault from err returned by GetVCenter.
+		// Currently, just return csi.fault.Internal.
+		return nil, csifault.CSIInternalFault, err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name.
@@ -52,7 +55,9 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %s, err: %+v",
 				spec.ScParams.StoragePolicyName, err)
-			return nil, err
+			// TODO: need to extract fault from err returned by GetStoragePolicyIDByName.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
@@ -88,8 +93,11 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				break
 			}
 			if datastores == nil {
-				return nil, logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
-					spec.VsanDirectDatastoreURL)
+				// TODO: Need to figure out which fault need to return when datastore is empty.
+				// Currently, just return csi.fault.Internal.
+				return nil, csifault.CSIInternalFault,
+					logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
+						spec.VsanDirectDatastoreURL)
 			}
 		} else {
 			// If DatastoreURL is not specified in StorageClass, get all shared
@@ -104,10 +112,13 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// If no datacenters are mentioned in the VirtualCenterConfig during
 		// registration, all Datacenters for the given VirtualCenter will be
 		// returned, else only the listed Datacenters are returned.
+
+		// TODO: Need to figure out which fault need to be extracted from err returned by GetDatacenters.
+		// Currently, just return csi.fault.Internal.
 		datacenters, err := vc.GetDatacenters(ctx)
 		if err != nil {
 			log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-			return nil, err
+			return nil, csifault.CSIInternalFault, err
 		}
 		isSharedDatastoreURL := false
 		var datastoreObj *vsphere.Datastore
@@ -129,14 +140,18 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			}
 		}
 		if datastoreObj == nil {
-			return nil, logger.LogNewErrorf(log,
+			// TODO: Need to figure out which fault need to return when datastore is empty.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"DatastoreURL: %s specified in the storage class is not found.",
 				spec.ScParams.DatastoreURL)
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
 		} else {
-			return nil, logger.LogNewErrorf(log,
+			// TODO: Need to figure out which fault need to return when datastore is not accessible to all nodes.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"Datastore: %s specified in the storage class is not accessible to all nodes.",
 				spec.ScParams.DatastoreURL)
 		}
@@ -168,7 +183,9 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			hostVsanUUID, err := getHostVsanUUID(ctx, spec.AffineToHost, vc)
 			if err != nil {
 				log.Errorf("failed to get the vSAN UUID for node: %s", spec.AffineToHost)
-				return nil, err
+				// TODO: Need to figure out which fault need to return when it cannot gethostVsanUUID.
+				// Currently, just return csi.fault.Internal.
+				return nil, csifault.CSIInternalFault, err
 			}
 			param1 := vim25types.KeyValue{Key: VsanAffinityKey, Value: hostVsanUUID}
 			param2 := vim25types.KeyValue{Key: VsanAffinityMandatory, Value: "1"}
@@ -184,7 +201,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// Parse spec.ContentSourceSnapshotID into CNS VolumeID and CNS SnapshotID using "+" as the delimiter
 		cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(spec.ContentSourceSnapshotID)
 		if err != nil {
-			return nil, err
+			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
 		createSpec.VolumeSource = &cnstypes.CnsSnapshotVolumeSource{
@@ -201,7 +218,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// as the source volume
 		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log,
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"failed to query datastore for the snapshot %s with error %+v",
 				spec.ContentSourceSnapshotID, err)
 		}
@@ -210,7 +227,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		compatibleDatastore, err := utils.GetDatastoreRefByURLFromGivenDatastoreList(
 			ctx, vc, createSpec.Datastores, cnsVolume.DatastoreUrl)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log,
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
 				spec.ContentSourceSnapshotID, err)
 		}
@@ -222,23 +239,25 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		log.Errorf("failed to create disk %s with error %+v", spec.Name, err)
-		return nil, err
+		log.Errorf("failed to create disk %s with error %+v faultType %q", spec.Name, err, faultType)
+		return nil, faultType, err
 	}
-	return volumeInfo, nil
+	return volumeInfo, "", nil
 }
 
 // CreateFileVolumeUtil is the helper function to create CNS file volume with
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo) (string, error) {
+	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
 		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		return "", err
+		// TODO: need to extract fault from err returned by GetVCenter.
+		// Currently, just return csi.fault.Internal.
+		return "", csifault.CSIInternalFault, err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name.
@@ -246,7 +265,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v",
 				spec.ScParams.StoragePolicyName, err)
-			return "", err
+			// TODO: need to extract fault from err returned by GetStoragePolicyIDByName.
+			// Currently, just return csi.fault.Internal.
+			return "", csifault.CSIInternalFault, err
 		}
 	}
 	var datastoreMorefs []vim25types.ManagedObjectReference
@@ -265,7 +286,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}
 		if !isFound {
-			return "", logger.LogNewErrorf(log,
+			// TODO: Need to figure out which fault need to be returned when datastoreURL is not specified in
+			// storage class. Currently, just return csi.fault.Internal.
+			return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"CSI user doesn't have permission on the datastore: %s specified in storage class",
 				spec.ScParams.DatastoreURL)
 		}
@@ -315,23 +338,25 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
-		return "", err
+		log.Errorf("failed to create file volume %q with error %+v faultType %q", spec.Name, err, faultType)
+		return "", faultType, err
 	}
-	return volumeInfo.VolumeID.Id, nil
+	return volumeInfo.VolumeID.Id, "", nil
 }
 
 // CreateFileVolumeUtilOld is the helper function to create CNS file volume with
 // datastores from TargetvSANFileShareDatastoreURLs in vsphere conf.
 func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec) (string, error) {
+	manager *Manager, spec *CreateVolumeSpec) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
 		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		return "", err
+		// TODO: need to extract fault from err returned by GetVCenter.
+		// Currently, just return csi.fault.Internal.
+		return "", csifault.CSIInternalFault, err
 	}
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name.
@@ -339,7 +364,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 		if err != nil {
 			log.Errorf("Error occurred while getting Profile Id from Profile Name: %q, err: %+v",
 				spec.ScParams.StoragePolicyName, err)
-			return "", err
+			// TODO: need to extract fault from err returned by GetStoragePolicyIDByName.
+			// Currently, just return csi.fault.Internal.
+			return "", csifault.CSIInternalFault, err
 		}
 	}
 	var datastores []vim25types.ManagedObjectReference
@@ -348,13 +375,17 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			datacenters, err := vc.ListDatacenters(ctx)
 			if err != nil {
 				log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-				return "", err
+				// TODO: need to extract fault from err returned by ListDatacenters.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, err
 			}
 			// Get all vSAN datastores from VC.
 			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 			if err != nil {
 				log.Errorf("failed to get vSAN datastores with error %+v", err)
-				return "", err
+				// TODO: need to extract fault from err returned by GetVsanDatastores.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, err
 			}
 			var allvsanDatastoreUrls []string
 			for dsURL := range vsanDsURLToInfoMap {
@@ -363,7 +394,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			fsEnabledMap, err := IsFileServiceEnabled(ctx, allvsanDatastoreUrls, vc, datacenters)
 			if err != nil {
 				log.Errorf("failed to get if file service is enabled on vsan datastores with error %+v", err)
-				return "", err
+				// TODO: Need to figure out which fault need to be returned if IsFileServiceEnabled returned with err.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, err
 			}
 			for dsURL, dsInfo := range vsanDsURLToInfoMap {
 				if val, ok := fsEnabledMap[dsURL]; ok {
@@ -373,7 +406,10 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				}
 			}
 			if len(datastores) == 0 {
-				return "", logger.LogNewError(log, "no file service enabled vsan datastore is present in the environment")
+				// TODO: Need to figure out which fault need to be returned if no file service enabled vsan datatore is present.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault,
+					logger.LogNewError(log, "no file service enabled vsan datastore is present in the environment")
 			}
 		} else {
 			// If DatastoreURL is not specified in StorageClass, get all datastores
@@ -382,7 +418,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
 				if err != nil {
 					log.Errorf("failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
-					return "", err
+					// TODO: Need to figure out the fault extracted from getDatastore.
+					// Currently, just return csi.fault.Internal.
+					return "", csifault.CSIInternalFault, err
 				}
 				datastores = append(datastores, datastoreMoref)
 			}
@@ -396,7 +434,9 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
 				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
-				return "", err
+				// TODO: Need to figure out the fault extracted from getDatastore.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, err
 			}
 			datastores = append(datastores, datastoreMoref)
 		} else {
@@ -410,14 +450,18 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				}
 			}
 			if !found {
-				return "", logger.LogNewErrorf(log,
+				// TODO: Need to figure out which fault need to be returned when datastoreURL is not in the allowed list.
+				// Currently, return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
 					"Datastore URL %q specified in storage class is not in the allowed list %+v",
 					spec.ScParams.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
 			}
 			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
 				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
-				return "", err
+				// TODO: Need to figure out the fault extracted from getDatastore.
+				// Currently, just return csi.fault.Internal.
+				return "", csifault.CSIInternalFault, err
 			}
 			datastores = append(datastores, datastoreMoref)
 		}
@@ -467,12 +511,12 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
-		log.Errorf("failed to create file volume %q with error %+v", spec.Name, err)
-		return "", err
+		log.Errorf("failed to create file volume %q with error %+v faultType %q", spec.Name, err, faultType)
+		return "", faultType, err
 	}
-	return volumeInfo.VolumeID.Id, nil
+	return volumeInfo.VolumeID.Id, "", nil
 }
 
 // getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's
@@ -498,87 +542,88 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 // AttachVolumeUtil is the helper function to attach CNS volume to specified vm.
 func AttachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
-	volumeID string, checkNVMeController bool) (string, error) {
+	volumeID string, checkNVMeController bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is attaching volume: %q to vm: %q", volumeID, vm.String())
-	diskUUID, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
+	diskUUID, faultType, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
 	if err != nil {
-		log.Errorf("failed to attach disk %q with VM: %q. err: %+v", volumeID, vm.String(), err)
-		return "", err
+		log.Errorf("failed to attach disk %q with VM: %q. err: %+v faultType %q", volumeID, vm.String(), err, faultType)
+		return "", faultType, err
 	}
 	log.Debugf("Successfully attached disk %s to VM %v. Disk UUID is %s", volumeID, vm, diskUUID)
-	return diskUUID, nil
+	return diskUUID, "", err
 }
 
 // DetachVolumeUtil is the helper function to detach CNS volume from specified
 // vm.
 func DetachVolumeUtil(ctx context.Context, manager *Manager,
 	vm *vsphere.VirtualMachine,
-	volumeID string) error {
+	volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
-	err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
+	faultType, err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
 	if err != nil {
 		log.Errorf("failed to detach disk %s with err %+v", volumeID, err)
-		return err
+		return faultType, err
 	}
 	log.Debugf("Successfully detached disk %s from VM %v.", volumeID, vm)
-	return nil
+	return "", nil
 }
 
 // DeleteVolumeUtil is the helper function to delete CNS volume for given
 // volumeId.
-func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, deleteDisk bool) error {
+func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+	deleteDisk bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	var err error
+	var faultType string
 	log.Debugf("vSphere CSI driver is deleting volume: %s with deleteDisk flag: %t", volumeID, deleteDisk)
-	err = volManager.DeleteVolume(ctx, volumeID, deleteDisk)
+	faultType, err = volManager.DeleteVolume(ctx, volumeID, deleteDisk)
 	if err != nil {
 		log.Errorf("failed to delete disk %s, deleteDisk flag: %t with error %+v", volumeID, deleteDisk, err)
-		return err
+		return faultType, err
 	}
 	log.Debugf("Successfully deleted disk for volumeid: %s, deleteDisk flag: %t", volumeID, deleteDisk)
-	return nil
+	return "", nil
 }
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
 // volumeId.
 func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64, useAsyncQueryVolume,
-	isIdempotencyHandlingEnabled bool) error {
+	isIdempotencyHandlingEnabled bool) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
-
+	var faultType string
 	if isIdempotencyHandlingEnabled {
 		// Avoid querying volume when idempotency handling is enabled.
-		err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+		faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-			return err
+			return faultType, err
 		}
 		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
-		return nil
+		return "", nil
 	} else {
 		expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
 		if err != nil {
-			return err
+			return csifault.CSIInternalFault, err
 		}
 		if expansionRequired {
 			log.Infof("Requested size %d Mb is greater than current size for volumeID: %q. Need volume expansion.",
 				capacityInMb, volumeID)
-			err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+			faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 			if err != nil {
 				log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-				return err
+				return faultType, err
 			}
 			log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
 
 		} else {
 			log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
 		}
-		return err
-
 	}
+	return "", nil
 }
 
 func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volumeID string, snapshotID string,
