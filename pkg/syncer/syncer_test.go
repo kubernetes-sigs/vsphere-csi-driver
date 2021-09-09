@@ -297,7 +297,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 		},
 	}
 
-	volumeInfo, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Delete volume with DeleteDisk=false.
-	if err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, false); err != nil {
+	if _, err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -648,7 +648,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 	cnsCreationMap = make(map[string]bool)
 
-	volumeInfo, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
 		t.Errorf("failed to create volume. Error: %+v", err)
 		t.Fatal(err)
@@ -831,7 +831,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Cleanup in CNS to delete the volume.
-	if err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, true); err != nil {
+	if _, err = volumeManager.DeleteVolume(ctx, volumeInfo.VolumeID.Id, true); err != nil {
 		t.Logf("failed to delete volume %v from CNS", volumeInfo.VolumeID.Id)
 	}
 	t.Log("TestFullSyncWorkflows end")

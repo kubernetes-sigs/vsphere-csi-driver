@@ -144,7 +144,7 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 					}
 					log.Debugf("vSphere CSI driver is detaching volume: %s from vm: %s", volumeID, vm.InventoryPath)
 					// It does not throw error if disk is already detached.
-					err = volManager.DetachVolume(ctx, vm, volumeID)
+					_, err = volManager.DetachVolume(ctx, vm, volumeID)
 					if err != nil {
 						log.Errorf("failed to detach volume %s with err %+v", volumeID, err)
 						return err
