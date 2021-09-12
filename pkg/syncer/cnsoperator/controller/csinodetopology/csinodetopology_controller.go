@@ -234,8 +234,9 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		// Fetch topology labels for nodeVM.
 		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg)
 		if err != nil {
-			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM with ID %q", nodeID)
-			log.Errorf("%s. Error: %v", msg, err)
+			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM with ID %q. Error: %v",
+				nodeID, err)
+			log.Error(msg)
 			_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
