@@ -353,8 +353,30 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 		}
 
 		// In order to keep backward compatibility, we will discover existing topology labels
-		// on nodes in the cluster. If present, we will use the same label. If not, we will
-		// use the TopologyLabelsDomain name.
+		// on nodes in the cluster. Few examples on how the discovery works:
+		// Node    Topology label
+		// N1      topology.kubernetes.io/XYZ
+		// N2      topology.kubernetes.io/XYZ
+		// After the cluster is up and running, N1 and N2 will have topology labels of the
+		// form `topology.kubernetes.io/XYZ`
+		//
+		// Node    Topology label
+		// N1      failure-domain.beta.kubernetes.io/XYZ
+		// N2      No label
+		// After the cluster is up and running, N1 and N2 will have topology labels of the
+		// form `failure-domain.beta.kubernetes.io/XYZ`
+		//
+		// Node    Topology label
+		// N1      failure-domain.beta.kubernetes.io/XYZ
+		// N2      topology.kubernetes.io/XYZ
+		// The nodes in the cluster will remain in CrashLoopBackOff state till the customer
+		// intervenes to have a uniform label across all nodes in the cluster.
+		//
+		// Node    Topology label
+		// N1      No label
+		// N2      No label
+		// After the cluster is up and running, N1 and N2 will have topology labels of the
+		// form `topology.csi.vmware.com/XYZ`
 		nodeList, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to list nodes in the cluster. Error: %+v", err)
@@ -392,6 +414,11 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 	return topologyLabels, nil
 }
 
+// findExistingTopologyLabels figures out if the given list of nodes were already participating
+// in a topology setup. If yes, it will discover if the nodes use the standard topology beta
+// labels or the GA labels and return those. However, if the cluster has a mix of nodes with beta
+// and GA labels, it will error out and request the customer to fix the environment before proceeding
+// further. If no topology labels were found on all nodes, it will return empty strings.
 func findExistingTopologyLabels(ctx context.Context, nodeList *corev1.NodeList) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	labelMap := map[string]bool{
