@@ -880,18 +880,15 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
+		var isDiskDetached bool
 		if supervisorCluster {
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volHandle, vmUUID))
-			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
-			gomega.Expect(err).To(gomega.HaveOccurred(),
-				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
-					vmUUID, volHandle))
+			isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, vmUUID)
 		} else {
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, vmUUID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, vmUUID))
+			isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod2.Spec.NodeName)
 		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, vmUUID))
 
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
