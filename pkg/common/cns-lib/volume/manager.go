@@ -136,13 +136,14 @@ var (
 	// read/write on manager instance.
 	managerInstanceLock sync.Mutex
 	volumeTaskMap       = make(map[string]*createVolumeTaskDetails)
+	// volumeTaskMapLock is used to serialize writes to volumeTaskMap.
+	volumeTaskMapLock sync.Mutex
 	// Alias for CreateVolumeOperationRequestDetails function declaration.
 	createRequestDetails = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails
 )
 
 // createVolumeTaskDetails contains taskInfo object and expiration time.
 type createVolumeTaskDetails struct {
-	sync.Mutex
 	task           *object.Task
 	expirationTime time.Time
 }
@@ -192,9 +193,9 @@ func ClearTaskInfoObjects() {
 				// the entry has to be deleted.
 				log.Debugf("Found an expired taskInfo: %+v for volume %q. Deleting it from task map",
 					volumeTaskMap[pvc].task, pvc)
-				taskDetails.Lock()
+				volumeTaskMapLock.Lock()
 				delete(volumeTaskMap, pvc)
-				taskDetails.Unlock()
+				volumeTaskMapLock.Unlock()
 			}
 		}
 	}
@@ -400,7 +401,9 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			taskDetails.task = task
 			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(
 				defaultOpsExpirationTimeInHours))
+			volumeTaskMapLock.Lock()
 			volumeTaskMap[volNameFromInputSpec] = &taskDetails
+			volumeTaskMapLock.Unlock()
 		}
 	} else {
 		// Create new task object with latest vCenter Client to avoid
@@ -442,13 +445,13 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			// Remove the taskInfo object associated with the volume name when the
 			// current task fails. This is needed to ensure the sub-sequent create
 			// volume call from the external provisioner invokes Create Volume.
-			taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
+			_, ok := volumeTaskMap[volNameFromInputSpec]
 			if ok {
-				taskDetailsInMap.Lock()
+				volumeTaskMapLock.Lock()
 				log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
 					volNameFromInputSpec)
 				delete(volumeTaskMap, volNameFromInputSpec)
-				taskDetailsInMap.Unlock()
+				volumeTaskMapLock.Unlock()
 			}
 			log.Errorf("failed to create cns volume %s. createSpec: %q, fault: %q",
 				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault))
