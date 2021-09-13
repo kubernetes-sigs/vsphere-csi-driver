@@ -100,7 +100,7 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 			queryRes, err := m.QueryVolumeAsync(ctx, queryFilter, querySelection)
 			if err != nil {
 				if err.Error() == cnsvsphere.ErrNotSupported.Error() {
-					log.Warn("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
+					log.Info("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
 					queryAsyncNotSupported = true
 					break
 				} else { // Return for any other failures.
