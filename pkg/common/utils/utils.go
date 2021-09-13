@@ -35,7 +35,7 @@ import (
 // top level directory.
 const DefaultQuerySnapshotLimit = int64(128)
 
-// queryVolumeLimit is the page size, which should be set in the cursor for CnsQueryAsync API
+// queryVolumeLimit is the pagination size, which should be set in the cursor for CnsQueryAsync API
 const queryVolumeLimit = int64(1000)
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
@@ -52,7 +52,7 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 	var err error
 	if useQueryVolumeAsync {
 		// AsyncQueryVolume feature switch is enabled.
-		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, nil)
+		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
 		if err != nil {
 			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
 				log.Warn("QueryVolumeAsync is not supported. Invoking QueryVolume API")
@@ -109,12 +109,12 @@ func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cn
 				}
 			}
 			allQueryResults = append(allQueryResults, queryRes)
-			log.Infof("%v more volumes to be queried", queryRes.Cursor.TotalRecords-queryRes.Cursor.Offset)
 			if queryRes.Cursor.Offset == queryRes.Cursor.TotalRecords {
 				log.Info("Results retrieved for all requested volumes")
 				break
 			}
 			queryFilter.Cursor = &queryRes.Cursor
+			log.Infof("%v more volumes to be queried", queryRes.Cursor.TotalRecords-queryRes.Cursor.Offset)
 		}
 		if !queryAsyncNotSupported {
 			for _, res := range allQueryResults {
