@@ -381,7 +381,7 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to list nodes in the cluster. Error: %+v", err)
 		}
-		zoneLabel, regionLabel, err := findExistingTopologyLabels(ctx, nodeList)
+		zoneLabel, regionLabel, err := findExistingTopologyLabels(ctx, nodeList.Items)
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to discover existing topology labels "+
 				"on the nodes in the cluster. Error: %+v", err)
@@ -419,20 +419,19 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 // labels or the GA labels and return those. However, if the cluster has a mix of nodes with beta
 // and GA labels, it will error out and request the customer to fix the environment before proceeding
 // further. If no topology labels were found on all nodes, it will return empty strings.
-func findExistingTopologyLabels(ctx context.Context, nodeList *corev1.NodeList) (string, string, error) {
+func findExistingTopologyLabels(ctx context.Context, nodeList []corev1.Node) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	labelMap := map[string]bool{
 		"beta": false,
 		"GA":   false,
 	}
-	for _, k8sNode := range nodeList.Items {
-		for key := range k8sNode.Labels {
-			if key == corev1.LabelTopologyZone || key == corev1.LabelTopologyRegion {
-				labelMap["GA"] = true
-			}
-			if key == corev1.LabelFailureDomainBetaZone || key == corev1.LabelFailureDomainBetaRegion {
-				labelMap["beta"] = true
-			}
+	for _, k8sNode := range nodeList {
+		if k8sNode.Labels[corev1.LabelTopologyZone] != "" || k8sNode.Labels[corev1.LabelTopologyRegion] != "" {
+			labelMap["GA"] = true
+		}
+		if k8sNode.Labels[corev1.LabelFailureDomainBetaZone] != "" ||
+			k8sNode.Labels[corev1.LabelFailureDomainBetaRegion] != "" {
+			labelMap["beta"] = true
 		}
 		if labelMap["GA"] && labelMap["beta"] {
 			return "", "", logger.LogNewErrorf(log, "found conflicting topology labels on certain node(s) in "+
