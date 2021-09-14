@@ -40,7 +40,7 @@ const (
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultFullSyncWaitTime                    = 1800
-	defaultPandoraSyncWaitTime                 = 90
+	defaultPandoraSyncWaitTime                 = 660
 	defaultVCRebootWaitTime                    = 180
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
