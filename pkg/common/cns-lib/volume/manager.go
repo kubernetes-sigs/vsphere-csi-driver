@@ -402,6 +402,10 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 				defaultOpsExpirationTimeInHours))
 			volumeTaskMap[volNameFromInputSpec] = &taskDetails
 		}
+	} else {
+		// Create new task object with latest vCenter Client to avoid
+		// NotAuthenticated fault for cached tasks objects.
+		task = object.NewTask(m.virtualCenter.Client.Client, task.Reference())
 	}
 
 	// Get the taskInfo.
