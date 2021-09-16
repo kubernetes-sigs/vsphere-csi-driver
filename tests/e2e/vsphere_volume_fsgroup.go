@@ -165,8 +165,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 
 		ginkgo.By("Verify the volume is accessible and filegroup type is as expected")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"ls -lh /mnt/volume1/fstype "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+			"ls -lh /mnt/volume1/fstype"}
+		output, err := framework.RunKubectl(namespace, cmd...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Writing the logs into the console %v", output)
+
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(fsGroup)))).NotTo(gomega.BeFalse())
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(runAsUser)))).NotTo(gomega.BeFalse())
 
