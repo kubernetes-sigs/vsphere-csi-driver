@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -166,7 +167,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		ginkgo.By("Verify the volume is accessible and filegroup type is as expected")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"ls -lh /mnt/volume1/fstype "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output, err := framework.RunKubectl(namespace, cmd...)
+		framework.Logf("Writing the logs into the console %v", output)
+
+		time.Sleep(5 * time.Minute)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(fsGroup)))).NotTo(gomega.BeFalse())
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(runAsUser)))).NotTo(gomega.BeFalse())
 
