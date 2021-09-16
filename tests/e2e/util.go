@@ -46,6 +46,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v2"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -864,6 +865,186 @@ func createGC(wcpHost string, wcpToken string) {
 	response := string(bodyBytes)
 	framework.Logf(response)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
+}
+
+//scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
+func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworker int) {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	type TKGCluster struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+		Metadata   struct {
+			Name            string `yaml:"name"`
+			Namespace       string `yaml:"namespace"`
+			ResourceVersion string `yaml:"resourceVersion"`
+			SelfLink        string `yaml:"selfLink"`
+			UID             string `yaml:"uid"`
+		} `yaml:"metadata"`
+		Spec struct {
+			Distribution struct {
+				FullVersion string `yaml:"fullVersion"`
+				Version     string `yaml:"version"`
+			} `yaml:"distribution"`
+			Settings struct {
+				Network struct {
+					Cni struct {
+						Name string `yaml:"name"`
+					} `yaml:"cni"`
+					Pods struct {
+						CidrBlocks []string `yaml:"cidrBlocks"`
+					} `yaml:"pods"`
+					ServiceDomain string `yaml:"serviceDomain"`
+					Services      struct {
+						CidrBlocks []string `yaml:"cidrBlocks"`
+					} `yaml:"services"`
+				} `yaml:"network"`
+			} `yaml:"settings"`
+			Topology struct {
+				ControlPlane struct {
+					Class        string `yaml:"class"`
+					Count        int    `yaml:"count"`
+					StorageClass string `yaml:"storageClass"`
+				} `yaml:"controlPlane"`
+				Workers struct {
+					Class        string `yaml:"class"`
+					Count        int    `yaml:"count"`
+					StorageClass string `yaml:"storageClass"`
+				} `yaml:"workers"`
+			} `yaml:"topology"`
+		} `yaml:"spec"`
+		Status struct {
+			Addons struct {
+				Authsvc struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"authsvc"`
+				Cloudprovider struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"cloudprovider"`
+				Cni struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"cni"`
+				Csi struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"csi"`
+				DNS struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"dns"`
+				MetricsServer struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Reason             string    `yaml:"reason"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name   string `yaml:"name"`
+					Status string `yaml:"status"`
+				} `yaml:"metrics-server"`
+				Proxy struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"proxy"`
+				Psp struct {
+					Conditions []struct {
+						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+						Status             string    `yaml:"status"`
+						Type               string    `yaml:"type"`
+					} `yaml:"conditions"`
+					Name    string `yaml:"name"`
+					Status  string `yaml:"status"`
+					Version string `yaml:"version"`
+				} `yaml:"psp"`
+			} `yaml:"addons"`
+			ClusterAPIStatus struct {
+				APIEndpoints []struct {
+					Host string `yaml:"host"`
+					Port int    `yaml:"port"`
+				} `yaml:"apiEndpoints"`
+			} `yaml:"clusterApiStatus"`
+			Conditions []struct {
+				LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+				Status             string    `yaml:"status"`
+				Type               string    `yaml:"type"`
+				Message            string    `yaml:"message,omitempty"`
+				Reason             string    `yaml:"reason,omitempty"`
+			} `yaml:"conditions"`
+			Phase string `yaml:"phase"`
+		} `yaml:"status"`
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	bodyBytes := httpGet(client, req)
+
+	var tkg TKGCluster
+	err = yaml.Unmarshal(bodyBytes, &tkg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("tkg version %s", tkg.Spec.Distribution.Version)
+	tkg.Spec.Topology.Workers.Count = tkgworker
+
+	new_data, err := yaml.Marshal(&tkg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req, err = http.NewRequest("PUT", getGCURL, bytes.NewBuffer(new_data))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	req.Header.Add("Accept", "application/yaml")
+	req.Header.Add("Content-Type", "application/yaml")
+	bodyBytes, statusCode := httpPost(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+
+	response := string(bodyBytes)
+	framework.Logf("response %v", response)
+
 }
 
 //getGC polls for the GC status, returns error if its not in running phase
