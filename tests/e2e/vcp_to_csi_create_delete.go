@@ -938,14 +938,16 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 				} else {
 					labels := getLabelMap(entityMetadata.Labels)
 					if !(reflect.DeepEqual(labels, pvc.Labels)) {
-						framework.Logf("Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v",
+						framework.Logf(
+							"Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v",
 							pvc.Labels, entityMetadata.Labels, volumeID)
 						pvcEntryFound = false
 						break
 					}
 				}
 				if entityMetadata.Namespace != pvc.Namespace {
-					framework.Logf("PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v",
+					framework.Logf(
+						"PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v",
 						pvc.Namespace, entityMetadata.Namespace, volumeID)
 					pvcEntryFound = false
 					break
@@ -972,8 +974,9 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 				} else {
 					labels := getLabelMap(entityMetadata.Labels)
 					if !(reflect.DeepEqual(labels, pv.Labels)) {
-						framework.Logf("Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v",
-							entityMetadata.Labels, pv.Labels, volumeID)
+						framework.Logf(
+							"Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v",
+							pv.Labels, entityMetadata.Labels, volumeID)
 						pvEntryFound = false
 						break
 					}
@@ -1006,7 +1009,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 						}
 						if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
 							framework.Logf("PVC namespace '%v' does not match PVC namespace in Pod metadata "+
-								"referered entitry, '%v', for volume id %v",
+								"referered entity, '%v', for volume id %v",
 								pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
 							podEntryFound = false
 							break
@@ -1014,7 +1017,8 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 					}
 				}
 				if entityMetadata.Namespace != pod.Namespace {
-					framework.Logf("Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v",
+					framework.Logf(
+						"Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v",
 						pod.Namespace, entityMetadata.Namespace, volumeID)
 					podEntryFound = false
 					break
