@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: static-vanilla-block-pv
+  name: static-vanilla-rwo-filesystem-pv
   annotations:
     pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
   labels:
@@ -12,10 +12,10 @@ spec:
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Delete
-  storageClassName: example-vanilla-block-sc
+  storageClassName: example-vanilla-rwo-filesystem-sc
   claimRef:
     namespace: default
-    name: static-vanilla-block-pvc
+    name: static-vanilla-rwo-filesystem-pvc
   csi:
     driver: csi.vsphere.vmware.com
     volumeAttributes:
@@ -25,7 +25,7 @@ spec:
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: static-vanilla-block-pvc
+  name: static-vanilla-rwo-filesystem-pvc
 spec:
   accessModes:
     - ReadWriteOnce
@@ -35,6 +35,6 @@ spec:
   selector:
     matchLabels:
       static-pv-label-key: static-pv-label-value  # This label is optional, it is used as selector to find matching PV with specified key and value.
-  storageClassName: example-vanilla-block-sc
-  volumeName: static-vanilla-block-pv
+  storageClassName: example-vanilla-rwo-filesystem-sc
+  volumeName: static-vanilla-rwo-filesystem-pv
 ---

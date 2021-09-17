@@ -1,0 +1,8 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: example-raw-block-sc
+provisioner: csi.vsphere.vmware.com
+parameters:
+  datastoreurl: "ds:///vmfs/volumes/vsan:52cdfa80721ff516-ea1e993113acfc77/"  # Optional Parameter
+  storagepolicyname: "vSAN Default Storage Policy"  # Optional Parameter

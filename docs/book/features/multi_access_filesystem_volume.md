@@ -1,4 +1,4 @@
-# vSphere CSI Driver - File Volume
+# vSphere CSI Driver - Multi-Access, Filesystem Based Volume
 
 The vSphere Vanilla CSI driver version 2.0 and above supports file volumes backed by vSAN File shares to be statically/dynamically created and mounted by stateful containerized applications. This feature allows you to reference the same shared data among multiple pods spread across different clusters making it an absolute necessity for applications that need shareability.
 
@@ -23,7 +23,7 @@ In order to utilize this feature in your vSphere environment, you need to make s
 
 Before you start using file services in your environment keep in mind that if you have file shares being shared across more than one clusters in your vCenter, deleting a PVC with reclaim policy set to `Delete` in any one cluster may delete the underlying file share causing the volume to be unavailable for the rest of the clusters.
 
-After you are done setting up file services, to get started with vSphere CSI file services integration with your applications, check this [video](https://youtu.be/GUtG-4urGFA). We have also provided few [Try-out YAMLs](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/example/vanilla-k8s-file-driver) for Storage Class, PersistentVolumeClaim, PersistentVolume and Pod specs for your convenience.
+After you are done setting up file services, to get started with vSphere CSI file services integration with your applications, check this [video](https://youtu.be/GUtG-4urGFA). We have also provided few [Try-out YAMLs](https://github.com/kubernetes-sigs/vsphere-csi-driver/tree/master/example/vanilla-k8s-RWM-filesystem-volumes) for Storage Class, PersistentVolumeClaim, PersistentVolume and Pod specs for your convenience.
 
 The next section on CSI file services integration will explain some of the spec changes mandatory for file share volumes.
 
@@ -31,7 +31,7 @@ The next section on CSI file services integration will explain some of the spec 
 
 ### Dynamic Provisioning of file volumes
 
-To give this example a try, you can first pick the Storage Class spec from [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-file-driver/example-sc.yaml). To create a file volume PVC spec, set `accessModes` to either `ReadWriteMany` or `ReadOnlyMany` depending upon your requirement.
+To give this example a try, you can first pick the Storage Class spec from [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-RWM-filesystem-volumes/example-sc.yaml). To create a file volume PVC spec, set `accessModes` to either `ReadWriteMany` or `ReadOnlyMany` depending upon your requirement.
 
 ```yaml
 apiVersion: v1

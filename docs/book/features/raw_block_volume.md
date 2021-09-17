@@ -1,4 +1,4 @@
-# vSphere CSI Driver - Raw Block Volume
+# vSphere CSI Driver - Single-Access, Block Based Volume (Raw Block Volume)
 
 [Raw Block Volume](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#raw-block-volume-support) feature in Kubernetes was promoted to stable in Kubernetes 1.18.
 vSphere CSI Driver release [`v2.3.0`](https://vsphere-csi-driver.sigs.k8s.io/releases/v2.3.0.html) onwards has Raw Block Volume feature released as `Alpha`. We do not recommend `Alpha` features for production use.

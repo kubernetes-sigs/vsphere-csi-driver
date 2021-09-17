@@ -9,4 +9,4 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: example-vanilla-block-sc
+  storageClassName: example-raw-block-sc

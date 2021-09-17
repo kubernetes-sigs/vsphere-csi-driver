@@ -14,4 +14,4 @@ spec:
   volumes:
     - name: test-volume
       persistentVolumeClaim:
-        claimName: example-vanilla-block-pvc
+        claimName: example-vanilla-rwo-pvc
