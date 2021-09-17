@@ -11,6 +11,7 @@ The ability to use a raw block device without a filesystem will allow Kubernetes
 ## Creating a new raw block PVC
 
 To request a raw block PersistentVolumeClaim, volumeMode = "Block" must be specified in the PersistentVolumeClaimSpec.
+Raw Block Volume should be created using accessModes `ReadWriteOnce`. vSphere CSI Driver does not support creating raw block volume using `ReadWriteMany` accessModes.
 
 ```yaml
 apiVersion: v1
@@ -19,7 +20,7 @@ metadata:
   name: block-pvc
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   volumeMode: Block
   storageClassName: example-vanilla-block-sc
   resources:
