@@ -459,9 +459,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvsPostMig[7] = updatePvLabel(ctx, client, namespace, vcpPvsPostMig[7], labels)
 
 		ginkgo.By("Verify annotations on PV/PVCs")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig)
 		// Static provisioned volumes.
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -678,7 +678,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)

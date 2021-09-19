@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig)
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		for _, sc := range vcpScs {
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created after migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created " +
 			"before and after migration")
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig)
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
 		for _, pvc := range vcpPvcsPostMig {
@@ -572,7 +572,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -654,18 +654,18 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 // waitForMigAnnotationsPvcPvLists waits for the list PVs and PVCs to have migration related annotatations
 func waitForMigAnnotationsPvcPvLists(ctx context.Context, c clientset.Interface,
-	pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume, isMigratedVol bool) {
+	pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume) {
 	for i := 0; i < len(pvcs); i++ {
 		pvc := pvcs[i]
 		framework.Logf("Checking PVC %v", pvc.Name)
-		pvc, err := waitForPvcMigAnnotations(ctx, c, pvc.Name, pvc.Namespace, isMigratedVol)
+		pvc, err := waitForPvcMigAnnotations(ctx, c, pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs[i] = pvc
 	}
 	for i := 0; i < len(pvs); i++ {
 		pv := pvs[i]
 		framework.Logf("Checking PV %v", pv.Name)
-		pv, err := waitForPvMigAnnotations(ctx, c, pv.Name, isMigratedVol)
+		pv, err := waitForPvMigAnnotations(ctx, c, pv.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvs[i] = pv
 	}
@@ -673,23 +673,22 @@ func waitForMigAnnotationsPvcPvLists(ctx context.Context, c clientset.Interface,
 
 // waitForPvcMigAnnotations waits for the PVC to have migration related annotatations
 func waitForPvcMigAnnotations(ctx context.Context, c clientset.Interface, pvcName string,
-	namespace string, isMigratedVol bool) (*v1.PersistentVolumeClaim, error) {
+	namespace string) (*v1.PersistentVolumeClaim, error) {
 	var pvc *v1.PersistentVolumeClaim
 	var hasMigAnnotations bool
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		hasMigAnnotations, pvc = pvcHasMigAnnotations(ctx, c, pvcName, namespace, isMigratedVol)
+		hasMigAnnotations, pvc = pvcHasMigAnnotations(ctx, c, pvcName, namespace)
 		return hasMigAnnotations, nil
 	})
 	return pvc, waitErr
 }
 
 // waitForPvMigAnnotations waits for the PV to have migration related annotatations
-func waitForPvMigAnnotations(ctx context.Context, c clientset.Interface, pvName string,
-	isMigratedVol bool) (*v1.PersistentVolume, error) {
+func waitForPvMigAnnotations(ctx context.Context, c clientset.Interface, pvName string) (*v1.PersistentVolume, error) {
 	var pv *v1.PersistentVolume
 	var hasMigAnnotations bool
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		hasMigAnnotations, pv = pvHasMigAnnotations(ctx, c, pvName, isMigratedVol)
+		hasMigAnnotations, pv = pvHasMigAnnotations(ctx, c, pvName)
 		return hasMigAnnotations, nil
 	})
 	return pv, waitErr
@@ -697,7 +696,7 @@ func waitForPvMigAnnotations(ctx context.Context, c clientset.Interface, pvName 
 
 // pvcHasMigAnnotations checks whether specified PVC has migartion related annotatations
 func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName string,
-	namespace string, isMigratedVol bool) (bool, *v1.PersistentVolumeClaim) {
+	namespace string) (bool, *v1.PersistentVolumeClaim) {
 	pvc, err := c.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	annotations := pvc.Annotations
@@ -705,34 +704,16 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 	isMigratedToCsi := false
 	gomega.Expect(annotations).NotTo(gomega.BeNil(), "No annotations found on PVC "+pvcName)
 	for k, v := range annotations {
-		if isMigratedVol {
-			if k == pvcAnnotationStorageProvisioner && v == vcpProvisionerName {
-				isStorageProvisionerMatching = true
-				continue
-			}
-			if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
-				isMigratedToCsi = true
-			}
-		} else {
-			if k == pvcAnnotationStorageProvisioner && v == e2evSphereCSIDriverName {
-				isStorageProvisionerMatching = true
-				continue
-			}
-			if k == migratedToAnnotation {
-				isMigratedToCsi = true
-			}
+		if k == pvcAnnotationStorageProvisioner && v == vcpProvisionerName {
+			isStorageProvisionerMatching = true
+			continue
+		}
+		if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
+			isMigratedToCsi = true
 		}
 	}
-	if isMigratedVol {
-		if isStorageProvisionerMatching && isMigratedToCsi {
-			return true, pvc
-		}
-	} else {
-		gomega.Expect(isMigratedToCsi).NotTo(gomega.BeTrue(),
-			migratedToAnnotation+" annotation was not expected on PVC "+pvcName)
-		if isStorageProvisionerMatching {
-			return true, pvc
-		}
+	if isStorageProvisionerMatching && isMigratedToCsi {
+		return true, pvc
 	}
 	framework.Logf(
 		"Annotations found on PVC: %v in namespace:%v are,\n%v", pvcName, pvc.Namespace, spew.Sdump(annotations))
@@ -741,7 +722,7 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 
 // pvHasMigAnnotations checks whether specified PV has migartion related annotatations
 func pvHasMigAnnotations(ctx context.Context, c clientset.Interface,
-	pvName string, isMigratedVol bool) (bool, *v1.PersistentVolume) {
+	pvName string) (bool, *v1.PersistentVolume) {
 	pv, err := c.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	annotations := pv.Annotations
@@ -749,34 +730,16 @@ func pvHasMigAnnotations(ctx context.Context, c clientset.Interface,
 	isMigratedToCsi := false
 	gomega.Expect(annotations).NotTo(gomega.BeNil(), "No annotations found on PV "+pvName)
 	for k, v := range annotations {
-		if isMigratedVol {
-			if k == pvAnnotationProvisionedBy && v == vcpProvisionerName {
-				isProvisionedByMatching = true
-				continue
-			}
-			if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
-				isMigratedToCsi = true
-			}
-		} else {
-			if k == pvAnnotationProvisionedBy && v == e2evSphereCSIDriverName {
-				isProvisionedByMatching = true
-				continue
-			}
-			if k == migratedToAnnotation {
-				isMigratedToCsi = true
-			}
+		if k == pvAnnotationProvisionedBy && v == vcpProvisionerName {
+			isProvisionedByMatching = true
+			continue
+		}
+		if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
+			isMigratedToCsi = true
 		}
 	}
-	if isMigratedVol {
-		if isProvisionedByMatching && isMigratedToCsi {
-			return true, pv
-		}
-	} else {
-		gomega.Expect(isMigratedToCsi).NotTo(gomega.BeTrue(),
-			migratedToAnnotation+" annotation was not expected on PV "+pvName)
-		if isProvisionedByMatching {
-			return true, pv
-		}
+	if isProvisionedByMatching && isMigratedToCsi {
+		return true, pv
 	}
 	framework.Logf(
 		"Annotations found on PV: %v are,\n%v", pvName, spew.Sdump(annotations))
