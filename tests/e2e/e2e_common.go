@@ -157,6 +157,8 @@ const (
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	devopsTKG                                 = "test-cluster-e2e-script"
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
+	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
+	devopsUser                                = "testuser"
 	zoneKey                                   = "topology.csi.vmware.com/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
