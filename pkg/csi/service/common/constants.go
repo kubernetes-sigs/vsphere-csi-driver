@@ -284,4 +284,7 @@ const (
 	// a given replica can be placed on a node such that it does not have PVCs
 	// of any of its sibling replicas.
 	SiblingReplicaBoundPvcCheck = "sibling-replica-bound-pvc-check"
+	// CSIWindowsSupport is the feature to support csi block volumes for windows
+	// node.
+	CSIWindowsSupport = "csi-windows-support"
 )

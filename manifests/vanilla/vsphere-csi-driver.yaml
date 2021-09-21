@@ -147,6 +147,7 @@ data:
   "improved-csi-idempotency": "false"
   "improved-volume-topology": "false"
   "block-volume-snapshot": "false"
+  "csi-windows-support": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
