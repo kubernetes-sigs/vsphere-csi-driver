@@ -178,7 +178,7 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: vsphere-csi-controller
