@@ -153,13 +153,33 @@ metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
   namespace: vmware-system-csi
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vsphere-csi-controller
+  namespace: vmware-system-csi
+  labels:
+    app: vsphere-csi-controller
+spec:
+  ports:
+    - name: ctlr
+      port: 2112
+      targetPort: 2112
+      protocol: TCP
+    - name: syncer
+      port: 2113
+      targetPort: 2113
+      protocol: TCP
+  selector:
+    app: vsphere-csi-controller
+---
 kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: vsphere-csi-controller
@@ -169,6 +189,16 @@ spec:
         app: vsphere-csi-controller
         role: vsphere-csi
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - vsphere-csi-controller
+              topologyKey: "kubernetes.io/hostname"
       serviceAccountName: vsphere-csi-controller
       nodeSelector:
         node-role.kubernetes.io/master: ""
@@ -488,23 +518,4 @@ spec:
           operator: Exists
         - effect: NoSchedule
           operator: Exists
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: vsphere-csi-controller
-  namespace: vmware-system-csi
-  labels:
-    app: vsphere-csi-controller
-spec:
-  ports:
-    - name: ctlr
-      port: 2112
-      targetPort: 2112
-      protocol: TCP
-    - name: syncer
-      port: 2113
-      targetPort: 2113
-      protocol: TCP
-  selector:
-    app: vsphere-csi-controller
+
