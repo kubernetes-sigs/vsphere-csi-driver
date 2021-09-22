@@ -395,3 +395,13 @@ func ParseCSISnapshotID(csiSnapshotID string) (string, string, error) {
 
 	return cnsVolumeID, cnsSnapshotID, nil
 }
+
+// Contains check if item exist in list
+func Contains(list []string, item string) bool {
+	for _, x := range list {
+		if x == item {
+			return true
+		}
+	}
+	return false
+}

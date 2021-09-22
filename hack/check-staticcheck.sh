@@ -26,6 +26,6 @@ go get honnef.co/go/tools/cmd/staticcheck@v0.2.0
 
 # shellcheck disable=SC2046
 # shellcheck disable=SC1083
-$(go env GOPATH)/bin/staticcheck $(go list ./... | grep -v /vendor/)
+GOOS=linux $(go env GOPATH)/bin/staticcheck $(go list ./... | grep -v /vendor/)
 
 

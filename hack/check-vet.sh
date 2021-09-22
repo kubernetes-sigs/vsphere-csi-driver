@@ -23,4 +23,4 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # shellcheck disable=SC2046
-go vet $(go list ./... | grep -Ev 'vendor')
+GOOS=linux go vet $(go list ./... | grep -Ev 'vendor')

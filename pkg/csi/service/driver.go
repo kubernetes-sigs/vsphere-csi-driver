@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/vanilla"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcp"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcpguest"
@@ -61,8 +62,9 @@ type Driver interface {
 }
 
 type vsphereCSIDriver struct {
-	mode  string
-	cnscs csitypes.CnsController
+	mode    string
+	cnscs   csitypes.CnsController
+	osUtils *osutils.OsUtils
 }
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left
@@ -123,6 +125,13 @@ func (driver *vsphereCSIDriver) BeforeServe(
 
 	// Get the SP's operating mode.
 	driver.mode = os.Getenv(csitypes.EnvVarMode)
+	// Create OsUtils for node driver
+	driver.osUtils, err = osutils.NewOsUtils(ctx)
+	if err != nil {
+		log.Errorf("Failed to create OsUtils instance. Error: %v", err)
+		return err
+	}
+
 	if !strings.EqualFold(driver.mode, "node") {
 		// Controller service is needed.
 		cfg, err = common.GetConfig(ctx)
