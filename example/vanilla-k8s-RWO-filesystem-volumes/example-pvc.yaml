@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: example-vanilla-block-pvc
+  name: example-vanilla-rwo-pvc
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
-  storageClassName: example-vanilla-block-sc
+  storageClassName: example-vanilla-rwo-filesystem-sc
