@@ -243,11 +243,14 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 		if !apierrors.IsAlreadyExists(err) {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create CSINodeTopology CR. Error: %+v", err)
+		} else {
+			log.Infof("CSINodeTopology instance already exists for NodeName: %q", nodeInfo.NodeName)
 		}
 	} else {
 		log.Infof("Successfully created a CSINodeTopology instance for NodeName: %q", nodeInfo.NodeName)
 	}
 
+	// Create a watcher for CSINodeTopology CRs.
 	timeoutSeconds := int64((time.Duration(getCSINodeTopologyWatchTimeoutInMin(ctx)) * time.Minute).Seconds())
 	watchCSINodeTopology, err := volTopology.csiNodeTopologyWatcher.Watch(metav1.ListOptions{
 		FieldSelector:  fields.OneTermEqualSelector("metadata.name", nodeInfo.NodeName).String(),
@@ -446,19 +449,24 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 			log.Warnf("received a non-CSINodeTopology instance: %+v", val)
 			continue
 		}
+
+		// Check CSINodeTopology instance `Status` field for success.
+		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
+			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
+				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
+			return nil, err
+		}
 		// Convert array of labels to map.
 		topoLabels := make(map[string]string)
-		if nodeTopologyInstance.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			for _, topoLabel := range nodeTopologyInstance.Status.TopologyLabels {
-				topoLabels[topoLabel.Key] = topoLabel.Value
-			}
+		for _, topoLabel := range nodeTopologyInstance.Status.TopologyLabels {
+			topoLabels[topoLabel.Key] = topoLabel.Value
 		}
 		// Check for a match of labels in every segment.
 		isMatch := true
 		for key, value := range segments {
 			if topoLabels[key] != value {
 				log.Debugf("Node %q did not match the topology requirement - %q: %q ",
-					nodeTopologyInstance.Spec.NodeID, key, value)
+					nodeTopologyInstance.Name, key, value)
 				isMatch = false
 				break
 			}
@@ -467,8 +475,8 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 			// NOTE: NodeID is set to NodeName for now. Will be changed to NodeUUID in future.
 			nodeVM, err := volTopology.nodeMgr.GetNodeByName(ctx, nodeTopologyInstance.Spec.NodeID)
 			if err != nil {
-				log.Errorf("failed to retrieve NodeVM for nodeID %q. Error - %+v",
-					nodeTopologyInstance.Spec.NodeID, err)
+				log.Errorf("failed to retrieve NodeVM %q. Error - %+v",
+					nodeTopologyInstance.Name, err)
 				return nil, err
 			}
 			matchingNodeVMs = append(matchingNodeVMs, nodeVM)

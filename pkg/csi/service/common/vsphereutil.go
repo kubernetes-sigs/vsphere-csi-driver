@@ -18,9 +18,9 @@ package common
 
 import (
 	"fmt"
-	"time"
-
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
@@ -31,6 +31,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
@@ -105,9 +106,6 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			datastores = getDatastoreMoRefs(sharedDatastores)
 		}
 	} else {
-		// Check datastore specified in the StorageClass should be shared
-		// datastore across all nodes.
-		//
 		// vc.GetDatacenters returns datacenters found on the VirtualCenter.
 		// If no datacenters are mentioned in the VirtualCenterConfig during
 		// registration, all Datacenters for the given VirtualCenter will be
@@ -120,7 +118,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
 			return nil, csifault.CSIInternalFault, err
 		}
-		isSharedDatastoreURL := false
+		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
 		var datastoreObj *vsphere.Datastore
 		for _, datacenter := range datacenters {
 			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
@@ -129,15 +127,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 					spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
-			for _, sharedDatastore := range sharedDatastores {
-				if sharedDatastore.Info.Url == spec.ScParams.DatastoreURL {
-					isSharedDatastoreURL = true
-					break
-				}
-			}
-			if isSharedDatastoreURL {
-				break
-			}
+			break
 		}
 		if datastoreObj == nil {
 			// TODO: Need to figure out which fault need to return when datastore is empty.
@@ -145,6 +135,15 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"DatastoreURL: %s specified in the storage class is not found.",
 				spec.ScParams.DatastoreURL)
+		}
+		// Check if DatastoreURL specified in the StorageClass should be shared
+		// datastore across all nodes.
+		isSharedDatastoreURL := false
+		for _, sharedDatastore := range sharedDatastores {
+			if strings.TrimSpace(sharedDatastore.Info.Url) == strings.TrimSpace(spec.ScParams.DatastoreURL) {
+				isSharedDatastoreURL = true
+				break
+			}
 		}
 		if isSharedDatastoreURL {
 			datastores = append(datastores, datastoreObj.Reference())
