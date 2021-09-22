@@ -1,6 +1,6 @@
 <!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD034 -->
-# vSphere CSI Driver - Block Volume
+# vSphere CSI Driver - Single-Access, Filesystem Based Volume
 
 - [Dynamic Volume Provisioning](#dynamic_volume_provisioning)
 - [Static Volume Provisioning](#static_volume_provisioning)
@@ -31,17 +31,17 @@ within a cluster, each with a custom set of parameters.
 The details for provisioning volume using topology and use of `WaitForFirstConsumer` volumeBinding mode with dynamic
 volume provisioning is described [here](volume_topology.md)
 
-**NOTE:** The support for Volume topology is present only in Vanilla Kubernetes Block Volume driver today.
+**NOTE:** The support for Volume topology is present only in Vanilla Kubernetes for single-access (RWO) file system based Volume.
 
 This section describes the step by step instructions to provision a PersistentVolume dynamically on a `Vanilla Kubernetes` cluster
 
-- Define a Storage Class as shown [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-block-driver/example-sc.yaml)
+- Define a Storage Class as shown [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-RWO-filesystem-volumes/example-sc.yaml)
 
     ```bash
     kind: StorageClass
     apiVersion: storage.k8s.io/v1
     metadata:
-      name: example-vanilla-block-sc
+      name: example-vanilla-rwo-filesystem-sc
       annotations:
         storageclass.kubernetes.io/is-default-class: "true"
     provisioner: csi.vsphere.vmware.com
@@ -57,7 +57,7 @@ This section describes the step by step instructions to provision a PersistentVo
         kubectl create -f example-sc.yaml
     ```
 
-- Define a `PersistentVolumeClaim` request as shown in the spec [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-block-driver/example-pvc.yaml)
+- Define a `PersistentVolumeClaim` request as shown in the spec [here](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/master/example/vanilla-k8s-RWO-filesystem-volumes/example-pvc.yaml)
 
 - Import this `PersistentVolumeClaim` into `Vanilla Kubernetes` cluster:
 
@@ -74,10 +74,10 @@ This section describes the step by step instructions to provision a PersistentVo
   A `PersistentVolume` is automatically created and is bound to this `PersistentVolumeClaim`.
 
     ```bash
-      $ kubectl describe pvc example-vanilla-block-pvc
-        Name:          example-vanilla-block-pvc
+      $ kubectl describe pvc example-vanilla-rwo-pvc
+        Name:          example-vanilla-rwo-pvc
         Namespace:     default
-        StorageClass:  example-vanilla-block-sc
+        StorageClass:  example-vanilla-rwo-filesystem-sc
         Status:        Bound
         Volume:        pvc-7ed39d8e-7896-11ea-a119-005056983fec
         Labels:        <none>
@@ -97,8 +97,7 @@ This section describes the step by step instructions to provision a PersistentVo
           Normal  ProvisioningSucceeded  8s                 csi.vsphere.vmware.com_vsphere-csi-controller-7777666589-jpnqh_798e6967-2ce1-486f-9c21-43d9dea709ae  Successfully provisioned volume pvc-7ed39d8e-7896-11ea-a119-005056983fec
     ```
 
-    Here, `RWO` access mode indicates that the volume provisioned is a `Block` Volume. In the case of `File`
-    volume, the accessMode will be either `ROX` or `RWX`.
+  Here, `RWO` access mode indicates that the volume is created on a vSphere virtual disk (First Class Disk).
 
 - Verify a `PersistentVolume` was created
 
@@ -107,7 +106,7 @@ This section describes the step by step instructions to provision a PersistentVo
   If it has worked you should have a `PersistentVolume` show up in the output and you should see that the `VolumeHandle`
   key is populated, as is the case below
 
-  The `Status` should say `Bound`. You can also see the `Claim` is set to the above `PersistentVolumeClaim` name `example-vanilla-block-pvc`
+  The `Status` should say `Bound`. You can also see the `Claim` is set to the above `PersistentVolumeClaim` name `example-vanilla-rwo-pvc`
 
     ```bash
       $ kubectl describe pv pvc-7ed39d8e-7896-11ea-a119-005056983fec
@@ -115,9 +114,9 @@ This section describes the step by step instructions to provision a PersistentVo
         Labels:          <none>
         Annotations:     pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com
         Finalizers:      [kubernetes.io/pv-protection]
-        StorageClass:    example-vanilla-block-sc
+        StorageClass:    example-vanilla-rwo-filesystem-sc
         Status:          Bound
-        Claim:           default/example-vanilla-block-pvc
+        Claim:           default/example-vanilla-rwo-pvc
         Reclaim Policy:  Delete
         Access Modes:    RWO
         VolumeMode:      Filesystem
@@ -151,7 +150,7 @@ and a `PersistentVolumeClaim`.
 Because the PV and the storage device already exists, there is no need to specify a storage class name in the PVC spec.
 There are many ways to create static PV and PVC binding. Example: Label matching, Volume Size matching etc
 
-**NOTE:** For Block volumes, vSphere Cloud Native Storage (CNS) only allows one PV in the Kubernetes cluster to refer to a storage disk. Creating multiple PV's using the same Block Volume Handle is not supported.
+**NOTE:** Creating multiple PVs for the same volume backed by a vSphere virtual disk (First Class Disk) in the Kubernetes cluster is not supported.
 
 ### Use Cases of Static Provisioning<a id="static_volume_provisioning_use_case"></a>
 
@@ -177,7 +176,7 @@ Following are the common use cases for static volume provisioning:
 Sharing persistent storage across clusters is available only if the cluster and the storage instance are located in
 the same zone.
 
-### How to statically provision a Block Volume
+### How to statically provision a Single Access (RWO) Volume backed by vSphere Virtual Disk (First Class Disk)
 
 This section describes the step by step instructions to provision a PersistentVolume statically on a `Vanilla Kubernetes`
 cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmware.com` in the PV annotation.
@@ -201,7 +200,7 @@ cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
             storage: 2Gi
           accessModes:
             - ReadWriteOnce
-          persistentVolumeReclaimPolicy: Delete
+          persistentVolumeReclaimPolicy: Retain
           csi:
             driver: "csi.vsphere.vmware.com"
             volumeAttributes:
@@ -268,7 +267,7 @@ cluster. Make sure to mention `pv.kubernetes.io/provisioned-by: csi.vsphere.vmwa
         StorageClass:
         Status:          Bound
         Claim:           default/static-pvc-name
-        Reclaim Policy:  Delete
+        Reclaim Policy:  Retain
         Access Modes:    RWO
         VolumeMode:      Filesystem
         Capacity:        2Gi
