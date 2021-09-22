@@ -203,8 +203,8 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	nodeVM, err := nodeManager.GetNodeByName(ctx, nodeID)
 	if err != nil {
 		// If nodeVM not found, ignore reconcile call.
-		log.Warnf("Ignoring update to CSINodeTopology CR with name %s (ID: %q) as corresponding NodeVM "+
-			"seems to be deleted. Error: %v", instance.Name, nodeID, err)
+		log.Warnf("Ignoring update to CSINodeTopology CR with name %q as corresponding NodeVM "+
+			"seems to be deleted. Error: %v", instance.Name, err)
 		return reconcile.Result{}, nil
 	}
 
@@ -235,8 +235,8 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		// Fetch topology labels for nodeVM.
 		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg)
 		if err != nil {
-			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM %q with ID %q. Error: %v",
-				instance.Name, nodeID, err)
+			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM %q. Error: %v",
+				instance.Name, err)
 			log.Error(msg)
 			_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -245,7 +245,7 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		// Update CSINodeTopology instance.
 		instance.Status.TopologyLabels = topologyLabels
 		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
-			fmt.Sprintf("Topology labels successfully updated for nodeVM %q with ID %q", instance.Name, nodeID))
+			fmt.Sprintf("Topology labels successfully updated for nodeVM %q", instance.Name))
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -260,7 +260,7 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, instance.Name)
 	backOffDurationMapMutex.Unlock()
-	log.Infof("Successfully updated topology labels for nodeVM %q with ID %q", instance.Name, nodeID)
+	log.Infof("Successfully updated topology labels for nodeVM %q", instance.Name, nodeID)
 	return reconcile.Result{}, nil
 }
 
@@ -289,8 +289,7 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	// Update CSINodeTopology instance.
 	err := r.client.Update(ctx, instance)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to update the CSINodeTopology instance with name %q and ID %q.",
-			instance.Name, instance.Spec.NodeID)
+		msg := fmt.Sprintf("Failed to update the CSINodeTopology instance with name %q.", instance.Name)
 		log.Errorf("%s. Error: %+v", msg, err)
 		r.recorder.Event(instance, corev1.EventTypeWarning, "CSINodeTopologyFailed", msg)
 		return err
