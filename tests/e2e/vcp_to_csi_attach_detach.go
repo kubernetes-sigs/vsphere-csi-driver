@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		defer cancel()
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		if kubectlMigEnabled {
 			ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		}
 
 		crds := []*v1alpha1.CnsVSphereVolumeMigration{}
@@ -458,7 +458,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
 		kubectlMigEnabled = true
 
 		ginkgo.By("Creating VCP SC post migration")
@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 
 		ginkgo.By("Disable CSI migration feature gates on kube-controller-manager")

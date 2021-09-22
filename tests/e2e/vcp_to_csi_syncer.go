@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		defer cancel()
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		if kubectlMigEnabled {
 			ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		}
 
 		crds := []*v1alpha1.CnsVSphereVolumeMigration{}
@@ -627,7 +627,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPostMig)
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
 		kubectlMigEnabled = true
 
 		ginkgo.By("Create pod1 using PVC1 and PVC2")
@@ -647,7 +647,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			[]*v1.PersistentVolumeClaim{pvc1, pvc2})
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 
 	})
@@ -749,7 +749,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(ctx, client, true, []*appsv1.StatefulSet{statefulset})
+		toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(
+			ctx, client, true, []*appsv1.StatefulSet{statefulset}, namespace)
 		kubectlMigEnabled = true
 
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -806,7 +807,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 	})
 
 	// Verify label and pod name updates with Deployment.
@@ -899,7 +900,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
 		kubectlMigEnabled = true
 
 		ginkgo.By("Creating VCP PVC pvc2 post migration")
@@ -1032,7 +1033,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
 		kubectlMigEnabled = true
 
 		ginkgo.By("Create pod1 with inline volume and wait for it to reach Running state")
@@ -1152,7 +1153,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
 		kubectlMigEnabled = true
 
 		vcpPv, err := client.CoreV1().PersistentVolumes().Get(ctx, vcpPvsPreMig[0].Name, metav1.GetOptions{})
@@ -1222,7 +1223,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 	})
 
@@ -1318,7 +1319,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(ctx, client, true, stss)
+		toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(ctx, client, true, stss, namespace)
 		kubectlMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
@@ -1399,7 +1400,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 
 	})
 
@@ -1514,7 +1515,7 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 			if strings.Contains(volume.Name, "kube-api-access") {
 				continue
 			}
-			if volume.VolumeSource.PersistentVolumeClaim == nil &&
+			if volume.VolumeSource.PersistentVolumeClaim != nil &&
 				volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
 				return &pod
 			}
@@ -1679,9 +1680,9 @@ func createPodWithInlineVols(ctx context.Context, client clientset.Interface,
 // toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts to toggle CSI
 // migration feature gates on kublets for worker nodes.
 func toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(ctx context.Context,
-	client clientset.Interface, shouldEnable bool, stss []*appsv1.StatefulSet) {
+	client clientset.Interface, shouldEnable bool, stss []*appsv1.StatefulSet, ns string) {
 	if stss == nil {
-		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, shouldEnable)
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, shouldEnable, ns)
 		return
 	}
 	var err error

@@ -12,6 +12,7 @@ require (
 	github.com/google/uuid v1.2.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.14.5 // indirect
+	github.com/hashicorp/go-version v1.3.0 // indirect
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.1.0

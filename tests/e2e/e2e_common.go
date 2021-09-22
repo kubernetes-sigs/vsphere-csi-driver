@@ -227,4 +227,18 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	if strings.TrimSpace(string(kind)) == "RWX" {
 		rwxAccessMode = true
 	}
+	// k8sVer := os.Getenv("K8S_VERSION")
+	// if strings.TrimSpace(k8sVer) != "" {
+	// 	k8sV, err := version.NewVersion(k8sVer)
+	// 	if err != nil {
+	// 		panic("error parsing K8S_VERSION:" + err.Error())
+	// 	}
+	// 	k8s1dot22, err := version.NewVersion("1.22")
+	// 	if err != nil {
+	// 		panic("error parsing '1.22':" + err.Error())
+	// 	}
+	// 	if k8sV.GreaterThanOrEqual(k8s1dot22) {
+	// 		crdVersion = "v1"
+	// 	}
+	// }
 }
