@@ -41,7 +41,7 @@ PUSH=
 LATEST=
 CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
-VERSION=$(git describe --dirty --always 2>/dev/null)
+VERSION=$(git log -1 --format=%h)
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
@@ -117,6 +117,7 @@ function build_images() {
     -t "${CSI_IMAGE_NAME}":"${VERSION}" \
     --build-arg "VERSION=${VERSION}" \
     --build-arg "GOPROXY=${GOPROXY}" \
+    --build-arg "GIT_COMMIT=${VERSION}" \
     .
 
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION}"
@@ -125,6 +126,7 @@ function build_images() {
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
       --build-arg "GOPROXY=${GOPROXY}" \
+      --build-arg "GIT_COMMIT=${VERSION}" \
       .
   if [ "${LATEST}" ]; then
     echo "tagging image ${CSI_IMAGE_NAME}:${VERSION} as latest"

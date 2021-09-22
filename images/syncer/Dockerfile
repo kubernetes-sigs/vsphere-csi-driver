@@ -48,6 +48,12 @@ RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ################################################################################
 FROM ${BASE_IMAGE}
 
+# This build arg is the git commit to embed in the CSI binary
+ARG GIT_COMMIT
+
+# This label will be overridden from driver base image
+LABEL git_commit=$GIT_COMMIT
+
 COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
 RUN mkdir -p config
