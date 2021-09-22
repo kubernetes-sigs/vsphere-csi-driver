@@ -3364,7 +3364,8 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 
 // toggleCSIMigrationFeatureGatesOnK8snodes to toggle CSI migration feature
 // gates on kublets for worker nodes.
-func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool) {
+func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool,
+	namespace string) {
 	var err error
 	var found bool
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -3401,6 +3402,10 @@ func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client client
 		err = drain.RunCordonOrUncordon(&dh, &node, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+	pods, err := fpod.GetPodsInNamespace(client, namespace, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = fpod.WaitForPodsRunningReady(client, namespace, int32(len(pods)), 0, pollTimeout*2, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // isCSIMigrationFeatureGatesEnabledOnKubelet checks whether CSIMigration
