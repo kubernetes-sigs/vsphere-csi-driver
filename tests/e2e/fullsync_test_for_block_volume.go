@@ -20,13 +20,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -788,6 +791,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
+		var svcPVCName string
+
 		ginkgo.By("create a pvc pvc1, wait for pvc bound to pv")
 		volHandle, pvc, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -803,11 +809,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			}
 		}()
 
-		if guestCluster {
-			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
-			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		}
-
 		ginkgo.By("create a pod pod1, using pvc1")
 		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvc, volHandle)
 		defer func() {
@@ -815,10 +816,19 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		ginkgo.By("Verify volume metadata is matching the one in CNS")
+		if guestCluster {
+			svcPVCName = pv.Spec.CSI.VolumeHandle
+			err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod)
+		} else {
+			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod)
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Stopping vsan-health on the vCenter host")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanhealthServiceStopped = true
-		err := invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// TODO: Replace static wait with polling
@@ -857,7 +867,11 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume metadata is matching the one in CNS")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod2)
+		if guestCluster {
+			err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod2)
+		} else {
+			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod2)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -901,3 +915,219 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	})
 
 })
+
+// waitAndVerifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume with wait
+func waitAndVerifyCnsVolumeMetadata4GCVol(volHandle string, svcPVCName string, pvc *v1.PersistentVolumeClaim,
+	pv *v1.PersistentVolume, pod *v1.Pod) error {
+
+	waitErr := wait.PollImmediate(poll*5, pollTimeoutShort, func() (bool, error) {
+		matches := verifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod)
+		return matches, nil
+	})
+	return waitErr
+}
+
+//verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
+// if gcPvc, gcPv or pod are nil we skip verification for them altogether and wont check if they are absent in CNS entry
+func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1.PersistentVolumeClaim,
+	gcPv *v1.PersistentVolume, pod *v1.Pod) bool {
+
+	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if cnsQueryResult.Volumes == nil || len(cnsQueryResult.Volumes) == 0 {
+		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
+		return false
+	}
+	cnsVolume := cnsQueryResult.Volumes[0]
+	podEntryFound := false
+	verifyPvEntry := false
+	verifyPvcEntry := false
+	verifyPodEntry := false
+	gcPVCVerified := false
+	gcPVVerified := false
+	svcPVCVerified := false
+	svcPVVerified := false
+	svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+	svcPV := getPvFromSupervisorCluster(svcPVCName)
+	if gcPvc != nil {
+		verifyPvcEntry = true
+	} else {
+		gcPVCVerified = true
+	}
+	if gcPv != nil {
+		verifyPvEntry = true
+	} else {
+		gcPVVerified = true
+	}
+	if pod != nil {
+		verifyPodEntry = true
+	}
+	framework.Logf("Found CNS volume with id %v\n"+spew.Sdump(cnsVolume), volumeID)
+	gomega.Expect(cnsVolume.Metadata).NotTo(gomega.BeNil())
+	for _, entity := range cnsVolume.Metadata.EntityMetadata {
+		var pvc *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		entityMetadata := entity.(*cnstypes.CnsKubernetesEntityMetadata)
+		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePVC) {
+			verifySvcPvc := false
+			verifySvcPv := false
+			if entityMetadata.EntityName == svcPVCName {
+				pvc = svcPVC
+				pv = svcPV
+				verifySvcPvc = true
+				verifySvcPv = true
+			} else {
+				pvc = gcPvc
+				pv = gcPv
+			}
+			if verifyPvcEntry || verifySvcPvc {
+				if entityMetadata.EntityName != pvc.Name {
+					framework.Logf("PVC name '%v' does not match PVC name in metadata '%v', for volume id %v",
+						pvc.Name, entityMetadata.EntityName, volumeID)
+					break
+				}
+				if verifyPvEntry || verifySvcPv {
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("Missing ReferredEntity in PVC entry for volume id %v", volumeID)
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != pv.Name {
+						framework.Logf("PV name '%v' in referred entity does not match PV name '%v', "+
+							"in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
+							pv.Name, volumeID)
+						break
+					}
+				}
+				if pvc.Labels == nil {
+					if entityMetadata.Labels != nil {
+						framework.Logf("PVC labels '%v' does not match PVC labels in metadata '%v', for volume id %v",
+							pvc.Labels, entityMetadata.Labels, volumeID)
+						break
+					}
+				} else {
+					labels := getLabelMap(entityMetadata.Labels)
+					if !(reflect.DeepEqual(labels, pvc.Labels)) {
+						framework.Logf(
+							"Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v",
+							pvc.Labels, entityMetadata.Labels, volumeID)
+						break
+					}
+				}
+				if entityMetadata.Namespace != pvc.Namespace {
+					framework.Logf(
+						"PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v",
+						pvc.Namespace, entityMetadata.Namespace, volumeID)
+					break
+				}
+			}
+
+			if verifySvcPvc {
+				svcPVCVerified = true
+			} else {
+				gcPVCVerified = true
+			}
+			continue
+		}
+		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePV) {
+			verifySvcPv := false
+			if entityMetadata.EntityName == svcPV.Name {
+				pvc = svcPVC
+				pv = svcPV
+				verifySvcPv = true
+			} else {
+				pvc = gcPvc
+				pv = gcPv
+			}
+			if verifyPvEntry || verifySvcPv {
+				if entityMetadata.EntityName != pv.Name {
+					framework.Logf("PV name '%v' does not match PV name in metadata '%v', for volume id %v",
+						pv.Name, entityMetadata.EntityName, volumeID)
+					break
+				}
+				if pv.Labels == nil {
+					if entityMetadata.Labels != nil {
+						framework.Logf("PV labels '%v' does not match PV labels in metadata '%v', for volume id %v",
+							pv.Labels, entityMetadata.Labels, volumeID)
+						break
+					}
+				} else {
+					labels := getLabelMap(entityMetadata.Labels)
+					if !(reflect.DeepEqual(labels, pv.Labels)) {
+						framework.Logf(
+							"Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v",
+							pv.Labels, entityMetadata.Labels, volumeID)
+						break
+					}
+				}
+				if !verifySvcPv {
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("Missing ReferredEntity in SVC PV entry for volume id %v", volumeID)
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != svcPVCName {
+						framework.Logf("SVC PVC name '%v' in referred entity does not match SVC PVC name '%v', "+
+							"in SVC PV metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
+							svcPVCName, volumeID)
+						break
+					}
+					if entityMetadata.ReferredEntity[0].Namespace != svcPVC.Namespace {
+						framework.Logf("SVC PVC namespace '%v' does not match SVC PVC namespace in SVC PV referred "+
+							"entity metadata '%v', for volume id %v",
+							pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+						break
+					}
+				}
+			}
+			if verifySvcPv {
+				svcPVVerified = true
+			} else {
+				gcPVVerified = true
+			}
+			continue
+		}
+		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePOD) {
+			pvc = gcPvc
+			if verifyPodEntry {
+				podEntryFound = true
+				if entityMetadata.EntityName != pod.Name {
+					framework.Logf("POD name '%v' does not match Pod name in metadata '%v', for volume id %v",
+						pod.Name, entityMetadata.EntityName, volumeID)
+					podEntryFound = false
+					break
+				}
+				if verifyPvcEntry {
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("Missing ReferredEntity in pod entry for volume id %v", volumeID)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != pvc.Name {
+						framework.Logf("PVC name '%v' in referred entity does not match PVC name '%v', "+
+							"in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
+							pvc.Name, volumeID)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
+						framework.Logf("PVC namespace '%v' does not match PVC namespace in Pod metadata "+
+							"referered entity, '%v', for volume id %v",
+							pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+						podEntryFound = false
+						break
+					}
+				}
+				if entityMetadata.Namespace != pod.Namespace {
+					framework.Logf(
+						"Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v",
+						pod.Namespace, entityMetadata.Namespace, volumeID)
+					podEntryFound = false
+					break
+				}
+			}
+		}
+	}
+	framework.Logf("gcPVVerified: %v, verifyPvEntry: %v, gcPVCVerified: %v, verifyPvcEntry: %v, "+
+		"podEntryFound: %v, verifyPodEntry: %v, svcPVCVerified: %v, svcPVVerified: %v ", gcPVVerified, verifyPvEntry,
+		gcPVCVerified, verifyPvcEntry, podEntryFound, verifyPodEntry, svcPVCVerified, svcPVVerified)
+	return gcPVVerified && gcPVCVerified && podEntryFound == verifyPodEntry && svcPVCVerified && svcPVVerified
+}
