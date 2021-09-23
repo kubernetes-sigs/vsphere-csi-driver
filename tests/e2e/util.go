@@ -811,6 +811,29 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
+// waitVCenterServiceToBeInState invokes the status check for the given service and waits
+// via service-control on the given vCenter host over SSH.
+func waitVCenterServiceToBeInState(serviceName string, host string, state string) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		sshCmd := fmt.Sprintf("service-control --%s %s", "status", serviceName)
+		framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+		result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+
+		if err != nil || result.Code != 0 {
+			fssh.LogResult(result)
+			return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+		}
+		if strings.Contains(result.Stdout, state) {
+			fssh.LogResult(result)
+			framework.Logf("Found service %v in %v state", serviceName, state)
+			return true, nil
+		}
+		framework.Logf("Command %v output is %v", sshCmd, result.Stdout)
+		return false, nil
+	})
+	return waitErr
+}
+
 //httpGet takes client and http Request as input and performs GET operation
 // and returns bodybytes
 func httpGet(client *http.Client, req *http.Request) []byte {
@@ -3332,4 +3355,34 @@ func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.S
 	ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[v1.ResourceStorage] = newSize
 
 	return ss, nil
+}
+
+// collectPodLogs collects logs from all the pods in the namespace
+func collectPodLogs(ctx context.Context, client clientset.Interface, namespace string) {
+	pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	newpath := filepath.Join(".", "logs")
+	err = os.MkdirAll(newpath, os.ModePerm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, pod := range pods.Items {
+		framework.Logf("Collectiong log from pod %v", pod.Name)
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		filename := curtimestring + val
+
+		//Collect Pod logs
+		for _, cont := range pod.Spec.Containers {
+			cmd := []string{"logs", "--namespace=" + namespace, pod.Name, "-c", cont.Name}
+			output, err := framework.RunKubectl(namespace, cmd...)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Writing the logs into the file %v", "logs/"+pod.Name+cont.Name+filename)
+			err = writeToFile("logs/"+pod.Name+cont.Name+filename, output)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
 }
