@@ -51,6 +51,7 @@ while getopts ':dh' opt; do
 done
 shift $((OPTIND-1))
 
+export GOOS=linux
 if [ ! "${DO_DOCKER-}" ]; then
   curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)"/bin v1.40.1
   "$(go env GOPATH)"/bin/golangci-lint run -v --timeout=1200s
