@@ -17,13 +17,22 @@ limitations under the License.
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
+)
+
+const (
+	devDiskID   = "/dev/disk/by-id"
+	blockPrefix = "wwn-0x"
 )
 
 func TestGetDisk(t *testing.T) {
+	osUtils, _ := osutils.NewOsUtils(context.TODO())
 	tests := []struct {
 		devs  []os.FileInfo
 		volID string
@@ -51,7 +60,7 @@ func TestGetDisk(t *testing.T) {
 		tt := tt
 		t.Run("", func(st *testing.T) {
 			st.Parallel()
-			d, e := getDiskPath(tt.volID, tt.devs)
+			d, e := osUtils.GetDiskPath(tt.volID, tt.devs)
 			if e != nil {
 				t.Errorf("%v", e)
 			}
