@@ -138,9 +138,18 @@ var (
 	volumeTaskMap       = make(map[string]*createVolumeTaskDetails)
 	// volumeTaskMapLock is used to serialize writes to volumeTaskMap.
 	volumeTaskMapLock sync.Mutex
+	snapshotTaskMap   = make(map[string]*createSnapshotTaskDetails)
+	// snapshotTaskMapLock is used to serialize writes to snapshotTaskMap.
+	// Alternatively, we may use Sync.Map for snapshotTaskMap without using a lock explicitly
+	snapshotTaskMapLock sync.Mutex
 	// Alias for CreateVolumeOperationRequestDetails function declaration.
 	createRequestDetails = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails
 )
+
+// createSnapshotTaskDetails has the same structure as createVolumeTaskDetails
+type createSnapshotTaskDetails struct {
+	createVolumeTaskDetails
+}
 
 // createVolumeTaskDetails contains taskInfo object and expiration time.
 type createVolumeTaskDetails struct {
@@ -197,6 +206,26 @@ func ClearTaskInfoObjects() {
 					volumeTaskMapLock.Lock()
 					defer volumeTaskMapLock.Unlock()
 					delete(volumeTaskMap, pvc)
+				}()
+			}
+		}
+		// clear task info objects for CreateSnapshot task
+		for snapshotTaskKey, taskDetails := range snapshotTaskMap {
+			// Get the time difference between current time and the expiration
+			// time from the snapshotTaskMap.
+			diff := time.Until(taskDetails.expirationTime)
+			// Checking if the expiration time has elapsed.
+			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
+				// If one of the parameters in the time object is negative, it means
+				// the entry has to be deleted.
+				log.Debugf("Found an expired taskInfo: %+v for snapshot %q. Deleting it from task map",
+					snapshotTaskMap[snapshotTaskKey].task, snapshotTaskKey)
+				func() {
+					// put the snapshotTaskMap update operation with locking into an anonymous func
+					// to ensure the deferred unlock is called right after the update.
+					snapshotTaskMapLock.Lock()
+					defer snapshotTaskMapLock.Unlock()
+					delete(snapshotTaskMap, snapshotTaskKey)
 				}()
 			}
 		}
@@ -1717,7 +1746,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
 				volumeOperationDetails.VolumeID != "" && volumeOperationDetails.SnapshotID != "" {
 				log.Infof("Snapshot with name %q and id %q on Volume %q is already created on CNS with opId: %q.",
-					snapshotName, volumeOperationDetails.SnapshotID, volumeOperationDetails.VolumeID,
+					instanceName, volumeOperationDetails.SnapshotID, volumeOperationDetails.VolumeID,
 					volumeOperationDetails.OperationDetails.OpID)
 
 				return &CnsSnapshotInfo{
@@ -1731,7 +1760,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
 				volumeOperationDetails.OperationDetails.TaskID != "" {
 				log.Infof("Snapshot with name %s has CreateSnapshot task %s pending on CNS.",
-					snapshotName,
+					instanceName,
 					volumeOperationDetails.OperationDetails.TaskID)
 				taskMoRef := vim25types.ManagedObjectReference{
 					Type:  "Task",
@@ -1740,13 +1769,16 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				createSnapshotsTask = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
 			}
 		case apierrors.IsNotFound(err):
-			// Instance doesn't exist. This is likely the first attempt to create the volume.
+			// Instance doesn't exist. This is likely the first attempt to create the snapshot.
 			volumeOperationDetails = createRequestDetails(
 				instanceName, volumeID, "", 0, metav1.Now(), "", "",
 				taskInvocationStatusInProgress, "")
 		default:
 			return nil, err
 		}
+	} else {
+		// get snapshot task details from an in-memory map
+		createSnapshotsTask = getPendingCreateSnapshotTaskFromMap(ctx, instanceName)
 	}
 
 	defer func() {
@@ -1762,7 +1794,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}()
 
 	if createSnapshotsTask == nil {
-		createSnapshotsTask, err = invokeCNSCreateSnapshot(ctx, m.virtualCenter, volumeID, snapshotName)
+		createSnapshotsTask, err = invokeCNSCreateSnapshot(ctx, m.virtualCenter, volumeID, instanceName)
 		if err != nil {
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
@@ -1781,6 +1813,20 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				// Don't return if CreateSnapshot details can't be stored.
 				log.Warnf("failed to store CreateSnapshot details with error: %v", err)
 			}
+		} else {
+			// store task details into snapshotTaskMap
+			var taskDetails createSnapshotTaskDetails
+			taskDetails.task = createSnapshotsTask
+			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(
+				defaultOpsExpirationTimeInHours))
+			func() {
+				// put the snapshotTaskMap update operation with locking into an anonymous func
+				// to ensure the deferred unlock is called right after the update.
+				snapshotTaskMapLock.Lock()
+				defer snapshotTaskMapLock.Unlock()
+				snapshotTaskMap[instanceName] = &taskDetails
+			}()
+
 		}
 	}
 
@@ -1805,13 +1851,27 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	createSnapshotsOperationRes := createSnapshotsTaskResult.GetCnsVolumeOperationResult()
 	if createSnapshotsOperationRes.Fault != nil {
 		errMsg := fmt.Sprintf("failed to create snapshot %q on volume %q with fault: %q, opID: %q",
-			snapshotName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
+			instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
 			createSnapshotsTaskInfo.ActivationId)
 
 		if m.idempotencyHandlingEnabled {
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
 				createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+		} else {
+			// Remove the task details from map when the current task fails
+			_, ok := snapshotTaskMap[instanceName]
+			if ok {
+				func() {
+					// put the snapshotTaskMap update operation with locking into an anonymous func
+					// to ensure the deferred unlock is called right after the update.
+					snapshotTaskMapLock.Lock()
+					defer snapshotTaskMapLock.Unlock()
+					log.Debugf("Deleted task for %s from snapshotTaskMap because the task has failed",
+						instanceName)
+					delete(snapshotTaskMap, instanceName)
+				}()
+			}
 		}
 
 		return nil, logger.LogNewError(log, errMsg)
