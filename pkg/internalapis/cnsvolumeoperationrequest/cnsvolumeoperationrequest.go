@@ -346,6 +346,35 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 			}
 		}
 
+		snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+		if err != nil {
+			log.Errorf("failed to get snapshotterClient with error: %v. Abandoning CnsVolumeOperationRequests "+
+				"clean up ...", err)
+			continue
+		}
+
+		vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.Errorf("failed to list VolumeSnapshotContents with error %v. Abandoning "+
+				"CnsVolumeOperationRequests clean up ...", err)
+			continue
+		}
+
+		for _, vsc := range vscList.Items {
+			if vsc.Spec.Driver != csitypes.Name {
+				continue
+			}
+			volumeHandle := vsc.Spec.Source.VolumeHandle
+			if volumeHandle != nil {
+				// CnsVolumeOperation instance for CreateSnapshot
+				instanceMap[strings.TrimPrefix(vsc.Name, "snapcontent-")+"-"+*volumeHandle] = true
+			}
+			if vsc.Status != nil && vsc.Status.SnapshotHandle != nil {
+				// CnsVolumeOperation instance for DeleteSnapshot
+				instanceMap[strings.Replace(*vsc.Status.SnapshotHandle, "+", "-", 1)] = true
+			}
+		}
+
 		for _, instance := range cnsVolumeOperationRequestList.Items {
 			latestOperationDetailsLength := len(instance.Status.LatestOperationDetails)
 			if latestOperationDetailsLength != 0 &&
@@ -361,6 +390,10 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				trimmedName = strings.TrimPrefix(instance.Name, "delete-")
 			case strings.HasPrefix(instance.Name, "expand"):
 				trimmedName = strings.TrimPrefix(instance.Name, "expand-")
+			case strings.HasPrefix(instance.Name, "snapshot"):
+				trimmedName = strings.TrimPrefix(instance.Name, "snapshot-")
+			case strings.HasPrefix(instance.Name, "deletesnapshot"):
+				trimmedName = strings.TrimPrefix(instance.Name, "deletesnapshot-")
 			}
 			if _, ok := instanceMap[trimmedName]; !ok {
 				err = or.deleteRequestDetails(ctx, instance.Name)

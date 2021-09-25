@@ -2018,7 +2018,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		// Reference to the DeleteVolume task on CNS.
 		deleteSnapshotTask *object.Task
 		// Name of the CnsVolumeOperationRequest instance.
-		instanceName = "deletesnapshot-" + snapshotID + "-" + volumeID
+		instanceName = "deletesnapshot-" + volumeID + "-" + snapshotID
 		// Local instance of DeleteSnapshot details that needs to be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// error
