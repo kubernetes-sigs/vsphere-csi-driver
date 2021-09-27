@@ -107,8 +107,10 @@ CA_BUNDLE="$(openssl base64 -A <"${tmpdir}/ca.crt")"
 kubectl delete service vsphere-webhook-svc --namespace "${namespace}" 2>/dev/null || true
 kubectl delete validatingwebhookconfiguration.admissionregistration.k8s.io validation.csi.vsphere.vmware.com --namespace "${namespace}" 2>/dev/null || true
 kubectl delete serviceaccount vsphere-csi-webhook --namespace "${namespace}" 2>/dev/null || true
-kubectl delete clusterrole.rbac.authorization.k8s.io vsphere-csi-webhook-role 2>/dev/null || true
-kubectl delete clusterrolebinding.rbac.authorization.k8s.io vsphere-csi-webhook-role-binding --namespace "${namespace}" 2>/dev/null || true
+kubectl delete role.rbac.authorization.k8s.io vsphere-csi-webhook-role --namespace "${namespace}" 2>/dev/null || true
+kubectl delete rolebinding.rbac.authorization.k8s.io vsphere-csi-webhook-role-binding --namespace "${namespace}" 2>/dev/null || true
+kubectl delete clusterrole.rbac.authorization.k8s.io vsphere-csi-webhook-cluster-role 2>/dev/null || true
+kubectl delete clusterrolebinding.rbac.authorization.k8s.io vsphere-csi-webhook-cluster-role-binding 2>/dev/null || true
 kubectl delete deployment vsphere-csi-webhook --namespace "${namespace}" 2>/dev/null || true
 
 # patch validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration

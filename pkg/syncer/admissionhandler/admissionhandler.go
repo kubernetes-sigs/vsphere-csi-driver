@@ -139,7 +139,8 @@ func StartWebhookServer(ctx context.Context) error {
 			return err
 		}
 	}
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) ||
+		containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
 		certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 		if err != nil {
 			log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
@@ -239,6 +240,8 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 			switch ar.Request.Kind.Kind {
 			case "StorageClass":
 				admissionResponse = validateStorageClass(ctx, &ar)
+			case "PersistentVolumeClaim":
+				admissionResponse = validatePVC(ctx, &ar)
 			default:
 				log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
 				admissionResponse = &admissionv1.AdmissionResponse{
