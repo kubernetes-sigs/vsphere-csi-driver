@@ -74,6 +74,8 @@ const (
 	appplatformLabel = "appplatform.vmware.com/instance-id"
 	// Opt out label present on pod to look for bound PVCs of all sibling replicas
 	siblingReplicaCheckOptOutLabel = "psp.vmware.com/sibling-replica-check-opt-out"
+	// Selected node annotation present on PVC
+	pvcSelectedNode = "volume.kubernetes.io/selected-node"
 )
 
 // StoragePoolInfo is abstraction of a storage pool list.
@@ -624,20 +626,43 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 		}
 
 		pvName := pvc.Spec.VolumeName
-		pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
-		if err != nil || pv == nil {
-			if pvName == "" {
-				continue
-			}
-			return candidateHosts, err
+		if pvName == "" {
+			continue
 		}
 
-		// Volume Binding has to be WaitForFirstConsumer because it can only be
-		// Immediate if it has the annotation failure-domain.beta.vmware.com/node
-		// on the PVC. We have already verified that this annotation is not
-		// present on PVC as part of the validatin above. Hence, nodeAffinity
-		// value will always be defined on the PV.
-		hostName := pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
+		hostName := ""
+		if val, ok := pvc.Annotations[pvcSelectedNode]; ok {
+			log.Infof("PVC has selected node annotation %v", currPVC.Name)
+			hostName = val
+		} else {
+			log.Infof("Fetching PV %+v", currPVC.Name)
+			pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+			if err != nil || pv == nil {
+				return candidateHosts, err
+			}
+
+			// Volume Binding has to be WaitForFirstConsumer because it can only be
+			// Immediate if it has the annotation failure-domain.beta.vmware.com/node
+			// on the PVC. We have already verified that this annotation is not
+			// present on PVC as part of the validation above. Hence, nodeAffinity
+			// value will always be defined on the PV. However, the following checks
+			// are needed to avoid nil pointer exceptions.
+			nodeAffinitySpec := pv.Spec.NodeAffinity.Required
+			if nodeAffinitySpec.NodeSelectorTerms != nil && len(nodeAffinitySpec.NodeSelectorTerms) != 0 {
+				if nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions != nil &&
+					len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions) != 0 {
+					if nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values != nil &&
+						len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values) != 0 {
+						hostName = nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
+					}
+				}
+			}
+
+			// Ideally we should never reach here as nodeaffinity value must always be defined.
+			if hostName == "" {
+				continue
+			}
+		}
 
 		for i, host := range candidateHosts {
 			if host == hostName {
