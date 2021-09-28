@@ -193,9 +193,11 @@ func ClearTaskInfoObjects() {
 				// the entry has to be deleted.
 				log.Debugf("Found an expired taskInfo: %+v for volume %q. Deleting it from task map",
 					volumeTaskMap[pvc].task, pvc)
-				volumeTaskMapLock.Lock()
-				delete(volumeTaskMap, pvc)
-				volumeTaskMapLock.Unlock()
+				func() {
+					volumeTaskMapLock.Lock()
+					defer volumeTaskMapLock.Unlock()
+					delete(volumeTaskMap, pvc)
+				}()
 			}
 		}
 	}
@@ -402,8 +404,8 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(
 				defaultOpsExpirationTimeInHours))
 			volumeTaskMapLock.Lock()
+			defer volumeTaskMapLock.Unlock()
 			volumeTaskMap[volNameFromInputSpec] = &taskDetails
-			volumeTaskMapLock.Unlock()
 		}
 	} else {
 		// Create new task object with latest vCenter Client to avoid
@@ -448,10 +450,10 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			_, ok := volumeTaskMap[volNameFromInputSpec]
 			if ok {
 				volumeTaskMapLock.Lock()
+				defer volumeTaskMapLock.Unlock()
 				log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
 					volNameFromInputSpec)
 				delete(volumeTaskMap, volNameFromInputSpec)
-				volumeTaskMapLock.Unlock()
 			}
 			log.Errorf("failed to create cns volume %s. createSpec: %q, fault: %q",
 				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault))
