@@ -1256,7 +1256,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 
 	if csiSnapshotFSSEnabled && vcSnapshotSupportCheck {
 		log.Infof("ControllerGetCapabilities: reporting Snapshot capabilities as snapshot FSS is enabled.")
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT)
+		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
 	}
 
 	var caps []*csi.ControllerServiceCapability
