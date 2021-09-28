@@ -115,7 +115,7 @@ const (
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
 	quotaName                                 = "cns-test-quota"
-	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
+	regionKey                                 = "topology.csi.vmware.com/region"
 	resizePollInterval                        = 2 * time.Second
 	rqLimit                                   = "200Gi"
 	rqLimitScaleTest                          = "900Gi"
@@ -157,7 +157,7 @@ const (
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	devopsTKG                                 = "test-cluster-e2e-script"
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
-	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
+	zoneKey                                   = "topology.csi.vmware.com/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 )
