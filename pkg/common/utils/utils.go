@@ -35,9 +35,6 @@ import (
 // top level directory.
 const DefaultQuerySnapshotLimit = int64(128)
 
-// queryVolumeLimit is the pagination size, which should be set in the cursor for CnsQueryAsync API
-const queryVolumeLimit = int64(1000)
-
 // QueryVolumeUtil helps to invoke query volume API based on the feature
 // state set for using query async volume. If useQueryVolumeAsync is set to
 // true, the function invokes CNS QueryVolumeAsync, otherwise it invokes
@@ -68,70 +65,6 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
-		}
-	}
-	return queryResult, nil
-}
-
-// QueryAllVolumeUtil helps to invoke query volume API based on the feature
-// state set for using query async volume. If useQueryVolumeAsync is set to
-// true, the function invokes CNS QueryVolumeAsync, otherwise it invokes
-// synchronous QueryAllVolume API. The function also take volume manager
-// instance, query filters, query selection as params. Returns queryResult
-// when query volume succeeds, otherwise returns appropriate errors.
-func QueryAllVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
-	querySelection *cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
-	log := logger.GetLogger(ctx)
-	var queryAsyncNotSupported bool
-	var allQueryResults []*cnstypes.CnsQueryResult
-	queryResult := &cnstypes.CnsQueryResult{
-		Volumes: make([]cnstypes.CnsVolume, 0),
-	}
-	var err error
-	if useQueryVolumeAsync {
-		// AsyncQueryVolume feature switch is enabled.
-		cursor := &cnstypes.CnsCursor{
-			Offset: 0,
-			Limit:  queryVolumeLimit,
-		}
-		queryFilter.Cursor = cursor
-		// Using pagination technique to fetch the entire QueryResults
-		for {
-			queryRes, err := m.QueryVolumeAsync(ctx, queryFilter, querySelection)
-			if err != nil {
-				if err.Error() == cnsvsphere.ErrNotSupported.Error() {
-					log.Info("QueryVolumeAsync is not supported. Invoking QueryAllVolume API")
-					queryAsyncNotSupported = true
-					break
-				} else { // Return for any other failures.
-					return nil, logger.LogNewErrorCodef(log, codes.Internal,
-						"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
-				}
-			}
-			allQueryResults = append(allQueryResults, queryRes)
-			if queryRes.Cursor.Offset == queryRes.Cursor.TotalRecords {
-				log.Info("Results retrieved for all requested volumes")
-				break
-			}
-			queryFilter.Cursor = &queryRes.Cursor
-			log.Infof("%v more volumes to be queried", queryRes.Cursor.TotalRecords-queryRes.Cursor.Offset)
-		}
-		if !queryAsyncNotSupported {
-			for _, res := range allQueryResults {
-				if len(res.Volumes) != 0 {
-					queryResult.Volumes = append(queryResult.Volumes, res.Volumes...)
-				}
-			}
-		}
-	}
-	if !useQueryVolumeAsync || queryAsyncNotSupported {
-		if querySelection == nil {
-			querySelection = &cnstypes.CnsQuerySelection{}
-		}
-		queryResult, err = m.QueryAllVolume(ctx, queryFilter, *querySelection)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryAllVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
 		}
 	}
 	return queryResult, nil

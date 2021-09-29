@@ -28,7 +28,6 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -99,15 +98,14 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 			metadataSyncer.configInfo.Cfg.Global.ClusterID,
 		},
 	}
-	queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
-		nil, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 	if err != nil {
-		log.Errorf("PVCUpdated: QueryVolume failed with err=%+v", err.Error())
+		log.Errorf("FullSync: QueryVolume failed with err=%+v", err.Error())
 		return err
 	}
 
 	volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, err :=
-		fullSyncConstructVolumeMaps(ctx, k8sPVs, queryResult.Volumes, pvToPVCMap,
+		fullSyncConstructVolumeMaps(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap,
 			pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncGetEntityMetadata failed with err %+v", err)
@@ -129,7 +127,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, vcenter.Client.Version, k8sPVs,
 		volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap,
 		containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
-	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryResult.Volumes, k8sPVMap, metadataSyncer,
+	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer,
 		migrationFeatureStateForFullSync)
 	if err != nil {
 		log.Errorf("FullSync: failed to get list of volumes to be deleted with err %+v", err)

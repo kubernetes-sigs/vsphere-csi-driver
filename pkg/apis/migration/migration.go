@@ -41,9 +41,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
@@ -526,8 +524,8 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 				volumeMigrationInstance.cnsConfig.Global.ClusterID,
 			},
 		}
-		queryAllResult, err := utils.QueryAllVolumeUtil(ctx, *volumeMigrationInstance.volumeManager, queryFilter,
-			nil, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx,
+			queryFilter, cnstypes.CnsQuerySelection{})
 		if err != nil {
 			log.Warnf("failed to queryAllVolume with err %+v", err)
 			continue

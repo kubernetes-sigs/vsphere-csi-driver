@@ -870,10 +870,9 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 		},
 	}
 	// Query only the backing object details.
-	queryResult, err := utils.QueryAllVolumeUtil(ctx, manager.VolumeManager,
-		queryFilter, &querySelection, useAsyncQueryVolume)
+	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
-		log.Errorf("QueryVolume failed with err=%+v", err.Error())
+		log.Errorf("queryVolume failed for volumeID: %q with err=%v", volumeID, err)
 		return false, err
 	}
 

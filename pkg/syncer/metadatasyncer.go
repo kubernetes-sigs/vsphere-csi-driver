@@ -899,10 +899,9 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 			}
 			// Query with empty selection. CNS returns only the volume ID from
 			// its cache.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
-				nil, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 			if err != nil {
-				log.Errorf("PVCUpdated: QueryVolume failed with err=%+v", err.Error())
+				log.Errorf("PVCUpdated: QueryVolume failed for volume %q with err=%+v", volumeHandle, err.Error())
 				return false, err
 			}
 			if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
@@ -1076,10 +1075,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		volumeOperationsLock.Lock()
 		defer volumeOperationsLock.Unlock()
 		// QueryAll with no selection will return only the volume ID.
-		queryResult, err := utils.QueryAllVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
-			nil, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 		if err != nil {
-			log.Errorf("PVUpdated: QueryVolume failed with err=%+v", err.Error())
+			log.Errorf("PVUpdated: QueryVolume failed for volume %q with err=%+v", oldPv.Spec.CSI.VolumeHandle, err.Error())
 			return
 		}
 		if len(queryResult.Volumes) == 0 {
