@@ -889,11 +889,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				},
 			}
 			// Select only the backing object details.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume failed with err=%+v", err)
+					"queryVolume failed for volumeID: %q with err=%+v", req.VolumeId, err)
 			}
 			if len(queryResult.Volumes) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1010,14 +1009,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				},
 			}
 			// Select only the volume type.
-			queryResult, err := utils.QueryAllVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			// TODO: QueryAllVolumeUtil need return faultType
 			//	and we should return the faultType.
 			// Currently, just return "csi.fault.Internal"
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume failed with err=%+v", err)
+					"queryVolume failed for volumeID: %q with err=%+v", req.VolumeId, err)
 			}
 
 			if len(queryResult.Volumes) == 0 {
