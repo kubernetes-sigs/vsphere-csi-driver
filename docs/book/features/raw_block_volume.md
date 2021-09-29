@@ -10,6 +10,16 @@ The ability to use a raw block device without a filesystem will allow Kubernetes
 
 ## Creating a new raw block PVC
 
+Create a storage class.
+
+```yaml
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: example-raw-block-sc
+provisioner: csi.vsphere.vmware.com
+```
+
 To request a raw block PersistentVolumeClaim, volumeMode = "Block" must be specified in the PersistentVolumeClaimSpec.
 Raw Block Volume should be created using accessModes `ReadWriteOnce`. vSphere CSI Driver does not support creating raw block volume using `ReadWriteMany` accessModes.
 
@@ -17,15 +27,15 @@ Raw Block Volume should be created using accessModes `ReadWriteOnce`. vSphere CS
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: block-pvc
+  name: example-raw-block-pvc
 spec:
+  volumeMode: Block
   accessModes:
     - ReadWriteOnce
-  volumeMode: Block
-  storageClassName: example-vanilla-block-sc
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
+  storageClassName: example-raw-block-sc
 ```
 
 ## Using a raw block PVC
@@ -36,18 +46,18 @@ When you use the PVC in a pod definition, you get to choose the device path for 
 apiVersion: v1
 kind: Pod
 metadata:
-  name: block-pod
+  name: example-raw-block-pod
 spec:
   containers:
-  - name: test-container
-    image: gcr.io/google_containers/busybox:1.24
-    command: ["/bin/sh", "-c", "while true ; do sleep 2 ; done"]
-    volumeDevices:
-    - devicePath: /dev/xvda
-      name: data
+    - name: test-container
+      image: gcr.io/google_containers/busybox:1.24
+      command: ["/bin/sh", "-c", "while true ; do sleep 2 ; done"]
+      volumeDevices:
+        - devicePath: /dev/xvda
+          name: data
   restartPolicy: Never
   volumes:
-  - name: data
-    persistentVolumeClaim:
-      claimName: block-pvc
+    - name: data
+      persistentVolumeClaim:
+        claimName: example-raw-block-pvc
 ```
