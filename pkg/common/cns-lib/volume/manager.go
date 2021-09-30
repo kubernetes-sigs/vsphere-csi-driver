@@ -334,7 +334,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return nil, csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for CreateVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
@@ -429,7 +429,7 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return nil, csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for CreateVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
@@ -801,7 +801,7 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
@@ -930,7 +930,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
@@ -1116,7 +1116,7 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for ExpandVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
@@ -1247,7 +1247,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
 	if taskResult == nil {
 		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExtendVolume task: %q, opID: %q",
+			logger.LogNewErrorf(log, "taskResult is empty for ExpandVolume task: %q, opID: %q",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	if err != nil {
