@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/net/context"
@@ -830,28 +831,39 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 	return datastoreMoRefs
 }
 
-// Helper function to get DatastoreMoRef for given datastoreURL in the given
+// Helper function to get Datastore object for given datastoreURL in the given
 // virtual center.
-func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter,
-	datastoreURL string) (vim25types.ManagedObjectReference, error) {
+func getDatastoreObj(ctx context.Context, vc *vsphere.VirtualCenter,
+	datastoreURL string) (*vsphere.Datastore, error) {
 	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
-		return vim25types.ManagedObjectReference{}, err
+		return nil, err
 	}
 	var datastoreObj *vsphere.Datastore
 	for _, datacenter := range datacenters {
 		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreURL)
 		if err != nil {
-			log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+			log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q. Error: %+v",
 				datastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
-			return datastoreObj.Reference(), nil
+			return datastoreObj, nil
 		}
 	}
 
-	return vim25types.ManagedObjectReference{}, logger.LogNewErrorf(log,
+	return nil, logger.LogNewErrorf(log,
 		"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
+}
+
+// Helper function to get DatastoreMoRef for given datastoreURL in the given
+// virtual center.
+func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter,
+	datastoreURL string) (vim25types.ManagedObjectReference, error) {
+	dsObj, err := getDatastoreObj(ctx, vc, datastoreURL)
+	if err != nil {
+		return vim25types.ManagedObjectReference{}, err
+	}
+	return dsObj.Reference(), nil
 }
 
 // isExpansionRequired verifies if the requested size to expand a volume is
@@ -932,4 +944,62 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 	log.Debugf("Successfully deleted snapshot %q on volume %q", cnsSnapshotID, cnsVolumeID)
 
 	return nil
+}
+
+// GetNodeVMsWithAccessToDatastore finds out NodeVMs which have access to the given
+// datastore URL by using the moref approach.
+func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCenter, dsURL string,
+	allNodeVMs []*vsphere.VirtualMachine) ([]*object.VirtualMachine, error) {
+
+	log := logger.GetLogger(ctx)
+	var accessibleNodes []*object.VirtualMachine
+	totalNodes := len(allNodeVMs)
+
+	// Create map of allNodeVM refs to nil value for easy retrieval.
+	nodeMap := make(map[vim25types.ManagedObjectReference]struct{})
+	for _, vmObj := range allNodeVMs {
+		nodeMap[vmObj.Reference()] = struct{}{}
+	}
+
+	// Get datastore object.
+	dsObj, err := getDatastoreObj(ctx, vc, dsURL)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to retrieve datastore object using datastore "+
+			"URL %q. Error: %+v", dsURL, err)
+	}
+	// Get datastore host mounts.
+	var ds mo.Datastore
+	err = dsObj.Properties(ctx, dsObj.Reference(), []string{"host"}, &ds)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to get host mounts from datastore %q. Error: %+v",
+			dsURL, err)
+	}
+
+	// For each host mount, get the list of VMs.
+	for _, host := range ds.Host {
+		hostObj := &vsphere.HostSystem{
+			HostSystem: object.NewHostSystem(vc.Client.Client, host.Key),
+		}
+		var hs mo.HostSystem
+		err = hostObj.Properties(ctx, hostObj.Reference(), []string{"vm"}, &hs)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to retrieve virtual machines from host %q. Error: %+v",
+				hostObj.String(), err)
+		}
+		// For each VM on the host, check if the VM is a NodeVM participating in the k8s cluster.
+		for _, vm := range hs.Vm {
+			if _, exists := nodeMap[vm]; exists {
+				accessibleNodes = append(accessibleNodes, object.NewVirtualMachine(vc.Client.Client, vm))
+			}
+			// Check if the length of accessible nodes is equal to total count of
+			// NodeVMs in this cluster. If yes, we can stop searching for more VMs.
+			if len(accessibleNodes) == totalNodes {
+				log.Infof("Nodes that have access to datastore %q are %+v", dsURL, accessibleNodes)
+				return accessibleNodes, nil
+			}
+		}
+
+	}
+	log.Infof("Nodes that have access to datastore %q are %+v", dsURL, accessibleNodes)
+	return accessibleNodes, nil
 }

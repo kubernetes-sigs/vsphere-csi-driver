@@ -118,6 +118,23 @@ const (
 	providerPrefix = "vsphere://"
 )
 
+// GetUUIDFromVMReference fetches the UUID of the VM by looking at the config.uuid property from the VM ref.
+func GetUUIDFromVMReference(ctx context.Context, vc *VirtualCenter, vmRef types.ManagedObjectReference) (
+	string, error) {
+	log := logger.GetLogger(ctx)
+	vmObj := object.NewVirtualMachine(vc.Client.Client, vmRef)
+	var vm mo.VirtualMachine
+	err := vmObj.Properties(ctx, vmRef, []string{"config.uuid"}, &vm)
+	if err != nil {
+		return "", logger.LogNewErrorf(log, "failed to retrieve UUID from VM reference %+v. Error: %+v",
+			vmRef, err)
+	}
+	if vm.Config == nil || vm.Config.Uuid == "" {
+		return "", logger.LogNewErrorf(log, "failed to retrieve UUID from VM reference %+v.", vmRef)
+	}
+	return vm.Config.Uuid, nil
+}
+
 // GetVirtualMachineByUUID returns virtual machine given its UUID in entire VC.
 // If instanceUuid is set to true, then UUID is an instance UUID.
 // In this case, this function searches for virtual machines whose instance UUID
@@ -385,39 +402,34 @@ func (vm *VirtualMachine) GetTopologyLabels(ctx context.Context, tagManager *tag
 		log.Errorf("GetAncestors failed for %v with err %v", vm.Reference(), err)
 		return err
 	}
-	// Search the hierarchy, example order: ["Host", "Cluster", "Datacenter", "Folder"].
+	// Search the hierarchy for topology tags.
+	// Example order of entities in VM ancestors in reverse iteration:
+	// Name: host-31, Type: HostSystem
+	// Name: domain-c53, Type: ClusterComputeResource
+	// Name: group-h5, Type: Folder
+	// Name: datacenter-3, Type: Datacenter
+	// Name: group-d1, Type: Folder
 	for i := range objects {
 		obj := objects[len(objects)-1-i]
-		log.Debugf("Name: %s, Type: %s", obj.Self.Value, obj.Self.Type)
-		objTags, err := tagManager.ListAttachedTags(ctx, obj)
+		objTags, err := tagManager.GetAttachedTags(ctx, obj)
 		if err != nil {
-			log.Errorf("Cannot list attached tags. Err: %v", err)
-			return err
+			return logger.LogNewErrorf(log, "cannot get attached tags for object %v. Error: %v", obj.Self, err)
 		}
-		// Check if object has tags.
-		if len(objTags) > 0 {
-			log.Debugf("Object [%v] has attached Tags [%v]", obj, objTags)
-		}
-		for _, value := range objTags {
-			// Get tag.
-			tag, err := tagManager.GetTag(ctx, value)
-			if err != nil {
-				log.Errorf("failed to get tag:%s, error:%v", value, err)
-				return err
-			}
-			log.Debugf("Found tag: %s for object %v", tag.Name, obj)
+		for _, tag := range objTags {
+			log.Debugf("Found tag: %q for object %v", tag.Name, obj.Self)
 			// Get category for tag.
 			category, err := tagManager.GetCategory(ctx, tag.CategoryID)
 			if err != nil {
-				log.Errorf("failed to get category for tag: %s, error: %v", tag.Name, tag)
-				return err
+				return logger.LogNewErrorf(log, "failed to get category for tag: %q. Error: %+v", tag.Name, err)
 			}
-			log.Infof("Found category: %s for object %v with tag: %s", category.Name, obj, tag.Name)
 			// Check if the category belongs to a topology domain recognised by the driver.
 			val, exists := topologyCategories[category.Name]
+			log.Debugf("Found category %q for object %+v with tag: %q ", val, obj.Self, tag.Name)
 			if exists {
 				// Update the value if it doesn't already exist.
 				if val == "" {
+					log.Infof("Found category: %s for object %v with tag: %s",
+						category.Name, obj.Self, tag.Name)
 					topologyCategories[category.Name] = tag.Name
 				} else {
 					// Error out on duplicate values for the same category.

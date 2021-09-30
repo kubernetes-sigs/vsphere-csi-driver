@@ -110,6 +110,12 @@ func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
 	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
+// GetNodeNameByUUID fetches the name of the node given the VM UUID.
+func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
+	string, error) {
+	return nodes.cnsNodeManager.GetNodeNameByUUID(ctx, nodeUUID)
+}
+
 // GetAllNodes returns VirtualMachine for all registered.
 // This is called by ControllerExpandVolume to check if volume is attached to
 // a node.
