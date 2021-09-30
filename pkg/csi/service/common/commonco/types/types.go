@@ -39,7 +39,9 @@ type ControllerTopologyService interface {
 	// GetSharedDatastoresInTopology gets the list of shared datastores which adhere to the topology
 	// requirement given as a parameter.
 	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement) (
-		[]*cnsvsphere.DatastoreInfo, map[string][]map[string]string, error)
+		[]*cnsvsphere.DatastoreInfo, error)
+	// GetTopologyInfoFromNodes retrieves the topology information of the given list of node names.
+	GetTopologyInfoFromNodes(ctx context.Context, nodeNames []string, datastoreURL string) ([]map[string]string, error)
 }
 
 // NodeTopologyService is an interface which exposes functionality related to

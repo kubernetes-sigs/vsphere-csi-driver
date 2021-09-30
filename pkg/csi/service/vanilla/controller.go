@@ -19,7 +19,6 @@ package vanilla
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -60,6 +59,7 @@ type NodeManagerInterface interface {
 		tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo,
 		map[string][]map[string]string, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
 
@@ -460,13 +460,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	var datastoreTopologyMap = make(map[string][]map[string]string)
+	var datastoreTopologyMap map[string][]map[string]string
 
 	// Get accessibility.
 	topologyRequirement := req.GetAccessibilityRequirements()
 	if topologyRequirement != nil {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-
 			// Check if topology domains have been provided in the vSphere CSI config secret.
 			// NOTE: We do not support kubernetes.io/hostname as a topology label.
 			if c.manager.CnsConfig.Labels.TopologyCategories == "" && c.manager.CnsConfig.Labels.Zone == "" &&
@@ -474,14 +473,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 					"topology category names not specified in the vsphere config secret")
 			}
+
 			// Get shared accessible datastores for matching topology requirement.
-			sharedDatastores, datastoreTopologyMap, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-				topologyRequirement)
+			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement)
 			if err != nil || len(sharedDatastores) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
 					topologyRequirement, err)
 			}
+			log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v]", sharedDatastores,
+				topologyRequirement)
 		} else {
 			if c.manager.CnsConfig.Labels.Zone == "" || c.manager.CnsConfig.Labels.Region == "" {
 				// If zone and region label (vSphere category names) not specified in
@@ -511,9 +512,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get shared datastores in topology: %+v. Error: %+v", topologyRequirement, err)
 			}
+			log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with "+
+				"datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
 		}
-		log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v] with "+
-			"datastoreTopologyMap [+%v]", sharedDatastores, topologyRequirement, datastoreTopologyMap)
 	} else {
 		sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
 		if err != nil || len(sharedDatastores) == 0 {
@@ -559,14 +560,33 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		},
 	}
 
-	// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
-	// API does not return datastoreURL, retrieve this by calling QueryVolume.
-	// Otherwise, retrieve this from PlacementResults from the response of
-	// CreateVolume API.
-	var volumeAccessibleTopology = make(map[string]string)
-	var datastoreAccessibleTopology []map[string]string
-	var datastoreURL string
-	if len(datastoreTopologyMap) > 0 {
+	// For topology aware provisioning, populate the topology segments parameter
+	// in the CreateVolumeResponse struct.
+	if topologyRequirement != nil {
+		var (
+			datastoreAccessibleTopology []map[string]string
+			vcenter                     *cnsvsphere.VirtualCenter
+			allNodeVMs                  []*cnsvsphere.VirtualMachine
+		)
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+			// Get VC instance
+			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Err: %v", err)
+			}
+			// Get all nodeVMs in cluster.
+			allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find VirtualMachines for the registered nodes in the cluster. Error: %v", err)
+			}
+		}
+		// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
+		// API does not return datastoreURL, retrieve this by calling QueryVolume.
+		// Otherwise, retrieve this from PlacementResults in the response of
+		// CreateVolume API.
 		if volumeInfo.DatastoreURL == "" {
 			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
 			queryFilter := cnstypes.CnsQueryFilter{
@@ -580,37 +600,51 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolume failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err)
 			}
-			if len(queryResult.Volumes) > 0 {
-				// Find datastore topology from the retrieved datastoreURL.
-				if queryResult.Volumes[0].DatastoreUrl == "" {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"could not retrieve datastore of volume: %q", volumeInfo.VolumeID.Id)
-				}
-				datastoreAccessibleTopology = datastoreTopologyMap[queryResult.Volumes[0].DatastoreUrl]
-				datastoreURL = queryResult.Volumes[0].DatastoreUrl
-				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
-			} else {
+			if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume could not retrieve volume information for volume: %q", volumeInfo.VolumeID.Id)
+					"queryVolume could not retrieve volume information for volume ID: %q",
+					volumeInfo.VolumeID.Id)
+			}
+			datastoreURL := queryResult.Volumes[0].DatastoreUrl
+
+			// Find datastore topology from the retrieved datastoreURL.
+			// If improved topology FSS is enabled, retrieve datastore topology information
+			// from CSINodeTopology CRs.
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+				datastoreAccessibleTopology, err = c.getAccessibleTopologiesForDatastore(ctx, vcenter, allNodeVMs,
+					datastoreURL)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to calculate accessible topologies for the datastore %q", datastoreURL)
+				}
+			} else {
+				datastoreAccessibleTopology = datastoreTopologyMap[datastoreURL]
+				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id,
+					datastoreURL)
 			}
 		} else {
 			// Retrieve datastoreURL from placementResults.
-			datastoreAccessibleTopology = datastoreTopologyMap[volumeInfo.DatastoreURL]
-			datastoreURL = volumeInfo.DatastoreURL
-			log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id, datastoreURL)
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+				datastoreAccessibleTopology, err = c.getAccessibleTopologiesForDatastore(ctx, vcenter, allNodeVMs,
+					volumeInfo.DatastoreURL)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to calculate accessible topologies for the datastore %q",
+						volumeInfo.DatastoreURL)
+				}
+			} else {
+				datastoreAccessibleTopology = datastoreTopologyMap[volumeInfo.DatastoreURL]
+				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id,
+					volumeInfo.DatastoreURL)
+			}
 		}
-		if len(datastoreAccessibleTopology) > 0 {
-			rand.Seed(time.Now().Unix())
-			volumeAccessibleTopology = datastoreAccessibleTopology[rand.Intn(len(datastoreAccessibleTopology))]
-			log.Debugf("volumeAccessibleTopology: [%+v] is selected for datastore: %s ",
-				volumeAccessibleTopology, datastoreURL)
+		// Add topology segments to the CreateVolumeResponse.
+		for _, topoSegments := range datastoreAccessibleTopology {
+			volumeTopology := &csi.Topology{
+				Segments: topoSegments,
+			}
+			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 		}
-	}
-	if len(volumeAccessibleTopology) != 0 {
-		volumeTopology := &csi.Topology{
-			Segments: volumeAccessibleTopology,
-		}
-		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 	}
 
 	// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
@@ -624,6 +658,47 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 	return resp, "", nil
+}
+
+// getAccessibleTopologiesForDatastore figures out the list of topologies from
+// which the given datastore is accessible.
+func (c *controller) getAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	allNodeVMs []*cnsvsphere.VirtualMachine, datastoreURL string) ([]map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	var datastoreAccessibleTopology []map[string]string
+
+	// Find out all nodes which have access to the chosen datastore.
+	accessibleNodes, err := common.GetNodeVMsWithAccessToDatastore(ctx, vcenter, datastoreURL, allNodeVMs)
+	if err != nil || len(accessibleNodes) == 0 {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to find all the nodes from which the datastore %q is accessible", datastoreURL)
+	}
+
+	// Get node names for the accessible nodeVMs so that we can query CSINodeTopology CRs.
+	var accessibleNodeNames []string
+	for _, vmref := range accessibleNodes {
+		// Get UUID from VM reference.
+		vmUUID, err := cnsvsphere.GetUUIDFromVMReference(ctx, vcenter, vmref.Reference())
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				err.Error())
+		}
+		// Get NodeVM name from VM UUID.
+		nodeName, err := c.nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				err.Error())
+		}
+		accessibleNodeNames = append(accessibleNodeNames, nodeName)
+	}
+
+	datastoreAccessibleTopology, err = c.topologyMgr.GetTopologyInfoFromNodes(ctx, accessibleNodeNames, datastoreURL)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to find accessible topologies for the remaining nodes %v. Error: %+v",
+			accessibleNodeNames, err)
+	}
+	return datastoreAccessibleTopology, nil
 }
 
 // createFileVolume creates a file volume based on the CreateVolumeRequest.

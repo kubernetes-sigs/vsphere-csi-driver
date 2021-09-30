@@ -11,10 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/sts"
@@ -25,6 +22,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 const (
