@@ -610,14 +610,12 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 			return csifault.CSIInternalFault, err
 		}
 		if expansionRequired {
-			log.Infof("Requested size %d Mb is greater than current size for volumeID: %q. Need volume expansion.",
-				capacityInMb, volumeID)
 			faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 			if err != nil {
 				log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 				return faultType, err
 			}
-			log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
+			log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
 
 		} else {
 			log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
@@ -897,6 +895,8 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 		return false, err
 	}
 
+	log.Infof("isExpansionRequired: Found current size of volumeID %q to be %d Mb. "+
+		"Requested size is %d Mb", volumeID, currentSize, requestedSize)
 	return currentSize < requestedSize, nil
 }
 
