@@ -705,20 +705,34 @@ func QueryVolumeSnapshot(ctx context.Context, volManager cnsvolume.Manager, volI
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed retrieve snapshot info for volume-id: %s snapshot-id: %s err: %+v", volID, snapID, snapshotResult.Error)
 	}
+	//Retrieve the volume size to be returned as snapshot size.
+	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
+	// Query capacity in MB, volume type and datastore url for block volume snapshot
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volID}}
+	cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, volManager, volumeIds)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := cnsVolumeDetailsMap[volID]; !ok {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"cns query volume did not retrieve the volume: %s", volID)
+	}
+	snapshotSizeInMB := cnsVolumeDetailsMap[volID].SizeInMB
 	snapshotsInfo := snapshotResult.Snapshot
 	snapshotCreateTimeInProto := timestamppb.New(snapshotsInfo.CreateTime)
 	csiSnapshotInfo := &csi.Snapshot{
 		SnapshotId:     volID + VSphereCSISnapshotIdDelimiter + snapID,
 		SourceVolumeId: volID,
 		CreationTime:   snapshotCreateTimeInProto,
+		SizeBytes:      snapshotSizeInMB * MbInBytes,
 		ReadyToUse:     true,
 	}
 	snapshots = append(snapshots, csiSnapshotInfo)
 	return snapshots, nil
 }
 
-func QueryAllVolumeSnapshots(ctx context.Context, volManager cnsvolume.Manager, token string,
-	maxEntries int64) ([]*csi.Snapshot, string, error) {
+func QueryAllVolumeSnapshots(ctx context.Context, volManager cnsvolume.Manager, token string, maxEntries int64) (
+	[]*csi.Snapshot, string, error) {
 	log := logger.GetLogger(ctx)
 	var csiSnapshots []*csi.Snapshot
 	var offset int64
@@ -747,13 +761,30 @@ func QueryAllVolumeSnapshots(ctx context.Context, volManager cnsvolume.Manager, 
 		log.Errorf("failed to retrieve all the volume snapshots in inventory err: %+v", err)
 		return nil, "", err
 	}
+	//populate list of volume-ids to retrieve the volume size.
+	var volumeIds []cnstypes.CnsVolumeId
+	for _, queryResult := range queryResultEntries {
+		volumeIds = append(volumeIds, queryResult.Snapshot.VolumeId)
+	}
+	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
+	cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, volManager, volumeIds)
+	if err != nil {
+		log.Errorf("failed to retrieve volume details for volume-ids: %v, err: %+v", volumeIds, err)
+		return nil, "", err
+	}
 	for _, queryResult := range queryResultEntries {
 		snapshotCreateTimeInProto := timestamppb.New(queryResult.Snapshot.CreateTime)
 		csiSnapshotId := queryResult.Snapshot.VolumeId.Id + VSphereCSISnapshotIdDelimiter + queryResult.Snapshot.SnapshotId.Id
+		if _, ok := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id]; !ok {
+			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
+				"cns query volume did not return the volume: %s", queryResult.Snapshot.VolumeId.Id)
+		}
+		csiSnapshotSize := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id].SizeInMB * MbInBytes
 		csiSnapshotInfo := &csi.Snapshot{
 			SnapshotId:     csiSnapshotId,
 			SourceVolumeId: queryResult.Snapshot.VolumeId.Id,
 			CreationTime:   snapshotCreateTimeInProto,
+			SizeBytes:      csiSnapshotSize,
 			ReadyToUse:     true,
 		}
 		csiSnapshots = append(csiSnapshots, csiSnapshotInfo)
@@ -786,13 +817,28 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 		log.Errorf("failed to retrieve csiSnapshots for volume-id: %s err: %+v", volumeID, err)
 		return nil, "", err
 	}
+	// Retrieve the volume size as an approximation for snapshot size.
+	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
+	// Query capacity in MB and datastore url for block volume snapshot
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+	cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, volManager, volumeIds)
+	if err != nil {
+		log.Errorf("failed to retrieve the volume: %s details. err: %+v.", volumeID, err)
+		return nil, "", err
+	}
 	for _, queryResult := range queryResultEntries {
 		snapshotCreateTimeInProto := timestamppb.New(queryResult.Snapshot.CreateTime)
 		csiSnapshotId := queryResult.Snapshot.VolumeId.Id + VSphereCSISnapshotIdDelimiter + queryResult.Snapshot.SnapshotId.Id
+		if _, ok := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id]; !ok {
+			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
+				"cns query volume did not return the volume: %s", queryResult.Snapshot.VolumeId.Id)
+		}
+		csiSnapshotSize := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id].SizeInMB * MbInBytes
 		csiSnapshotInfo := &csi.Snapshot{
 			SnapshotId:     csiSnapshotId,
 			SourceVolumeId: queryResult.Snapshot.VolumeId.Id,
 			CreationTime:   snapshotCreateTimeInProto,
+			SizeBytes:      csiSnapshotSize,
 			ReadyToUse:     true,
 		}
 		csiSnapshots = append(csiSnapshots, csiSnapshotInfo)
