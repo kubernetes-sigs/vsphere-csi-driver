@@ -834,9 +834,9 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 	return waitErr
 }
 
-//httpGet takes client and http Request as input and performs GET operation
+//httpDo takes client and http Request as input and performs the requested operation
 // and returns bodybytes
-func httpGet(client *http.Client, req *http.Request) []byte {
+func httpDo(client *http.Client, req *http.Request) []byte {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
@@ -860,6 +860,19 @@ func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
 	framework.Logf("API Response status %d", resp.StatusCode)
 
 	return bodyBytes, resp.StatusCode
+}
+
+func httpDelete(client *http.Client, req *http.Request) []byte {
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer resp.Body.Close()
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("API Response status %d", resp.StatusCode)
+	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
+
+	return bodyBytes
+
 }
 
 //createGC method creates GC and takes WCP host and bearer token as input param
@@ -1046,7 +1059,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpGet(client, req)
+	bodyBytes := httpDo(client, req)
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1070,6 +1083,30 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 
 }
 
+//deleteTKG method deletes the TKG Cluster
+func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) {
+	ginkgo.By("Delete TKG")
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	httpDo(client, req)
+
+	req, err = http.NewRequest("DELETE", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	httpDo(client, req)
+
+}
+
 //getGC polls for the GC status, returns error if its not in running phase
 func getGC(wcpHost string, wcpToken string, gcName string) error {
 	var response string
@@ -1087,7 +1124,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
-		bodyBytes := httpGet(client, req)
+		bodyBytes := httpDo(client, req)
 		response = string(bodyBytes)
 
 		if strings.Contains(response, "\"phase\":\"running\"") {
