@@ -93,6 +93,281 @@ var (
 	pvclaimsToDelete       []*v1.PersistentVolumeClaim
 )
 
+type TKGCluster struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name            string `yaml:"name"`
+		Namespace       string `yaml:"namespace"`
+		ResourceVersion string `yaml:"resourceVersion"`
+		SelfLink        string `yaml:"selfLink"`
+		UID             string `yaml:"uid"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Distribution struct {
+			FullVersion string `yaml:"fullVersion"`
+			Version     string `yaml:"version"`
+		} `yaml:"distribution"`
+		Settings struct {
+			Network struct {
+				Cni struct {
+					Name string `yaml:"name"`
+				} `yaml:"cni"`
+				Pods struct {
+					CidrBlocks []string `yaml:"cidrBlocks"`
+				} `yaml:"pods"`
+				ServiceDomain string `yaml:"serviceDomain"`
+				Services      struct {
+					CidrBlocks []string `yaml:"cidrBlocks"`
+				} `yaml:"services"`
+			} `yaml:"network"`
+		} `yaml:"settings"`
+		Topology struct {
+			ControlPlane struct {
+				Class        string `yaml:"class"`
+				Count        int    `yaml:"count"`
+				StorageClass string `yaml:"storageClass"`
+			} `yaml:"controlPlane"`
+			Workers struct {
+				Class        string `yaml:"class"`
+				Count        int    `yaml:"count"`
+				StorageClass string `yaml:"storageClass"`
+			} `yaml:"workers"`
+		} `yaml:"topology"`
+	} `yaml:"spec"`
+	Status struct {
+		Addons struct {
+			Authsvc struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"authsvc"`
+			Cloudprovider struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"cloudprovider"`
+			Cni struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"cni"`
+			Csi struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"csi"`
+			DNS struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"dns"`
+			MetricsServer struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Reason             string    `yaml:"reason"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name   string `yaml:"name"`
+				Status string `yaml:"status"`
+			} `yaml:"metrics-server"`
+			Proxy struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"proxy"`
+			Psp struct {
+				Conditions []struct {
+					LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+					Status             string    `yaml:"status"`
+					Type               string    `yaml:"type"`
+				} `yaml:"conditions"`
+				Name    string `yaml:"name"`
+				Status  string `yaml:"status"`
+				Version string `yaml:"version"`
+			} `yaml:"psp"`
+		} `yaml:"addons"`
+		ClusterAPIStatus struct {
+			APIEndpoints []struct {
+				Host string `yaml:"host"`
+				Port int    `yaml:"port"`
+			} `yaml:"apiEndpoints"`
+		} `yaml:"clusterApiStatus"`
+		Conditions []struct {
+			LastTransitionTime time.Time `yaml:"lastTransitionTime"`
+			Status             string    `yaml:"status"`
+			Type               string    `yaml:"type"`
+			Message            string    `yaml:"message,omitempty"`
+			Reason             string    `yaml:"reason,omitempty"`
+		} `yaml:"conditions"`
+		Phase string `yaml:"phase"`
+	} `yaml:"status"`
+}
+
+type VMImages struct {
+	APIVersion string `json:"apiVersion"`
+	Items      []struct {
+		APIVersion string `json:"apiVersion"`
+		Kind       string `json:"kind"`
+		Metadata   struct {
+			Annotations struct {
+				VmoperatorVmwareComContentLibraryVersion  string `json:"vmoperator.vmware.com/content-library-version"`
+				VmwareSystemCompatibilityoffering         string `json:"vmware-system.compatibilityoffering"`
+				VmwareSystemGuestKubernetesAddonsAntrea   string `json:"vmware-system.guest.kubernetes.addons.antrea"`
+				VmwareSystemGuestKubernetesAddonsAuthsvc  string `json:"vmware-system.guest.kubernetes.addons.authsvc"`
+				VmwareSystemGuestKubernetesAddonsCalico   string `json:"vmware-system.guest.kubernetes.addons.calico"`
+				VmwareSystemGuestKubernetesAddonsPvcsi    string `json:"vmware-system.guest.kubernetes.addons.pvcsi"`
+				VmwareSystemGuestKubernetesAddonsVmwareGC string `json:"vmware-system.guest.kubernetes.addons.vmware-guest-cluster"`
+				VmwareSystemGuestKubernetesImageVersion   string `json:"vmware-system.guest.kubernetes.distribution.image.version"`
+			} `json:"annotations"`
+			CreationTimestamp time.Time `json:"creationTimestamp"`
+			Generation        int       `json:"generation"`
+			ManagedFields     []struct {
+				APIVersion string `json:"apiVersion"`
+				FieldsType string `json:"fieldsType"`
+				FieldsV1   struct {
+					FMetadata struct {
+						FAnnotations struct {
+							NAMING_FAILED struct {
+							} `json:"."`
+							FVmoperatorVmwareComContentLibraryVersion struct {
+							} `json:"f:vmoperator.vmware.com/content-library-version"`
+							FVmwareSystemCompatibilityoffering struct {
+							} `json:"f:vmware-system.compatibilityoffering"`
+							FVmwareSystemGuestKubernetesAddonsAntrea struct {
+							} `json:"f:vmware-system.guest.kubernetes.addons.antrea"`
+							FVmwareSystemGuestKubernetesAddonsAuthsvc struct {
+							} `json:"f:vmware-system.guest.kubernetes.addons.authsvc"`
+							FVmwareSystemGuestKubernetesAddonsCalico struct {
+							} `json:"f:vmware-system.guest.kubernetes.addons.calico"`
+							FVmwareSystemGuestKubernetesAddonsPvcsi struct {
+							} `json:"f:vmware-system.guest.kubernetes.addons.pvcsi"`
+							FVmwareSystemGuestKubernetesAddonsVmwareGC struct {
+							} `json:"f:vmware-system.guest.kubernetes.addons.vmware-guest-cluster"`
+							FVmwareSystemGuestKubernetesImageVersion struct {
+							} `json:"f:vmware-system.guest.kubernetes.distribution.image.version"`
+						} `json:"f:annotations"`
+					} `json:"f:metadata"`
+					FSpec struct {
+						NAMING_FAILED struct {
+						} `json:"."`
+						FHwVersion struct {
+						} `json:"f:hwVersion"`
+						FImageSourceType struct {
+						} `json:"f:imageSourceType"`
+						FOsInfo struct {
+							NAMING_FAILED struct {
+							} `json:"."`
+							FType struct {
+							} `json:"f:type"`
+						} `json:"f:osInfo"`
+						FProductInfo struct {
+							NAMING_FAILED struct {
+							} `json:"."`
+							FFullVersion struct {
+							} `json:"f:fullVersion"`
+							FProduct struct {
+							} `json:"f:product"`
+							FVendor struct {
+							} `json:"f:vendor"`
+							FVersion struct {
+							} `json:"f:version"`
+						} `json:"f:productInfo"`
+						FType struct {
+						} `json:"f:type"`
+					} `json:"f:spec"`
+					FStatus struct {
+						NAMING_FAILED struct {
+						} `json:"."`
+						FConditions struct {
+						} `json:"f:conditions"`
+						FImageSupported struct {
+						} `json:"f:imageSupported"`
+						FInternalID struct {
+						} `json:"f:internalId"`
+						FUUID struct {
+						} `json:"f:uuid"`
+					} `json:"f:status"`
+				} `json:"fieldsV1"`
+				Manager   string    `json:"manager"`
+				Operation string    `json:"operation"`
+				Time      time.Time `json:"time"`
+			} `json:"managedFields"`
+			Name            string `json:"name"`
+			OwnerReferences []struct {
+				APIVersion string `json:"apiVersion"`
+				Kind       string `json:"kind"`
+				Name       string `json:"name"`
+				UID        string `json:"uid"`
+			} `json:"ownerReferences"`
+			ResourceVersion string `json:"resourceVersion"`
+			SelfLink        string `json:"selfLink"`
+			UID             string `json:"uid"`
+		} `json:"metadata"`
+		Spec struct {
+			HwVersion       int    `json:"hwVersion"`
+			ImageSourceType string `json:"imageSourceType"`
+			OsInfo          struct {
+				Type string `json:"type"`
+			} `json:"osInfo"`
+			ProductInfo struct {
+				FullVersion string `json:"fullVersion"`
+				Product     string `json:"product"`
+				Vendor      string `json:"vendor"`
+				Version     string `json:"version"`
+			} `json:"productInfo"`
+			Type string `json:"type"`
+		} `json:"spec"`
+		Status struct {
+			Conditions []struct {
+				LastTransitionTime time.Time `json:"lastTransitionTime"`
+				Status             string    `json:"status"`
+				Type               string    `json:"type"`
+			} `json:"conditions"`
+			ImageSupported bool   `json:"imageSupported"`
+			InternalID     string `json:"internalId"`
+			UUID           string `json:"uuid"`
+		} `json:"status"`
+	} `json:"items"`
+	Kind     string `json:"kind"`
+	Metadata struct {
+		Continue        string `json:"continue"`
+		ResourceVersion string `json:"resourceVersion"`
+		SelfLink        string `json:"selfLink"`
+	} `json:"metadata"`
+}
+
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage
 // class parameters.
 func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
@@ -862,6 +1137,76 @@ func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
 	return bodyBytes, resp.StatusCode
 }
 
+//getVMImages returns the available gc images present in svc
+func getVMImages(wcpHost string, wcpToken string) VMImages {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	var vmImage VMImages
+	client := &http.Client{Transport: transCfg}
+	getVirtualMachineImagesURL := "https://" + wcpHost + vmOperatorAPI + "virtualmachineimages"
+	framework.Logf("URL %v", getVirtualMachineImagesURL)
+	wcpToken = "Bearer " + wcpToken
+	req, err := http.NewRequest("GET", getVirtualMachineImagesURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	bodyBytes := httpGet(client, req)
+
+	err = json.Unmarshal(bodyBytes, &vmImage)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return vmImage
+}
+
+//upgradeTKG method updates the TKG Cluster with the tkgImage
+func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage string) {
+	ginkgo.By("Upgrade TKG")
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	bodyBytes := httpGet(client, req)
+
+	var tkg TKGCluster
+	err = yaml.Unmarshal(bodyBytes, &tkg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("tkg versions %s", tkg.Spec.Distribution.Version)
+	tkg.Spec.Distribution.FullVersion = ""
+	tkg.Spec.Distribution.Version = tkgImage
+	framework.Logf("tkg cluster %v", tkg)
+
+	new_data, err := yaml.Marshal(&tkg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req, err = http.NewRequest("PUT", getGCURL, bytes.NewBuffer(new_data))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	req.Header.Add("Accept", "application/yaml")
+	req.Header.Add("Content-Type", "application/yaml")
+
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer resp.Body.Close()
+
+	bodyBytes, err = ioutil.ReadAll(resp.Body)
+	framework.Logf("API Response status %v", resp.StatusCode)
+	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	response := string(bodyBytes)
+	framework.Logf("response %v", response)
+
+}
+
 //createGC method creates GC and takes WCP host and bearer token as input param
 func createGC(wcpHost string, wcpToken string) {
 
@@ -895,148 +1240,6 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
-	}
-
-	type TKGCluster struct {
-		APIVersion string `yaml:"apiVersion"`
-		Kind       string `yaml:"kind"`
-		Metadata   struct {
-			Name            string `yaml:"name"`
-			Namespace       string `yaml:"namespace"`
-			ResourceVersion string `yaml:"resourceVersion"`
-			SelfLink        string `yaml:"selfLink"`
-			UID             string `yaml:"uid"`
-		} `yaml:"metadata"`
-		Spec struct {
-			Distribution struct {
-				FullVersion string `yaml:"fullVersion"`
-				Version     string `yaml:"version"`
-			} `yaml:"distribution"`
-			Settings struct {
-				Network struct {
-					Cni struct {
-						Name string `yaml:"name"`
-					} `yaml:"cni"`
-					Pods struct {
-						CidrBlocks []string `yaml:"cidrBlocks"`
-					} `yaml:"pods"`
-					ServiceDomain string `yaml:"serviceDomain"`
-					Services      struct {
-						CidrBlocks []string `yaml:"cidrBlocks"`
-					} `yaml:"services"`
-				} `yaml:"network"`
-			} `yaml:"settings"`
-			Topology struct {
-				ControlPlane struct {
-					Class        string `yaml:"class"`
-					Count        int    `yaml:"count"`
-					StorageClass string `yaml:"storageClass"`
-				} `yaml:"controlPlane"`
-				Workers struct {
-					Class        string `yaml:"class"`
-					Count        int    `yaml:"count"`
-					StorageClass string `yaml:"storageClass"`
-				} `yaml:"workers"`
-			} `yaml:"topology"`
-		} `yaml:"spec"`
-		Status struct {
-			Addons struct {
-				Authsvc struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"authsvc"`
-				Cloudprovider struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"cloudprovider"`
-				Cni struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"cni"`
-				Csi struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"csi"`
-				DNS struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"dns"`
-				MetricsServer struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Reason             string    `yaml:"reason"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name   string `yaml:"name"`
-					Status string `yaml:"status"`
-				} `yaml:"metrics-server"`
-				Proxy struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"proxy"`
-				Psp struct {
-					Conditions []struct {
-						LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-						Status             string    `yaml:"status"`
-						Type               string    `yaml:"type"`
-					} `yaml:"conditions"`
-					Name    string `yaml:"name"`
-					Status  string `yaml:"status"`
-					Version string `yaml:"version"`
-				} `yaml:"psp"`
-			} `yaml:"addons"`
-			ClusterAPIStatus struct {
-				APIEndpoints []struct {
-					Host string `yaml:"host"`
-					Port int    `yaml:"port"`
-				} `yaml:"apiEndpoints"`
-			} `yaml:"clusterApiStatus"`
-			Conditions []struct {
-				LastTransitionTime time.Time `yaml:"lastTransitionTime"`
-				Status             string    `yaml:"status"`
-				Type               string    `yaml:"type"`
-				Message            string    `yaml:"message,omitempty"`
-				Reason             string    `yaml:"reason,omitempty"`
-			} `yaml:"conditions"`
-			Phase string `yaml:"phase"`
-		} `yaml:"status"`
 	}
 
 	client := &http.Client{Transport: transCfg}

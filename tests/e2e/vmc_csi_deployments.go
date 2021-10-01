@@ -34,7 +34,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[vmc-gc] [csi-guest] Deploy, Update and Scale Deployments", func() {
+var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-deployment")
 	var (
 		namespace         string
