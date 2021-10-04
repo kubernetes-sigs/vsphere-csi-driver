@@ -141,6 +141,7 @@ const (
 	tkgClusterDistribution                    = "TKGService"
 	vanillaClusterDistribution                = "CSI-Vanilla"
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
+	vcClusterAPI                              = "/api/vcenter/namespace-management/clusters"
 	vpxdServiceName                           = "vpxd"
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
