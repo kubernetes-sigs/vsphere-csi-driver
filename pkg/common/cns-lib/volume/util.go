@@ -427,3 +427,17 @@ func invokeCNSDeleteSnapshot(ctx context.Context, virtualCenter *cnsvsphere.Virt
 
 	return deleteSnapshotsTask, err
 }
+
+// getPendingCreateSnapshotTaskFromMap returns the CreateSnapshot task for a snapshot
+// stored in the snapshotTaskMap.
+func getPendingCreateSnapshotTaskFromMap(ctx context.Context, snapshotName string) *object.Task {
+	var task *object.Task
+	log := logger.GetLogger(ctx)
+	taskDetailsInMap, ok := snapshotTaskMap[snapshotName]
+	if ok {
+		task = taskDetailsInMap.task
+		log.Infof("CreateSnapshot task still pending for Snapshot: %q, with taskInfo: %+v",
+			snapshotName, task)
+	}
+	return task
+}
