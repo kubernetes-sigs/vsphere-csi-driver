@@ -52,9 +52,11 @@ spec:
                   This is for a 34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk file
                   under datacenter "Datacenter-1" and datastore "vsanDatastore".'
                 type: string
+                pattern: '^(http[s]?:\/\/)?([^\/\s]+\/folder\/)(.*)$'
               pvcName:
                 description: Name of the PVC
                 type: string
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
               volumeID:
                 description: VolumeID indicates an existing vsphere volume to be imported
                   into Project Pacific cluster. If the AccessMode is "ReadWriteMany"
@@ -64,6 +66,7 @@ spec:
                   FCD (or) a CNS backed FCD. VolumeID and DiskUrlPath cannot be specified
                   together.
                 type: string
+                pattern: '^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$'
             required:
             - pvcName
             type: object
@@ -86,8 +89,6 @@ spec:
         type: object
     served: true
     storage: true
-    subresources:
-      status: {}
 status:
   acceptedNames:
     kind: ""
