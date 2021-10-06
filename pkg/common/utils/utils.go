@@ -21,9 +21,8 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/vmware/govmomi/vim25/types"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -175,41 +174,55 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 	return allQuerySnapshotResults, "", nil
 }
 
+type cnsVolumeDetails struct {
+	VolumeID     string
+	SizeInMB     int64
+	DatastoreUrl string
+	VolumeType   string
+}
+
 // Query Capacity in MB and datastore URL for the source volume with expected volume type
-func QueryCapacityAndDsUrlForVolumeUtil(ctx context.Context, m cnsvolume.Manager, sourceVolumeID,
-	volumeType string) (int64, string, error) {
+func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds []cnstypes.CnsVolumeId) (
+	map[string]*cnsVolumeDetails, error) {
 	log := logger.GetLogger(ctx)
-	var snapshotSizeInMB int64
-	var datastoreUrl string
-	// Check if volume already exists
-	volumeIds := []cnstypes.CnsVolumeId{{Id: sourceVolumeID}}
+	volumeDetailsMap := make(map[string]*cnsVolumeDetails)
+	// TODO: Update govmomi to have datastore url as selection criteria as a enum
+	datastoreSelection := "DATASTORE_URL"
+	// Select only the backing object details, volume type and datastore.
+	querySelection := &cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+			datastoreSelection,
+		},
+	}
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 	}
-	queryResult, err := m.QueryVolume(ctx, queryFilter)
+	log.Infof("Invoking QueryAllVolumeUtil with Filter: %+v, Selection: %+v", queryFilter, *querySelection)
+	allQueryResults, err := m.QueryAllVolume(ctx, queryFilter, *querySelection)
 	if err != nil {
-		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to query the block volume %q to be snapshotted: %v", sourceVolumeID, err)
+		log.Errorf("failed to retrieve the volume size and datastore, err: %+v", err)
+		return volumeDetailsMap, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to retrieve the volume sizes: %+v", err)
 	}
-
-	// Check if the volume type of the queried volume matched the expected volume type.
-	if queryResult.Volumes[0].VolumeType != volumeType {
-		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"queried volume doesn't have the expected volume type. Expected VolumeType: %v. "+
-				"Queried VolumeType: %v", volumeType, queryResult.Volumes[0].VolumeType)
+	log.Infof("Number of results from QueryAllVolumeUtil: %d", len(allQueryResults.Volumes))
+	for _, res := range allQueryResults.Volumes {
+		volumeId := res.VolumeId
+		datastoreUrl := res.DatastoreUrl
+		volumeCapacityInMB := res.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+		volumeType := res.VolumeType
+		log.Debugf("VOLUME: %s, TYPE: %s, DATASTORE: %s, CAPACITY: %d", volumeId, volumeType, datastoreUrl,
+			volumeCapacityInMB)
+		volumeDetails := &cnsVolumeDetails{
+			VolumeID:     volumeId.Id,
+			SizeInMB:     volumeCapacityInMB,
+			DatastoreUrl: datastoreUrl,
+			VolumeType:   volumeType,
+		}
+		volumeDetailsMap[volumeId.Id] = volumeDetails
 	}
-
-	// Get the snapshot size by getting the volume size, which is only valid for full backup use cases
-
-	if len(queryResult.Volumes) > 0 {
-		snapshotSizeInMB = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
-		datastoreUrl = queryResult.Volumes[0].DatastoreUrl
-	} else {
-		return snapshotSizeInMB, datastoreUrl, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to querying capacity and datastore url for the source volume: %q", sourceVolumeID)
-	}
-
-	return snapshotSizeInMB, datastoreUrl, nil
+	return volumeDetailsMap, nil
 }
 
 // Get the datastore reference by datastore URL from a list of datastore references.

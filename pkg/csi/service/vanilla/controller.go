@@ -380,13 +380,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
 		}
-
-		snapshotSizeInMB, _, err := utils.QueryCapacityAndDsUrlForVolumeUtil(
-			ctx, c.manager.VolumeManager, cnsVolumeID, common.BlockVolumeType)
+		// Query capacity in MB and datastore url for block volume snapshot
+		volumeIds := []cnstypes.CnsVolumeId{{Id: cnsVolumeID}}
+		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
 		if err != nil {
+			log.Errorf("failed to retrieve the volume: %s details. err: %+v", cnsVolumeID, err)
 			return nil, csifault.CSIInternalFault, err
 		}
-
+		if _, ok := cnsVolumeDetailsMap[cnsVolumeID]; !ok {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"cns query volume did not return the volume: %s", cnsVolumeID)
+		}
+		snapshotSizeInMB := cnsVolumeDetailsMap[cnsVolumeID].SizeInMB
 		snapshotSizeInBytes := snapshotSizeInMB * common.MbInBytes
 		if volSizeBytes != snapshotSizeInBytes {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
@@ -1372,15 +1377,24 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"cannot snapshot migrated vSphere volume. :%q", volumeID)
 		}
-
+		volumeType = prometheus.PrometheusBlockVolumeType
 		// Query capacity in MB and datastore url for block volume snapshot
-		snapshotSizeInMB, datastoreUrl, err := utils.QueryCapacityAndDsUrlForVolumeUtil(
-			ctx, c.manager.VolumeManager, volumeID, common.BlockVolumeType)
+		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
 		if err != nil {
 			return nil, err
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
-
+		if _, ok := cnsVolumeDetailsMap[volumeID]; !ok {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"cns query volume did not return the volume: %s", volumeID)
+		}
+		snapshotSizeInMB := cnsVolumeDetailsMap[volumeID].SizeInMB
+		datastoreUrl := cnsVolumeDetailsMap[volumeID].DatastoreUrl
+		if cnsVolumeDetailsMap[volumeID].VolumeType != common.BlockVolumeType {
+			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"queried volume doesn't have the expected volume type. Expected VolumeType: %v. "+
+					"Queried VolumeType: %v", volumeType, cnsVolumeDetailsMap[volumeID].VolumeType)
+		}
 		// Check if snapshots number of this volume reaches the granular limit on VSAN/VVOL
 		maxSnapshotsPerBlockVolume := c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
 		log.Infof("The limit of the maximum number of snapshots per block volume is "+
@@ -1409,8 +1423,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 
 		// Check if snapshots number of this volume reaches the limit
-		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(
-			ctx, c.manager.VolumeManager, volumeID, common.QuerySnapshotLimit)
+		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+			common.QuerySnapshotLimit)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to query snapshots of volume %s for the limit check. Error: %v", volumeID, err)
