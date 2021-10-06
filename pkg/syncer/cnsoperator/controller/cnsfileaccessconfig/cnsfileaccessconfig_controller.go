@@ -341,7 +341,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 
 		if volume.VolumeType != string(cnstypes.CnsVolumeTypeFile) {
 			msg := fmt.Sprintf("CNS Volume: %s is not RWX volume", volumeID)
-			logger.LogNewErrorf(log, msg)
+			logger.LogNewError(log, msg)
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
