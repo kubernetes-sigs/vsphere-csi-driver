@@ -1,0 +1,449 @@
+//go:build windows
+// +build windows
+
+/*
+Copyright 2021 The Kubernetes Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package osutils
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/ioutil"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8svol "k8s.io/kubernetes/pkg/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/mounter"
+)
+
+const (
+	devDiskID   = "/dev/disk/by-id"
+	blockPrefix = "wwn-0x"
+	dmiDir      = "/sys/class/dmi"
+)
+
+// NewOsUtils creates OsUtils with a linux specific mounter
+func NewOsUtils(ctx context.Context) (*OsUtils, error) {
+	log := logger.GetLogger(ctx)
+	mounter, err := mounter.NewSafeMounter(ctx)
+	if err != nil {
+		log.Debugf("Could not create instance of Mounter %v", err)
+		return nil, err
+	}
+	return &OsUtils{
+		Mounter: mounter,
+	}, nil
+}
+
+func GetMounter(ctx context.Context, osUtils *OsUtils) (mounter.CSIProxyMounter, error) {
+	if proxy, ok := osUtils.Mounter.Interface.(mounter.CSIProxyMounter); ok {
+		return proxy, nil
+	} else {
+		return nil, fmt.Errorf("could not cast to csi proxy class")
+	}
+}
+
+// NodeStageBlockVolume mounts mount volume or file volume to staging target
+func (osUtils *OsUtils) NodeStageBlockVolume(
+	ctx context.Context,
+	req *csi.NodeStageVolumeRequest,
+	params NodeStageParams) (
+	*csi.NodeStageVolumeResponse, error) {
+
+	log := logger.GetLogger(ctx)
+	log.Debug("start nodeStageBlockVolume")
+
+	// For windows NodeStageVolumeRequest comes like {VolumeId:b03f0b6e-cf29-4b98-9411-5168682ace82
+	// PublishContext:map[diskUUID:6000c29a98d05e384a43f0ef189aaf5a type:vSphere CNS Block Volume]
+	// StagingTargetPath:\var\lib\kubelet\plugins\kubernetes.io\csi\pv\pvc-baed6335-cc2c-44d8-a324-2ee00be0644d\globalmount
+	// VolumeCapability:mount:<fs_type:"ext4" > access_mode:<mode:SINGLE_NODE_WRITER >
+	// Secrets:map[] VolumeContext:map[storage.kubernetes.io/csiProvisionerIdentity:1632464002195-8081-csi.vsphere.vmware.com
+	// type:vSphere CNS Block Volume] XXX_NoUnkeyedLiteral:{} XXX_unrecognized:[] XXX_sizecache:0}
+	// Note: fs_type comes as ext4 if not specified in storage class else it takes value from storage class
+
+	// Check if this is a MountVolume or BlockVolume.
+	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+		// Volume is a raw block volume.
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"Stage for raw block Volume access type is currently not supported for windows node")
+	}
+
+	// Block Volume with Mount access type.
+	pubCtx := req.GetPublishContext()
+	stagingTargetPath := req.GetStagingTargetPath()
+	diskID, err := osUtils.GetDiskID(pubCtx, log)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("nodeStageBlockVolume: Retrieved diskID as %q", diskID)
+
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return nil, err
+	}
+	// Get the windows specific disk number
+	diskNumber, err := mounter.GetDiskNumber(diskID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get Disk Number, err: %v", err)
+	}
+	log.Infof("nodeStageBlockVolume diskNumber %s, diskId %s,stagingTargetPath %s ", diskNumber, diskID, stagingTargetPath)
+
+	// check if disk is mounted and formatted correctly, here the path should exist as it is created by CO and already checked
+	notMounted, err := mounter.IsLikelyNotMountPoint(stagingTargetPath)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"Could not determine if staging path is already mounted, err: %v", err)
+	}
+	if notMounted {
+		log.Info("calling FormatAndMount")
+		//currently proxy does not support read only mount or filesystems other than ntfs
+		err := mounter.FormatAndMount(diskNumber, stagingTargetPath, params.FsType, params.MntFlags)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"error mounting volume. Parameters: %v err: %v", params, err)
+		}
+		log.Infof("nodeStageBlockVolume: Device mounted successfully at %q", params.StagingTarget)
+	} else {
+		log.Infof("nodeStageBlockVolume: Device already mounted.")
+	}
+	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+// CleanupStagePath will unmount the volume from node and remove the stage directory
+func (osUtils *OsUtils) CleanupStagePath(ctx context.Context, stagingTarget string, volID string) error {
+	log := logger.GetLogger(ctx)
+
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return err
+	}
+
+	// unmount Block volume.
+	log.Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
+	err = mounter.Unmount(stagingTarget)
+	if err != nil {
+		return fmt.Errorf(
+			"error unmounting stagingTarget: %v", err)
+	}
+	return nil
+}
+
+// CleanupPublishPath will unmount and remove publish path
+func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, volID string) error {
+	//log := logger.GetLogger(ctx)
+	// for windows, unpublish means removing symlink only
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return err
+	}
+	// no need to check if target exist first as rmdir do not throw error if path does not exists.
+	err = mounter.Rmdir(target)
+	if err != nil {
+		return fmt.Errorf(
+			"error unmounting publishTarget: %v", err)
+	}
+	return nil
+}
+
+// PublishBlockVol mounts block volume to publish target
+func (osUtils *OsUtils) PublishMountVol(
+	ctx context.Context,
+	req *csi.NodePublishVolumeRequest,
+	dev *Device,
+	params NodePublishParams) (
+	*csi.NodePublishVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("PublishMountVolume called with args: %+v", params)
+
+	source := req.GetStagingTargetPath()
+
+	target := req.GetTargetPath()
+
+	err := osUtils.PreparePublishPath(ctx, target)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"Target path could not be prepared: %v", err)
+	}
+	mounter, err := GetMounter(ctx, osUtils)
+	log.Infof("NodePublishVolume: mounting %s at %s", source, target)
+	if err := mounter.Mount(source, target, "", nil); err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not mount %q at %q: %v", source, target, err)
+	}
+
+	log.Infof("NodePublishVolume for %q successful to path %q", req.GetVolumeId(), params.Target)
+	return &csi.NodePublishVolumeResponse{}, nil
+}
+
+// PublishBlockVol mounts raw block device to publish target
+func (osUtils *OsUtils) PublishBlockVol(
+	ctx context.Context,
+	req *csi.NodePublishVolumeRequest,
+	dev *Device,
+	params NodePublishParams) (
+	*csi.NodePublishVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	return nil, logger.LogNewErrorCodef(log, codes.Internal,
+		"PublishBlockVol Raw Block devices are currently not supported by windows : %v", req)
+}
+
+// PublishBlockVol mounts file volume to publish target
+func (osUtils *OsUtils) PublishFileVol(
+	ctx context.Context,
+	req *csi.NodePublishVolumeRequest,
+	params NodePublishParams) (
+	*csi.NodePublishVolumeResponse, error) {
+	log := logger.GetLogger(ctx)
+	return nil, logger.LogNewErrorCodef(log, codes.Internal,
+		"PublishBlockVol File Volumes are currently not supported by windows : %v", req)
+}
+
+// GetMetrics helps get volume metrics using k8s fsInfo strategy.
+func (osUtils *OsUtils) GetMetrics(ctx context.Context, path string) (*k8svol.Metrics, error) {
+	if path == "" {
+		return nil, fmt.Errorf("no path given")
+	}
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return nil, err
+	}
+	available, capacity, usage, inodes, inodesFree, inodesUsed, err := mounter.StatFS(path)
+	if err != nil {
+		return nil, err
+	}
+	metrics := &k8svol.Metrics{Time: metav1.Now()}
+	metrics.Available = resource.NewQuantity(available, resource.BinarySI)
+	metrics.Capacity = resource.NewQuantity(capacity, resource.BinarySI)
+	metrics.Used = resource.NewQuantity(usage, resource.BinarySI)
+	metrics.Inodes = resource.NewQuantity(inodes, resource.BinarySI)
+	metrics.InodesFree = resource.NewQuantity(inodesFree, resource.BinarySI)
+	metrics.InodesUsed = resource.NewQuantity(inodesUsed, resource.BinarySI)
+	return metrics, nil
+}
+
+// GetBlockSizeBytes returns the Block size in bytes
+func (osUtils *OsUtils) GetBlockSizeBytes(ctx context.Context, devicePath string) (int64, error) {
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return -1, err
+	}
+	sizeInBytes, err := mounter.GetVolumeSizeInBytes(devicePath)
+
+	if err != nil {
+		return -1, err
+	}
+
+	return sizeInBytes, nil
+}
+
+// GetDevice returns a Device struct with info about the given device, or
+// an error if it doesn't exist or is not a block device.
+func (osUtils *OsUtils) GetDevice(ctx context.Context, path string) (*Device, error) {
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return nil, err
+	}
+	d, err := mounter.GetDeviceNameFromMount(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Device{
+		Name:     path,
+		FullPath: path,
+		RealDev:  d,
+	}, nil
+}
+
+// RescanDevice rescans the device
+func (osUtils *OsUtils) RescanDevice(ctx context.Context, dev *Device) error {
+
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return err
+	}
+	return mounter.Rescan()
+}
+
+// VerifyTargetDir checks if the target path is not empty, exists and is a
+// directory. If targetShouldExist is set to false, then verifyTargetDir
+// returns (false, nil) if the path does not exist. If targetShouldExist is
+// set to true, then verifyTargetDir returns (false, err) if the path does
+// not exist.
+func (osUtils *OsUtils) VerifyTargetDir(ctx context.Context, target string, targetShouldExist bool) (bool, error) {
+	log := logger.GetLogger(ctx)
+	if target == "" {
+		return false, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"target path required")
+	}
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return false, err
+	}
+
+	isExists, err := mounter.ExistsPath(target)
+	if err != nil {
+		return false, err
+	}
+	if isExists == false {
+		if targetShouldExist {
+			// Target path does not exist but targetShouldExist is set to true.
+			return false, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"target: %s not pre-created", target)
+		}
+		// Target path does not exist but targetShouldExist is set to false,
+		// so no error.
+		return false, nil
+	}
+	log.Debugf("Target path %s verification complete", target)
+	return true, nil
+}
+
+// GetDevFromMount returns device info mounted on the target dir
+func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*Device, error) {
+	return osUtils.GetDevice(ctx, target)
+}
+
+// IsTargetInMounts checks if a path exists in the mounts
+// this check is no op for windows
+func (osUtils *OsUtils) IsTargetInMounts(ctx context.Context, path string) (bool, error) {
+	return true, nil
+}
+
+// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability.
+// Defaults to nfs4 for file volume and ntfs for block volume when empty string
+// is observed. This function also ignores default ext4 fstype supplied by
+// external-provisioner when none is specified in the StorageClass
+func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
+	log := logger.GetLogger(ctx)
+	fsType := strings.ToLower(capability.GetMount().GetFsType())
+	log.Debugf("FsType received from Volume Capability: %q", fsType)
+	isFileVolume := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
+	if isFileVolume && (fsType == "" || fsType == "ext4") {
+		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", common.NfsV4FsType)
+		fsType = common.NfsV4FsType
+	} else if !isFileVolume && fsType == "" {
+		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", common.NTFSFsType)
+		fsType = common.NTFSFsType
+	}
+	return fsType
+}
+
+// ResizeVolume resizes the volume
+func (osUtils *OsUtils) ResizeVolume(ctx context.Context, devicePath, volumePath string, reqVolSizeBytes int64) error {
+	log := logger.GetLogger(ctx)
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return err
+	}
+	log.Infof("resizing using csi proxy, devicePath %s", devicePath)
+	err = mounter.ResizeVolume(devicePath, reqVolSizeBytes)
+	if err != nil {
+		return fmt.Errorf(
+			"error when resizing filesystem on devicePath %s and volumePath %s, err: %v ", devicePath, volumePath, err)
+	}
+	// Check the block size.
+	currentBlockSizeBytes, err := mounter.GetDiskTotalBytes(devicePath)
+	if err != nil {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"error when getting size of block volume at path %s: %v", devicePath, err)
+	}
+	// For windows volume size is less than the disk size by some mb. Since Resize is successful
+	// check if disk size was good
+	if currentBlockSizeBytes < reqVolSizeBytes {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
+	}
+	return nil
+}
+
+// VerifyVolumeAttachedFillParams is a noop for windows
+func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
+	pubCtx map[string]string, params *NodePublishParams, dev **Device) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("VerifyVolumeAttachedAndFillParams Not Implemented for windows")
+	return nil
+}
+
+// preparePublishPath - In case of windows, the publish code path creates a soft link
+// from global stage path to the publish path. But kubelet creates the directory in advance.
+// We work around this issue by deleting the publish path then recreating the link.
+func (osUtils *OsUtils) PreparePublishPath(ctx context.Context, path string) error {
+	log := logger.GetLogger(ctx)
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return err
+	}
+	isExists, err := mounter.ExistsPath(path)
+	if err != nil {
+		return err
+	}
+	if isExists {
+		log.Infof("Removing path: %s", path)
+		if err = mounter.Rmdir(path); err != nil {
+			return err
+		}
+	}
+	// ensure parent dir is created
+	parentDir := filepath.Dir(path)
+	if err := mounter.MakeDir(parentDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetSystemUUID returns the UUID used to identify node vm
+func GetSystemUUID(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
+	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	if err != nil {
+		return "", err
+	}
+	log.Debugf("uuid in bytes: %v", idb)
+	id := strings.TrimSpace(string(idb))
+	log.Debugf("uuid in string: %s", id)
+	return strings.ToLower(id), nil
+}
+
+// convertUUID helps convert UUID to vSphere format, for example,
+// Input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
+// Returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
+func ConvertUUID(uuid string) (string, error) {
+	if len(uuid) != 36 {
+		return "", errors.New("uuid length should be 36")
+	}
+	convertedUUID := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
+		uuid[6:8], uuid[4:6], uuid[2:4], uuid[0:2],
+		uuid[11:13], uuid[9:11],
+		uuid[16:18], uuid[14:16],
+		uuid[19:23],
+		uuid[24:36])
+	return strings.ToLower(convertedUUID), nil
+}

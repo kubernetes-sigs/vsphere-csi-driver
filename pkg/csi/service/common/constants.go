@@ -77,6 +77,9 @@ const (
 	// NfsV4FsType represents nfs4 mount type.
 	NfsV4FsType = "nfs4"
 
+	//NTFSFsType represents ntfs
+	NTFSFsType = "ntfs"
+
 	// NfsFsType represents nfs mount type.
 	NfsFsType = "nfs"
 
