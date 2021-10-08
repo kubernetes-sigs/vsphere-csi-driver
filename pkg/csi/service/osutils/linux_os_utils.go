@@ -35,8 +35,7 @@ import (
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	"k8s.io/mount-utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/mounter"
-
+	utilexec "k8s.io/utils/exec"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
@@ -53,13 +52,22 @@ const (
 // NewOsUtils creates OsUtils with a linux specific mounter
 func NewOsUtils(ctx context.Context) (*OsUtils, error) {
 	log := logger.GetLogger(ctx)
-	mounter, err := mounter.NewSafeMounter(ctx)
+	mounter, err := NewSafeMounter()
 	if err != nil {
 		log.Debugf("Could not create instance of Mounter %v", err)
 		return nil, err
 	}
 	return &OsUtils{
 		Mounter: mounter,
+	}, nil
+}
+
+// NewSafeMounter returns a mounter with linux mounter
+// and linux cmd executer
+func NewSafeMounter() (*mount.SafeFormatAndMount, error) {
+	return &mount.SafeFormatAndMount{
+		Interface: mount.New(""),
+		Exec:      utilexec.New(),
 	}, nil
 }
 
@@ -200,7 +208,7 @@ func (osUtils *OsUtils) IsBlockVolumeMounted(
 	// have created the staging path per the spec, even for BlockVolumes. Even
 	// though we don't use the staging path for block, the fact nothing will be
 	// mounted still indicates that unstaging is done.
-	dev, err := osUtils.GetDevFromMount(ctx, stagingTargetPath)
+	dev, err := osUtils.GetDevFromMount(stagingTargetPath)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"isBlockVolumeMounted: error getting block device for volume: %s, err: %s",
@@ -267,7 +275,7 @@ func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, v
 
 	// Check if the volume is already unpublished.
 	// Also validates if path is a mounted directory or not.
-	isPresent := isTargetInMounts(ctx, target, mnts)
+	isPresent := common.IsTargetInMounts(ctx, target, mnts)
 	if !isPresent {
 		log.Infof("NodeUnpublishVolume: Target %s not present in mount points. Assuming it is already unpublished.",
 			target)
@@ -275,7 +283,7 @@ func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, v
 	}
 
 	// Figure out if the target path is a file or block volume.
-	isFileMount, _ := isFileVolumeMount(ctx, target, mnts)
+	isFileMount, _ := common.IsFileVolumeMount(ctx, target, mnts)
 	isPublished := true
 	if !isFileMount {
 		isPublished, err = osUtils.IsBlockVolumePublished(ctx, volID, target)
@@ -309,7 +317,7 @@ func (osUtils *OsUtils) IsBlockVolumePublished(ctx context.Context, volID string
 	log := logger.GetLogger(ctx)
 
 	// Look up block device mounted to target.
-	dev, err := osUtils.GetDevFromMount(ctx, target)
+	dev, err := osUtils.GetDevFromMount(target)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"error getting block device for volume: %s, err: %v", volID, err)
@@ -331,7 +339,7 @@ func (osUtils *OsUtils) IsBlockVolumePublished(ctx context.Context, volID string
 }
 
 // GetMetrics helps get volume metrics using k8s fsInfo strategy.
-func (osUtils *OsUtils) GetMetrics(ctx context.Context, path string) (*k8svol.Metrics, error) {
+func (osUtils *OsUtils) GetMetrics(path string) (*k8svol.Metrics, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no path given")
 	}
@@ -351,7 +359,7 @@ func (osUtils *OsUtils) GetMetrics(ctx context.Context, path string) (*k8svol.Me
 }
 
 // GetBlockSizeBytes returns the Block size in bytes
-func (osUtils *OsUtils) GetBlockSizeBytes(ctx context.Context, devicePath string) (int64, error) {
+func (osUtils *OsUtils) GetBlockSizeBytes(devicePath string) (int64, error) {
 	cmdArgs := []string{"--getsize64", devicePath}
 	cmd := osUtils.Mounter.Exec.Command("blockdev", cmdArgs...)
 	output, err := cmd.CombinedOutput()
@@ -841,7 +849,7 @@ func ConvertUUID(uuid string) (string, error) {
 }
 
 // GetDevFromMount returns device info mounted on the target dir
-func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*Device, error) {
+func (osUtils *OsUtils) GetDevFromMount(target string) (*Device, error) {
 
 	// Get list of all mounts on system.
 	mnts, err := gofsutil.GetMounts(context.Background())
@@ -911,7 +919,7 @@ func (osUtils *OsUtils) IsTargetInMounts(ctx context.Context, path string) (bool
 		return false, err
 	}
 	log.Debugf("NodeUnstageVolume: node mounts %+v", mnts)
-	return isTargetInMounts(ctx, path, mnts), nil
+	return common.IsTargetInMounts(ctx, path, mnts), nil
 }
 
 // GetVolumeCapabilityFsType retrieves fstype from VolumeCapability.
@@ -934,88 +942,12 @@ func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context, capabilit
 }
 
 // ResizeVolume resizes the volume
-func (osUtils *OsUtils) ResizeVolume(ctx context.Context, devicePath, volumePath string, reqVolSizeBytes int64) error {
-	log := logger.GetLogger(ctx)
+func (osUtils *OsUtils) ResizeVolume(devicePath, volumePath string) error {
 	resizer := mount.NewResizeFs(osUtils.Mounter.Exec)
 	_, err := resizer.Resize(devicePath, volumePath)
 	if err != nil {
 		return fmt.Errorf(
 			"error when resizing filesystem on devicePath %s and volumePath %s, err: %v ", devicePath, volumePath, err)
 	}
-	// Check the block size.
-	currentBlockSizeBytes, err := osUtils.GetBlockSizeBytes(ctx, devicePath)
-	if err != nil {
-		return logger.LogNewErrorCodef(log, codes.Internal,
-			"error when getting size of block volume at path %s: %v", devicePath, err)
-	}
-	// NOTE(xyang): Make sure new size is greater than or equal to the
-	// requested size. It is possible for volume size to be rounded up
-	// and therefore bigger than the requested size.
-	if currentBlockSizeBytes < reqVolSizeBytes {
-		return logger.LogNewErrorCodef(log, codes.Internal,
-			"requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
-	}
-
 	return nil
-}
-
-func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
-	pubCtx map[string]string, params *NodePublishParams, dev **Device) error {
-	log := logger.GetLogger(ctx)
-	var err error
-	params.DiskID, err = osUtils.GetDiskID(pubCtx, log)
-	if err != nil {
-		log.Errorf("error fetching DiskID. Parameters: %v", params)
-		return err
-	}
-	log.Debugf("Checking if volume %q is attached to disk %q", params.VolID, params.DiskID)
-	volPath, err := osUtils.VerifyVolumeAttached(ctx, params.DiskID)
-	if err != nil {
-		log.Errorf("error checking if volume is attached. Parameters: %v", params)
-		return err
-	}
-
-	// Get underlying block device.
-	*dev, err = osUtils.GetDevice(volPath)
-	log.Debugf("Device: %v", dev)
-	if err != nil {
-		return logger.LogNewErrorCodef(log, codes.Internal,
-			"error getting block device for volume: %q. Parameters: %v err: %v", params.VolID, params, err)
-	}
-	params.VolumePath = (*dev).FullPath
-	params.Device = (*dev).RealDev
-	return nil
-}
-
-// IsFileVolumeMount loops through the list of mount points and
-// checks if the target path mount point is a file volume type or not.
-// Returns an error if the target path is not found in the mount points.
-func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
-	log := logger.GetLogger(ctx)
-	for _, m := range mnts {
-		if m.Path == target {
-			if m.Type == common.NfsFsType || m.Type == common.NfsV4FsType {
-				log.Debug("IsFileVolumeMount: Found file volume")
-				return true, nil
-			}
-			log.Debug("IsFileVolumeMount: Found block volume")
-			return false, nil
-		}
-	}
-	// Target path mount point not found in list of mounts.
-	return false, fmt.Errorf("could not find target path %q in list of mounts", target)
-}
-
-// IsTargetInMounts checks if the given target path is present in list of
-// mount points.
-func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
-	log := logger.GetLogger(ctx)
-	for _, m := range mnts {
-		if m.Path == target {
-			log.Debugf("Found target %q in list of mounts", target)
-			return true
-		}
-	}
-	log.Debugf("Target %q not found in list of mounts", target)
-	return false
 }
