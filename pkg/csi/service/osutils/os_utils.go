@@ -63,9 +63,9 @@ type NodePublishParams struct {
 
 // Device is a struct for holding details about a block device.
 type Device struct {
-	FullPath string // full path where device is mounted
-	Name     string // name of device
-	RealDev  string // in windows it represents volumeID and in linux it represents device path
+	FullPath string
+	Name     string
+	RealDev  string
 }
 
 // GetDiskID returns the diskID of the disk attached
