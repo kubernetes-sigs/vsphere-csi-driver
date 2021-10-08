@@ -432,9 +432,11 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			taskDetails.task = task
 			taskDetails.expirationTime = time.Now().Add(time.Hour * time.Duration(
 				defaultOpsExpirationTimeInHours))
-			volumeTaskMapLock.Lock()
-			defer volumeTaskMapLock.Unlock()
-			volumeTaskMap[volNameFromInputSpec] = &taskDetails
+			func() {
+				volumeTaskMapLock.Lock()
+				defer volumeTaskMapLock.Unlock()
+				volumeTaskMap[volNameFromInputSpec] = &taskDetails
+			}()
 		}
 	} else {
 		// Create new task object with latest vCenter Client to avoid
@@ -478,11 +480,13 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			// volume call from the external provisioner invokes Create Volume.
 			_, ok := volumeTaskMap[volNameFromInputSpec]
 			if ok {
-				volumeTaskMapLock.Lock()
-				defer volumeTaskMapLock.Unlock()
-				log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
-					volNameFromInputSpec)
-				delete(volumeTaskMap, volNameFromInputSpec)
+				func() {
+					volumeTaskMapLock.Lock()
+					defer volumeTaskMapLock.Unlock()
+					log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
+						volNameFromInputSpec)
+					delete(volumeTaskMap, volNameFromInputSpec)
+				}()
 			}
 			log.Errorf("failed to create cns volume %s. createSpec: %q, fault: %q",
 				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault))
