@@ -359,8 +359,8 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				trimmedName = instance.Name
 			case strings.HasPrefix(instance.Name, "delete"):
 				trimmedName = strings.TrimPrefix(instance.Name, "delete-")
-			case strings.HasPrefix(instance.Name, "extend"):
-				trimmedName = strings.TrimPrefix(instance.Name, "extend-")
+			case strings.HasPrefix(instance.Name, "expand"):
+				trimmedName = strings.TrimPrefix(instance.Name, "expand-")
 			}
 			if _, ok := instanceMap[trimmedName]; !ok {
 				err = or.deleteRequestDetails(ctx, instance.Name)

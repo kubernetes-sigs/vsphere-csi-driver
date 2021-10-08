@@ -264,15 +264,10 @@ func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (c
 	log := logger.GetLogger(ctx)
 	// Get the taskResult.
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-
 	if err != nil {
-		log.Errorf("failed to get task result for task with ID: %q, opId: %q result: %+v",
-			taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
+		log.Errorf("failed to get task result for task with ID: %q, opId: %q error: %+v",
+			taskInfo.Task.Value, taskInfo.ActivationId, err)
 		return nil, err
-	}
-
-	if taskResult == nil {
-		return nil, logger.LogNewErrorf(log, "taskResult is empty for task: %q", taskInfo.ActivationId)
 	}
 	return taskResult, nil
 }
@@ -440,4 +435,27 @@ func getPendingCreateSnapshotTaskFromMap(ctx context.Context, snapshotName strin
 			snapshotName, task)
 	}
 	return task
+}
+
+// validateVolumeCapacity queries the CNS volume and validates the returned size with
+// input size.
+// Returns true if the volume capacity is greater than or equal to the input size.
+func validateVolumeCapacity(ctx context.Context, m *defaultManager, volumeID string, size int64) bool {
+	log := logger.GetLogger(ctx)
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+		},
+	}
+	queryResult, queryAllVolumeErr := m.QueryAllVolume(ctx, queryFilter, querySelection)
+	if queryAllVolumeErr != nil {
+		log.Debugf("failed to query CNS for volume %s with error: %v. Cannot "+
+			"determine volume capacity.", volumeID, queryAllVolumeErr)
+		return false
+	}
+	return len(queryResult.Volumes) > 0 &&
+		queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb >= size
 }
