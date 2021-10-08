@@ -12,7 +12,7 @@ coverage_report.out
 
 # Ignore the build output.
 /.build
-/.build/windows-driver
+
 # Ingore project specific setting files created by Intellij IDE and VS Code
 /.idea
 /.vscode

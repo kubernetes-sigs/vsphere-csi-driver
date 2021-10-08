@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.4.0
+	github.com/coreos/etcd v3.3.25+incompatible // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/elazarl/goproxy v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
@@ -13,7 +14,6 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.14.5 // indirect
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
-	github.com/kubernetes-csi/csi-proxy/client v1.0.1
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/prometheus/client_golang v1.11.0
@@ -35,6 +35,7 @@ require (
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/yaml.v2 v2.4.0
+	honnef.co/go/tools v0.2.0 // indirect
 	k8s.io/api v0.21.1
 	k8s.io/apiextensions-apiserver v0.21.1
 	k8s.io/apimachinery v0.21.1
@@ -50,6 +51,7 @@ require (
 replace (
 	github.com/go-logr/logr => github.com/go-logr/logr v0.3.0
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
+	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/api => k8s.io/api v0.21.1
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.21.1
 	k8s.io/apimachinery => k8s.io/apimachinery v0.21.1
