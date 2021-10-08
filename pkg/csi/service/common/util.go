@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
@@ -168,39 +167,6 @@ func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapabil
 		return validateVolumeCapabilities(volCaps, FileVolumeCaps, FileVolumeType)
 	}
 	return validateVolumeCapabilities(volCaps, BlockVolumeCaps, BlockVolumeType)
-}
-
-// IsFileVolumeMount loops through the list of mount points and
-// checks if the target path mount point is a file volume type or not.
-// Returns an error if the target path is not found in the mount points.
-func IsFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
-	log := logger.GetLogger(ctx)
-	for _, m := range mnts {
-		if m.Path == target {
-			if m.Type == NfsFsType || m.Type == NfsV4FsType {
-				log.Debug("IsFileVolumeMount: Found file volume")
-				return true, nil
-			}
-			log.Debug("IsFileVolumeMount: Found block volume")
-			return false, nil
-		}
-	}
-	// Target path mount point not found in list of mounts.
-	return false, fmt.Errorf("could not find target path %q in list of mounts", target)
-}
-
-// IsTargetInMounts checks if the given target path is present in list of
-// mount points.
-func IsTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
-	log := logger.GetLogger(ctx)
-	for _, m := range mnts {
-		if m.Path == target {
-			log.Debugf("Found target %q in list of mounts", target)
-			return true
-		}
-	}
-	log.Debugf("Target %q not found in list of mounts", target)
-	return false
 }
 
 // ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API
