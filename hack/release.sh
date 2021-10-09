@@ -46,6 +46,21 @@ GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 
+ARCH=amd64
+OSVERSION=1809
+# OS Version for the Windows images: 1809, 1903, 1909 2004, 20H2, ltsc2022
+OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
+
+# The output type could either be docker (local), or registry.
+# If it is registry, it will also allow us to push the Windows images.
+WINDOWS_IMAGE_OUTPUT="type=tar,dest=.build/windows-driver.tar"
+LINUX_IMAGE_OUTPUT="type=docker"
+
+REGISTRY=
+
+# The manifest command is still experimental as of Docker 18.09.3
+export DOCKER_CLI_EXPERIMENTAL=enabled
+
 # If BUILD_RELEASE_TYPE is not set then check to see if this is a PR
 # or release build. This may still be overridden below with the "-t" flag.
 if [ -z "${BUILD_RELEASE_TYPE}" ]; then
@@ -74,7 +89,14 @@ FLAGS
   -p    push the images to the public container registry
   -t    the build/release type (defaults to: ${BUILD_RELEASE_TYPE})
         one of [ci,pr,release]
+  -r    push the image to custom registry, specify the registry to be used
 "
+
+
+function lcase () {
+    tr '[:upper:]' '[:lower:]' <<< "${*}"
+}
+
 
 # Change directories to the parent directory of the one in which this
 # script is located.
@@ -88,6 +110,57 @@ function error() {
 
 function fatal() {
   error "${@}" || exit 1
+}
+
+
+function build_driver_images_windows() {
+  docker buildx use vsphere-csi-builder-win || docker buildx create --name vsphere-csi-builder-win --platform windows/amd64 --use
+  echo "building ${CSI_IMAGE_NAME}:${VERSION} for windows"
+  # some registry do not allow uppercase tags
+  osv=$(lcase ${OSVERSION})
+  tag="${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"
+  docker buildx build \
+   --platform "windows" \
+   --output "${WINDOWS_IMAGE_OUTPUT}" \
+   --file images/windows/driver/Dockerfile \
+   --tag "${tag}" \
+   --build-arg "VERSION=${VERSION}" \
+   --build-arg "OSVERSION=${OSVERSION}" \
+   --build-arg "GOPROXY=${GOPROXY}" \
+   --build-arg "GIT_COMMIT=${VERSION}" \
+   .
+   docker buildx rm vsphere-csi-builder-win
+}
+
+function build_driver_images_linux() {
+  echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux"
+  tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+  docker buildx build \
+   --platform "linux/$ARCH" \
+   --output "${LINUX_IMAGE_OUTPUT}" \
+   --file images/driver/Dockerfile \
+   --tag "${tag}" \
+   --build-arg ARCH=amd64 \
+   --build-arg "VERSION=${VERSION}" \
+   --build-arg "GOPROXY=${GOPROXY}" \
+   --build-arg "GIT_COMMIT=${VERSION}" \
+   .
+}
+
+function build_syncer_image_linux() {
+  echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
+  docker build \
+      -f images/syncer/Dockerfile \
+      -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
+      --build-arg "VERSION=${VERSION}" \
+      --build-arg "GOPROXY=${GOPROXY}" \
+      --build-arg "GIT_COMMIT=${VERSION}" \
+  .
+
+  if [ "${LATEST}" ]; then
+    echo "tagging image ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
+    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${SYNCER_IMAGE_NAME}":latest
+  fi
 }
 
 function build_images() {
@@ -110,30 +183,53 @@ function build_images() {
       ;;
   esac
 
-  echo "building ${CSI_IMAGE_NAME}:${VERSION}"
-  echo "GOPROXY=${GOPROXY}"
-  docker build \
-    -f images/driver/Dockerfile \
-    -t "${CSI_IMAGE_NAME}":"${VERSION}" \
-    --build-arg "VERSION=${VERSION}" \
-    --build-arg "GOPROXY=${GOPROXY}" \
-    --build-arg "GIT_COMMIT=${VERSION}" \
-    .
+  # build images for linux platform
+  build_driver_images_linux
+  build_syncer_image_linux
 
-  echo "building ${SYNCER_IMAGE_NAME}:${VERSION}"
-  docker build \
-      -f images/syncer/Dockerfile \
-      -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
-      --build-arg "VERSION=${VERSION}" \
-      --build-arg "GOPROXY=${GOPROXY}" \
-      --build-arg "GIT_COMMIT=${VERSION}" \
-      .
+  # build images for windows platform
+  build_driver_images_windows
+}
+
+function push_manifest_driver() {
+  IMAGE_TAG="${CSI_IMAGE_NAME}":"${VERSION}"
+  IMAGE_TAG_LATEST="${CSI_IMAGE_NAME}":latest
+
+  echo "creating manifest ${IMAGE_TAG}"
+  linux_tags="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+  for OSVERSION in "${OSVERSION_WIN[@]}"
+  do 
+    osv=$(lcase "${OSVERSION}")
+    all_tags+=( "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}" )
+  done
+  all_tags+=( "${linux_tags}" )
+  docker manifest create --amend "${IMAGE_TAG}" "${all_tags[@]}"
+  if [ "${LATEST}" ]; then 
+    echo "creating manifest ${IMAGE_TAG_LATEST}"
+    docker manifest create --amend "${IMAGE_TAG_LATEST}" "${all_tags[@]}"
+  fi
+  # add "os.version" field to windows images (based on https://github.com/kubernetes/kubernetes/blob/master/build/pause/Makefile)
+  echo "adding os.version to manifest"
+  for OSVERSION in "${OSVERSION_WIN[@]}"
+  do 
+    osv=$(lcase "${OSVERSION}")
+    BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
+    full_version=$(docker manifest inspect "${BASEIMAGE}" | jq -r '.manifests[0].platform["os.version"]'); 
+    echo "fullversion for ${BASEIMAGE} : ${full_version}"
+    echo "annotating ${IMAGE_TAG} for ${OSVERSION}"
+    docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"; 
+    if [ "${LATEST}" ]; then 
+      echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
+      docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"; 
+    fi 
+  done
+  echo "pushing manifest ${IMAGE_TAG}"
+  docker manifest push "${IMAGE_TAG}"
+  docker manifest inspect "${IMAGE_TAG}"
   if [ "${LATEST}" ]; then
-    echo "tagging image ${CSI_IMAGE_NAME}:${VERSION} as latest"
-    docker tag "${CSI_IMAGE_NAME}":"${VERSION}" "${CSI_IMAGE_NAME}":latest
-    echo "tagging image ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
-    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${SYNCER_IMAGE_NAME}":latest
-
+    echo "pushing manifest ${IMAGE_TAG_LATEST}"
+    docker manifest push "${IMAGE_TAG_LATEST}"
+    docker manifest inspect "${IMAGE_TAG_LATEST}"
   fi
 }
 
@@ -144,28 +240,34 @@ function login() {
   fi
 }
 
-function push_images() {
-  [ "${CSI_IMAGE_NAME}" ] || fatal "CSI_IMAGE_NAME not set"
+function push_syncer_images() {
   [ "${SYNCER_IMAGE_NAME}" ] || fatal "SYNCER_IMAGE_NAME not set"
 
   login
 
-  echo "pushing ${CSI_IMAGE_NAME}:${VERSION}"
-  docker push "${CSI_IMAGE_NAME}":"${VERSION}"
   echo "pushing ${SYNCER_IMAGE_NAME}:${VERSION}"
-  docker push "${SYNCER_IMAGE_NAME}":"${VERSION}"
-
-  if [ "${LATEST}" ]; then
-    echo "also pushing ${CSI_IMAGE_NAME}:${VERSION} as latest"
-    docker push "${CSI_IMAGE_NAME}":latest
-    echo "also pushing ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
-    docker push "${SYNCER_IMAGE_NAME}":latest
-
+  if [ "${REGISTRY}" ]
+  then
+    TAG="${REGISTRY}"syncer:"${VERSION}"
+    TAG_LATEST="${REGISTRY}"syncer:latest
+    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${TAG}"
+    docker push "${TAG}"
+    if [ "${LATEST}" ]; then
+      docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${TAG_LATEST}"
+      echo "also pushing ${TAG_LATEST} as latest"
+      docker push "${TAG_LATEST}"
+    fi
+  else
+    docker push "${SYNCER_IMAGE_NAME}":"${VERSION}"
+    if [ "${LATEST}" ]; then
+      echo "also pushing ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
+      docker push "${SYNCER_IMAGE_NAME}":latest
+    fi
   fi
 }
 
 # Start of main script
-while getopts ":hk:lpt:" opt; do
+while getopts ":hk:lptr:" opt; do
   case ${opt} in
     h)
       error "${USAGE}" && exit 1
@@ -181,6 +283,9 @@ while getopts ":hk:lpt:" opt; do
       ;;
     t)
       BUILD_RELEASE_TYPE="${OPTARG}"
+      ;;
+    r)
+      REGISTRY="${OPTARG}"
       ;;
     \?)
       error "invalid option: -${OPTARG} ${USAGE}" && exit 1
@@ -210,10 +315,28 @@ esac
 # make sure that Docker is available
 docker ps >/dev/null 2>&1 || fatal "Docker not available"
 
-# build container images
+# build container images, this will build linux images for backward compatibility
 build_images
 
 # Optionally push artifacts
 if [ "${PUSH}" ]; then
-  push_images
+  # if registry is provided take that name
+  if [ "${REGISTRY}" ]; then
+    CSI_IMAGE_NAME="${REGISTRY}driver"
+  fi
+  # build windows images and push them to registry as currently windows images are build only when push is enabled
+  WINDOWS_IMAGE_OUTPUT="type=registry"
+  for osversion in "${OSVERSION_WIN[@]}"
+  do 
+    OSVERSION="$osversion"
+    build_driver_images_windows 
+  done
+  # tag linux images with linux and push them to registry
+  LINUX_IMAGE_OUTPUT="type=registry"
+  build_driver_images_linux
+  #create and push manifest for driver
+  push_manifest_driver
+  #push syncer images
+  push_syncer_images
 fi
+
