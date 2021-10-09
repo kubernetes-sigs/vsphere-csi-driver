@@ -129,11 +129,12 @@ function build_driver_images_windows() {
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${VERSION}" \
    .
-   docker buildx rm vsphere-csi-builder-win
+   docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
 }
 
 function build_driver_images_linux() {
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux"
+  docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
   tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
   docker buildx build \
    --platform "linux/$ARCH" \
@@ -243,8 +244,6 @@ function login() {
 function push_syncer_images() {
   [ "${SYNCER_IMAGE_NAME}" ] || fatal "SYNCER_IMAGE_NAME not set"
 
-  login
-
   echo "pushing ${SYNCER_IMAGE_NAME}:${VERSION}"
   if [ "${REGISTRY}" ]
   then
@@ -320,6 +319,7 @@ build_images
 
 # Optionally push artifacts
 if [ "${PUSH}" ]; then
+  login
   # if registry is provided take that name
   if [ "${REGISTRY}" ]; then
     CSI_IMAGE_NAME="${REGISTRY}driver"
