@@ -49,7 +49,9 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 ARCH=amd64
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 1903, 1909 2004, 20H2, ltsc2022
-OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
+# OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
+# TODO: when manifest push starts working change to all osversions
+OSVERSION_WIN=(1809)
 
 # The output type could either be docker (local), or registry.
 # If it is registry, it will also allow us to push the Windows images.
@@ -271,6 +273,35 @@ function push_syncer_images() {
   fi
 }
 
+function push_linux_images() {
+  [ "${CSI_IMAGE_NAME}" ] || fatal "CSI_IMAGE_NAME not set"
+
+  echo "pushing ${CSI_IMAGE_NAME}:${VERSION}"
+  if [ "${REGISTRY}" ]
+  then
+    makeTag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+    TAG="${REGISTRY}"driver:"${VERSION}"
+    TAG_LATEST="${REGISTRY}"driver:latest
+    docker tag "${makeTag}" "${TAG}"
+    docker push "${TAG}"
+    if [ "${LATEST}" ]; then
+      docker tag "${makeTag}" "${TAG_LATEST}"
+      echo "also pushing ${TAG_LATEST} as latest"
+      docker push "${TAG_LATEST}"
+    fi
+  else
+    docker push "${CSI_IMAGE_NAME}":"${VERSION}"
+    makeTag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+    docker tag "${makeTag}" "${CSI_IMAGE_NAME}":"${VERSION}"
+    docker push "${CSI_IMAGE_NAME}":"${VERSION}"
+    if [ "${LATEST}" ]; then
+      echo "also pushing ${CSI_IMAGE_NAME}:${VERSION} as latest"
+      docker tag "${makeTag}" "${CSI_IMAGE_NAME}":latest
+      docker push "${CSI_IMAGE_NAME}":latest
+    fi
+  fi
+}
+
 # Start of main script
 while getopts ":hk:lptr:" opt; do
   case ${opt} in
@@ -340,8 +371,11 @@ if [ "${PUSH}" ]; then
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
   build_driver_images_linux
-  #create and push manifest for driver
-  push_manifest_driver
+  # create and push manifest for driver
+  # TODO: Currently there is some issue is manifest push so disabling for now
+  # 
+  # push_manifest_driver
+  push_linux_images
   #push syncer images
   push_syncer_images
 fi
