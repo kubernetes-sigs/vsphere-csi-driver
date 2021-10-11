@@ -205,10 +205,7 @@ function push_manifest_driver() {
   done
   all_tags+=( "${linux_tags}" )
   docker manifest create --amend "${IMAGE_TAG}" "${all_tags[@]}"
-  if [ "${LATEST}" ]; then 
-    echo "creating manifest ${IMAGE_TAG_LATEST}"
-    docker manifest create --amend "${IMAGE_TAG_LATEST}" "${all_tags[@]}"
-  fi
+
   # add "os.version" field to windows images (based on https://github.com/kubernetes/kubernetes/blob/master/build/pause/Makefile)
   echo "adding os.version to manifest"
   for OSVERSION in "${OSVERSION_WIN[@]}"
@@ -218,18 +215,27 @@ function push_manifest_driver() {
     full_version=$(docker manifest inspect "${BASEIMAGE}" | jq -r '.manifests[0].platform["os.version"]'); 
     echo "fullversion for ${BASEIMAGE} : ${full_version}"
     echo "annotating ${IMAGE_TAG} for ${OSVERSION}"
-    docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"; 
-    if [ "${LATEST}" ]; then 
-      echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
-      docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"; 
-    fi 
+    docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
   done
-  echo "pushing manifest ${IMAGE_TAG}"
-  docker manifest push "${IMAGE_TAG}"
+  echo "pushing manifest for tag ${IMAGE_TAG}"
+  docker manifest push --purge "${IMAGE_TAG}"
   docker manifest inspect "${IMAGE_TAG}"
   if [ "${LATEST}" ]; then
-    echo "pushing manifest ${IMAGE_TAG_LATEST}"
-    docker manifest push "${IMAGE_TAG_LATEST}"
+    echo "creating manifest for tag ${IMAGE_TAG_LATEST}"
+    docker manifest create --amend "${IMAGE_TAG_LATEST}" "${all_tags[@]}"
+    echo "adding os.version to manifest"
+    
+    for OSVERSION in "${OSVERSION_WIN[@]}"
+    do 
+      osv=$(lcase "${OSVERSION}")
+      BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
+      full_version=$(docker manifest inspect "${BASEIMAGE}" | jq -r '.manifests[0].platform["os.version"]'); 
+      echo "fullversion for ${BASEIMAGE} : ${full_version}"      
+      echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
+      docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
+    done
+    echo "pushing manifest for tag ${IMAGE_TAG_LATEST}"
+    docker manifest push --purge "${IMAGE_TAG_LATEST}"
     docker manifest inspect "${IMAGE_TAG_LATEST}"
   fi
 }
