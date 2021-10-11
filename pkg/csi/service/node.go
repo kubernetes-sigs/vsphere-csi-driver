@@ -180,27 +180,12 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 
 	// Check if this is a MountVolume or BlockVolume.
 	if !common.IsFileVolumeRequest(ctx, caps) {
-		params.DiskID, err = driver.osUtils.GetDiskID(req.GetPublishContext(), log)
+		var dev *osutils.Device
+		err = driver.osUtils.VerifyVolumeAttachedAndFillParams(ctx, req.GetPublishContext(), &params, &dev)
 		if err != nil {
-			log.Errorf("error fetching DiskID. Parameters: %v", params)
+			log.Errorf("error filling all params. error: %v", err)
 			return nil, err
 		}
-
-		log.Debugf("Checking if volume %q is attached to disk %q", params.VolID, params.DiskID)
-		volPath, err := driver.osUtils.VerifyVolumeAttached(ctx, params.DiskID)
-		if err != nil {
-			log.Errorf("error checking if volume is attached. Parameters: %v", params)
-			return nil, err
-		}
-
-		// Get underlying block device.
-		dev, err := driver.osUtils.GetDevice(volPath)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"error getting block device for volume: %q. Parameters: %v err: %v", params.VolID, params, err)
-		}
-		params.VolumePath = dev.FullPath
-		params.Device = dev.RealDev
 
 		// check for Block vs Mount.
 		if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
@@ -254,7 +239,7 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 			"received empty targetpath %q", targetPath)
 	}
 
-	volMetrics, err := driver.osUtils.GetMetrics(targetPath)
+	volMetrics, err := driver.osUtils.GetMetrics(ctx, targetPath)
 	if err != nil {
 		return nil, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 	}
@@ -585,7 +570,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 
 	// Look up block device mounted to staging target path.
-	dev, err := driver.osUtils.GetDevFromMount(volumePath)
+	dev, err := driver.osUtils.GetDevFromMount(ctx, volumePath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error getting block device for volume: %q, err: %v",
@@ -599,7 +584,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
 		// Fetch the current block size.
-		currentBlockSizeBytes, err := driver.osUtils.GetBlockSizeBytes(dev.RealDev)
+		currentBlockSizeBytes, err := driver.osUtils.GetBlockSizeBytes(ctx, dev.RealDev)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error when getting size of block volume at path %s: %v", dev.RealDev, err)
@@ -618,25 +603,11 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 
 	// Resize file system.
-	if err = driver.osUtils.ResizeVolume(dev.RealDev, volumePath); err != nil {
+	if err = driver.osUtils.ResizeVolume(ctx, dev.RealDev, volumePath, reqVolSizeBytes); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error when resizing filesystem on volume %q on node: %v", volumeID, err)
 	}
 	log.Debugf("NodeExpandVolume: Resized filesystem with devicePath %s volumePath %s", dev.RealDev, volumePath)
-
-	// Check the block size.
-	currentBlockSizeBytes, err := driver.osUtils.GetBlockSizeBytes(dev.RealDev)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"error when getting size of block volume at path %s: %v", dev.RealDev, err)
-	}
-	// NOTE(xyang): Make sure new size is greater than or equal to the
-	// requested size. It is possible for volume size to be rounded up
-	// and therefore bigger than the requested size.
-	if currentBlockSizeBytes < reqVolSizeBytes {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
-	}
 
 	log.Infof("NodeExpandVolume: expanded volume successfully. devicePath %s volumePath %s size %d",
 		dev.RealDev, volumePath, int64(units.FileSize(reqVolSizeMB*common.MbInBytes)))
