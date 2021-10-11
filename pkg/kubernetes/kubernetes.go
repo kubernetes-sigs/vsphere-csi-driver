@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -102,6 +103,17 @@ func NewClient(ctx context.Context) (clientset.Interface, error) {
 		return nil, err
 	}
 	return clientset.NewForConfig(config)
+}
+
+// NewSnapshotterClient creates a new external-snapshotter client based on a service account.
+func NewSnapshotterClient(ctx context.Context) (snapshotterClientSet.Interface, error) {
+	log := logger.GetLogger(ctx)
+	config, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to get KubeConfig. err: %v", err)
+		return nil, err
+	}
+	return snapshotterClientSet.NewForConfig(config)
 }
 
 // GetRestClientConfigForSupervisor returns restclient config for given
