@@ -8,7 +8,8 @@ IMAGE_D := $(VERSION).d
 
 build: $(IMAGE_D)
 $(IMAGE_D): Dockerfile
-	docker build -t $(IMAGE):$(VERSION) --build-arg SSH_PRIVATE_KEY="$$(cat ~/.ssh/id_rsa)" -f $< ../../..
+#	docker build -t $(IMAGE):$(VERSION) --build-arg SSH_PRIVATE_KEY="$$(cat ~/.ssh/id_rsa)" -f $< ../../..
+        docker buildx build -t $(IMAGE):$(VERSION) --build-arg SSH_PRIVATE_KEY="$$(cat ~/.ssh/id_rsa)" -f $< ../../..
 	docker tag $(IMAGE):$(VERSION) $(IMAGE):latest
 	@touch $@
 
