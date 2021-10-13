@@ -625,7 +625,9 @@ spec:
             - name: csi-proxy-filesystem-v1
               mountPath: \\.\pipe\csi-proxy-filesystem-v1
             - name: csi-proxy-disk-v1
-              mountPath: \\.\pipe\csi-proxy-disk-v1        
+              mountPath: \\.\pipe\csi-proxy-disk-v1    
+            - name: csi-proxy-system-v1alpha1
+              mountPath: \\.\pipe\csi-proxy-system-v1alpha1
           ports:
             - name: healthz
               containerPort: 9808
@@ -674,6 +676,10 @@ spec:
         - name: csi-proxy-filesystem-v1
           hostPath:
             path: \\.\pipe\csi-proxy-filesystem-v1
+            type: ''
+        - name: csi-proxy-system-v1alpha1
+          hostPath:
+            path: \\.\pipe\csi-proxy-system-v1alpha1
             type: ''
       tolerations:
         - effect: NoExecute
