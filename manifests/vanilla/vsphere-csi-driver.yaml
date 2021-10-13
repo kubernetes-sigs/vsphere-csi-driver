@@ -143,7 +143,7 @@ data:
   "csi-auth-check": "true"
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
-  "async-query-volume": "false"
+  "async-query-volume": "true"
   "improved-csi-idempotency": "false"
   "improved-volume-topology": "false"
   "block-volume-snapshot": "false"
