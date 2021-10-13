@@ -18,10 +18,7 @@ package osutils
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -37,9 +34,7 @@ import (
 )
 
 const (
-	devDiskID   = "/dev/disk/by-id"
-	blockPrefix = "wwn-0x"
-	dmiDir      = "/sys/class/dmi"
+	UUIDPrefix = "VMware-"
 )
 
 // NewOsUtils creates OsUtils with a linux specific mounter
@@ -420,30 +415,38 @@ func (osUtils *OsUtils) PreparePublishPath(ctx context.Context, path string) err
 }
 
 // GetSystemUUID returns the UUID used to identify node vm
-func GetSystemUUID(ctx context.Context) (string, error) {
+func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
-	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	// get the mounter
+	mounter, err := GetMounter(ctx, osUtils)
 	if err != nil {
 		return "", err
 	}
-	log.Debugf("uuid in bytes: %v", idb)
-	id := strings.TrimSpace(string(idb))
-	log.Debugf("uuid in string: %s", id)
-	return strings.ToLower(id), nil
+	sn, err := mounter.GetBIOSSerialNumber()
+	if err != nil {
+		return "", err
+	}
+	log.Infof("Bios serial number: %s", sn)
+	return sn, nil
 }
 
 // convertUUID helps convert UUID to vSphere format, for example,
-// Input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
-// Returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
-func ConvertUUID(uuid string) (string, error) {
-	if len(uuid) != 36 {
-		return "", errors.New("uuid length should be 36")
+// Input uuid:    VMware-42 02 e9 7e 3d ad 2a 49-22 86 7f f9 89 c6 64 ef
+// Returned uuid: 4202e97e-3dad-2a49-2286-7ff989c664ef
+func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
+	//strip leading and trailing white space and new line char
+	uuid = strings.TrimSpace(uuid)
+	// check the uuid starts with "VMware-"
+	if !strings.HasPrefix(uuid, UUIDPrefix) {
+		return "", fmt.Errorf("failed to match Prefix, UUID read from the file is %v", uuid)
 	}
-	convertedUUID := fmt.Sprintf("%s%s%s%s-%s%s-%s%s-%s-%s",
-		uuid[6:8], uuid[4:6], uuid[2:4], uuid[0:2],
-		uuid[11:13], uuid[9:11],
-		uuid[16:18], uuid[14:16],
-		uuid[19:23],
-		uuid[24:36])
-	return strings.ToLower(convertedUUID), nil
+	// Strip the prefix and white spaces and -
+	uuid = strings.Replace(uuid[len(UUIDPrefix):(len(uuid))], " ", "", -1)
+	uuid = strings.Replace(uuid, "-", "", -1)
+	if len(uuid) != 32 {
+		return "", fmt.Errorf("length check failed, UUID read from the file is %v", uuid)
+	}
+	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
+	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
+	return uuid, nil
 }

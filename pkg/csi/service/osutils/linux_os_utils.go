@@ -812,7 +812,7 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 }
 
 // GetSystemUUID returns the UUID used to identify node vm
-func GetSystemUUID(ctx context.Context) (string, error) {
+func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
 	if err != nil {
@@ -827,7 +827,7 @@ func GetSystemUUID(ctx context.Context) (string, error) {
 // convertUUID helps convert UUID to vSphere format, for example,
 // Input uuid:    6B8C2042-0DD1-D037-156F-435F999D94C1
 // Returned uuid: 42208c6b-d10d-37d0-156f-435f999d94c1
-func ConvertUUID(uuid string) (string, error) {
+func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
 	if len(uuid) != 36 {
 		return "", errors.New("uuid length should be 36")
 	}

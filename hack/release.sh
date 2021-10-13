@@ -50,7 +50,6 @@ ARCH=amd64
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 1903, 1909 2004, 20H2, ltsc2022
 OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
-
 # The output type could either be docker (local), or registry.
 # If it is registry, it will also allow us to push the Windows images.
 WINDOWS_IMAGE_OUTPUT="type=tar,dest=.build/windows-driver.tar"
@@ -316,6 +315,8 @@ case "${BUILD_RELEASE_TYPE}" in
     fatal "invalid BUILD_RELEASE_TYPE: ${BUILD_RELEASE_TYPE}"
     ;;
 esac
+
+mkdir -p .build
 
 # make sure that Docker is available
 docker ps >/dev/null 2>&1 || fatal "Docker not available"
