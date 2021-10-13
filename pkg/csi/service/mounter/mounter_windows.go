@@ -35,6 +35,9 @@ import (
 	volume "github.com/kubernetes-csi/csi-proxy/client/api/volume/v1"
 	volumeclient "github.com/kubernetes-csi/csi-proxy/client/groups/volume/v1"
 
+	systemApi "github.com/kubernetes-csi/csi-proxy/client/api/system/v1alpha1"
+	systemClient "github.com/kubernetes-csi/csi-proxy/client/groups/system/v1alpha1"
+
 	"k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 )
@@ -47,6 +50,7 @@ type csiProxyMounter struct {
 	FsClient     *fsclient.Client
 	DiskClient   *diskclient.Client
 	VolumeClient *volumeclient.Client
+	SystemClient *systemClient.Client
 }
 
 // CSIProxyMounter extends the mount.Interface interface with CSI Proxy methods.
@@ -77,6 +81,8 @@ type CSIProxyMounter interface {
 	GetDiskTotalBytes(devicePath string) (int64, error)
 	// StatFS returns info about volume
 	StatFS(path string) (available, capacity, used, inodesFree, inodes, inodesUsed int64, err error)
+	// GetBIOSSerialNumber - Get bios serial number
+	GetBIOSSerialNumber() (string, error)
 }
 
 // NewSafeMounter returns mounter with exec
@@ -108,10 +114,15 @@ func newCSIProxyMounter(ctx context.Context) (*csiProxyMounter, error) {
 	if err != nil {
 		return nil, err
 	}
+	systemClient, err := systemClient.NewClient()
+	if err != nil {
+		return nil, err
+	}
 	return &csiProxyMounter{
 		FsClient:     fsClient,
 		DiskClient:   diskClient,
 		VolumeClient: volumeClient,
+		SystemClient: systemClient,
 		Ctx:          ctx,
 	}, nil
 }
@@ -119,10 +130,11 @@ func newCSIProxyMounter(ctx context.Context) (*csiProxyMounter, error) {
 // GetAPIVersions returns the versions of the client APIs this mounter is using.
 func (mounter *csiProxyMounter) GetAPIVersions() string {
 	return fmt.Sprintf(
-		"API Versions filesystem: %s, disk: %s, volume: %s",
+		"API Versions filesystem: %s, disk: %s, volume: %s, system: %s",
 		fsclient.Version,
 		diskclient.Version,
 		volumeclient.Version,
+		systemClient.Version,
 	)
 }
 
@@ -199,7 +211,7 @@ func (mounter *csiProxyMounter) GetDiskNumber(diskID string) (string, error) {
 			continue
 		}
 		if ID == diskID {
-			log.Infof("Found disk number: %s with diskID: %s", diskNum, diskID)
+			log.Infof("Found disk number: %d with diskID: %s", diskNum, diskID)
 			return strconv.FormatUint(uint64(diskNum), 10), nil
 		}
 	}
@@ -248,7 +260,7 @@ func (mounter *csiProxyMounter) FormatAndMount(source string, target string, fst
 	}
 
 	// ensure disk is online
-	log.Infof("setting disk %s to online", diskNum)
+	log.Infof("setting disk %d to online", diskNum)
 	attachRequest := &disk.SetDiskStateRequest{
 		DiskNumber: uint32(diskNum),
 		IsOnline:   true,
@@ -480,4 +492,19 @@ func (mounter *csiProxyMounter) MountSensitiveWithoutSystemd(source string, targ
 }
 func (mounter *csiProxyMounter) List() ([]mount.MountPoint, error) {
 	return []mount.MountPoint{}, fmt.Errorf("List not implemented for csiProxyMounter")
+}
+
+// GetBIOSSerialNumber - Get bios serial number
+func (mounter *csiProxyMounter) GetBIOSSerialNumber() (string, error) {
+	ctx := mounter.Ctx
+	log := logger.GetLogger(ctx)
+
+	serialNoResponse, err := mounter.SystemClient.GetBIOSSerialNumber(context.Background(),
+		&systemApi.GetBIOSSerialNumberRequest{},
+	)
+	if err != nil {
+		log.Errorf("Proxy returned error while checking serialNoResponse: %v", err)
+		return "", err
+	}
+	return serialNoResponse.GetSerialNumber(), err
 }

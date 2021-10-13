@@ -410,7 +410,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 				"failed to read CNS config. Error: %v", err)
 		}
 		// Fetch topology labels using VC TagManager.
-		accessibleTopology, err = fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
+		accessibleTopology, err = driver.fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
 	if err != nil {
 		return nil, err
@@ -450,7 +450,8 @@ func initVolumeTopologyService(ctx context.Context) error {
 // fetchTopologyLabelsUsingVCCreds retrieves topology information of the nodes
 // using VC credentials mounted on the nodes. This approach will be deprecated
 // soon.
-func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cnsconfig.Config) (
+func (driver *vsphereCSIDriver) fetchTopologyLabelsUsingVCCreds(
+	ctx context.Context, nodeID string, cfg *cnsconfig.Config) (
 	map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -488,7 +489,7 @@ func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cn
 			"failed to connect to vcenter host: %s. err: %v", vcenter.Config.Host, err)
 	}
 	// Get VM UUID.
-	uuid, err := osutils.GetSystemUUID(ctx)
+	uuid, err := driver.osUtils.GetSystemUUID(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get system uuid for node VM. err: %v", err)
@@ -497,7 +498,7 @@ func fetchTopologyLabelsUsingVCCreds(ctx context.Context, nodeID string, cfg *cn
 	nodeVM, err := cnsvsphere.GetVirtualMachineByUUID(ctx, uuid, false)
 	if err != nil || nodeVM == nil {
 		log.Errorf("failed to get nodeVM for uuid: %s. err: %+v", uuid, err)
-		uuid, err = osutils.ConvertUUID(uuid)
+		uuid, err = driver.osUtils.ConvertUUID(uuid)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"convertUUID failed with error: %v", err)
