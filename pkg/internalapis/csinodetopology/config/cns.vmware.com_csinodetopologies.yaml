@@ -1,0 +1,89 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.2
+  creationTimestamp: null
+  name: csinodetopologies.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CSINodeTopology
+    listKind: CSINodeTopologyList
+    plural: csinodetopologies
+    singular: csinodetopology
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CSINodeTopology is the Schema for the csinodetopologies API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CSINodeTopologySpec defines the desired state of CSINodeTopology.
+            properties:
+              nodeID:
+                description: NodeID refers to the unique ID by which a Node is recognised.
+                type: string
+            required:
+            - nodeID
+            type: object
+          status:
+            description: CSINodeTopologyStatus defines the observed state of CSINodeTopology.
+            properties:
+              errorMessage:
+                description: ErrorMessage will contain the error string when `Status`
+                  field is set to "Error". It will be empty when the `Status` field
+                  is set to "Success".
+                type: string
+              status:
+                description: 'Status can have the following values: "Success", "Error".'
+                type: string
+              topologyLabels:
+                description: TopologyLabels consists of all the topology-related labels
+                  applied to the NodeVM or its ancestors in the VC. Read this parameter
+                  only after `Status` is set to "Success". TopologyLabels will be
+                  empty when `Status` is set to "Error".
+                items:
+                  description: 'TopologyLabel will consist of a key-value pair. The
+                    entries in `key` field must be a part of the `Labels` struct in
+                    the vSphere config secret. For example: User might choose to assign
+                    a tag of `us-east` under the `k8s-zone` to a NodeVM on the VC.
+                    In such cases this struct will hold `k8s-zone` as the key and
+                    `us-east` as a value for that NodeVM.'
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - key
+                  - value
+                  type: object
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

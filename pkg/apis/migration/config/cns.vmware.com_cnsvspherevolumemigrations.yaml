@@ -6,22 +6,21 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.6.2
   creationTimestamp: null
-  name: cnsfilevolumeclients.cns.vmware.com
+  name: cnsvspherevolumemigrations.cns.vmware.com
 spec:
   group: cns.vmware.com
   names:
-    kind: CnsFileVolumeClient
-    listKind: CnsFileVolumeClientList
-    plural: cnsfilevolumeclients
-    singular: cnsfilevolumeclient
-  scope: Namespaced
+    kind: CnsVSphereVolumeMigration
+    listKind: CnsVSphereVolumeMigrationList
+    plural: cnsvspherevolumemigrations
+    singular: cnsvspherevolumemigration
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: CnsFileVolumeClient is the Schema for the cnsfilevolumeclients
-          CRD. This CRD is used by CNS-CSI for internal bookkeeping purposes only
-          and is not an API.
+        description: CnsVSphereVolumeMigration is the Schema for the cnsvspherevolumemigrations
+          API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -36,21 +35,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: CnsFileVolumeClientSpec defines the desired state of CnsFileVolumeClient.
+            description: CnsVSphereVolumeMigrationSpec defines the desired state of
+              CnsVSphereVolumeMigration
             properties:
-              externalIPtoClientVms:
-                additionalProperties:
-                  items:
-                    type: string
-                  type: array
-                description: ExternalIPtoClientVms maintains a mapping of External
-                  IP address to list of names of ClientVms. ClientsVms can be TKC
-                  Vms for TKC cluster (or) PodVms for SV. Keys are External IP Addresses
-                  that have access to a volume. Values are list of names of ClientVms.
-                  Each ClientVm in the list mounts this volume and is exposed to the
-                  external network by this IP address. PodVMs names will be prefixed
-                  with "POD_VM" and guest VMs will be prefix with "GUEST_VM".
-                type: object
+              volumeid:
+                description: VolumeID is the FCD ID obtained after register volume
+                  with CNS.
+                type: string
+              volumepath:
+                description: VolumePath is the vmdk path of the vSphere Volume
+                type: string
+            required:
+            - volumeid
+            - volumepath
             type: object
         type: object
     served: true

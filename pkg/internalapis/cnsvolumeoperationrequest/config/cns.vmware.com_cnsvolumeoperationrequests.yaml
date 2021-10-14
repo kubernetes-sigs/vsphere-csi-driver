@@ -1,0 +1,150 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.2
+  creationTimestamp: null
+  name: cnsvolumeoperationrequests.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsVolumeOperationRequest
+    listKind: CnsVolumeOperationRequestList
+    plural: cnsvolumeoperationrequests
+    singular: cnsvolumeoperationrequest
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CnsVolumeOperationRequest is the Schema for the cnsvolumeoperationrequests
+          API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsVolumeOperationRequestSpec defines the desired state of
+              CnsVolumeOperationRequest
+            properties:
+              name:
+                description: Name represents the name of the instance. There is no
+                  strict naming convention for instances; it is dependent on the caller.
+                type: string
+            required:
+            - name
+            type: object
+          status:
+            description: CnsVolumeOperationRequestStatus defines the observed state
+              of CnsVolumeOperationRequest
+            properties:
+              capacity:
+                description: Populated with the latest capacity on every successful
+                  ExtendVolume call for a volume.
+                format: int64
+                type: integer
+              errorCount:
+                description: ErrorCount is the number of times this operation failed
+                  for this volume. Incremented by clients when new OperationDetails
+                  are added with error set.
+                type: integer
+              firstOperationDetails:
+                description: FirstOperationDetails stores the details of the first
+                  operation performed on the volume. For debugging purposes, clients
+                  should ensure that this information is never overwritten. More recent
+                  operation details should be stored in the LatestOperationDetails
+                  field.
+                properties:
+                  error:
+                    description: Error represents the error returned if the task fails
+                      on CNS. Defaults to empty string.
+                    type: string
+                  opId:
+                    description: OpID stores the OpID for a task that was invoked
+                      on CNS for a volume.
+                    type: string
+                  taskId:
+                    description: TaskID stores the task for an operation that was
+                      invoked on CNS for a volume.
+                    type: string
+                  taskInvocationTimestamp:
+                    description: TaskInvocationTimestamp represents the time at which
+                      the task was invoked. This timestamp is derived from the cluster
+                      and may not correspond to the task invocation timestamp on CNS.
+                    format: date-time
+                    type: string
+                  taskStatus:
+                    description: TaskStatus describes the current status of the task
+                      invoked on CNS. Valid strings are "In Progress", "Successful"
+                      and "Failed".
+                    type: string
+                required:
+                - taskId
+                - taskInvocationTimestamp
+                type: object
+              latestOperationDetails:
+                description: LatestOperationDetails stores the details of the latest
+                  operations performed on the volume. Should have a maximum of 10
+                  entries.
+                items:
+                  description: OperationDetails stores the details of the operation
+                    performed on a volume.
+                  properties:
+                    error:
+                      description: Error represents the error returned if the task
+                        fails on CNS. Defaults to empty string.
+                      type: string
+                    opId:
+                      description: OpID stores the OpID for a task that was invoked
+                        on CNS for a volume.
+                      type: string
+                    taskId:
+                      description: TaskID stores the task for an operation that was
+                        invoked on CNS for a volume.
+                      type: string
+                    taskInvocationTimestamp:
+                      description: TaskInvocationTimestamp represents the time at
+                        which the task was invoked. This timestamp is derived from
+                        the cluster and may not correspond to the task invocation
+                        timestamp on CNS.
+                      format: date-time
+                      type: string
+                    taskStatus:
+                      description: TaskStatus describes the current status of the
+                        task invoked on CNS. Valid strings are "In Progress", "Successful"
+                        and "Failed".
+                      type: string
+                  required:
+                  - taskId
+                  - taskInvocationTimestamp
+                  type: object
+                type: array
+              snapshotID:
+                description: SnapshotID is the unique ID of the backend snapshot.
+                  Populated during successful CreateSnapshot calls.
+                type: string
+              volumeID:
+                description: VolumeID is the unique ID of the backend volume. Populated
+                  during successful CreateVolume calls.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
