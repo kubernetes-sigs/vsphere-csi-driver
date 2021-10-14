@@ -1,0 +1,133 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.2
+  creationTimestamp: null
+  name: cnsvolumemetadatas.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsVolumeMetadata
+    listKind: CnsVolumeMetadataList
+    plural: cnsvolumemetadatas
+    singular: cnsvolumemetadata
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CnsVolumeMetadata is the Schema for the cnsvolumemetadata API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
+            properties:
+              clusterdistribution:
+                description: ClusterDistribution indicates the cluster distribution
+                  where the PVCSI driver is deployed
+                type: string
+              entityname:
+                description: EntityName indicates name of the entity in the guest
+                  cluster.
+                type: string
+              entityreferences:
+                description: EntityReferences indicate the other entities that this
+                  entity refers to. A Pod in the guest cluster can refers to one or
+                  more PVCs in the guest cluster. A PVC in the guest cluster refers
+                  to a PV in the guest cluster. A PV in the guest cluster refers to
+                  a PVC in the supervisor cluster. A Pod/PVC in the guest cluster
+                  referring to a PVC/PV respectively in the guest cluster must set
+                  the ClusterID field. A PV in the guest cluster referring to a PVC
+                  in the supervisor cluster must leave the ClusterID field unset.
+                  This field is mandatory.
+                items:
+                  description: CnsOperatorEntityReference defines the type for entityreference
+                    parameter in cnsvolumemetadata API.
+                  type: object
+                type: array
+              entitytype:
+                description: EntityType indicates type of entity whose metadata this
+                  instance represents.
+                type: string
+              guestclusterid:
+                description: GuestClusterID indicates the guest cluster ID in which
+                  this volume is referenced.
+                type: string
+              labels:
+                additionalProperties:
+                  type: string
+                description: Labels indicates user labels assigned to the entity in
+                  the guest cluster. Should only be populated if EntityType is PERSISTENT_VOLUME
+                  OR PERSISTENT_VOLUME_CLAIM. CNS Operator will return a failure to
+                  the client if labels are set for objects whose EntityType is POD.
+                type: object
+              namespace:
+                description: Namespace indicates namespace of entity in guest cluster.
+                  Should only be populated if EntityType is PERSISTENT_VOLUME_CLAIM
+                  or POD. CNS Operator will return a failure to the client if namespace
+                  is set for objects whose EntityType is PERSISTENT_VOLUME.
+                type: string
+              volumenames:
+                description: VolumeNames indicates the unique ID of the volume. For
+                  volumes created in a guest cluster, this will be “<guestcluster-ID>-<UID>”
+                  where UID is the pvc.UUID in supervisor cluster. Instances of POD
+                  entity type can have multiple volume names. Instances of PV and
+                  PVC entity types will have only one volume name.
+                items:
+                  type: string
+                type: array
+            required:
+            - entityname
+            - entityreferences
+            - entitytype
+            - guestclusterid
+            - volumenames
+            type: object
+          status:
+            description: CnsVolumeMetadataStatus defines the observed state of CnsVolumeMetadata
+            properties:
+              volumestatus:
+                description: The last error encountered, per volume, during update
+                  operation. This field must only be set by the entity completing
+                  the update operation, i.e. the CNS Operator. This string may be
+                  logged, so it should not contain sensitive information.
+                items:
+                  description: CnsVolumeMetadataVolumeStatus defines the status of
+                    the last update operation on CNS for the given volume. Error message
+                    will be empty if no error was encountered.
+                  properties:
+                    errormessage:
+                      type: string
+                    updated:
+                      type: boolean
+                    volumename:
+                      type: string
+                  required:
+                  - updated
+                  - volumename
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
