@@ -115,7 +115,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 	ginkgo.JustAfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		fss.DeleteAllStatefulSets(client, namespace)
 		var pvcsToDelete []*v1.PersistentVolumeClaim
 		connect(ctx, &e2eVSphere)
 		if kcmMigEnabled {
@@ -186,6 +185,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+		fss.DeleteAllStatefulSets(client, namespace)
 
 		var defaultDatastore *object.Datastore
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
