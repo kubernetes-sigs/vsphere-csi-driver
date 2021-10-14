@@ -92,11 +92,7 @@ func main() {
 	} else if *operationMode == operationModeMetaDataSync {
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
 		var err error
-		configInfo, err := common.InitConfigInfo(ctx)
-		if err != nil {
-			log.Errorf("failed to initialize the configInfo. Err: %+v", err)
-			os.Exit(1)
-		}
+
 		// run will be executed if this instance is elected as the leader
 		// or if leader election is not enabled.
 		var run func(ctx context.Context)
@@ -128,7 +124,7 @@ func main() {
 
 		// Initialize syncer components that are dependant on the outcome of
 		// leader election, if enabled.
-		run = initSyncerComponents(ctx, clusterFlavor, configInfo, &syncer.COInitParams)
+		run = initSyncerComponents(ctx, clusterFlavor, &syncer.COInitParams)
 
 		if !*enableLeaderElection {
 			run(context.TODO())
@@ -159,9 +155,14 @@ func main() {
 // TODO: Change name from initSyncerComponents to init<Name>Components where
 // <Name> will be the name of this container.
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *config.ConfigurationInfo, coInitParams *interface{}) func(ctx context.Context) {
+	coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
+		configInfo, err := common.InitConfigInfo(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize the configInfo. Err: %+v", err)
+			os.Exit(1)
+		}
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
