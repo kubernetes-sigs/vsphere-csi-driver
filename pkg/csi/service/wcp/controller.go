@@ -555,12 +555,16 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	resp, faultType, err := createVolumeInternal()
 	log := logger.GetLogger(ctx)
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
+
+	namespace := common.GetNamespaceFromContext(ctx)
+	log.Debugf("Namespace from context metadata: %s", namespace)
+
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -602,12 +606,16 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	resp, faultType, err := deleteVolumeInternal()
 	log := logger.GetLogger(ctx)
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+
+	namespace := common.GetNamespaceFromContext(ctx)
+	log.Debugf("Namespace from context metadata: %s", namespace)
+
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -732,12 +740,16 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	resp, faultType, err := controllerPublishVolumeInternal()
 	log := logger.GetLogger(ctx)
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+
+	namespace := common.GetNamespaceFromContext(ctx)
+	log.Debugf("Namespace from context metadata: %s", namespace)
+
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -781,12 +793,16 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	resp, faultType, err := controllerUnpublishVolumeInternal()
 	log := logger.GetLogger(ctx)
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+
+	namespace := common.GetNamespaceFromContext(ctx)
+	log.Debugf("Namespace from context metadata: %s", namespace)
+
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -930,12 +946,16 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	resp, faultType, err := controllerExpandVolumeInternal()
 	log := logger.GetLogger(ctx)
 	log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+
+	namespace := common.GetNamespaceFromContext(ctx)
+	log.Debugf("Namespace from context metadata: %s", namespace)
+
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
