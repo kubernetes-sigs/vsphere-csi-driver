@@ -1,5 +1,8 @@
+//go:build darwin || linux
+// +build darwin linux
+
 /*
-Copyright 2018 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package service
+package osutils
 
 import (
 	"context"
@@ -22,17 +25,10 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
 )
 
-const (
-	devDiskID   = "/dev/disk/by-id"
-	blockPrefix = "wwn-0x"
-)
-
-func TestGetDisk(t *testing.T) {
-	osUtils, _ := osutils.NewOsUtils(context.TODO())
+func TestGetDiskPath(t *testing.T) {
+	osUtils, _ := NewOsUtils(context.TODO())
 	tests := []struct {
 		devs  []os.FileInfo
 		volID string
