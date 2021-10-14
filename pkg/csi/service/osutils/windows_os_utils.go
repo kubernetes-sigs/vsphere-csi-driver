@@ -19,6 +19,7 @@ package osutils
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/mounter"
 )
@@ -449,4 +451,14 @@ func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
 	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
 	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
 	return uuid, nil
+}
+
+// decides if node should continue
+func (osUtils *OsUtils) ShouldContinue(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIWindowsSupport) {
+		log.Errorf("csi plugin started on windows node without enabling feature switch")
+		os.Exit(1)
+	}
+	return
 }
