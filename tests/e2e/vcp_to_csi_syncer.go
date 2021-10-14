@@ -106,6 +106,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
+		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
+		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
+		vcpPvsPreMig = nil
+		vcpPvsPostMig = nil
 	})
 
 	ginkgo.JustAfterEach(func() {
