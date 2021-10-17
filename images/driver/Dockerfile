@@ -74,4 +74,8 @@ RUN tdnf clean all
 
 COPY --from=builder /build/vsphere-csi /bin/vsphere-csi
 
+RUN mkdir -p config
+ADD pkg/internalapis/cnsvolumeoperationrequest/config/cns.vmware.com_cnsvolumeoperationrequests.yaml /config/
+ADD pkg/apis/migration/config/cns.vmware.com_cnsvspherevolumemigrations.yaml /config/
+
 ENTRYPOINT ["/bin/vsphere-csi"]
