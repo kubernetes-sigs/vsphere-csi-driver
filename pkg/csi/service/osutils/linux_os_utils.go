@@ -39,9 +39,6 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
 )
 
 const (
@@ -49,6 +46,9 @@ const (
 	blockPrefix = "wwn-0x"
 	dmiDir      = "/sys/class/dmi"
 )
+
+// defaultFileMountOptions are the mount flag options used by default while publishing a file volume.
+var defaultFileMountOptions = []string{"hard", "sec=sys", "vers=4", "minorversion=1"}
 
 // NewOsUtils creates OsUtils with a linux specific mounter
 func NewOsUtils(ctx context.Context) (*OsUtils, error) {
@@ -566,9 +566,8 @@ func (osUtils *OsUtils) PublishFileVol(
 	if params.Ro {
 		mntFlags = append(mntFlags, "ro")
 	}
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
-		mntFlags = append(mntFlags, "hard")
-	}
+	// Add defaultFileMountOptions to the mntFlags.
+	mntFlags = append(mntFlags, defaultFileMountOptions...)
 	// Retrieve the file share access point from publish context.
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
