@@ -1,4 +1,4 @@
-# Minimum Kubernetes version - 1.16
+# Minimum Kubernetes version - 1.17
 # For prior releases make sure to add required --feature-gates flags
 kind: DaemonSet
 apiVersion: apps/v1
@@ -17,7 +17,7 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
-      hostNetwork: true
+      hostNetwork: true	
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
       - name: node-driver-registrar
@@ -43,7 +43,7 @@ spec:
         - name: registration-dir
           mountPath: /registration
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.2-rc.1
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.2
         imagePullPolicy: "Always"
         env:
         - name: NODE_NAME
