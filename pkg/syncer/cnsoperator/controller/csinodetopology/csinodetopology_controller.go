@@ -196,18 +196,6 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		return reconcile.Result{}, err
 	}
 
-	// Get NodeVM instance.
-	nodeID := instance.Spec.NodeID
-	nodeManager := node.GetManager(ctx)
-	// NOTE: NodeID is set to NodeName for now. Will be changed to NodeUUID in future.
-	nodeVM, err := nodeManager.GetNodeByName(ctx, nodeID)
-	if err != nil {
-		// If nodeVM not found, ignore reconcile call.
-		log.Warnf("Ignoring update to CSINodeTopology CR with name %q as corresponding NodeVM "+
-			"seems to be deleted. Error: %v", instance.Name, err)
-		return reconcile.Result{}, nil
-	}
-
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
@@ -216,6 +204,22 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
+
+	// Get NodeVM instance.
+	nodeID := instance.Spec.NodeID
+	nodeManager := node.GetManager(ctx)
+	nodeVM, err := nodeManager.GetNodeByName(ctx, nodeID)
+	if err != nil {
+		// If nodeVM not found, ignore reconcile call.
+		msg := fmt.Sprintf("failed to retrieve nodeVM %q using the node manager. Error: %+v", nodeID, err)
+		log.Error(msg)
+		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
+		if err != nil {
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		// Not retrying in such cases as the nodeVM might have been deleted.
+		return reconcile.Result{}, nil
+	}
 
 	// Retrieve topology labels for nodeVM.
 	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
@@ -251,9 +255,9 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 		}
 	} else {
 		msg := "missing zone or region information in vSphere CSI config `Labels` section"
-		err = logger.LogNewError(log, msg)
+		log.Error(msg)
 		_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
-		return reconcile.Result{}, err
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	// On successful event, remove instance from backOffDuration.
@@ -274,7 +278,7 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 		// Reset error message if previously populated.
 		instance.Status.ErrorMessage = ""
 		// Record an event on the CR.
-		r.recorder.Event(instance, corev1.EventTypeNormal, "CSINodeTopologySucceeded", eventMessage)
+		r.recorder.Event(instance, corev1.EventTypeNormal, "TopologyRetrievalSucceeded", eventMessage)
 	case csinodetopologyv1alpha1.CSINodeTopologyError:
 		// Increase backoff duration for the instance.
 		backOffDurationMapMutex.Lock()
@@ -283,16 +287,16 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 
 		// Record an event on the CR.
 		instance.Status.ErrorMessage = eventMessage
-		r.recorder.Event(instance, corev1.EventTypeWarning, "CSINodeTopologyFailed", eventMessage)
+		r.recorder.Event(instance, corev1.EventTypeWarning, "TopologyRetrievalFailed", eventMessage)
 	}
 
 	// Update CSINodeTopology instance.
 	err := r.client.Update(ctx, instance)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to update the CSINodeTopology instance with name %q.", instance.Name)
-		log.Errorf("%s. Error: %+v", msg, err)
-		r.recorder.Event(instance, corev1.EventTypeWarning, "CSINodeTopologyFailed", msg)
-		return err
+		msg := fmt.Sprintf("Failed to update the CSINodeTopology instance with name %q. Error: %+v",
+			instance.Name, err)
+		r.recorder.Event(instance, corev1.EventTypeWarning, "CSINodeTopologyUpdateFailed", msg)
+		return logger.LogNewError(log, msg)
 	}
 	return nil
 }
