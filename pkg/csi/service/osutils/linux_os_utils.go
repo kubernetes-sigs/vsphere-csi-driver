@@ -1019,3 +1019,8 @@ func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) 
 	log.Debugf("Target %q not found in list of mounts", target)
 	return false
 }
+
+// decides if node should continue
+func (osUtils *OsUtils) ShouldContinue(ctx context.Context) {
+	// no op for linux
+}

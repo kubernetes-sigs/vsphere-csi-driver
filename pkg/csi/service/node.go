@@ -334,6 +334,8 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	log := logger.GetLogger(ctx)
 	log.Infof("NodeGetInfo: called with args %+v", *req)
 
+	driver.osUtils.ShouldContinue(ctx)
+
 	var nodeInfoResponse *csi.NodeGetInfoResponse
 
 	nodeName := os.Getenv("NODE_NAME")
