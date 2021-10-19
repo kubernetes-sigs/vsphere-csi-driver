@@ -49,6 +49,7 @@ func New() *simulator.Registry {
 		ManagedObjectReference: cns.CnsVolumeManagerInstance,
 		volumes:                make(map[vim25types.ManagedObjectReference]map[cnstypes.CnsVolumeId]*cnstypes.CnsVolume),
 		attachments:            make(map[cnstypes.CnsVolumeId]vim25types.ManagedObjectReference),
+		snapshots:              make(map[cnstypes.CnsVolumeId]map[cnstypes.CnsSnapshotId]*cnstypes.CnsSnapshot),
 	})
 
 	return r
@@ -58,11 +59,12 @@ type CnsVolumeManager struct {
 	vim25types.ManagedObjectReference
 	volumes     map[vim25types.ManagedObjectReference]map[cnstypes.CnsVolumeId]*cnstypes.CnsVolume
 	attachments map[cnstypes.CnsVolumeId]vim25types.ManagedObjectReference
+	snapshots   map[cnstypes.CnsVolumeId]map[cnstypes.CnsSnapshotId]*cnstypes.CnsSnapshot
 }
 
 const simulatorDiskUUID = "6000c298595bf4575739e9105b2c0c2d"
 
-func (m *CnsVolumeManager) CnsCreateVolume(ctx context.Context, req *cnstypes.CnsCreateVolume) soap.HasFault {
+func (m *CnsVolumeManager) CnsCreateVolume(ctx *simulator.Context, req *cnstypes.CnsCreateVolume) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsCreateVolume", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		if len(req.CreateSpecs) == 0 {
 			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsVolumeCreateSpec"}
@@ -160,7 +162,7 @@ func (m *CnsVolumeManager) CnsCreateVolume(ctx context.Context, req *cnstypes.Cn
 
 	return &methods.CnsCreateVolumeBody{
 		Res: &cnstypes.CnsCreateVolumeResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
@@ -237,7 +239,7 @@ func (m *CnsVolumeManager) CnsQueryAllVolume(ctx context.Context, req *cnstypes.
 	}
 }
 
-func (m *CnsVolumeManager) CnsDeleteVolume(ctx context.Context, req *cnstypes.CnsDeleteVolume) soap.HasFault {
+func (m *CnsVolumeManager) CnsDeleteVolume(ctx *simulator.Context, req *cnstypes.CnsDeleteVolume) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsDeleteVolume", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		operationResult := []cnstypes.BaseCnsVolumeOperationResult{}
 		for _, volumeId := range req.VolumeIds {
@@ -259,13 +261,13 @@ func (m *CnsVolumeManager) CnsDeleteVolume(ctx context.Context, req *cnstypes.Cn
 
 	return &methods.CnsDeleteVolumeBody{
 		Res: &cnstypes.CnsDeleteVolumeResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
 
 // CnsUpdateVolumeMetadata simulates UpdateVolumeMetadata call for simulated vc
-func (m *CnsVolumeManager) CnsUpdateVolumeMetadata(ctx context.Context, req *cnstypes.CnsUpdateVolumeMetadata) soap.HasFault {
+func (m *CnsVolumeManager) CnsUpdateVolumeMetadata(ctx *simulator.Context, req *cnstypes.CnsUpdateVolumeMetadata) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsUpdateVolumeMetadata", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		if len(req.UpdateSpecs) == 0 {
 			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsUpdateVolumeMetadataSpec"}
@@ -291,13 +293,13 @@ func (m *CnsVolumeManager) CnsUpdateVolumeMetadata(ctx context.Context, req *cns
 	})
 	return &methods.CnsUpdateVolumeBody{
 		Res: &cnstypes.CnsUpdateVolumeMetadataResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
 
 // CnsAttachVolume simulates AttachVolume call for simulated vc
-func (m *CnsVolumeManager) CnsAttachVolume(ctx context.Context, req *cnstypes.CnsAttachVolume) soap.HasFault {
+func (m *CnsVolumeManager) CnsAttachVolume(ctx *simulator.Context, req *cnstypes.CnsAttachVolume) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsAttachVolume", func(task *simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		if len(req.AttachSpecs) == 0 {
 			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsAttachVolumeSpec"}
@@ -327,13 +329,13 @@ func (m *CnsVolumeManager) CnsAttachVolume(ctx context.Context, req *cnstypes.Cn
 
 	return &methods.CnsAttachVolumeBody{
 		Res: &cnstypes.CnsAttachVolumeResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
 
 // CnsDetachVolume simulates DetachVolume call for simulated vc
-func (m *CnsVolumeManager) CnsDetachVolume(ctx context.Context, req *cnstypes.CnsDetachVolume) soap.HasFault {
+func (m *CnsVolumeManager) CnsDetachVolume(ctx *simulator.Context, req *cnstypes.CnsDetachVolume) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsDetachVolume", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		if len(req.DetachSpecs) == 0 {
 			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsDetachVolumeSpec"}
@@ -358,13 +360,13 @@ func (m *CnsVolumeManager) CnsDetachVolume(ctx context.Context, req *cnstypes.Cn
 	})
 	return &methods.CnsDetachVolumeBody{
 		Res: &cnstypes.CnsDetachVolumeResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
 
 // CnsExtendVolume simulates ExtendVolume call for simulated vc
-func (m *CnsVolumeManager) CnsExtendVolume(ctx context.Context, req *cnstypes.CnsExtendVolume) soap.HasFault {
+func (m *CnsVolumeManager) CnsExtendVolume(ctx *simulator.Context, req *cnstypes.CnsExtendVolume) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsExtendVolume", func(task *simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		if len(req.ExtendSpecs) == 0 {
 			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsExtendVolumeSpec"}
@@ -394,12 +396,12 @@ func (m *CnsVolumeManager) CnsExtendVolume(ctx context.Context, req *cnstypes.Cn
 
 	return &methods.CnsExtendVolumeBody{
 		Res: &cnstypes.CnsExtendVolumeResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
 		},
 	}
 }
 
-func (m *CnsVolumeManager) CnsQueryVolumeInfo(ctx context.Context, req *cnstypes.CnsQueryVolumeInfo) soap.HasFault {
+func (m *CnsVolumeManager) CnsQueryVolumeInfo(ctx *simulator.Context, req *cnstypes.CnsQueryVolumeInfo) soap.HasFault {
 	task := simulator.CreateTask(m, "CnsQueryVolumeInfo", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
 		operationResult := []cnstypes.BaseCnsVolumeOperationResult{}
 		for _, volumeId := range req.VolumeIds {
@@ -452,7 +454,219 @@ func (m *CnsVolumeManager) CnsQueryVolumeInfo(ctx context.Context, req *cnstypes
 
 	return &methods.CnsQueryVolumeInfoBody{
 		Res: &cnstypes.CnsQueryVolumeInfoResponse{
-			Returnval: task.Run(),
+			Returnval: task.Run(ctx),
+		},
+	}
+}
+
+func (m *CnsVolumeManager) CnsQueryAsync(ctx *simulator.Context, req *cnstypes.CnsQueryAsync) soap.HasFault {
+	task := simulator.CreateTask(m, "QueryVolumeAsync", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
+		retVolumes := []cnstypes.CnsVolume{}
+		reqVolumeIds := make(map[string]bool)
+		isQueryFilter := false
+
+		if req.Filter.VolumeIds != nil {
+			isQueryFilter = true
+		}
+		// Create map of requested volume Ids in query request
+		for _, volumeID := range req.Filter.VolumeIds {
+			reqVolumeIds[volumeID.Id] = true
+		}
+
+		for _, dsVolumes := range m.volumes {
+			for _, volume := range dsVolumes {
+				if isQueryFilter {
+					if _, ok := reqVolumeIds[volume.VolumeId.Id]; ok {
+						retVolumes = append(retVolumes, *volume)
+					}
+				} else {
+					retVolumes = append(retVolumes, *volume)
+				}
+			}
+		}
+		operationResult := []cnstypes.BaseCnsVolumeOperationResult{}
+		operationResult = append(operationResult, &cnstypes.CnsAsyncQueryResult{
+			QueryResult: cnstypes.CnsQueryResult{
+				Volumes: retVolumes,
+				Cursor:  cnstypes.CnsCursor{},
+			},
+		})
+
+		return &cnstypes.CnsVolumeOperationBatchResult{
+			VolumeResults: operationResult,
+		}, nil
+	})
+
+	return &methods.CnsQueryAsyncBody{
+		Res: &cnstypes.CnsQueryAsyncResponse{
+			Returnval: task.Run(ctx),
+		},
+	}
+}
+
+func (m *CnsVolumeManager) CnsCreateSnapshots(ctx *simulator.Context, req *cnstypes.CnsCreateSnapshots) soap.HasFault {
+	task := simulator.CreateTask(m, "CreateSnapshots", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
+		if len(req.SnapshotSpecs) == 0 {
+			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsSnapshotCreateSpec"}
+		}
+
+		snapshotOperationResult := []cnstypes.BaseCnsVolumeOperationResult{}
+		for _, snapshotCreateSpec := range req.SnapshotSpecs {
+			for _, dsVolumes := range m.volumes {
+				for id, _ := range dsVolumes {
+					if id.Id != snapshotCreateSpec.VolumeId.Id {
+						continue
+					}
+					snapshots, ok := m.snapshots[snapshotCreateSpec.VolumeId]
+					if !ok {
+						snapshots = make(map[cnstypes.CnsSnapshotId]*cnstypes.CnsSnapshot)
+						m.snapshots[snapshotCreateSpec.VolumeId] = snapshots
+					}
+
+					newSnapshot := &cnstypes.CnsSnapshot{
+						SnapshotId: cnstypes.CnsSnapshotId{
+							Id: uuid.New().String(),
+						},
+						VolumeId:    snapshotCreateSpec.VolumeId,
+						Description: snapshotCreateSpec.Description,
+						CreateTime:  time.Now(),
+					}
+					snapshots[newSnapshot.SnapshotId] = newSnapshot
+					snapshotOperationResult = append(snapshotOperationResult, &cnstypes.CnsSnapshotCreateResult{
+						CnsSnapshotOperationResult: cnstypes.CnsSnapshotOperationResult{
+							CnsVolumeOperationResult: cnstypes.CnsVolumeOperationResult{
+								VolumeId: newSnapshot.VolumeId,
+							},
+						},
+						Snapshot: *newSnapshot,
+					})
+				}
+			}
+		}
+
+		return &cnstypes.CnsVolumeOperationBatchResult{
+			VolumeResults: snapshotOperationResult,
+		}, nil
+	})
+
+	return &methods.CnsCreateSnapshotsBody{
+		Res: &cnstypes.CnsCreateSnapshotsResponse{
+			Returnval: task.Run(ctx),
+		},
+	}
+}
+
+func (m *CnsVolumeManager) CnsDeleteSnapshots(ctx *simulator.Context, req *cnstypes.CnsDeleteSnapshots) soap.HasFault {
+	task := simulator.CreateTask(m, "DeleteSnapshots", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
+		snapshotOperationResult := []cnstypes.BaseCnsVolumeOperationResult{}
+		for _, snapshotDeleteSpec := range req.SnapshotDeleteSpecs {
+			for _, dsVolumes := range m.volumes {
+				for id, _ := range dsVolumes {
+					if id.Id != snapshotDeleteSpec.VolumeId.Id {
+						continue
+					}
+					snapshots := m.snapshots[snapshotDeleteSpec.VolumeId]
+					snapshot, ok := snapshots[snapshotDeleteSpec.SnapshotId]
+					if ok {
+						delete(m.snapshots[snapshotDeleteSpec.VolumeId], snapshotDeleteSpec.SnapshotId)
+						snapshotOperationResult = append(snapshotOperationResult, &cnstypes.CnsSnapshotDeleteResult{
+							CnsSnapshotOperationResult: cnstypes.CnsSnapshotOperationResult{
+								CnsVolumeOperationResult: cnstypes.CnsVolumeOperationResult{
+									VolumeId: snapshot.VolumeId,
+								},
+							},
+							SnapshotId: snapshot.SnapshotId,
+						})
+					}
+				}
+			}
+		}
+
+		return &cnstypes.CnsVolumeOperationBatchResult{
+			VolumeResults: snapshotOperationResult,
+		}, nil
+	})
+
+	return &methods.CnsDeleteSnapshotBody{
+		Res: &cnstypes.CnsDeleteSnapshotsResponse{
+			Returnval: task.Run(ctx),
+		},
+	}
+}
+
+func (m *CnsVolumeManager) CnsQuerySnapshots(ctx *simulator.Context, req *cnstypes.CnsQuerySnapshots) soap.HasFault {
+	task := simulator.CreateTask(m, "QuerySnapshots", func(*simulator.Task) (vim25types.AnyType, vim25types.BaseMethodFault) {
+		if len(req.SnapshotQueryFilter.SnapshotQuerySpecs) > 1 {
+			return nil, &vim25types.InvalidArgument{InvalidProperty: "CnsSnapshotQuerySpec"}
+		}
+
+		snapshotQueryResultEntries := []cnstypes.CnsSnapshotQueryResultEntry{}
+		checkVolumeExists := func(volumeId cnstypes.CnsVolumeId) bool {
+			for _, dsVolumes := range m.volumes {
+				for id, _ := range dsVolumes {
+					if id.Id == volumeId.Id {
+						return true
+					}
+				}
+			}
+			return false
+		}
+
+		if req.SnapshotQueryFilter.SnapshotQuerySpecs == nil && len(req.SnapshotQueryFilter.SnapshotQuerySpecs) == 0 {
+			// return all snapshots if snapshotQuerySpecs is empty
+			for _, volSnapshots := range m.snapshots {
+				for _, snapshot := range volSnapshots {
+					snapshotQueryResultEntries = append(snapshotQueryResultEntries, cnstypes.CnsSnapshotQueryResultEntry{Snapshot: *snapshot})
+				}
+			}
+		} else {
+			// snapshotQuerySpecs is not empty
+			isSnapshotQueryFilter := false
+			snapshotQuerySpec := req.SnapshotQueryFilter.SnapshotQuerySpecs[0]
+			if snapshotQuerySpec.SnapshotId != nil && (*snapshotQuerySpec.SnapshotId != cnstypes.CnsSnapshotId{}) {
+				isSnapshotQueryFilter = true
+			}
+
+			if !checkVolumeExists(snapshotQuerySpec.VolumeId) {
+				// volumeId in snapshotQuerySpecs does not exist
+				snapshotQueryResultEntries = append(snapshotQueryResultEntries, cnstypes.CnsSnapshotQueryResultEntry{
+					Error: &vim25types.LocalizedMethodFault{
+						Fault: cnstypes.CnsVolumeNotFoundFault{
+							VolumeId: snapshotQuerySpec.VolumeId,
+						},
+					},
+				})
+			} else {
+				// volumeId in snapshotQuerySpecs exists
+				for _, snapshot := range m.snapshots[snapshotQuerySpec.VolumeId] {
+					if isSnapshotQueryFilter && snapshot.SnapshotId.Id != (*snapshotQuerySpec.SnapshotId).Id {
+						continue
+					}
+
+					snapshotQueryResultEntries = append(snapshotQueryResultEntries, cnstypes.CnsSnapshotQueryResultEntry{Snapshot: *snapshot})
+				}
+
+				if isSnapshotQueryFilter && len(snapshotQueryResultEntries) == 0 {
+					snapshotQueryResultEntries = append(snapshotQueryResultEntries, cnstypes.CnsSnapshotQueryResultEntry{
+						Error: &vim25types.LocalizedMethodFault{
+							Fault: cnstypes.CnsSnapshotNotFoundFault{
+								VolumeId:   snapshotQuerySpec.VolumeId,
+								SnapshotId: *snapshotQuerySpec.SnapshotId,
+							},
+						},
+					})
+				}
+			}
+		}
+
+		return &cnstypes.CnsSnapshotQueryResult{
+			Entries: snapshotQueryResultEntries,
+		}, nil
+	})
+
+	return &methods.CnsQuerySnapshotsBody{
+		Res: &cnstypes.CnsQuerySnapshotsResponse{
+			Returnval: task.Run(ctx),
 		},
 	}
 }

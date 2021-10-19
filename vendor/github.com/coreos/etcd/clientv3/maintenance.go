@@ -16,7 +16,6 @@ package clientv3
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
@@ -58,8 +57,6 @@ type Maintenance interface {
 	HashKV(ctx context.Context, endpoint string, rev int64) (*HashKVResponse, error)
 
 	// Snapshot provides a reader for a point-in-time snapshot of etcd.
-	// If the context "ctx" is canceled or timed out, reading from returned
-	// "io.ReadCloser" would error out (e.g. context.Canceled, context.DeadlineExceeded).
 	Snapshot(ctx context.Context) (io.ReadCloser, error)
 
 	// MoveLeader requests current leader to transfer its leadership to the transferee.
@@ -76,9 +73,9 @@ type maintenance struct {
 func NewMaintenance(c *Client) Maintenance {
 	api := &maintenance{
 		dial: func(endpoint string) (pb.MaintenanceClient, func(), error) {
-			conn, err := c.Dial(endpoint)
+			conn, err := c.dial(endpoint)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to dial endpoint %s with maintenance client: %v", endpoint, err)
+				return nil, nil, err
 			}
 			cancel := func() { conn.Close() }
 			return RetryMaintenanceClient(c, conn), cancel, nil
@@ -176,7 +173,6 @@ func (m *maintenance) Status(ctx context.Context, endpoint string) (*StatusRespo
 func (m *maintenance) HashKV(ctx context.Context, endpoint string, rev int64) (*HashKVResponse, error) {
 	remote, cancel, err := m.dial(endpoint)
 	if err != nil {
-
 		return nil, toErr(ctx, err)
 	}
 	defer cancel()
@@ -188,37 +184,28 @@ func (m *maintenance) HashKV(ctx context.Context, endpoint string, rev int64) (*
 }
 
 func (m *maintenance) Snapshot(ctx context.Context) (io.ReadCloser, error) {
-	ss, err := m.remote.Snapshot(ctx, &pb.SnapshotRequest{}, append(m.callOpts, withMax(defaultStreamMaxRetries))...)
+	ss, err := m.remote.Snapshot(ctx, &pb.SnapshotRequest{}, m.callOpts...)
 	if err != nil {
 		return nil, toErr(ctx, err)
 	}
 
-	plog.Info("opened snapshot stream; downloading")
 	pr, pw := io.Pipe()
 	go func() {
 		for {
 			resp, err := ss.Recv()
 			if err != nil {
-				switch err {
-				case io.EOF:
-					plog.Info("completed snapshot read; closing")
-				default:
-					plog.Warningf("failed to receive from snapshot stream; closing (%v)", err)
-				}
 				pw.CloseWithError(err)
 				return
 			}
-
-			// can "resp == nil && err == nil"
-			// before we receive snapshot SHA digest?
-			// No, server sends EOF with an empty response
-			// after it sends SHA digest at the end
-
+			if resp == nil && err == nil {
+				break
+			}
 			if _, werr := pw.Write(resp.Blob); werr != nil {
 				pw.CloseWithError(werr)
 				return
 			}
 		}
+		pw.Close()
 	}()
 	return &snapshotReadCloser{ctx: ctx, ReadCloser: pr}, nil
 }

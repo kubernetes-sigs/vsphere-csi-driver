@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -51,19 +52,30 @@ var (
 		Type:  "PropertyCollector",
 		Value: "vsan-property-collector",
 	}
+	VsanVcStretchedClusterSystem = vimtypes.ManagedObjectReference{
+		Type:  "VimClusterVsanVcStretchedClusterSystem",
+		Value: "vsan-stretched-cluster-system",
+	}
 )
 
 // Client used for accessing vsan health APIs.
 type Client struct {
 	*soap.Client
 
-	Vim25Client *vim25.Client
+	RoundTripper soap.RoundTripper
+
+	vim25Client *vim25.Client
 }
 
 // NewClient creates a new VsanHealth client
 func NewClient(ctx context.Context, c *vim25.Client) (*Client, error) {
 	sc := c.Client.NewServiceClient(Path, Namespace)
-	return &Client{sc, c}, nil
+	return &Client{sc, sc, c}, nil
+}
+
+// RoundTrip dispatches to the RoundTripper field.
+func (c *Client) RoundTrip(ctx context.Context, req, res soap.HasFault) error {
+	return c.RoundTripper.RoundTrip(ctx, req, res)
 }
 
 // VsanClusterGetConfig calls the Vsan health's VsanClusterGetConfig API.
@@ -78,6 +90,22 @@ func (c *Client) VsanClusterGetConfig(ctx context.Context, cluster vimtypes.Mana
 		return nil, err
 	}
 	return &res.Returnval, nil
+}
+
+// VsanClusterReconfig calls the Vsan health's VsanClusterReconfig API.
+func (c *Client) VsanClusterReconfig(ctx context.Context, cluster vimtypes.ManagedObjectReference, spec vsantypes.VimVsanReconfigSpec) (*object.Task, error) {
+	req := vsantypes.VsanClusterReconfig{
+		This:             VsanVcClusterConfigSystemInstance,
+		Cluster:          cluster,
+		VsanReconfigSpec: spec,
+	}
+
+	res, err := methods.VsanClusterReconfig(ctx, c, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return object.NewTask(c.vim25Client, res.Returnval), nil
 }
 
 // VsanPerfQueryPerf calls the vsan performance manager API

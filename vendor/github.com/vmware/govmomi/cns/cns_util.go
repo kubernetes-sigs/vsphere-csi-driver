@@ -34,6 +34,21 @@ func GetTaskInfo(ctx context.Context, task *object.Task) (*vim25types.TaskInfo, 
 	return taskInfo, nil
 }
 
+// GetQuerySnapshotsTaskResult gets the task result of QuerySnapshots given a task info
+func GetQuerySnapshotsTaskResult(ctx context.Context, taskInfo *vim25types.TaskInfo) (*cnstypes.CnsSnapshotQueryResult, error) {
+	if taskInfo == nil {
+		return nil, errors.New("TaskInfo is empty")
+	}
+	if taskInfo.Result != nil {
+		snapshotQueryResult := taskInfo.Result.(cnstypes.CnsSnapshotQueryResult)
+		if &snapshotQueryResult == nil {
+			return nil, errors.New("Cannot get SnapshotQueryResult")
+		}
+		return &snapshotQueryResult, nil
+	}
+	return nil, errors.New("TaskInfo result is empty")
+}
+
 // GetTaskResult gets the task result given a task info
 func GetTaskResult(ctx context.Context, taskInfo *vim25types.TaskInfo) (cnstypes.BaseCnsVolumeOperationResult, error) {
 	if taskInfo == nil {
@@ -71,7 +86,7 @@ func GetTaskResultArray(ctx context.Context, taskInfo *vim25types.TaskInfo) ([]c
 // dropUnknownCreateSpecElements helps drop newly added elements in the CnsVolumeCreateSpec, which are not known to the prior vSphere releases
 func dropUnknownCreateSpecElements(c *Client, createSpecList []cnstypes.CnsVolumeCreateSpec) []cnstypes.CnsVolumeCreateSpec {
 	updatedcreateSpecList := make([]cnstypes.CnsVolumeCreateSpec, 0, len(createSpecList))
-	switch c.serviceClient.Version {
+	switch c.Version {
 	case ReleaseVSAN67u3:
 		// Dropping optional fields not known to vSAN 6.7U3
 		for _, createSpec := range createSpecList {
@@ -130,7 +145,7 @@ func dropUnknownCreateSpecElements(c *Client, createSpecList []cnstypes.CnsVolum
 // dropUnknownVolumeMetadataUpdateSpecElements helps drop newly added elements in the CnsVolumeMetadataUpdateSpec, which are not known to the prior vSphere releases
 func dropUnknownVolumeMetadataUpdateSpecElements(c *Client, updateSpecList []cnstypes.CnsVolumeMetadataUpdateSpec) []cnstypes.CnsVolumeMetadataUpdateSpec {
 	// Dropping optional fields not known to vSAN 6.7U3
-	if c.serviceClient.Version == ReleaseVSAN67u3 {
+	if c.Version == ReleaseVSAN67u3 {
 		updatedUpdateSpecList := make([]cnstypes.CnsVolumeMetadataUpdateSpec, 0, len(updateSpecList))
 		for _, updateSpec := range updateSpecList {
 			updateSpec.Metadata.ContainerCluster.ClusterFlavor = ""
@@ -147,7 +162,7 @@ func dropUnknownVolumeMetadataUpdateSpecElements(c *Client, updateSpecList []cns
 			updatedUpdateSpecList = append(updatedUpdateSpecList, updateSpec)
 		}
 		updateSpecList = updatedUpdateSpecList
-	} else if c.serviceClient.Version == ReleaseVSAN70 || c.serviceClient.Version == ReleaseVSAN70u1 {
+	} else if c.Version == ReleaseVSAN70 || c.Version == ReleaseVSAN70u1 {
 		updatedUpdateSpecList := make([]cnstypes.CnsVolumeMetadataUpdateSpec, 0, len(updateSpecList))
 		for _, updateSpec := range updateSpecList {
 			updateSpec.Metadata.ContainerCluster.ClusterDistribution = ""
