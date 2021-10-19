@@ -329,7 +329,7 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 		switch operationType {
 		case "createVolume":
 			var volumeType string
-			if pv.Spec.CSI.FSType == common.NfsV4FsType || pv.Spec.CSI.FSType == common.NfsFsType {
+			if IsMultiAttachAllowed(pv) {
 				volumeType = common.FileVolumeType
 			} else {
 				volumeType = common.BlockVolumeType
