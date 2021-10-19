@@ -834,9 +834,9 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 	return waitErr
 }
 
-//httpDo takes client and http Request as input and performs the requested operation
+//httpRequest takes client and Request as input and performs the requested operation
 // and returns bodybytes
-func httpDo(client *http.Client, req *http.Request) []byte {
+func httpRequest(client *http.Client, req *http.Request) []byte {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
@@ -860,19 +860,6 @@ func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
 	framework.Logf("API Response status %d", resp.StatusCode)
 
 	return bodyBytes, resp.StatusCode
-}
-
-func httpDelete(client *http.Client, req *http.Request) []byte {
-	resp, err := client.Do(req)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("API Response status %d", resp.StatusCode)
-	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
-
-	return bodyBytes
-
 }
 
 //createGC method creates GC and takes WCP host and bearer token as input param
@@ -1059,7 +1046,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpDo(client, req)
+	bodyBytes := httpRequest(client, req)
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1098,12 +1085,12 @@ func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) {
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	httpDo(client, req)
+	httpRequest(client, req)
 
 	req, err = http.NewRequest("DELETE", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	httpDo(client, req)
+	httpRequest(client, req)
 
 }
 
@@ -1124,7 +1111,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
-		bodyBytes := httpDo(client, req)
+		bodyBytes := httpRequest(client, req)
 		response = string(bodyBytes)
 
 		if strings.Contains(response, "\"phase\":\"running\"") {

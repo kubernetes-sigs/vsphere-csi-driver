@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 	})
 
 	/*
-		Test to Scale TKG worker nodes
+		Test to Delete TKG on VMC
 		Steps
 			1. Create SC
 			2. Create PVC with the above created SC and validate PVC is in bound phase
@@ -90,36 +90,35 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 
 		vmcUser = os.Getenv("VMC_USER")
 		if vmcUser == "" {
-			ginkgo.Skip("Env vmcUser is missing")
+			ginkgo.Skip("Env VMC_USER is missing")
 		}
 
 		tkg_cluster := os.Getenv("TKG_CLUSTER_FOR_UPGRADE")
 		if tkg_cluster == "" {
-			framework.Logf("TKG_CLUSTER is not passed hence taking the default cluster name")
-			tkg_cluster = "test-cluster-e2e-script-2"
+			ginkgo.Skip("Env TKG_CLUSTER_FOR_UPGRADE is missing")
 		}
 
 		clientNewGc, err := k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
-		ginkgo.By("Creating namespace on second GC")
+		ginkgo.By("Creating namespace on GC2")
 		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC2")
 
 		namespaceNewGC := ns.Name
-		framework.Logf("Created namespace on second GC %v", namespaceNewGC)
+		framework.Logf("Created namespace on GC2 %v", namespaceNewGC)
 		defer func() {
 			err := clientNewGc.CoreV1().Namespaces().Delete(ctx, namespaceNewGC, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Create PVC and POD in new GC")
+		ginkgo.By("Create PVC and POD in GC2")
 		scParameters[scParamFsType] = ext4FSType
 		// Create Storage class and PVC.
-		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
+		ginkgo.By("Creating Storage Class")
 
 		scParameters[svStorageClassName] = storagePolicyName
 		storageclass, err := createStorageClass(clientNewGc, scParameters, nil, "", "", false, "")
@@ -146,17 +145,23 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating a pod in new GC")
-		_, err = createPod(clientNewGc, namespaceNewGC, nil, pvclaims, false, execCommand)
+		ginkgo.By("Creating a pod in GC2")
+		newPod, err := createPod(clientNewGc, namespaceNewGC, nil, pvclaims, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//just for testing
-		// err = fpod.DeletePodWithWait(clientNewGc, pod1)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = fpod.DeletePodWithWait(clientNewGc, newPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(clientNewGc,
+				pv.Spec.CSI.VolumeHandle, newPod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, newPod.Spec.NodeName))
+		}()
 
 		ginkgo.By("Delete TKG")
 
-		ginkgo.By("scaling up TKG worker node")
 		if vmcUser == "testuser" {
 			ginkgo.By("Get WCP session id")
 			gomega.Expect((e2eVSphere.Config.Global.VmcDevopsUser)).NotTo(gomega.BeEmpty(), "Devops user is not set")
@@ -175,24 +180,24 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		err = getGC(vmcWcpHost, wcpToken, tkg_cluster)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
-		//validating static volume provisioning after gc deletion
+		//validating static volume provisioning after GC2 deletion
 		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
-		ginkgo.By("Creating namespace on existing GC")
+		ginkgo.By("Creating namespace on GC1")
 		ns, err = framework.CreateTestingNS(f.BaseName, client, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC1")
 
 		gcNamespace := ns.Name
-		framework.Logf("Created namespace on second GC %v", gcNamespace)
+		framework.Logf("Created namespace on GC1 %v", gcNamespace)
 		defer func() {
 			err := client.CoreV1().Namespaces().Delete(ctx, gcNamespace, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("creating PV in existing guest cluster")
+		ginkgo.By("creating PV in GC1")
 		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil)
 		pvNew.Annotations = pv.Annotations
 		pvNew.Spec.StorageClassName = pv.Spec.StorageClassName
@@ -201,7 +206,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		pvNew, err = client.CoreV1().PersistentVolumes().Create(ctx, pvNew, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Create PV, PVC and POD in existing guest cluster")
+		ginkgo.By("Create PVC and POD in GC1")
 		pvcNew := getPersistentVolumeClaimSpec(gcNamespace, nil, pvNew.Name)
 		pvcNew.Spec.StorageClassName = &pv.Spec.StorageClassName
 		pvcNew, err = client.CoreV1().PersistentVolumeClaims(gcNamespace).Create(ctx, pvcNew, metav1.CreateOptions{})
