@@ -9,8 +9,6 @@ spec:
       app: vsphere-csi-node
   updateStrategy:
     type: "RollingUpdate"
-    rollingUpdate:
-      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -22,11 +20,14 @@ spec:
       containers:
       - name: node-driver-registrar
         image: quay.io/k8scsi/csi-node-driver-registrar:v2.0.1
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "rm -rf /registration/csi.vsphere.vmware.com-reg.sock /csi/csi.sock"]
         args:
         - "--v=5"
         - "--csi-address=$(ADDRESS)"
         - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-        - "--health-port=9809"
         env:
         - name: ADDRESS
           value: /csi/csi.sock
@@ -39,20 +40,8 @@ spec:
           mountPath: /csi
         - name: registration-dir
           mountPath: /registration
-        ports:
-        - containerPort: 9809
-          name: healthz
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: healthz
-          initialDelaySeconds: 5
-          timeoutSeconds: 5
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.2-rc.1
-        args:
-          - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
-          - "--fss-namespace=$(CSI_NAMESPACE)"
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.1.2
         imagePullPolicy: "Always"
         env:
         - name: NODE_NAME
@@ -72,10 +61,6 @@ spec:
           value: "true"
         - name: LOGGER_LEVEL
           value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
-        - name: CSI_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
         securityContext:
           privileged: true
           capabilities:
@@ -96,19 +81,21 @@ spec:
         - name: device-dir
           mountPath: /dev
         ports:
-          - containerPort: 9808
-            name: healthz
+          - name: healthz
+            containerPort: 9808
+            protocol: TCP
         livenessProbe:
           httpGet:
             path: /healthz
             port: healthz
           initialDelaySeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 3
+          periodSeconds: 5
+          failureThreshold: 3
       - name: liveness-probe
         image: quay.io/k8scsi/livenessprobe:v2.1.0
         args:
-          - "--v=4"
-          - "--csi-address=/csi/csi.sock"
+        - --csi-address=/csi/csi.sock
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -123,7 +110,7 @@ spec:
           type: Directory
       - name: plugin-dir
         hostPath:
-          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com
+          path: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/
           type: DirectoryOrCreate
       - name: pods-mount-dir
         hostPath:
