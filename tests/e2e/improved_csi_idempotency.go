@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -251,7 +252,13 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "idempotency")
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		scName := "idempotency" + curtimestring + val
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, scName)
 	} else if supervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
@@ -417,11 +424,17 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		// TODO: Create Thick Storage Policy from Pre-setup to support 6.7 Setups
 		scParameters[scParamStoragePolicyName] = "Management Storage Policy - Regular"
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, "idempotency")
 		// Check nfs4FSType for file volumes
 		if rwxAccessMode {
 			ginkgo.Skip("File Volume extend is not supported, skipping the test")
 		}
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		scName := "idempotency" + curtimestring + val
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, scName)
 	} else if supervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
