@@ -75,14 +75,23 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after deleting the pod", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
 		ginkgo.By("Creating statefulset with single replica")
 		statefulset, service := createStatefulSetWithOneReplica(client, manifestPath, namespace)
 		defer func() {

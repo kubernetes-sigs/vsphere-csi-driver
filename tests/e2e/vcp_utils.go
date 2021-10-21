@@ -28,6 +28,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -83,6 +84,12 @@ func createVcpStorageClass(client clientset.Interface, scParameters map[string]s
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and zones: %+v and "+
 		"ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, zones, scReclaimPolicy, allowVolumeExpansion))
+	framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+	sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+	if err == nil && sc != nil {
+		gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+			*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+	}
 	storageclass, err := client.StorageV1().StorageClasses().Create(ctx,
 		getVcpVSphereStorageClassSpec(scName, scParameters, zones, scReclaimPolicy, bindingMode, allowVolumeExpansion),
 		metav1.CreateOptions{})

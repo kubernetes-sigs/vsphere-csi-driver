@@ -122,7 +122,6 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
-		ginkgo.By("Creating Storage Class")
 
 		// decide which test setup is available to run
 		if vanillaCluster {
@@ -137,6 +136,13 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 			createResourceQuota(client, namespace, "100Gi", storagePolicyName)
 		}
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", storagePolicyName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Creating Storage Class")
 		storageclass, err = client.StorageV1().StorageClasses().Create(ctx,
 			getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false),
 			metav1.CreateOptions{})
@@ -245,7 +251,6 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
-		ginkgo.By("Creating Storage Class")
 
 		// decide which test setup is available to run
 		if vanillaCluster {
@@ -258,13 +263,22 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
+
 		if guestCluster {
 			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
+			framework.Logf("Get Storage class and delete Storage class if present %s", storagePolicyName)
+			sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			if err == nil && sc != nil {
+				gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName,
+					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+			}
+			ginkgo.By("Creating Storage Class")
 			scSpec := getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false)
 			storageclass, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

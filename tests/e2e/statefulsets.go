@@ -98,7 +98,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 	ginkgo.It("Statefulset testing with default podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -112,9 +111,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 		}
-
+		framework.Logf("Get Storage class and delete Storage class if present %s", storageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -293,7 +298,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 	ginkgo.It("Statefulset testing with parallel podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -308,8 +312,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", storageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, storageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -507,8 +518,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", storageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, storageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))

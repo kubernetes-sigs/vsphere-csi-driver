@@ -878,8 +878,15 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 		}
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -2208,13 +2215,19 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		// Decide which test setup is available to run.
 		if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
+			framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+			sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+			if err == nil && sc != nil {
+				gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+			}
 			profileID := e2eVSphere.GetSpbmPolicyID(raid0StoragePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
-			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
-			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))

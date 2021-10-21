@@ -128,6 +128,12 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 
 		gomega.Expect(flag).NotTo(gomega.BeFalse(), "vmimage passed is not present in the cluster")
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err = client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)

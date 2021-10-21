@@ -114,10 +114,16 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		missingPodAndVolume = make(map[string]string)
 		ginkgo.By("CNS_TEST: Running for GC setup")
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -401,10 +407,16 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		missingPodAndVolume = make(map[string]string)
 		ginkgo.By("CNS_TEST: Running for GC setup")
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {

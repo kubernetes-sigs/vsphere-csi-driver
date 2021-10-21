@@ -94,6 +94,12 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 			ginkgo.Skip("Env vmcUser is missing")
 		}
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", defaultNginxStorageClassName)
+		sc, err = client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)

@@ -104,12 +104,18 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
 		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))

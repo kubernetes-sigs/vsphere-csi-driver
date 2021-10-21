@@ -615,6 +615,14 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
+
+	framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+	sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+	if err == nil && sc != nil {
+		gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+			*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+	}
+
 	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
 		scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))

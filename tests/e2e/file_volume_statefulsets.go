@@ -94,10 +94,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
 		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -257,11 +263,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-
 		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -419,10 +430,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
 		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -535,10 +552,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		framework.Logf("Get Storage class and delete Storage class if present %s", scName)
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, scName,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
 		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
