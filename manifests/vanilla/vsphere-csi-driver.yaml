@@ -144,7 +144,7 @@ data:
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
-  "improved-csi-idempotency": "false"
+  "improved-csi-idempotency": "true"
   "improved-volume-topology": "false"
   "block-volume-snapshot": "false"
   "csi-windows-support": "false"
