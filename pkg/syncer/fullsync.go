@@ -19,6 +19,7 @@ package syncer
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
@@ -28,6 +29,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -37,12 +39,22 @@ import (
 func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: start")
-
+	fullSyncStartTime := time.Now()
 	var migrationFeatureStateForFullSync bool
+	var err error
 	// Fetch CSI migration feature state, before performing full sync operations.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		migrationFeatureStateForFullSync = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	}
+	defer func() {
+		fullSyncStatus := prometheus.PrometheusPassStatus
+		if err != nil {
+			fullSyncStatus = prometheus.PrometheusFailStatus
+		}
+		prometheus.FullSyncOpsHistVec.WithLabelValues(fullSyncStatus).Observe(
+			(time.Since(fullSyncStartTime)).Seconds())
+	}()
+
 	// Get K8s PVs in State "Bound", "Available" or "Released".
 	k8sPVs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
 	if err != nil {
@@ -56,7 +68,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 	if migrationFeatureStateForFullSync {
 		// In case if feature state switch is enabled after syncer is deployed,
 		// we need to initialize the volumeMigrationService.
-		if err := initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
 			log.Errorf("FullSync: Failed to get migration service. Err: %v", err)
 			return err
 		}
@@ -73,7 +85,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 			migrationVolumeSpec := &migration.VolumeSpec{
 				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
 				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
+			var volumeHandle string
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for spec: %v. Err: %+v",
 					migrationVolumeSpec, err)
@@ -91,7 +104,6 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 	}
 	log.Debugf("FullSync: pvToPVCMap %v", pvToPVCMap)
 	log.Debugf("FullSync: pvcToPodMap %v", pvcToPodMap)
-
 	// Call CNS QueryAll to get container volumes by cluster ID.
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{
@@ -174,7 +186,8 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 			migrationVolumeSpec := &migration.VolumeSpec{
 				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
 				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
+			var volumeHandle string
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 			if err != nil {
 				log.Errorf("FullSync: Failed to get VolumeID from volumeMigrationService for spec: %v. Err: %+v",
 					migrationVolumeSpec, err)
