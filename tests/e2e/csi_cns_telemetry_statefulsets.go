@@ -74,9 +74,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 		fss.DeleteAllStatefulSets(client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))

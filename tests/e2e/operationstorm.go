@@ -99,9 +99,6 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 	})
 
 	ginkgo.AfterEach(func() {
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		ginkgo.By("Deleting all PVCs")
 		for _, claim := range pvclaims {
 			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
@@ -141,9 +138,12 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 			getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false),
 			metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating PVCs using the Storage Class")

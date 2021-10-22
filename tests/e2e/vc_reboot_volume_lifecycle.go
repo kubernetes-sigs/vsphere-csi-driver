@@ -70,9 +70,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 	})
 	ginkgo.AfterEach(func() {
-		if supervisorCluster || guestCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
@@ -112,8 +109,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		} else {
@@ -126,8 +121,10 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		defer func() {

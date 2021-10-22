@@ -72,9 +72,6 @@ var _ = ginkgo.Describe("Scale Test", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 
 		for _, pvc := range pvclaims {
 			pvclaimToDelete, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
@@ -124,8 +121,6 @@ var _ = ginkgo.Describe("Scale Test", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimitScaleTest, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -181,9 +181,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !supervisorCluster {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
@@ -192,9 +194,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
-
-		ginkgo.By("create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 
 		return restConfig, storageclass, profileID
 	}
@@ -213,6 +212,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
+
 		err = client.StorageV1().StorageClasses().Delete(ctx, vsanDefaultStorageClassInSVC, metav1.DeleteOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -224,9 +224,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storageclass.GetName(), metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
-
-		ginkgo.By("create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storageclass.GetName())
 
 		return restConfig, storageclass, profileID
 	}
@@ -249,9 +246,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx, restClientConfig,
 				namespace, cnsRegistervolume, poll, supervisorClusterOperationsTimeout))
 		}
-
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	}
 
 	// This test verifies the static provisioning workflow.
@@ -622,9 +616,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeExists).To(gomega.BeFalse())
-
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 
 	// This test verifies the static provisioning workflow on supervisor cluster.
@@ -654,9 +645,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating FCD (CNS Volume)")
@@ -731,7 +724,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
 	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import FCD", func() {
-
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -745,9 +737,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating FCD Disk")
@@ -838,9 +832,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create FCD with valid storage policy.")
@@ -848,9 +844,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			"staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteFCDRequired = false
-
-		ginkgo.By("Delete existing resource quota")
-		deleteResourceQuota(client, namespace)
 
 		ginkgo.By("Import above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -930,9 +923,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, _ := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create CNS register volume with above created FCD , AccessMode is set to ReadWriteMany ")
@@ -993,9 +988,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating Resource quota")
@@ -1101,9 +1098,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create FCD")
@@ -1207,9 +1206,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating Resource quota")
@@ -1294,9 +1295,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating Resource quota")
@@ -1383,18 +1386,22 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("non shared datastore , profileID : %s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
+
 		err = client.StorageV1().StorageClasses().Delete(ctx, nonsharedDatastoreName, metav1.DeleteOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass Name :%s", storageclass.GetName())
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Creating Resource quota")
@@ -1422,9 +1429,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		actualErrorMsg := cnsRegisterVolume.Status.Error
 		expectedErrorMsg := "Volume in the spec is not accessible to all nodes in the cluster"
 		gomega.Expect(strings.Contains(actualErrorMsg, expectedErrorMsg), gomega.BeTrue())
-
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 
 	// This test verifies the static provisioning on SVC, when FCD with
@@ -1449,9 +1453,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, _ := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create FCD")
@@ -1515,9 +1521,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create FCD")
@@ -1755,8 +1763,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pv1 := getPvFromClaim(client, namespaceToDelete, pvc1.Name)
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create CNS register volume with above created FCD")
@@ -1875,9 +1885,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				ginkgo.By("Verify CRD should be deleted automatically")
 				framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx,
 					restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
-
-				ginkgo.By("Delete Resource quota")
-				deleteResourceQuota(client, namespace)
 			}()
 		}
 
@@ -1917,9 +1924,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			restConfig, storageclass, profileID := staticProvisioningPreSetUpUtilForVMDKTests(ctx)
 
 			defer func() {
-				framework.Logf("Delete storage class")
-				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !supervisorCluster {
+					framework.Logf("Delete storage class")
+					err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
 			}()
 
 			ginkgo.By("Creating FCD Disk")

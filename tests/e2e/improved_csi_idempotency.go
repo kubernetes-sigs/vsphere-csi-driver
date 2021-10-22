@@ -98,9 +98,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	})
 
 	ginkgo.AfterEach(func() {
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
@@ -267,8 +264,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
 		scParameters[scParamStoragePolicyID] = profileID
-		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
 	} else {
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -283,9 +278,11 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
-			*metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !supervisorCluster {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}()
 
 	ginkgo.By("Creating PVCs using the Storage Class")
@@ -443,8 +440,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
 		scParameters[scParamStoragePolicyID] = profileID
-		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, thickProvPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else {
@@ -461,9 +456,11 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
-			*metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !supervisorCluster {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}()
 
 	ginkgo.By("Creating PVCs using the Storage Class")

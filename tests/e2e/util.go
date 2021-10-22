@@ -590,13 +590,26 @@ func createPVCAndStorageClass(client clientset.Interface, pvcnamespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, bindingMode storagev1.VolumeBindingMode,
 	allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode,
 	names ...string) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, error) {
+
+	var storageclass *storagev1.StorageClass
+	var err error
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	scName := ""
 	if len(names) > 0 {
 		scName = names[0]
 	}
-	storageclass, err := createStorageClass(client, scParameters,
-		allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	//Skip creating storage class if the setup is of supervisor
+	if supervisorCluster {
+		framework.Logf("Get Storage class for Supervisor test %s", scName)
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		storageclass, err = createStorageClass(client, scParameters,
+			allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	pvclaim, err := createPVC(client, pvcnamespace, pvclaimlabels, ds, storageclass, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -611,13 +624,24 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode,
 	allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
+	var storageclass *storagev1.StorageClass
+	var err error
 	defer cancel()
+
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
-	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
-		scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+
+	//Skip creating storage class if the setup is of supervisor
+	if supervisorCluster {
+		framework.Logf("Get Storage class for Supervisor test %s", scName)
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		storageclass, err = client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
+			scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+	}
 	return storageclass, err
 }
 

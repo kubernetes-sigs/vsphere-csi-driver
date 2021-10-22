@@ -130,8 +130,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "",
 				storagePolicyName)
 		} else {
@@ -142,8 +140,10 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
@@ -331,19 +331,22 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
 
-		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !supervisorCluster {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
-
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof("storageclass Name :%s", storageclass.GetName())
 
 		defer func() {
-			log.Infof("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				log.Infof("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create FCD with valid storage policy.")
@@ -352,9 +355,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", 90, fcdID))
 		time.Sleep(time.Duration(90) * time.Second)
-
-		ginkgo.By("Create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 
 		ginkgo.By("Import above created FCD ")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -452,9 +452,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		ginkgo.By("Verify CRD should be deleted automatically")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx,
 			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
-
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 })
 

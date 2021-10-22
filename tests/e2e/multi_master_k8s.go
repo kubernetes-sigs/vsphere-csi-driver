@@ -85,14 +85,10 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Performing test cleanup")
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 
 		if pvc != nil {
 			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		}
 
 		for _, pv := range pvs {
@@ -243,8 +239,6 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
