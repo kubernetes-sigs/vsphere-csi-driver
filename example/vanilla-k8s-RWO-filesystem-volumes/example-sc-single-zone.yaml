@@ -10,7 +10,6 @@ allowedTopologies:
   - matchLabelExpressions:
       - key: topology.kubernetes.io/zone
         values:
-          - us-west-WA
           - us-west-CA
       - key: topology.kubernetes.io/region
         values:
