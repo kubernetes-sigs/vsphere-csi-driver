@@ -24,6 +24,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/config"
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -62,7 +63,8 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Create StoragePool CRD.
-	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_storagepools.yaml")
+	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, storagepoolconfig.EmbedStoragePoolCRFile,
+		storagepoolconfig.EmbedStoragePoolCRFileName)
 	if err != nil {
 		crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
 		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
