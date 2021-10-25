@@ -158,7 +158,7 @@ spec:
       hostNetwork: true
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.1.0_vmware.4
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.1.0_vmware.5
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -170,6 +170,7 @@ spec:
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
             - "--default-fstype=ext4"
+            - "--use-service-for-placement-engine=false"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
