@@ -389,11 +389,17 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
 	}
 	// If scName is specified, use that name, else auto-generate storage class
 	// name.
+
 	if scName != "" {
-		sc.ObjectMeta = metav1.ObjectMeta{
-			Name: scName,
+		if supervisorCluster {
+			sc.ObjectMeta.Name = scName
+		} else {
+			sc.ObjectMeta = metav1.ObjectMeta{
+				Name: scName,
+			}
 		}
 	}
+
 	if scParameters != nil {
 		sc.Parameters = scParameters
 	}
