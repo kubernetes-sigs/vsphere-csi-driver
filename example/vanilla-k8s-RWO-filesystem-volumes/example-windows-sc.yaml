@@ -1,0 +1,10 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: example-windows-sc
+provisioner: csi.vsphere.vmware.com
+allowVolumeExpansion: true  # Optional: only applicable to vSphere 7.0U1 and above
+parameters:
+  storagepolicyname: "vSAN Default Storage Policy"  # Optional Parameter
+  #datastoreurl: "ds:///vmfs/volumes/vsan:52cdfa80721ff516-ea1e993113acfc77/"  # Optional Parameter
+  #csi.storage.k8s.io/fstype: "ntfs"  # Optional Parameter

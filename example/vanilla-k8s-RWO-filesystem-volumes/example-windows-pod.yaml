@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-windows-pod
+spec:
+  nodeSelector:
+    kubernetes.io/os: windows
+  containers:
+    - name: test-container
+      image: mcr.microsoft.com/windows/servercore:ltsc2019
+      command:
+        - "powershell.exe"
+        - "-Command"
+        - "while (1) { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
+      volumeMounts:
+        - name: test-volume
+          mountPath: "/test/"
+          readOnly: false
+  volumes:
+    - name: test-volume
+      persistentVolumeClaim:
+        claimName: example-windows-pvc
