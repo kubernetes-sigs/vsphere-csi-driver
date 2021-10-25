@@ -56,7 +56,17 @@ deps:
 ##                                VERSIONS                                    ##
 ################################################################################
 # Ensure the version is injected into the binaries via a linker flag.
-export VERSION ?= $(shell git log -1 --format=%h)
+# From users' perspective, a tag makes more sense than a commit ID. When we check the
+# CSI Driver's version from the log, it's not convenient to see a commit ID, because
+# each time we need to find out the related tag so as to confirm the human readable version.
+#
+# So we only use the commit id as the version for the binaries built from master branch,
+# and use the tag as the version for any release branches.
+ifeq ($(shell git rev-parse --abbrev-ref HEAD), master)
+VERSION := $(shell git log -1 --format=%h)
+else
+VERSION := $(shell git describe --dirty --always 2>/dev/null)
+endif
 
 .PHONY: version
 version:
