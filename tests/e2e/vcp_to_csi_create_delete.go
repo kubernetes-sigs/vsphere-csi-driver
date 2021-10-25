@@ -824,7 +824,7 @@ func generateNodeMap(ctx context.Context, config *e2eTestConfig, vs *vSphere, c 
 
 // fileExists checks whether the specified file exists on the shared datastore
 func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, error) {
-	datastore := getDefaultDatastore(ctx)
+	datastore := getDefaultDatastore(ctx, true)
 	b, err := datastore.Browser(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	spec := types.HostDatastoreBrowserSearchSpec{

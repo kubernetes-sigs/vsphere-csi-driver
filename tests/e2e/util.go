@@ -3285,8 +3285,8 @@ func deleteFcdWithRetriesForSpecificErr(ctx context.Context, fcdID string,
 }
 
 // getDefaultDatastore returns default datastore.
-func getDefaultDatastore(ctx context.Context) *object.Datastore {
-	if defaultDatastore == nil {
+func getDefaultDatastore(ctx context.Context, forceRefresh ...bool) *object.Datastore {
+	if defaultDatastore == nil || forceRefresh[0] {
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
