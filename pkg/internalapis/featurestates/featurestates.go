@@ -32,6 +32,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	featurestatesconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/config"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
@@ -95,7 +96,8 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 	var err error
 	// This is idempotent if CRD is pre-created then we continue with
 	// initialization of svFSSReplicationService.
-	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnscsisvfeaturestates.yaml")
+	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, featurestatesconfig.EmbedCnsCsiSvFeatureStatesCRFile,
+		featurestatesconfig.EmbedCnsCsiSvFeatureStatesCRFileName)
 	if err != nil {
 		log.Errorf("failed to create CnsCsiSvFeatureStates CRD. Error: %v", err)
 		return err

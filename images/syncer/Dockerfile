@@ -56,28 +56,4 @@ LABEL git_commit=$GIT_COMMIT
 
 COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
-RUN mkdir -p config
-
-ADD pkg/apis/cnsoperator/config/cns.vmware.com_cnsnodevmattachments.yaml /config/
-
-ADD pkg/apis/cnsoperator/config/cns.vmware.com_cnsvolumemetadata.yaml /config/
-
-ADD pkg/apis/cnsoperator/config/cnsfileaccessconfig_crd.yaml /config/
-
-ADD pkg/apis/cnsoperator/config/cnsregistervolume_crd.yaml /config/
-
-ADD pkg/apis/storagepool/config/cns.vmware.com_storagepools.yaml /config/
-
-ADD pkg/internalapis/cnsoperator/config/cnsfilevolumeclient_crd.yaml /config/
-
-ADD pkg/internalapis/cnsoperator/config/triggercsifullsync_crd.yaml /config/
-
-ADD pkg/internalapis/cnsvolumeoperationrequest/config/cns.vmware.com_cnsvolumeoperationrequests.yaml /config/
-
-ADD pkg/internalapis/csinodetopology/config/cns.vmware.com_csinodetopologies.yaml /config/
-
-ADD pkg/internalapis/featurestates/config/cns.vmware.com_cnscsisvfeaturestates.yaml /config/
-
-ADD pkg/apis/migration/config/cns.vmware.com_cnsvspherevolumemigrations.yaml /config/
-
 ENTRYPOINT ["/bin/vsphere-syncer"]
