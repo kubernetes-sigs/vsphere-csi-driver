@@ -23,7 +23,6 @@ import (
 	"os"
 
 	"github.com/rexray/gocsi"
-
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/provider"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service"
