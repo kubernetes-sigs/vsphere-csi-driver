@@ -18,11 +18,11 @@ package kubernetes
 
 import (
 	"context"
+	"embed"
 	"flag"
 	"io/ioutil"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -60,9 +60,8 @@ import (
 )
 
 const (
-	timeout      = 60 * time.Second
-	pollTime     = 5 * time.Second
-	manifestPath = "/config"
+	timeout  = 60 * time.Second
+	pollTime = 5 * time.Second
 )
 
 // GetKubeConfig helps retrieve Kubernetes Config.
@@ -383,9 +382,9 @@ func CreateCustomResourceDefinitionFromSpec(ctx context.Context, crdName string,
 
 // CreateCustomResourceDefinitionFromManifest creates custom resource definition
 // spec from manifest file.
-func CreateCustomResourceDefinitionFromManifest(ctx context.Context, fileName string) error {
+func CreateCustomResourceDefinitionFromManifest(ctx context.Context, embedFiles embed.FS, fileName string) error {
 	log := logger.GetLogger(ctx)
-	manifestcrd, err := getCRDFromManifest(ctx, fileName)
+	manifestcrd, err := getCRDFromManifest(ctx, embedFiles, fileName)
 	if err != nil {
 		log.Errorf("Failed to read the CRD spec from manifest file: %s with err: %+v", fileName, err)
 		return err
@@ -480,23 +479,18 @@ func waitForCustomResourceToBeEstablished(ctx context.Context,
 }
 
 // getCRDFromManifest reads a .json/yaml file and returns the CRD in it.
-func getCRDFromManifest(ctx context.Context, fileName string) (*apiextensionsv1.CustomResourceDefinition, error) {
+func getCRDFromManifest(ctx context.Context, embedFS embed.FS, fileName string) (
+	*apiextensionsv1.CustomResourceDefinition, error) {
 	var crd apiextensionsv1.CustomResourceDefinition
 	log := logger.GetLogger(ctx)
-
-	fullPath := filepath.Join(manifestPath, fileName)
-	data, err := ioutil.ReadFile(fullPath)
+	data, err := embedFS.ReadFile(fileName)
 	if err != nil {
-		if os.IsNotExist(err) {
-			log.Errorf("Manifest file: %s doesn't exist. Error: %+v", fullPath, err)
-		} else {
-			log.Errorf("Failed to read the manifest file: %s. Error: %+v", fullPath, err)
-		}
+		log.Errorf("Failed to read the manifest file: %s. Error: %+v", fileName, err)
 		return nil, err
 	}
 	json, err := utilyaml.ToJSON(data)
 	if err != nil {
-		log.Errorf("Failed to convert the manifest file: %s content to JSON with error: %+v", fullPath, err)
+		log.Errorf("Failed to convert the manifest file: %s content to JSON with error: %+v", fileName, err)
 		return nil, err
 	}
 

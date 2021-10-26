@@ -30,6 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/config"
+	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/config"
+	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/config"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -95,7 +98,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// Create CRD's for WCP flavor.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Create CnsNodeVmAttachment CRD
-		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnsnodevmattachments.yaml")
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsNodeVmAttachmentCRFile,
+			cnsoperatorconfig.EmbedCnsNodeVmAttachmentCRFileName)
 		if err != nil {
 			crdNameNodeVMAttachment := cnsoperatorv1alpha1.CnsNodeVMAttachmentPlural +
 				"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
@@ -104,7 +108,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		}
 
 		// Create CnsVolumeMetadata CRD
-		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnsvolumemetadata.yaml")
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsVolumeMetadataCRFile,
+			cnsoperatorconfig.EmbedCnsVolumeMetadataCRFileName)
 		if err != nil {
 			crdKindVolumeMetadata := reflect.TypeOf(cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}).Name()
 			log.Errorf("failed to create %q CRD. Err: %+v", crdKindVolumeMetadata, err)
@@ -112,7 +117,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		}
 
 		// Create CnsRegisterVolume CRD from manifest.
-		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsregistervolume_crd.yaml")
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsRegisterVolumeCRFile,
+			cnsoperatorconfig.EmbedCnsRegisterVolumeCRFileName)
 		if err != nil {
 			log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsRegisterVolumePlural, err)
 			return err
@@ -121,14 +127,16 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
 			// Create CnsFileAccessConfig CRD from manifest if file volume feature
 			// is enabled.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfileaccessconfig_crd.yaml")
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsFileAccessConfigCRFile,
+				cnsoperatorconfig.EmbedCnsFileAccessConfigCRFileName)
 			if err != nil {
 				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
 				return err
 			}
 			// Create FileVolumeClients CRD from manifest if file volume feature
 			// is enabled.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cnsfilevolumeclient_crd.yaml")
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
+				internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
 			if err != nil {
 				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
 				return err
@@ -157,7 +165,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 			// Create CSINodeTopology CRD.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_csinodetopologies.yaml")
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, csinodetopologyconfig.EmbedCSINodeTopologyFile,
+				csinodetopologyconfig.EmbedCSINodeTopologyFileName)
 			if err != nil {
 				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
 				return err
@@ -235,7 +244,8 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 	}
 	if coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
 		log.Infof("Triggerfullsync feature enabled")
-		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, "triggercsifullsync_crd.yaml")
+		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedTriggerCsiFullSync,
+			internalapiscnsoperatorconfig.EmbedTriggerCsiFullSyncName)
 		if err != nil {
 			log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.TriggerCsiFullSyncPlural, err)
 			return err

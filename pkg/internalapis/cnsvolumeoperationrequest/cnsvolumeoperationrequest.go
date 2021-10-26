@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsvolumeoperationrequestconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/config"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -78,7 +79,9 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		log.Info(
 			"Creating CnsVolumeOperationRequest definition on API server and initializing VolumeOperationRequest instance",
 		)
-		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, "cns.vmware.com_cnsvolumeoperationrequests.yaml")
+		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+			cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFile,
+			cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFileName)
 		if err != nil {
 			log.Errorf("failed to create CnsVolumeOperationRequest CRD with error: %v", err)
 			return nil, err
