@@ -19,6 +19,7 @@ package volume
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -916,6 +917,11 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	if m.operationStore == nil {
 		return csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
 	}
+
+	if strings.Contains(instanceName, "file") {
+		instanceName = strings.ReplaceAll(instanceName, ":", "-")
+	}
+
 	// Determine if CNS needs to be invoked.
 	volumeOperationDetails, err := m.operationStore.GetRequestDetails(ctx, instanceName)
 	switch {

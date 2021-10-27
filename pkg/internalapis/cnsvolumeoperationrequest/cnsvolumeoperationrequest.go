@@ -333,7 +333,11 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		for _, pv := range pvList.Items {
 			if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 				instanceMap[pv.Name] = true
-				instanceMap[pv.Spec.CSI.VolumeHandle] = true
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				if strings.Contains(volumeHandle, "file") {
+					volumeHandle = strings.ReplaceAll(volumeHandle, ":", "-")
+				}
+				instanceMap[volumeHandle] = true
 			}
 		}
 
