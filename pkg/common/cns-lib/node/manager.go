@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	// ErrNodeNotFound is returned when a node isn't found.
+	// ErrNodeNotFound is returned when a node isn't found in the node manager cache.
 	ErrNodeNotFound = errors.New("node wasn't found")
 )
 

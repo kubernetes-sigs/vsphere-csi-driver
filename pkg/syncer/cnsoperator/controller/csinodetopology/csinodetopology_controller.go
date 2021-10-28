@@ -210,15 +210,15 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	nodeManager := node.GetManager(ctx)
 	nodeVM, err := nodeManager.GetNodeByName(ctx, nodeID)
 	if err != nil {
+		if err == node.ErrNodeNotFound {
+			log.Warnf("Node %q is not yet registered in the node manager. Error: %+v", nodeID, err)
+			return reconcile.Result{}, err
+		}
 		// If nodeVM not found, ignore reconcile call.
 		msg := fmt.Sprintf("failed to retrieve nodeVM %q using the node manager. Error: %+v", nodeID, err)
 		log.Error(msg)
-		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
-		if err != nil {
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
-		// Not retrying in such cases as the nodeVM might have been deleted.
-		return reconcile.Result{}, nil
+		_ = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologyError, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	// Retrieve topology labels for nodeVM.
