@@ -101,7 +101,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin)
+			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+			func() bool {
+				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+			})
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -307,7 +310,10 @@ func (c *controller) ReloadConfiguration() error {
 		if idempotencyHandlingEnabled {
 			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin)
+				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+				func() bool {
+					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+				})
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
