@@ -145,7 +145,7 @@ data:
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
-  "improved-volume-topology": "false"
+  "improved-volume-topology": "true"
   "block-volume-snapshot": "false"
   "csi-windows-support": "false"
 kind: ConfigMap
@@ -437,9 +437,6 @@ spec:
               value: "false"
             - name: X_CSI_SPEC_DISABLE_LEN_CHECK
               value: "true"
-            # needed only for topology aware setups
-            #- name: VSPHERE_CSI_CONFIG
-            #  value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: CSI_NAMESPACE
@@ -454,10 +451,6 @@ spec:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
           volumeMounts:
-            # needed only for topology aware setups
-            #- name: vsphere-config-volume
-            #  mountPath: /etc/cloud
-            #  readOnly: true
             - name: plugin-dir
               mountPath: /csi
             - name: pods-mount-dir
@@ -492,10 +485,6 @@ spec:
             - name: plugin-dir
               mountPath: /csi
       volumes:
-        # needed only for topology aware setups
-        #- name: vsphere-config-volume
-        #  secret:
-        #    secretName: vsphere-config-secret
         - name: registration-dir
           hostPath:
             path: /var/lib/kubelet/plugins_registry
@@ -595,9 +584,6 @@ spec:
               value: 'false'
             - name: X_CSI_SPEC_DISABLE_LEN_CHECK
               value: "true"
-            # needed only for topology aware setups
-            #- name: VSPHERE_CSI_CONFIG
-            #  value: "/etc/cloud/csi-vsphere.conf" # here csi-vsphere.conf is the name of the file used for creating secret using "--from-file" flag
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: X_CSI_LOG_LEVEL
@@ -614,10 +600,6 @@ spec:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
           volumeMounts:
-            # needed only for topology aware setups
-            #- name: vsphere-config-volume
-            #  mountPath: /etc/cloud
-            #  readOnly: true
             - name: plugin-dir
               mountPath: 'C:\csi'
             - name: pods-mount-dir
@@ -651,10 +633,6 @@ spec:
             - name: plugin-dir
               mountPath: /csi
       volumes:
-        # needed only for topology aware setups
-        #- name: vsphere-config-volume
-        #  secret:
-        #    secretName: vsphere-config-secret
         - name: registration-dir
           hostPath:
             path: 'C:\var\lib\kubelet\plugins_registry\'
