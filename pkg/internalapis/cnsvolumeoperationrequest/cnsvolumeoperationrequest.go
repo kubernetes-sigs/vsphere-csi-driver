@@ -351,6 +351,8 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int, isBl
 				return
 			}
 
+			// the List API below ensures VolumeSnapshotContent CRD is installed and lists the existing
+			// VolumeSnapshotContent CRs in cluster.
 			vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
 			if err != nil {
 				log.Errorf("failed to list VolumeSnapshotContents with error %v. Abandoning "+
