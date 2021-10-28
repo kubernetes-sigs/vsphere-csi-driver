@@ -350,14 +350,14 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		func() {
 			snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
 			if err != nil {
-				log.Errorf("failed to get snapshotterClient with error: %v. Skipping collecting existing " +
+				log.Errorf("failed to get snapshotterClient with error: %v. Skipping collecting existing "+
 					"VolumeSnapshotContents and CnsVolumeOperationRequests clean up continue ...", err)
 				return
 			}
 
 			vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
 			if err != nil {
-				log.Errorf("failed to list VolumeSnapshotContents with error %v. Skipping collecting " +
+				log.Errorf("failed to list VolumeSnapshotContents with error %v. Skipping collecting "+
 					"existing VolumeSnapshotContents and CnsVolumeOperationRequests clean up continue ...", err)
 				return
 			}
