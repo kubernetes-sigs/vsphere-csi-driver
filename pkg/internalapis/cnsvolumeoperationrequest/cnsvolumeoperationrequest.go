@@ -69,7 +69,8 @@ var (
 // definition on the API server and returns an implementation of
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
-func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int) (VolumeOperationRequest, error) {
+func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int,
+	isBlockVolumeSnapshotEnabled func() bool) (VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 
 	operationStoreInitLock.Lock()
@@ -108,7 +109,7 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		operationRequestStoreInstance = &operationRequestStore{
 			k8sclient: k8sclient,
 		}
-		go operationRequestStoreInstance.cleanupStaleInstances(cleanupInterval)
+		go operationRequestStoreInstance.cleanupStaleInstances(cleanupInterval, isBlockVolumeSnapshotEnabled)
 	}
 
 	return operationRequestStoreInstance, nil
@@ -300,7 +301,7 @@ func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name 
 
 // cleanupStaleInstances cleans up CnsVolumeOperationRequest instances for
 // volumes that are no longer present in the kubernetes cluster.
-func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
+func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int, isBlockVolumeSnapshotEnabled func() bool) {
 	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Minute)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("CnsVolumeOperationRequest clean up interval is set to %d minutes", cleanupInterval)
@@ -340,33 +341,38 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				instanceMap[volumeHandle] = true
 			}
 		}
-
-		snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
-		if err != nil {
-			log.Errorf("failed to get snapshotterClient with error: %v. Abandoning CnsVolumeOperationRequests "+
-				"clean up ...", err)
-			continue
-		}
-
-		vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
-		if err != nil {
-			log.Errorf("failed to list VolumeSnapshotContents with error %v. Abandoning "+
-				"CnsVolumeOperationRequests clean up ...", err)
-			continue
-		}
-
-		for _, vsc := range vscList.Items {
-			if vsc.Spec.Driver != csitypes.Name {
-				continue
+		blockVolumeSnapshotEnabled := isBlockVolumeSnapshotEnabled()
+		// skip cleaning up of snapshot related CnsVolumeOperationRequests if FSS is not enabled.
+		if blockVolumeSnapshotEnabled {
+			snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+			if err != nil {
+				log.Errorf("failed to get snapshotterClient with error: %v. Abandoning "+
+					"CnsVolumeOperationRequests clean up ...", err)
+				return
 			}
-			volumeHandle := vsc.Spec.Source.VolumeHandle
-			if volumeHandle != nil {
-				// CnsVolumeOperation instance for CreateSnapshot
-				instanceMap[strings.TrimPrefix(vsc.Name, "snapcontent-")+"-"+*volumeHandle] = true
+
+			// the List API below ensures VolumeSnapshotContent CRD is installed and lists the existing
+			// VolumeSnapshotContent CRs in cluster.
+			vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
+			if err != nil {
+				log.Errorf("failed to list VolumeSnapshotContents with error %v. Abandoning "+
+					"CnsVolumeOperationRequests clean up ...", err)
+				return
 			}
-			if vsc.Status != nil && vsc.Status.SnapshotHandle != nil {
-				// CnsVolumeOperation instance for DeleteSnapshot
-				instanceMap[strings.Replace(*vsc.Status.SnapshotHandle, "+", "-", 1)] = true
+
+			for _, vsc := range vscList.Items {
+				if vsc.Spec.Driver != csitypes.Name {
+					continue
+				}
+				volumeHandle := vsc.Spec.Source.VolumeHandle
+				if volumeHandle != nil {
+					// CnsVolumeOperation instance for CreateSnapshot
+					instanceMap[strings.TrimPrefix(vsc.Name, "snapcontent-")+"-"+*volumeHandle] = true
+				}
+				if vsc.Status != nil && vsc.Status.SnapshotHandle != nil {
+					// CnsVolumeOperation instance for DeleteSnapshot
+					instanceMap[strings.Replace(*vsc.Status.SnapshotHandle, "+", "-", 1)] = true
+				}
 			}
 		}
 
@@ -385,9 +391,9 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				trimmedName = strings.TrimPrefix(instance.Name, "delete-")
 			case strings.HasPrefix(instance.Name, "expand"):
 				trimmedName = strings.TrimPrefix(instance.Name, "expand-")
-			case strings.HasPrefix(instance.Name, "snapshot"):
+			case blockVolumeSnapshotEnabled && strings.HasPrefix(instance.Name, "snapshot"):
 				trimmedName = strings.TrimPrefix(instance.Name, "snapshot-")
-			case strings.HasPrefix(instance.Name, "deletesnapshot"):
+			case blockVolumeSnapshotEnabled && strings.HasPrefix(instance.Name, "deletesnapshot"):
 				trimmedName = strings.TrimPrefix(instance.Name, "deletesnapshot-")
 			}
 			if _, ok := instanceMap[trimmedName]; !ok {
