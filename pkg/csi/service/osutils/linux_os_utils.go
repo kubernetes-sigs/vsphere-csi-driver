@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -627,7 +626,7 @@ func (osUtils *OsUtils) RescanDevice(ctx context.Context, dev *Device) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(devRescanPath, []byte{'1'}, 0666)
+	err = os.WriteFile(devRescanPath, []byte{'1'}, 0666)
 	if err != nil {
 		msg := fmt.Sprintf("error rescanning block device %q. %v", dev.RealDev, err)
 		log.Error(msg)
@@ -650,14 +649,14 @@ func (osUtils *OsUtils) GetDeviceRescanPath(dev *Device) (string, error) {
 
 // GetDiskPath return the full DiskPath for diskID
 // The files parameter is optional for testing purposes.
-func (osUtils *OsUtils) GetDiskPath(id string, files []os.FileInfo) (string, error) {
+func (osUtils *OsUtils) GetDiskPath(id string, files []os.DirEntry) (string, error) {
 	var (
-		devs []os.FileInfo
+		devs []os.DirEntry
 		err  error
 	)
 
 	if files == nil {
-		devs, err = ioutil.ReadDir(devDiskID)
+		devs, err = os.ReadDir(devDiskID)
 		if err != nil {
 			return "", err
 		}
@@ -813,7 +812,7 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 // GetSystemUUID returns the UUID used to identify node vm
 func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
-	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	idb, err := os.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
 	if err != nil {
 		return "", err
 	}

@@ -21,7 +21,6 @@ import (
 	"embed"
 	"errors"
 	"flag"
-	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -129,7 +128,7 @@ func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port
 		tokenFile  = cnsconfig.DefaultpvCSIProviderPath + "/token"
 		rootCAFile = cnsconfig.DefaultpvCSIProviderPath + "/ca.crt"
 	)
-	token, err := ioutil.ReadFile(tokenFile)
+	token, err := os.ReadFile(tokenFile)
 	if err != nil {
 		return nil
 	}

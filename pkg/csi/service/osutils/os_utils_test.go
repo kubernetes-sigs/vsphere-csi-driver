@@ -30,22 +30,22 @@ import (
 func TestGetDiskPath(t *testing.T) {
 	osUtils, _ := NewOsUtils(context.TODO())
 	tests := []struct {
-		devs  []os.FileInfo
+		devs  []os.DirEntry
 		volID string
 		match bool
 	}{
 		{
-			devs: []os.FileInfo{
-				&FakeFileInfo{name: "wwn-0x702438570234875"},
-				&FakeFileInfo{name: "wwn-0x702345804753484"},
+			devs: []os.DirEntry{
+				&fakeDirEntry{name: "wwn-0x702438570234875"},
+				&fakeDirEntry{name: "wwn-0x702345804753484"},
 			},
 			volID: "702438570234875",
 			match: true,
 		},
 		{
-			devs: []os.FileInfo{
-				&FakeFileInfo{name: "wwn-0x702438570234435"},
-				&FakeFileInfo{name: "wwn-0x702345804753484"},
+			devs: []os.DirEntry{
+				&fakeDirEntry{name: "wwn-0x702438570234435"},
+				&fakeDirEntry{name: "wwn-0x702345804753484"},
 			},
 			volID: "702438570234875",
 			match: false,
@@ -101,4 +101,25 @@ func (fi *FakeFileInfo) IsDir() bool {
 
 func (fi *FakeFileInfo) Sys() interface{} {
 	return nil
+}
+
+// fakeDirEntry implements interface os.DirEntry
+type fakeDirEntry struct {
+	name string
+}
+
+func (fe *fakeDirEntry) Name() string {
+	return fe.name
+}
+
+func (fe *fakeDirEntry) IsDir() bool {
+	return false
+}
+
+func (fe *fakeDirEntry) Type() os.FileMode {
+	return 0
+}
+
+func (fe *fakeDirEntry) Info() (os.FileInfo, error) {
+	return &FakeFileInfo{fe.Name()}, nil
 }
