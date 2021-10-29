@@ -1,0 +1,8 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: example-vanilla-rwo-filesystem-snapshot
+spec:
+  volumeSnapshotClassName: example-vanilla-rwo-filesystem-snapshotclass
+  source:
+    persistentVolumeClaimName: example-vanilla-rwo-pvc
