@@ -134,7 +134,12 @@ const (
 
 // CnsOperatorEntityReference defines the type for entityreference
 // parameter in cnsvolumemetadata API.
-type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
+type CnsOperatorEntityReference struct {
+	EntityType string `json:"entityType"`
+	EntityName string `json:"entityName"`
+	Namespace  string `json:"namespace,omitempty"`
+	ClusterID  string `json:"clusterId,omitempty"`
+}
 
 // CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the
 // input parameters.
