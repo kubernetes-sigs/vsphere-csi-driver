@@ -54,11 +54,21 @@ spec:
                   the ClusterID field. A PV in the guest cluster referring to a PVC
                   in the supervisor cluster must leave the ClusterID field unset.
                   This field is mandatory.
-                items:
-                  description: CnsOperatorEntityReference defines the type for entityreference
-                    parameter in cnsvolumemetadata API.
-                  type: object
                 type: array
+                items:
+                  type: object
+                  required: ["entityType", "entityName"]
+                  description: OperationDetails stores the details of the operation
+                    performed on a volume.
+                  properties:
+                    entityType:
+                      type: string
+                    entityName:
+                      type: string
+                    namespace:
+                      type: string
+                    clusterId:
+                      type: string
               entitytype:
                 description: EntityType indicates type of entity whose metadata this
                   instance represents.
