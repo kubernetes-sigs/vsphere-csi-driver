@@ -358,7 +358,7 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 		}
 		if hasPriv {
 			dsURLToInfoMap[dsURLs[index]] = dsInfos[index]
-			log.Debugf("auth manager: datastore with URL %s and name %s has privileges and is added to dsURLToInfoMap",
+			log.Debugf("auth manager: datastore with name %s and URL %s has privileges and is added to dsURLToInfoMap",
 				dsInfos[index].Info.Name, dsURLs[index])
 		}
 	}
