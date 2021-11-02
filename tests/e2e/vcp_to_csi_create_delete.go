@@ -704,6 +704,8 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 	isStorageProvisionerMatching := false
 	isMigratedToCsi := false
 	gomega.Expect(annotations).NotTo(gomega.BeNil(), "No annotations found on PVC "+pvcName)
+	framework.Logf(
+		"Annotations found on PVC: %v in namespace:%v are,\n%v", pvcName, pvc.Namespace, spew.Sdump(annotations))
 	for k, v := range annotations {
 		if isMigratedVol {
 			if k == pvcAnnotationStorageProvisioner && v == vcpProvisionerName {
@@ -734,8 +736,6 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 			return true, pvc
 		}
 	}
-	framework.Logf(
-		"Annotations found on PVC: %v in namespace:%v are,\n%v", pvcName, pvc.Namespace, spew.Sdump(annotations))
 	return false, pvc
 }
 
@@ -748,38 +748,32 @@ func pvHasMigAnnotations(ctx context.Context, c clientset.Interface,
 	isProvisionedByMatching := false
 	isMigratedToCsi := false
 	gomega.Expect(annotations).NotTo(gomega.BeNil(), "No annotations found on PV "+pvName)
-	for k, v := range annotations {
-		if isMigratedVol {
-			if k == pvAnnotationProvisionedBy && v == vcpProvisionerName {
-				isProvisionedByMatching = true
-				continue
-			}
-			if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
-				isMigratedToCsi = true
-			}
-		} else {
-			if k == pvAnnotationProvisionedBy && v == e2evSphereCSIDriverName {
-				isProvisionedByMatching = true
-				continue
-			}
-			if k == migratedToAnnotation {
-				isMigratedToCsi = true
-			}
-		}
-	}
-	if isMigratedVol {
-		if isProvisionedByMatching && isMigratedToCsi {
-			return true, pv
-		}
-	} else {
-		gomega.Expect(isMigratedToCsi).NotTo(gomega.BeTrue(),
-			migratedToAnnotation+" annotation was not expected on PV "+pvName)
-		if isProvisionedByMatching {
-			return true, pv
-		}
-	}
 	framework.Logf(
 		"Annotations found on PV: %v are,\n%v", pvName, spew.Sdump(annotations))
+	provisionedByIsCSI := false
+	migratedToFound := false
+	for k, v := range annotations {
+		if k == pvAnnotationProvisionedBy && v == vcpProvisionerName {
+			isProvisionedByMatching = true
+			continue
+		}
+		if k == pvAnnotationProvisionedBy && v == e2evSphereCSIDriverName {
+			provisionedByIsCSI = true
+			continue
+		}
+		if k == migratedToAnnotation && v == e2evSphereCSIDriverName {
+			isMigratedToCsi = true
+		}
+		if k == migratedToAnnotation {
+			migratedToFound = true
+		}
+	}
+	if provisionedByIsCSI && !migratedToFound {
+		return true, pv
+	}
+	if isProvisionedByMatching && isMigratedToCsi {
+		return true, pv
+	}
 	return false, pv
 }
 
@@ -830,7 +824,7 @@ func generateNodeMap(ctx context.Context, config *e2eTestConfig, vs *vSphere, c 
 
 // fileExists checks whether the specified file exists on the shared datastore
 func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, error) {
-	datastore := getDefaultDatastore(ctx)
+	datastore := getDefaultDatastore(ctx, true)
 	b, err := datastore.Browser(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	spec := types.HostDatastoreBrowserSearchSpec{
