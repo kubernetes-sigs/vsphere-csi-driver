@@ -334,7 +334,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 
 	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
+	if namespace == prometheus.PrometheusUnknownNamespace {
+		log.Warnf("Namespace not set in context metadata. Setting it as unknown in Prometheus.")
+	} else {
+		log.Debugf("Namespace from context metadata: %s", namespace)
+	}
 
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
@@ -410,7 +414,11 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
+	if namespace == prometheus.PrometheusUnknownNamespace {
+		log.Warnf("Namespace not set in context metadata. Setting it as unknown in Prometheus.")
+	} else {
+		log.Debugf("Namespace from context metadata: %s", namespace)
+	}
 
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
@@ -468,7 +476,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	}
 
 	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
+	if namespace == prometheus.PrometheusUnknownNamespace {
+		log.Warnf("Namespace not set in context metadata. Setting it as unknown in Prometheus.")
+	} else {
+		log.Debugf("Namespace from context metadata: %s", namespace)
+	}
 
 	resp, faultType, err := controllerPublishVolumeInternal()
 	if err != nil {
@@ -817,7 +829,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
+	if namespace == prometheus.PrometheusUnknownNamespace {
+		log.Warnf("Namespace not set in context metadata. Setting it as unknown in Prometheus.")
+	} else {
+		log.Debugf("Namespace from context metadata: %s", namespace)
+	}
 
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
@@ -1189,7 +1205,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
+	if namespace == prometheus.PrometheusUnknownNamespace {
+		log.Warnf("Namespace not set in context metadata. Setting it as unknown in Prometheus.")
+	} else {
+		log.Debugf("Namespace from context metadata: %s", namespace)
+	}
 
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
