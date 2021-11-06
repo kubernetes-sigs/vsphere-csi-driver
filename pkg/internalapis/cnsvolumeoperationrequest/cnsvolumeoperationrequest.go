@@ -19,11 +19,14 @@ package cnsvolumeoperationrequest
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,7 +73,7 @@ var (
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
 func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int,
-	isBlockVolumeSnapshotEnabled func() bool) (VolumeOperationRequest, error) {
+	isBlockVolumeSnapshotEnabled func() bool, clusterFlavor cnstypes.CnsClusterFlavor) (VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 
 	operationStoreInitLock.Lock()
@@ -80,9 +83,24 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		log.Info(
 			"Creating CnsVolumeOperationRequest definition on API server and initializing VolumeOperationRequest instance",
 		)
-		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx,
-			cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFile,
-			cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFileName)
+		var err error
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFile,
+				cnsvolumeoperationrequestconfig.EmbedCnsVolumeOperationRequestFileName)
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			err = k8s.CreateCustomResourceDefinitionFromSpec(
+				ctx,
+				crdName,
+				crdSingular,
+				crdPlural,
+				reflect.TypeOf(cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}).
+					Name(),
+				cnsvolumeoprequestv1alpha1.SchemeGroupVersion.Group,
+				cnsvolumeoprequestv1alpha1.SchemeGroupVersion.Version,
+				apiextensionsv1beta1.NamespaceScoped,
+			)
+		}
 		if err != nil {
 			log.Errorf("failed to create CnsVolumeOperationRequest CRD with error: %v", err)
 			return nil, err

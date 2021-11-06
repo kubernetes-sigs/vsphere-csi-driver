@@ -14,7 +14,7 @@ spec:
     listKind: StoragePoolList
     plural: storagepools
     singular: storagepool
-  scope: Cluster
+  scope: Namespaced
   versions:
   - name: v1alpha1
     schema:

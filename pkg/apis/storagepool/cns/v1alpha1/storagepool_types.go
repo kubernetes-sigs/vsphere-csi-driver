@@ -97,7 +97,6 @@ var (
 
 // StoragePool is the Schema for the storagepools API
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:scope=Cluster
 type StoragePool struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -23,6 +23,12 @@ import (
 )
 
 const (
+	// CRDName represent the name of cnsvolumeoperationrequest CRD.
+	crdName = "cnsvolumeoperationrequests.cns.vmware.com"
+	// CRDSingular represent the singular name of cnsvolumeoperationrequest CRD.
+	crdSingular = "cnsvolumeoperationrequest"
+	// CRDPlural represent the plural name of cnsvolumeoperationrequest CRD.
+	crdPlural = "cnsvolumeoperationrequests"
 	// maxEntriesInLatestOperationDetails specifies the maximum length of the
 	// LatestOperationDetails allowed in a cnsvolumeoperationrequest instance.
 	maxEntriesInLatestOperationDetails = 10
