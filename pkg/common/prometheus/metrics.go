@@ -78,6 +78,10 @@ const (
 	PrometheusCnsCreateSnapshotOpType = "create-snapshot"
 	// PrometheusCnsDeleteSnapshotOpType represents DeleteSnapshot operation.
 	PrometheusCnsDeleteSnapshotOpType = "delete-snapshot"
+	// PrometheusAccessibleVolumes represents accessible volumes.
+	PrometheusAccessibleVolumes = "accessible-volumes"
+	// PrometheusInaccessibleVolumes represents inaccessible volumes.
+	PrometheusInaccessibleVolumes = "inaccessible-volumes"
 
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
@@ -127,4 +131,12 @@ var (
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume", etc
 		// Possible status - "pass", "fail"
 		[]string{"optype", "status"})
+
+	// VolumeHealthGaugeVec is a gauge metric to observe the number of accessible and inaccessible volumes.
+	VolumeHealthGaugeVec = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vsphere_volume_health_gauge",
+		Help: "Gauge for total number of accessible and inaccessible volumes",
+	},
+		// Possible volume_health_type - "accessible-volumes", "inaccessible-volumes"
+		[]string{"volume_health_type"})
 )
