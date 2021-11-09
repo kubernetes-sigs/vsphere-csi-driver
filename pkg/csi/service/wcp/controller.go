@@ -212,6 +212,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
 		for {
 			log.Info("Starting the http server to expose Prometheus metrics..")
+			log.Info("New GC changes")
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":2112", nil)
 			if err != nil {
@@ -915,7 +916,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// external-resizer may fail to update API server. Requests are requeued
 		// in this case. Setting nodeExpandsionRequired to false marks PVC
 		// resize as finished which prevents kubelet from expanding the filesystem.
-		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
 		nodeExpansionRequired := true
 		// Set NodeExpansionRequired to false for raw block volumes.
 		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
