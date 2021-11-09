@@ -1,10 +1,10 @@
 
 ---
-apiVersion: apiextensions.k8s.io/v1
+apiVersion: apiextensions.k8s.io/v1beta1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.6.2
+    controller-gen.kubebuilder.io/version: v0.2.5
   creationTimestamp: null
   name: cnsfilevolumeclients.cns.vmware.com
 spec:
@@ -15,44 +15,43 @@ spec:
     plural: cnsfilevolumeclients
     singular: cnsfilevolumeclient
   scope: Namespaced
+  validation:
+    openAPIV3Schema:
+      description: CnsFileVolumeClient is the Schema for the cnsfilevolumeclients
+        API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: CnsFileVolumeClientSpec defines the desired state of CnsFileVolumeClient
+          properties:
+            externalIPtoClientVms:
+              additionalProperties:
+                items:
+                  type: string
+                type: array
+              description: ExternalIPtoClientVms maintains a mapping of External IP
+                address to list of names of ClientVms. ClientsVms can be TKC Vms for
+                TKC cluster (or) PodVms for SV. Keys are External IP Addresses that
+                have access to a volume. Values are list of names of ClientVms. Each
+                ClientVm in the list mounts this volume and is exposed to the external
+                network by this IP address.
+              type: object
+          type: object
+      type: object
+  version: v1alpha1
   versions:
   - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: CnsFileVolumeClient is the Schema for the cnsfilevolumeclients
-          CRD. This CRD is used by CNS-CSI for internal bookkeeping purposes only
-          and is not an API.
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: CnsFileVolumeClientSpec defines the desired state of CnsFileVolumeClient.
-            properties:
-              externalIPtoClientVms:
-                additionalProperties:
-                  items:
-                    type: string
-                  type: array
-                description: ExternalIPtoClientVms maintains a mapping of External
-                  IP address to list of names of ClientVms. ClientsVms can be TKC
-                  Vms for TKC cluster (or) PodVms for SV. Keys are External IP Addresses
-                  that have access to a volume. Values are list of names of ClientVms.
-                  Each ClientVm in the list mounts this volume and is exposed to the
-                  external network by this IP address. PodVMs names will be prefixed
-                  with "POD_VM" and guest VMs will be prefix with "GUEST_VM".
-                type: object
-            type: object
-        type: object
     served: true
     storage: true
 status:

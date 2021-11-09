@@ -23,8 +23,8 @@ import (
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/config"
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -63,10 +63,14 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Create StoragePool CRD.
-	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, storagepoolconfig.EmbedStoragePoolCRFile,
-		storagepoolconfig.EmbedStoragePoolCRFileName)
+	crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
+	crdSingular := "storagepool"
+	crdPlural := "storagepools"
+	crdName := crdPlural + "." + spv1alpha1.SchemeGroupVersion.Group
+	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, crdName, crdSingular, crdPlural,
+		crdKind, spv1alpha1.SchemeGroupVersion.Group, spv1alpha1.SchemeGroupVersion.Version,
+		apiextensionsv1beta1.ClusterScoped)
 	if err != nil {
-		crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
 		log.Errorf("Failed to create %q CRD. Err: %+v", crdKind, err)
 		return err
 	}
