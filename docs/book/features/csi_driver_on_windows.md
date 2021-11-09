@@ -9,17 +9,17 @@
 
 ## Introduction <a id="introduction"></a>
 
-Windows node support will be added in vSphere CSI driver 2.4 as an [Alpha feature](https://vsphere-csi-driver.sigs.k8s.io/supported_features_matrix.html#alpha).
+Windows node support is added in vSphere CSI driver v2.4.0 as an Alpha feature.
 
 Following features are not supported for Windows Node:
 
 1. ReadWriteMany volumes based on vSAN file service are not supported on Windows Node.
 2. [Raw Block Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#raw-block-volume-support) are not supported.
-3. Windows Nodes will be used as Worker nodes only. vSphere CSI will not support a `mixture of Linux worker nodes and Windows Worker Nodes`.
+3. Windows Nodes will be used as Worker nodes only. vSphere CSI will not support a mixture of Linux worker nodes and Windows Worker Nodes.
 
 ## Prerequisite <a id="prereq"></a>
 
-In addition to prerequisites mentioned [here](https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/prerequisites.html), following needs to be fullfilled to support windows in vSphere CSI:
+In addition to prerequisites mentioned [here](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.0/vmware-vsphere-csp-getting-started/GUID-0AB6E692-AA47-4B6A-8CEA-38B754E16567.html), following needs to be fullfilled to support windows in vSphere CSI:
 
 1. Minimum kubernetes version required is 1.20.
 2. Minimum vSphere CSI driver version required is 2.4.
@@ -30,7 +30,7 @@ In addition to prerequisites mentioned [here](https://vsphere-csi-driver.sigs.k8
 
 ## How to enable vSphere CSI with Windows nodes <a id="how-to-enable-vsphere-csi-win"></a>
 
-- Install vSphere CSI driver 2.4 by following https://vsphere-csi-driver.sigs.k8s.io/driver-deployment/installation.html
+- Install vSphere CSI driver 2.4 by following https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.0/vmware-vsphere-csp-getting-started/GUID-A1982536-F741-4614-A6F2-ADEE21AA4588.html
 - To enable windows support, patch the configmap to enable csi-windows-support feature switch by running following command:
   
   ```bash
@@ -40,7 +40,7 @@ In addition to prerequisites mentioned [here](https://vsphere-csi-driver.sigs.k8
   -p '{"data":{"csi-windows-support":"true"}}'
   ```
 
-- vSphere CSI driver 2.4 will introduce a new node daemonset which will be running on all windows nodes. To verify this run:
+- vSphere CSI driver v2.4.0 introduces a new node daemonset which will be running on all windows nodes. To verify this run:
 
   ```bash
   $ kubectl get daemonsets vsphere-csi-node-windows --namespace=vmware-system-csi
