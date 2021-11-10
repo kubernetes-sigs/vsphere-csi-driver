@@ -738,7 +738,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By("Get controller replica count before scaling down")
-		deployment, err := client.AppsV1().Deployments(csiControllerNamespace).Get(ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		deployment, err := client.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		replica_before_scale_down := *deployment.Spec.Replicas
 		framework.Logf("Replica before scale down %d", replica_before_scale_down)
@@ -755,7 +756,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, replica_before_scale_down, vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
+		deployment = updateDeploymentReplica(client, replica_before_scale_down,
+			vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
