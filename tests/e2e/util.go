@@ -1117,9 +1117,9 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 	return waitErr
 }
 
-//httpGet takes client and http Request as input and performs GET operation
+// httpRequest takes client and http Request as input and performs GET operation
 // and returns bodybytes
-func httpGet(client *http.Client, req *http.Request) []byte {
+func httpRequest(client *http.Client, req *http.Request) []byte {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
@@ -1159,7 +1159,7 @@ func getVMImages(wcpHost string, wcpToken string) VMImages {
 	req, err := http.NewRequest("GET", getVirtualMachineImagesURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpGet(client, req)
+	bodyBytes := httpRequest(client, req)
 
 	err = json.Unmarshal(bodyBytes, &vmImage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1182,7 +1182,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpGet(client, req)
+	bodyBytes := httpRequest(client, req)
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1257,7 +1257,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpGet(client, req)
+	bodyBytes := httpRequest(client, req)
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1298,7 +1298,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
-		bodyBytes := httpGet(client, req)
+		bodyBytes := httpRequest(client, req)
 		response = string(bodyBytes)
 
 		if strings.Contains(response, "\"phase\":\"running\"") {
@@ -1365,6 +1365,92 @@ func replacePasswordRotationTime(file, host string) error {
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return nil
+}
+
+// getVCentreSessionId gets vcenter session id to work with vcenter apis
+func getVCentreSessionId(hostname string, username string, password string) string {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	URL := "https://" + hostname + "/api/session"
+
+	req, err := http.NewRequest("POST", URL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+	req.SetBasicAuth(username, password)
+
+	bodyBytes, statusCode := httpPost(client, req)
+
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
+
+	var sessionID string
+	err = json.Unmarshal(bodyBytes, &sessionID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SessionID: %s", sessionID)
+
+	return sessionID
+}
+
+// getWCPCluster get the wcp cluster details
+func getWCPCluster(sessionID string, hostIP string) string {
+
+	type WCPCluster struct {
+		Cluster string
+	}
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	clusterURL := "https://" + hostIP + vcClusterAPI
+	framework.Logf("URL %v", clusterURL)
+
+	req, err := http.NewRequest("GET", clusterURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add("vmware-api-session-id", sessionID)
+
+	bodyBytes, statusCode := httpPost(client, req)
+
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var wcpCluster []WCPCluster
+	err = json.Unmarshal(bodyBytes, &wcpCluster)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("wcp cluster %+v\n", wcpCluster[0].Cluster)
+
+	return wcpCluster[0].Cluster
+}
+
+// getWCPHost gets the wcp host details
+func getWCPHost(wcpCluster string, hostIP string, sessionID string) string {
+	type WCPClusterInfo struct {
+		Api_server_management_endpoint string `json:"api_server_management_endpoint"`
+	}
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+	client := &http.Client{Transport: transCfg}
+	clusterURL := "https://" + hostIP + vcClusterAPI + "/" + wcpCluster
+	framework.Logf("URL %v", clusterURL)
+
+	req, err := http.NewRequest("GET", clusterURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("vmware-api-session-id", sessionID)
+	bodyBytes := httpRequest(client, req)
+
+	var wcpClusterInfo WCPClusterInfo
+	err = json.Unmarshal(bodyBytes, &wcpClusterInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("wcp cluster IP %+v\n", wcpClusterInfo.Api_server_management_endpoint)
+
+	return wcpClusterInfo.Api_server_management_endpoint
 }
 
 // writeToFile will take two parameters:
