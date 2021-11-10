@@ -173,6 +173,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
 		for {
 			log.Info("Starting the http server to expose Prometheus metrics..")
+			log.Info("New GC Changes")
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":2112", nil)
 			if err != nil {
