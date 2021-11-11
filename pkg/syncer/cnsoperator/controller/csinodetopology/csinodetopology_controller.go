@@ -420,38 +420,56 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 }
 
 // findExistingTopologyLabels figures out if the given list of nodes were already participating
-// in a topology setup. If yes, it will discover if the nodes use the standard topology beta
-// labels or the GA labels and return those. However, if the cluster has a mix of nodes with beta
-// and GA labels, it will error out and request the customer to fix the environment before proceeding
-// further. If no topology labels were found on all nodes, it will return empty strings.
+// in a topology setup. We need to backward compatible with old CSI versions and VCP,
+//    1. In previous CSI versions (<2.4.0), only beta labels are used;
+//    2. We don't need to consider VCP + beta topology. So if csi migration is enabled, we will
+//       use the GA topology labels.
+//
+// In the upgrade scenario, if previously the existing nodes did not participate in the topology
+// setup, but the worker nodes have the beta or GA topology labels (some K8s distributions may add
+// such labels to nodes), then the beta or GA topology labels will continue to be used by the improved
+// topology feature. It isn't expected, but it shouldn't be a problem, because users are supposed
+// to define the new configuration, i.e. "topology-categories=region,zone", rather than the old
+// configuration like below in the csi-vsphere.conf file in this case,
+// [labels]
+// zone=k8s-zone
+// region=k8s-region
+//
+// If no topology labels were found on all nodes, it will return empty strings.
 func findExistingTopologyLabels(ctx context.Context, nodeList []corev1.Node) (string, string, error) {
 	log := logger.GetLogger(ctx)
-	labelMap := map[string]bool{
-		"beta": false,
-		"GA":   false,
-	}
+
+	var foundBetaLabel, foundGALabel bool
 	for _, k8sNode := range nodeList {
 		if k8sNode.Labels[corev1.LabelTopologyZone] != "" || k8sNode.Labels[corev1.LabelTopologyRegion] != "" {
-			labelMap["GA"] = true
+			foundGALabel = true
 		}
+
 		if k8sNode.Labels[corev1.LabelFailureDomainBetaZone] != "" ||
 			k8sNode.Labels[corev1.LabelFailureDomainBetaRegion] != "" {
-			labelMap["beta"] = true
-		}
-		if labelMap["GA"] && labelMap["beta"] {
-			return "", "", logger.LogNewErrorf(log, "found conflicting topology labels on certain node(s) in "+
-				"the cluster. Nodes in the cluster should either have the standard topology beta labels "+
-				"starting with \"failure-domain.beta.kubernetes.io\" or standard topology GA labels starting with "+
-				"\"topology.kubernetes.io\".")
+			foundBetaLabel = true
 		}
 	}
-	switch {
-	case labelMap["GA"]:
-		log.Infof("Found standard topology GA labels on the existing nodes in the cluster.")
-		return corev1.LabelTopologyZone, corev1.LabelTopologyRegion, nil
-	case labelMap["beta"]:
-		log.Infof("Found standard topology beta labels on the existing nodes in the cluster.")
+	if foundBetaLabel && foundGALabel {
+		// Support in-tree plugin
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+			// We don't need to consider the VCP + beta topology feature, so use the GA topology labels for VCP
+			log.Info("Found both the topology beta labels and GA labels on the existing nodes in the cluster, but the csi-migration feature is enabled, so use the GA labels.")
+			return corev1.LabelTopologyZone, corev1.LabelTopologyRegion, nil
+		}
+		log.Info("Found both the topology beta labels and GA labels on the existing nodes in the cluster, and use the beta labels.")
 		return corev1.LabelFailureDomainBetaZone, corev1.LabelFailureDomainBetaRegion, nil
 	}
+
+	if foundBetaLabel {
+		log.Info("Found standard topology beta labels on all the existing nodes in the cluster.")
+		return corev1.LabelFailureDomainBetaZone, corev1.LabelFailureDomainBetaRegion, nil
+	}
+
+	if foundGALabel {
+		log.Info("Found standard topology GA labels on all the existing nodes in the cluster.")
+		return corev1.LabelTopologyZone, corev1.LabelTopologyRegion, nil
+	}
+
 	return "", "", nil
 }

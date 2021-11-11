@@ -18,6 +18,8 @@ package csinodetopology
 
 import (
 	"context"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,9 +153,9 @@ func TestFindExistingTopologyLabels(t *testing.T) {
 					},
 				},
 			},
-			expectedZoneLabel:   "",
-			expectedRegionLabel: "",
-			expectedErr:         true,
+			expectedZoneLabel:   corev1.LabelTopologyZone,
+			expectedRegionLabel: corev1.LabelTopologyRegion,
+			expectedErr:         false,
 		},
 		{
 			name: "NoStandardLabelsOnNodes",
@@ -180,6 +182,14 @@ func TestFindExistingTopologyLabels(t *testing.T) {
 			expectedErr:         false,
 		},
 	}
+
+	var err error
+	commonco.ContainerOrchestratorUtility, err =
+		unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("Failed to create the container orchestrator interface. err: %v", err)
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			actualZoneLabel, actualRegionLabel, actualErr := findExistingTopologyLabels(ctx, tt.nodeList)
