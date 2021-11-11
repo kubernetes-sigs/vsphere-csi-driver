@@ -85,7 +85,7 @@ func fullSyncGetInlineMigratedVolumesInfo(ctx context.Context,
 			if migrationFeatureState && volume.VsphereVolume != nil {
 				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
 					&migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath,
-						StoragePolicyName: volume.VsphereVolume.StoragePolicyName})
+						StoragePolicyName: volume.VsphereVolume.StoragePolicyName}, true)
 				if err != nil {
 					log.Warnf(
 						"FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v",
