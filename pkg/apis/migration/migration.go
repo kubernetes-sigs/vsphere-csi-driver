@@ -18,6 +18,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
@@ -52,13 +53,18 @@ type VolumeSpec struct {
 	StoragePolicyName string
 }
 
+// ErrVolumeIDNotFound is returned when volume is not found from the VolumeMigrationService Cache
+var ErrVolumeIDNotFound = errors.New("could not retrieve VolumeID from VolumeMigrationService cache")
+
 // VolumeMigrationService exposes interfaces to support VCP to CSI migration.
 // It will maintain internal state to map volume path to volume ID and reverse
 // mapping.
 type VolumeMigrationService interface {
 	// GetVolumeID returns VolumeID for a given VolumeSpec.
-	// Returns an error if not able to retrieve VolumeID.
-	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error)
+	// When volume is not found in the cache, if registerIfNotFound is set to true, volume registration will be invoked
+	// and mapping will be preserved and VolumeID will be returned to the caller
+	// Returns an error if not able to retrieve/register Volume.
+	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec, registerIfNotFound bool) (string, error)
 
 	// GetVolumePath returns VolumePath for a given VolumeID.
 	// Returns an error if not able to retrieve VolumePath.
@@ -74,6 +80,8 @@ type VolumeMigrationService interface {
 type volumeMigration struct {
 	// volumePath to volumeId map.
 	volumePathToVolumeID sync.Map
+	// mutexes for registerVolume API
+	registerVolumeMutexes sync.Map
 	// k8sClient helps operate on CnsVSphereVolumeMigration custom resource.
 	k8sClient client.Client
 	// volumeManager helps perform Volume Operations.
@@ -84,14 +92,8 @@ type volumeMigration struct {
 }
 
 const (
-	// CRDName represent the name of cnsvspherevolumemigrations CRD.
-	CRDName = "cnsvspherevolumemigrations.cns.vmware.com"
 	// CRDGroupName represent the group of cnsvspherevolumemigrations CRD.
 	CRDGroupName = "cns.vmware.com"
-	// CRDSingular represent the singular name of cnsvspherevolumemigrations CRD.
-	CRDSingular = "cnsvspherevolumemigration"
-	// CRDPlural represent the plural name of cnsvspherevolumemigrations CRD.
-	CRDPlural = "cnsvspherevolumemigrations"
 )
 
 var (
@@ -196,38 +198,41 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 	return volumeMigrationInstance, nil
 }
 
-// GetVolumeID returns VolumeID for given VolumeSpec.
-// Returns an error if not able to retrieve VolumeID.
-func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
+// GetVolumeID returns VolumeID for a given VolumeSpec.
+// When volume is not found in the cache, if registerIfNotFound is set to true, volume registration will be invoked
+// and mapping will be preserved and VolumeID will be returned to the caller
+// Returns an error if not able to retrieve/register Volume.
+func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec,
+	registerIfNotFound bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	info, found := volumeMigration.volumePathToVolumeID.Load(volumeSpec.VolumePath)
 	if found {
 		log.Debugf("VolumeID: %q found from the cache for VolumePath: %q", info.(string), volumeSpec.VolumePath)
 		return info.(string), nil
 	}
-	// Volume may not be registered.
-	log.Infof("Could not retrieve VolumeID from cache for Volume Path: %q. Registering Volume with CNS",
-		volumeSpec.VolumePath)
-	volumeID, err := volumeMigration.registerVolume(ctx, volumeSpec)
-	if err != nil {
-		log.Errorf("failed to register volume for volumeSpec: %v, with err: %v", volumeSpec, err)
-		return "", err
+	if registerIfNotFound {
+		volumeID, err := volumeMigration.registerVolume(ctx, volumeSpec)
+		if err != nil {
+			log.Errorf("failed to register volume for volumeSpec: %v, with err: %v", volumeSpec, err)
+			return "", err
+		}
+		log.Infof("Successfully registered volumeSpec: %v with CNS. VolumeID: %v", volumeSpec, volumeID)
+		cnsvSphereVolumeMigration := migrationv1alpha1.CnsVSphereVolumeMigration{
+			ObjectMeta: metav1.ObjectMeta{Name: volumeID},
+			Spec: migrationv1alpha1.CnsVSphereVolumeMigrationSpec{
+				VolumePath: volumeSpec.VolumePath,
+				VolumeID:   volumeID,
+			},
+		}
+		log.Debugf("Saving cnsvSphereVolumeMigration CR: %v", cnsvSphereVolumeMigration)
+		err = volumeMigration.saveVolumeInfo(ctx, &cnsvSphereVolumeMigration)
+		if err != nil {
+			log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", cnsvSphereVolumeMigration, err)
+			return "", err
+		}
+		return volumeID, nil
 	}
-	log.Infof("Successfully registered volumeSpec: %v with CNS. VolumeID: %v", volumeSpec, volumeID)
-	cnsvSphereVolumeMigration := migrationv1alpha1.CnsVSphereVolumeMigration{
-		ObjectMeta: metav1.ObjectMeta{Name: volumeID},
-		Spec: migrationv1alpha1.CnsVSphereVolumeMigrationSpec{
-			VolumePath: volumeSpec.VolumePath,
-			VolumeID:   volumeID,
-		},
-	}
-	log.Debugf("Saving cnsvSphereVolumeMigration CR: %v", cnsvSphereVolumeMigration)
-	err = volumeMigration.saveVolumeInfo(ctx, &cnsvSphereVolumeMigration)
-	if err != nil {
-		log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", err)
-		return "", err
-	}
-	return volumeID, nil
+	return "", ErrVolumeIDNotFound
 }
 
 // GetVolumePath returns VolumePath for given VolumeID.
@@ -314,7 +319,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	log.Debugf("Saving cnsvSphereVolumeMigration CR: %v", cnsvSphereVolumeMigration)
 	err = volumeMigration.saveVolumeInfo(ctx, &cnsvSphereVolumeMigration)
 	if err != nil {
-		log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", err)
+		log.Errorf("failed to save cnsvSphereVolumeMigration CR:%v, err: %v", cnsvSphereVolumeMigration, err)
 		return "", err
 	}
 	return fileBackingInfo.FilePath, nil
@@ -367,6 +372,11 @@ func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, vo
 // Returns VolumeID for successful registration, otherwise return error.
 func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volumeSpec *VolumeSpec) (string, error) {
 	log := logger.GetLogger(ctx)
+	value, _ := volumeMigration.registerVolumeMutexes.LoadOrStore(volumeSpec.VolumePath, &sync.Mutex{})
+	mtx := value.(*sync.Mutex)
+	mtx.Lock()
+	defer mtx.Unlock()
+
 	uuid, err := uuid.NewUUID()
 	if err != nil {
 		log.Errorf("failed to generate uuid")
