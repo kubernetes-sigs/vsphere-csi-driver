@@ -589,6 +589,42 @@ func getPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string, s
 	return claim
 }
 
+// getPersistentVolumeClaimSpecWithoutStorageClass return the PersistentVolumeClaim
+// spec without passing the storage class.
+func getPersistentVolumeClaimSpecWithoutStorageClass(namespace string, ds string,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	disksize := diskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
+}
+
 // createPVCAndStorageClass helps creates a storage class with specified name,
 // storageclass parameters and PVC using storage class.
 func createPVCAndStorageClass(client clientset.Interface, pvcnamespace string,
@@ -625,6 +661,44 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 		scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	return storageclass, err
+}
+
+// updateSCtoDefault updates the given SC to default
+func updateSCtoDefault(ctx context.Context, scName, isDefault string) error {
+	log := logger.GetLogger(ctx)
+	clientSet, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
+		return err
+	}
+	_, err = clientSet.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Failed to get storage class object from cluster, err=%+v", err)
+		return err
+	}
+
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				"storageclass.kubernetes.io/is-default-class": isDefault,
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("Failed to marshal patch(%s): %s", patch, err)
+		return err
+	}
+
+	// Patch the storage class with the updated annotation.
+	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx,
+		scName, "application/merge-patch+json", patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		log.Errorf("Failed to patch the storage class object with isDeafult. Err = %+v", err)
+		return err
+	}
+	log.Debug("Successfully updated is default annotations of storage class: ", scName, updatedSC.Annotations)
+	return nil
 }
 
 // createPVC helps creates pvc with given namespace and labels using given
