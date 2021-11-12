@@ -623,7 +623,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		4. Verify the error message on the failure
 		5. Delete PVC
 	*/
-	ginkgo.It("[rwm-csi-tkg] Exceed resource quota on deafult SC while provisioning file volume", func() {
+	ginkgo.It("[rwm-csi-tkg] Exceed resource quota on default SC while provisioning file volume", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim
