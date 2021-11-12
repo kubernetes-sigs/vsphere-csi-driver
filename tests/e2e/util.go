@@ -694,7 +694,7 @@ func updateSCtoDefault(ctx context.Context, scName, isDefault string) error {
 	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx,
 		scName, "application/merge-patch+json", patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		log.Errorf("Failed to patch the storage class object with isDeafult. Err = %+v", err)
+		log.Errorf("Failed to patch the storage class object with isDefault. Err = %+v", err)
 		return err
 	}
 	log.Debug("Successfully updated is default annotations of storage class: ", scName, updatedSC.Annotations)
