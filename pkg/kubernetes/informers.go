@@ -76,6 +76,20 @@ func (im *InformerManager) AddNodeListener(
 	})
 }
 
+// AddCSINodeNodeListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddCSINodeListener(
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+	if im.nodeInformer == nil {
+		im.nodeInformer = im.informerFactory.Storage().V1().CSINodes().Informer()
+	}
+
+	im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+}
+
 // AddPVCListener hooks up add, update, delete callbacks.
 func (im *InformerManager) AddPVCListener(
 	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
