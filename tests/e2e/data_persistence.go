@@ -29,7 +29,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -142,8 +141,10 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
@@ -330,21 +331,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		log.Infof("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-
-		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		log.Infof("storageclass Name :%s", storageclass.GetName())
-
-		defer func() {
-			log.Infof("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Create FCD with valid storage policy.")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimeinstring,
