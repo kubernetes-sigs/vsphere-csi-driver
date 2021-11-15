@@ -23,6 +23,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/vapi/tags"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -36,8 +37,11 @@ type Nodes struct {
 }
 
 // Initialize helps initialize node manager and node informer manager.
-func (nodes *Nodes) Initialize(ctx context.Context) error {
+// If useNodeUuid is set, an informer on K8s CSINode is created.
+// if not, an informer on K8s Node API object is created.
+func (nodes *Nodes) Initialize(ctx context.Context, useNodeUuid bool) error {
 	nodes.cnsNodeManager = GetManager(ctx)
+	nodes.cnsNodeManager.SetUseNodeUuid(useNodeUuid)
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
@@ -46,7 +50,13 @@ func (nodes *Nodes) Initialize(ctx context.Context) error {
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(k8sclient)
-	nodes.informMgr.AddNodeListener(nodes.nodeAdd, nodes.nodeUpdate, nodes.nodeDelete)
+	if useNodeUuid {
+		nodes.informMgr.AddCSINodeListener(nodes.csiNodeAdd,
+			nodes.csiNodeUpdate, nodes.csiNodeDelete)
+	} else {
+		nodes.informMgr.AddNodeListener(nodes.nodeAdd,
+			nodes.nodeUpdate, nodes.nodeDelete)
+	}
 	nodes.informMgr.Listen()
 	return nil
 }
@@ -102,6 +112,67 @@ func (nodes *Nodes) nodeDelete(obj interface{}) {
 	}
 }
 
+func (nodes *Nodes) csiNodeAdd(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	csiNode, ok := obj.(*storagev1.CSINode)
+	if csiNode == nil || !ok {
+		log.Warnf("csiNodeAdd: unrecognized object %+v", obj)
+		return
+	}
+	nodeName := csiNode.Name
+	nodeUUID := k8s.GetNodeIdFromCSINode(csiNode)
+	if nodeUUID == "" {
+		log.Warnf("csiNodeAdd: nodeId is either empty. CSINode object: %v",
+			csiNode)
+		return
+	}
+	err := nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
+	if err != nil {
+		log.Warnf("csiNodeAdd: failed to register node:%q. err=%v", nodeName, err)
+	}
+}
+
+func (nodes *Nodes) csiNodeUpdate(oldObj interface{}, newObj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	newCSINode, ok := newObj.(*storagev1.CSINode)
+	if !ok {
+		log.Warnf("csiNodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)
+		return
+	}
+	oldCSINode, ok := oldObj.(*storagev1.CSINode)
+	if !ok {
+		log.Warnf("csiNodeUpdate: unrecognized object oldObj %[1]T%+[1]v", oldObj)
+		return
+	}
+	nodeName := newCSINode.Name
+	newNodeId := k8s.GetNodeIdFromCSINode(newCSINode)
+	oldNodeId := k8s.GetNodeIdFromCSINode(oldCSINode)
+	if oldNodeId != newNodeId && newNodeId != "" {
+		log.Infof("csiNodeUpdate: Observed node UUID change from "+
+			"%q to %q for the node: %q", oldNodeId, newNodeId, nodeName)
+		newNodeUuid := newNodeId
+		err := nodes.cnsNodeManager.RegisterNode(ctx, newNodeUuid, nodeName)
+		if err != nil {
+			log.Warnf("csiNodeUpdate: Failed to register node:%q. err=%v",
+				nodeName, err)
+		}
+	}
+}
+
+func (nodes *Nodes) csiNodeDelete(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	csiNode, ok := obj.(*storagev1.CSINode)
+	if csiNode == nil || !ok {
+		log.Warnf("csiNodeDelete: unrecognized object %+v", obj)
+		return
+	}
+	nodeName := csiNode.Name
+	err := nodes.cnsNodeManager.UnregisterNode(ctx, nodeName)
+	if err != nil {
+		log.Warnf("csiNodeDelete: failed to unregister node:%q. err=%v", nodeName, err)
+	}
+}
+
 // GetNodeByName returns VirtualMachine object for given nodeName.
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume
 // to perform attach and detach operations.
@@ -114,6 +185,13 @@ func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
 func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
 	string, error) {
 	return nodes.cnsNodeManager.GetNodeNameByUUID(ctx, nodeUUID)
+}
+
+// GetNodeByUuid returns VirtualMachine object for given nodeUuid.
+// This is called by ControllerPublishVolume and ControllerUnpublishVolume
+// to perform attach and detach operations.
+func (nodes *Nodes) GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNode(ctx, nodeUuid, nil)
 }
 
 // GetAllNodes returns VirtualMachine for all registered.

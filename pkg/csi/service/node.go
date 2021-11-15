@@ -338,11 +338,28 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var nodeInfoResponse *csi.NodeGetInfoResponse
 
+	var nodeID string
+	var err error
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
-		return nil, logger.LogNewErrorCode(log, codes.Internal, "ENV NODE_NAME is not set")
+		return nil, logger.LogNewErrorCode(log, codes.Internal,
+			"ENV NODE_NAME is not set")
 	}
-	nodeID := nodeName
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
+		// Get VM UUID
+		nodeID, err = driver.osUtils.GetSystemUUID(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get system uuid for node VM with error: %v", err)
+		}
+		nodeID, err = driver.osUtils.ConvertUUID(nodeID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"convertUUID failed with error: %v", err)
+		}
+	} else {
+		nodeID = nodeName
+	}
 
 	var maxVolumesPerNode int64
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
@@ -376,7 +393,6 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var (
 		accessibleTopology map[string]string
-		err                error
 	)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 		// Initialize volume topology service.
