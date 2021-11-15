@@ -86,6 +86,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
+	useNodeUuid := coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -102,14 +103,14 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, recorder, useNodeUuid))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo,
-	recorder record.EventRecorder) reconcile.Reconciler {
+	recorder record.EventRecorder, useNodeUuid bool) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, recorder: recorder}
+		configInfo: configInfo, recorder: recorder, useNodeUuid: useNodeUuid}
 }
 
 // add adds a new Controller to mgr with r as the `reconcile.Reconciler`.
@@ -168,10 +169,11 @@ var _ reconcile.Reconciler = &ReconcileCSINodeTopology{}
 type ReconcileCSINodeTopology struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
-	client     client.Client
-	scheme     *runtime.Scheme
-	configInfo *cnsconfig.ConfigurationInfo
-	recorder   record.EventRecorder
+	client      client.Client
+	scheme      *runtime.Scheme
+	configInfo  *cnsconfig.ConfigurationInfo
+	recorder    record.EventRecorder
+	useNodeUuid bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -208,7 +210,13 @@ func (r *ReconcileCSINodeTopology) Reconcile(ctx context.Context, request reconc
 	// Get NodeVM instance.
 	nodeID := instance.Spec.NodeID
 	nodeManager := node.GetManager(ctx)
-	nodeVM, err := nodeManager.GetNodeByName(ctx, nodeID)
+	var nodeVM *cnsvsphere.VirtualMachine
+	if r.useNodeUuid {
+		nodeUuid := nodeID
+		nodeVM, err = nodeManager.GetNode(ctx, nodeUuid, nil)
+	} else {
+		nodeVM, err = nodeManager.GetNodeByName(ctx, nodeID)
+	}
 	if err != nil {
 		if err == node.ErrNodeNotFound {
 			log.Warnf("Node %q is not yet registered in the node manager. Error: %+v", nodeID, err)

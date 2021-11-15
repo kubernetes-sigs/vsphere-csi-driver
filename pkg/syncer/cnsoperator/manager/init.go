@@ -183,8 +183,12 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}
 			// Initialize node manager so that CSINodeTopology controller can
 			// retrieve NodeVM using the NodeID in the spec.
+			useNodeUuid := false
+			if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId) {
+				useNodeUuid = true
+			}
 			nodeMgr := &node.Nodes{}
-			err = nodeMgr.Initialize(ctx)
+			err = nodeMgr.Initialize(ctx, useNodeUuid)
 			if err != nil {
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 				return err
