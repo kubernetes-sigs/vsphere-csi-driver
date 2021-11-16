@@ -25,7 +25,6 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,6 +32,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	featurestatesconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/config"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
@@ -96,9 +96,8 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 	var err error
 	// This is idempotent if CRD is pre-created then we continue with
 	// initialization of svFSSReplicationService.
-	err = k8s.CreateCustomResourceDefinitionFromSpec(ctx, CRDName, CRDSingular, CRDPlural,
-		reflect.TypeOf(featurestatesv1alpha1.CnsCsiSvFeatureStates{}).Name(), CRDGroupName,
-		internalapis.SchemeGroupVersion.Version, apiextensionsv1beta1.NamespaceScoped)
+	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, featurestatesconfig.EmbedCnsCsiSvFeatureStatesCRFile,
+		featurestatesconfig.EmbedCnsCsiSvFeatureStatesCRFileName)
 	if err != nil {
 		log.Errorf("failed to create CnsCsiSvFeatureStates CRD. Error: %v", err)
 		return err
