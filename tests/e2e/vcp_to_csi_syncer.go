@@ -959,7 +959,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = fdep.WaitForDeploymentComplete(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pods, err = fdep.GetPodsForDeployment(client, dep1)
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = wait4DeploymentPodsCreation(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(pods.Items)).NotTo(gomega.BeZero())
 		pod = pods.Items[0]
@@ -1764,4 +1766,21 @@ func scaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.
 		err = c.AppsV1().Deployments(ns).Delete(ctx, dep.Name, metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+//wait4DeploymentPodsCreation wait for pods from deployment to be running
+func wait4DeploymentPodsCreation(c clientset.Interface, dep *appsv1.Deployment) (*v1.PodList, error) {
+	var pods *v1.PodList
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		pods, err = fdep.GetPodsForDeployment(c, dep)
+		if err != nil {
+			if strings.Contains(err.Error(), "progressing") {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	return pods, waitErr
 }

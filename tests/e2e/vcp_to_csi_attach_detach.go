@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		vcpPvsPostMig              []*v1.PersistentVolume
 		err                        error
 		kcmMigEnabled              bool
-		kubectlMigEnabled          bool
+		kubeletMigEnabled          bool
 		isSPSserviceStopped        bool
 		isVsanHealthServiceStopped bool
 		vmdks                      []string
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
-		kubectlMigEnabled = false
+		kubeletMigEnabled = false
 
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -113,20 +113,18 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
+			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(
-				fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime),
-			)
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		if isSPSserviceStopped {
 			ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-			err = invokeVCenterServiceControl("start", "sps", vcAddress)
+			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		for _, pod := range podsToDelete {
@@ -149,7 +147,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			}
 		}
 
-		if kubectlMigEnabled {
+		if kubeletMigEnabled {
 			ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
 			toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		}
@@ -459,7 +457,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
-		kubectlMigEnabled = true
+		kubeletMigEnabled = true
 
 		ginkgo.By("Creating VCP SC post migration")
 		vcpScPost, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
@@ -572,7 +570,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
-		kubectlMigEnabled = false
+		kubeletMigEnabled = false
 
 		ginkgo.By("Disable CSI migration feature gates on kube-controller-manager")
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
@@ -612,6 +610,401 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		}
 
 	})
+
+	/*
+		Migration enabled - SPS is down
+		Steps:
+		1.	Create storage class compatible with VCP and with parameters supported by CSI as well
+		2.	Create a PVC with the above created Storage class
+		3.	Make sure PV and PVC are in bound state
+		4.	Create POD and it is in running state
+		5.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kube-controller-manager.
+		6.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation -
+				storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		7.	Verify the previously created PVC , PV all should be present , and should have the annotation
+			"pv.kubernetes.io/migrated-to: csi.vsphere.vmware.com"
+		8.	Make sure PV , PVC are in bound state.
+		9.	Describe PVC and verify the annotations
+		10.	SPS service is down
+		11.	Recreate pods on the migrated node with migrated volumes.
+		12.	Till the Service is down , verify that POD is not in running state
+		13.	Bring up SPS service wait for some time and make sure POD is created and it is in running state
+		14.	Delete POD
+		15.	Delete PVC
+		16.	Make sure Cnsvspherevolumemigrations associated with the volume is getting deleted automatically
+	*/
+	ginkgo.It("Migration enabled - SPS is down", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating dynamic VCP PVCs before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create POD and wait for it to reach running state")
+		_, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
+		kubeletMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ginkgo.By("Stopping sps on the vCenter")
+		isSPSserviceStopped = true
+		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating pod")
+		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Till the Service is down , verify that POD is not in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		ginkgo.By("Starting sps on the vCenter")
+		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isSPSserviceStopped = false
+
+		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podsToDelete = append(podsToDelete, pod)
+
+	})
+
+	/*
+		SPS is down before enabling migration
+		Steps:
+		1.	Create storage class compatible with VCP and with parameters supported by CSI as well
+		2.	Create a PVC with the above created Storage class
+		3.	Make sure PV and PVC are in bound state
+		4.	Create POD and it is in running state
+		5.	Make SPS service is down
+		6.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kube-controller-manager.
+		7.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation -
+				storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		8.	Verify the previously created PVC , PV all should be present , and should have the annotation
+			"pv.kubernetes.io/migrated-to: csi.vsphere.vmware.com"
+		9.	Make sure PV , PVC are in bound state.
+		10.	Describe PVC and verify the annotations
+		11.	Recreate pods on the migrated node with migrated volumes.
+		12.	Till the Service is down , verify that POD is not in running state
+		13.	Bring up SPS service wait for some time and make sure POD is created and it is in running state
+		14.	Delete POD
+		15.	Delete PVC
+		16.	Make sure Cnsvspherevolumemigrations associated with the volume is getting deleted automatically
+	*/
+	ginkgo.It("SPS is down before enabling migration", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating dynamic VCP PVCs before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create POD and wait for it to reach running state")
+		_, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ginkgo.By("Stopping sps on the vCenter")
+		isSPSserviceStopped = true
+		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
+		kubeletMigEnabled = true
+
+		ginkgo.By("Creating pod")
+		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Till the Service is down , verify that POD is not in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		ginkgo.By("Starting sps on the vCenter")
+		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isSPSserviceStopped = false
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
+
+		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podsToDelete = append(podsToDelete, pod)
+
+	})
+
+	/*
+		Migration enabled - VSAN health is down
+		Steps:
+			1.	Create storage class compatible with VCP and with parameters supported by CSI as well
+		2.	Create a PVC with the above created Storage class
+		3.	Make sure PV and PVC are in bound state
+		4.	Create POD and it is in running state
+		5.	Make VSAN health service down
+		6.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kube-controller-manager.
+		7.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation -
+				storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		8.	Verify the previously created PVC , PV all should be present , and should have the annotation
+			"pv.kubernetes.io/migrated-to: csi.vsphere.vmware.com"
+		9.	Make sure volume is getting migrated and Cnsvsphere volumemigration is getting created
+		10.	Make sure PV , PVC are in bound state.
+		11.	Recreate pods on the migrated node with migrated volumes
+		12.	POD should be in pending state
+		13.	Bring up VSAN health service wait for some time and make sure POD is created and it is in running state
+		14.	Describe POD and verify the details
+		15.	Delete POD
+		16.	Delete PVC
+		17.	Make sure Cnsvspherevolumemigrations associated with the volume is getting deleted automatically
+	*/
+	ginkgo.It("Migration enabled - VSAN health is down", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating dynamic VCP PVCs before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create POD and wait for it to reach running state")
+		_, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
+		kubeletMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ginkgo.By("Stopping vsan-health on the vCenter")
+		isVsanHealthServiceStopped = true
+		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating pod")
+		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Till the Service is down , verify that POD is not in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		ginkgo.By("Starting vsan-health on the vCenter")
+		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVsanHealthServiceStopped = false
+
+		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podsToDelete = append(podsToDelete, pod)
+
+	})
+
+	/*
+		VSAN health is down before enabling migration
+		Steps:
+			1.	Create storage class compatible with VCP and with parameters supported by CSI as well
+		2.	Create a PVC with the above created Storage class
+		3.	Make sure PV and PVC are in bound state
+		4.	Create POD and it is in running state
+		5.	Make VSAN health service down
+		6.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kube-controller-manager.
+		7.	Repeat the following steps for all the nodes in the k8s cluster
+			a.	Drain and Cordon off the node
+			b.	Enable CSIMigration and CSIMigrationvSphere feature gates on the kubelet and Restart kubelet.
+			c.	verify CSI node for the corresponding K8s node has the following annotation -
+				storage.alpha.kubernetes.io/migrated-plugins
+			d.	Enable scheduling on the node
+		8.	Verify the previously created PVC , PV all should be present , and should have the annotation
+			"pv.kubernetes.io/migrated-to: csi.vsphere.vmware.com"
+		9.	Make sure volume is getting migrated and Cnsvsphere volumemigration is getting created
+		10.	Make sure PV , PVC are in bound state.
+		11.	Recreate pods on the migrated node with migrated volumes
+		12.	POD should be in pending state
+		13.	Bring up VSAN health service wait for some time and make sure POD is created and it is in running state
+		14.	Describe POD and verify the details
+		15.	Delete POD
+		16.	Delete PVC
+		17.	Make sure Cnsvspherevolumemigrations associated with the volume is getting deleted automatically
+	*/
+	ginkgo.It("VSAN health is down before enabling migration", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating VCP SC")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating dynamic VCP PVCs before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create POD and wait for it to reach running state")
+		_, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ginkgo.By("Stopping vsan-health on the vCenter")
+		isVsanHealthServiceStopped = true
+		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
+		kubeletMigEnabled = true
+
+		ginkgo.By("Creating pod")
+		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Till the Service is down , verify that POD is not in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		ginkgo.By("Starting vsan-health on the vCenter")
+		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVsanHealthServiceStopped = false
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
+
+		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podsToDelete = append(podsToDelete, pod)
+
+	})
+
 })
 
 //fetchCnsVolID4VcpPvcs return the CNS volume id for the given VCP PVCs
