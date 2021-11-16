@@ -51,7 +51,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/types"
@@ -498,19 +497,15 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 	resp, err := reconcileCnsNodeVMAttachmentInternal()
-	log := logger.GetLogger(ctx)
-
-	namespace := common.GetNamespaceFromContext(ctx)
-	log.Debugf("Namespace from context metadata: %s", namespace)
 
 	if (err != nil || resp != reconcile.Result{}) {
 		// When reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
 		// for this case, we need count it as an attach/detach failure
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, request.Namespace).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, request.Namespace).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
