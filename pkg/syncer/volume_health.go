@@ -26,6 +26,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -34,7 +36,6 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("csiGetVolumeHealthStatus: start")
-
 	// Call CNS QueryAll to get container volumes by cluster ID.
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{
@@ -86,12 +87,15 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		volumeIdToHealthStatusMap[vol.VolumeId.Id] = vol.HealthStatus
 	}
 
+	accessibleVolumeCount := 0
+	inaccessibleVolumeCount := 0
 	for volID, pvc := range volumeHandleToPvcMap {
+		var volHealthStatusAnn string
 		if volHealthStatus, ok := volumeIdToHealthStatusMap[volID]; ok {
 			// Only update PVC health annotation if the HealthStatus of volume is
 			// not "unknown".
 			if volHealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-				volHealthStatusAnn, err := common.ConvertVolumeHealthStatus(ctx, volID, volHealthStatus)
+				volHealthStatusAnn, err = common.ConvertVolumeHealthStatus(ctx, volID, volHealthStatus)
 				if err != nil {
 					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", volHealthStatus, volID)
 				}
@@ -110,9 +114,21 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 			// updated every 5 mins, wait for an hour or so before taking any
 			// corrective actions. This is an acceptable level of eventual
 			// consistency.
-			updateVolumeHealthStatus(ctx, k8sclient, pvc, common.VolHealthStatusInaccessible)
+			volHealthStatusAnn = common.VolHealthStatusInaccessible
+			updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
+		}
+		switch volHealthStatusAnn {
+		case common.VolHealthStatusAccessible:
+			accessibleVolumeCount += 1
+		case common.VolHealthStatusInaccessible:
+			inaccessibleVolumeCount += 1
 		}
 	}
+	prometheus.VolumeHealthGaugeVec.WithLabelValues(
+		prometheus.PrometheusAccessibleVolumes).Set(float64(accessibleVolumeCount))
+	prometheus.VolumeHealthGaugeVec.WithLabelValues(
+		prometheus.PrometheusInaccessibleVolumes).Set(float64(inaccessibleVolumeCount))
+
 	log.Infof("GetVolumeHealthStatus: end")
 }
 
