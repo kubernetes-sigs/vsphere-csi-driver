@@ -181,15 +181,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		// err = client.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+		// if !apierrors.IsNotFound(err) {
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }
 
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("storageclass name :%s", storageclass.GetName())
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		// storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// framework.Logf("storageclass name :%s", storageclass.GetName())
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
