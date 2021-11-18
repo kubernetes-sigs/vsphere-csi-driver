@@ -3,6 +3,7 @@ module sigs.k8s.io/vsphere-csi-driver/v2
 go 1.16
 
 require (
+	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.4.0
 	github.com/davecgh/go-spew v1.1.1
