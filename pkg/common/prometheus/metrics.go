@@ -139,4 +139,16 @@ var (
 	},
 		// Possible volume_health_type - "accessible-volumes", "inaccessible-volumes"
 		[]string{"volume_health_type"})
+
+	// FullSyncOpsHistVec is a histogram vector metric to observe CSI Full Sync.
+	FullSyncOpsHistVec = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "vsphere_full_sync_ops_histogram",
+		Help: "Histogram vector for CSI Full Sync operations.",
+		// Creating more buckets for operations that takes few seconds and less buckets
+		// for those that are taking a long time. A Full Sync operation taking a long time is
+		// unexpected and we don't have to be accurate(just approximation is fine).
+		Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 60, 120, 180, 300},
+	},
+		// Possible status - "pass", "fail"
+		[]string{"status"})
 )

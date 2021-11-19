@@ -19,14 +19,15 @@ package syncer
 import (
 	"context"
 	"reflect"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
@@ -35,6 +36,16 @@ import (
 func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync: Start")
+	var err error
+	fullSyncStartTime := time.Now()
+	defer func() {
+		fullSyncStatus := prometheus.PrometheusPassStatus
+		if err != nil {
+			fullSyncStatus = prometheus.PrometheusFailStatus
+		}
+		prometheus.FullSyncOpsHistVec.WithLabelValues(fullSyncStatus).Observe(
+			(time.Since(fullSyncStartTime)).Seconds())
+	}()
 
 	// guestCnsVolumeMetadataList is an in-memory list of cnsvolumemetadata
 	// objects that represents PV/PVC/Pod objects in the guest cluster API server.
