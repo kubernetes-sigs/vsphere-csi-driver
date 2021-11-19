@@ -57,6 +57,8 @@ The section outlines how to set the env variable for running the e2e test.
     # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in pvcsi.yaml
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export NEW_GUEST_CLUSTER_KUBE_CONFIG=/path/to/second-guest-cluster-kube-config-file
+    export DELETE_GUEST_CLUSTER_KUBE_CONFIG=/path/to/kube-config-file-of-guest-cluster-to-be-deleted
+    export TKG_CLUSTER_TO_DELETE="<TKG_CLUSTER_TO_DELETE>"
     export STORAGE_POLICY_WITH_THICK_PROVISIONING="<policy-name>"
     export COMPUTE_CLUSTER_NAME="<your_cluster_name>"
     export RAID_0_STORAGE_POLICY="raid-0-policy"
