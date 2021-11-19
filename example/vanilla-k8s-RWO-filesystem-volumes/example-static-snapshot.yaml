@@ -1,0 +1,21 @@
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotContent
+metadata:
+  name: static-vanilla-rwo-filesystem-snapshotcontent
+spec:
+  deletionPolicy: Delete
+  driver: csi.vsphere.vmware.com
+  source:
+    snapshotHandle: 4ef058e4-d941-447d-a427-438440b7d306+766f7158-b394-4cc1-891b-4667df0822fa # Replace it with "<FCD ID>+<FCD SnapshotID>" in your own case
+  volumeSnapshotRef:
+    name: static-vanilla-rwo-filesystem-snapshot
+    namespace: default
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: static-vanilla-rwo-filesystem-snapshot
+spec:
+  source:
+    volumeSnapshotContentName: static-vanilla-rwo-filesystem-snapshotcontent
