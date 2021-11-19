@@ -1193,22 +1193,7 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 
 // httpRequest takes client and http Request as input and performs GET operation
 // and returns bodybytes
-func httpRequest(client *http.Client, req *http.Request) []byte {
-	resp, err := client.Do(req)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("API Response status %d", resp.StatusCode)
-	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
-
-	return bodyBytes
-
-}
-
-//httpPost takes client and http Request as input and performs POST operation
-// and returns bodybytes and status code
-func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
+func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
@@ -1217,6 +1202,7 @@ func httpPost(client *http.Client, req *http.Request) ([]byte, int) {
 	framework.Logf("API Response status %d", resp.StatusCode)
 
 	return bodyBytes, resp.StatusCode
+
 }
 
 //getVMImages returns the available gc images present in svc
@@ -1233,12 +1219,64 @@ func getVMImages(wcpHost string, wcpToken string) VMImages {
 	req, err := http.NewRequest("GET", getVirtualMachineImagesURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpRequest(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	err = json.Unmarshal(bodyBytes, &vmImage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return vmImage
+}
+
+//deleteTKG method deletes the TKG Cluster
+func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
+	ginkgo.By("Delete TKG")
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	_, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+
+	req, err = http.NewRequest("DELETE", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+	_, statusCode = httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+
+	//get gc and validate if gc is deleted
+	req, err = http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+
+	err = waitForDeleteToComplete(client, req)
+
+	return err
+
+}
+
+//waitForDeleteToComplete method polls for the requested object status
+//returns true if its deleted successfully else returns error
+func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
+		framework.Logf("Polling for New GC status")
+		_, statusCode := httpRequest(client, req)
+
+		if statusCode == 404 {
+			framework.Logf("requested object is deleted")
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
 }
 
 //upgradeTKG method updates the TKG Cluster with the tkgImage
@@ -1256,7 +1294,8 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpRequest(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1310,7 +1349,7 @@ func createGC(wcpHost string, wcpToken string) {
 	req.Header.Add("Authorization", "Bearer "+wcpToken)
 	req.Header.Add("Accept", "application/yaml")
 	req.Header.Add("Content-Type", "application/yaml")
-	bodyBytes, statusCode := httpPost(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
 
 	response := string(bodyBytes)
 	framework.Logf(response)
@@ -1331,7 +1370,8 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 	req, err := http.NewRequest("GET", getGCURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", wcpToken)
-	bodyBytes := httpRequest(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	var tkg TKGCluster
 	err = yaml.Unmarshal(bodyBytes, &tkg)
@@ -1347,7 +1387,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 	req.Header.Add("Authorization", wcpToken)
 	req.Header.Add("Accept", "application/yaml")
 	req.Header.Add("Content-Type", "application/yaml")
-	bodyBytes, statusCode := httpPost(client, req)
+	bodyBytes, statusCode = httpRequest(client, req)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	response := string(bodyBytes)
@@ -1372,7 +1412,8 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
-		bodyBytes := httpRequest(client, req)
+		bodyBytes, statusCode := httpRequest(client, req)
+		gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 		response = string(bodyBytes)
 
 		if strings.Contains(response, "\"phase\":\"running\"") {
@@ -1405,7 +1446,7 @@ func getWCPSessionId(hostname string, username string, password string) string {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/json")
 	req.SetBasicAuth(username, password)
-	bodyBytes, statusCode := httpPost(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	var wcpSessionID WcpSessionID
@@ -1457,8 +1498,7 @@ func getVCentreSessionId(hostname string, username string, password string) stri
 	req.Header.Add("Content-Type", "application/json")
 	req.SetBasicAuth(username, password)
 
-	bodyBytes, statusCode := httpPost(client, req)
-
+	bodyBytes, statusCode := httpRequest(client, req)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
 
 	var sessionID string
@@ -1489,7 +1529,7 @@ func getWCPCluster(sessionID string, hostIP string) string {
 
 	req.Header.Add("vmware-api-session-id", sessionID)
 
-	bodyBytes, statusCode := httpPost(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
 
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1517,7 +1557,8 @@ func getWCPHost(wcpCluster string, hostIP string, sessionID string) string {
 	req, err := http.NewRequest("GET", clusterURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("vmware-api-session-id", sessionID)
-	bodyBytes := httpRequest(client, req)
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
 
 	var wcpClusterInfo WCPClusterInfo
 	err = json.Unmarshal(bodyBytes, &wcpClusterInfo)
