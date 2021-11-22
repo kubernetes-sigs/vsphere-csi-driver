@@ -25,8 +25,10 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
@@ -262,4 +264,16 @@ func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere
 	}
 
 	return nil
+}
+
+// GetNamespaceFromContext returns the namespace set as grpc metadata in context by the sidecars.
+// Returns unknown if it's not set.
+func GetNamespaceFromContext(ctx context.Context) string {
+	var values []string
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if values = md.Get("namespace"); len(values) > 0 {
+			return values[0]
+		}
+	}
+	return prometheus.PrometheusUnknownNamespace
 }
