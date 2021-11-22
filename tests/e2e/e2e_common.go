@@ -114,8 +114,8 @@ const (
 	pollTimeout                               = 5 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
-	healthStatusPollTimeout                   = 15 * time.Minute
-	healthStatusPollInterval                  = 15 * time.Second
+	healthStatusPollTimeout                   = 20 * time.Minute
+	healthStatusPollInterval                  = 30 * time.Second
 	psodTime                                  = "120"
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
@@ -194,6 +194,11 @@ var (
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
 	scAnnotation4Statefulset        = "volume.beta.kubernetes.io/storage-class"
 	nodeMapper                      = &NodeMapper{}
+)
+
+// For vsan stretched cluster tests
+var (
+	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

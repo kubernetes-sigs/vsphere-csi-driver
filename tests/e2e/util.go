@@ -3248,18 +3248,27 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 
 // waitForHostToBeUp will check the status of hosts and also wait for
 // pollTimeout minutes to make sure host is reachable.
-func waitForHostToBeUp(ip string) error {
+func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	framework.Logf("checking host status of %v", ip)
+	pollTimeOut := healthStatusPollTimeout
+	pollInterval := 30 * time.Second
+	if pollInfo != nil {
+		if len(pollInfo) == 1 {
+			pollTimeOut = pollInfo[0]
+		} else {
+			pollInterval = pollInfo[0]
+			pollTimeOut = pollInfo[1]
+		}
+	}
 	gomega.Expect(ip).NotTo(gomega.BeNil())
-	timeout := 1 * time.Second
-	waitErr := wait.Poll(timeout, healthStatusPollTimeout, func() (bool, error) {
-		framework.Logf("wait until %v seconds", vsanHealthServiceWaitTime)
-		_, err := net.DialTimeout("tcp", ip+":22", timeout)
+	dialTimeout := 2 * time.Second
+	waitErr := wait.Poll(pollInterval, pollTimeOut, func() (bool, error) {
+		_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
 		if err != nil {
-			framework.Logf("host unreachable, error: ", err)
+			framework.Logf("host %s unreachable, error: %s", ip, err.Error())
 			return false, nil
 		}
-		framework.Logf("host reachable")
+		framework.Logf("host %s reachable", ip)
 		return true, nil
 	})
 	return waitErr
