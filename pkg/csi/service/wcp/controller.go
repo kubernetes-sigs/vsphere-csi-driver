@@ -98,7 +98,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 			func() bool {
 				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			}, cnstypes.CnsClusterFlavorWorkload)
+			})
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -282,7 +282,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 				func() bool {
 					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				}, cnstypes.CnsClusterFlavorWorkload)
+				})
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
