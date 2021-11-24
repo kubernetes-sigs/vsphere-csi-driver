@@ -4,9 +4,9 @@
 
 For complete list of issues please check our [Github issues](https://github.com/kubernetes-sigs/vsphere-csi-driver/issues) page. If you notice an issue not listed in Github issues page, please do file an issue on the Github repository.
 
-Please refer to release notes to learn known issues in each release.
+Please refer to release notes to learn about known issues in each release.
 
-Following listing is for issues observed in the Kubernetes.
+Following listing is for issues observed in Kubernetes.
 
 ## Multi-Attach error for RWO (Block) volume when Node VM is shutdown before Pods are evicted and Volumes are detached from Node VM
 
@@ -26,14 +26,33 @@ Note: This Issue is present in all Kubernetes Releases
     5. Check if the `volumeattachment` object is deleted by Kubernetes. If this object remains on the system, you can safely delete this with `kubectl delete volumeattachments <volumeattachments-object-name>`.
     6. Wait for some time for Pod to come up on a new Node.
 
-## Kubernetes 1.17 and 1.18 issues
+## Performance regression in Kubernetes 1.17 and 1.18
 
-1. Performance regression in Kubernetes 1.17 and 1.18
-   - Impact: Low throughput of attach and detach operations, especially at scale.
-   - Upstream issue is tracked at: https://github.com/kubernetes/kubernetes/issues/84169
-   - Workaround:
-     - Upgrade Kubernetes minor version to 1.17.8 and above or 1.18.5 and above. These versions contain the upstream fix for this issue.
-     - If upgrading the Kubernetes version is not possible, then there is a workaround that can be applied on your Kubernetes cluster. On each primary node, perform the following steps:
+- Impact: Low throughput of attach and detach operations, especially at scale.
+- Upstream issue is tracked at: https://github.com/kubernetes/kubernetes/issues/84169
+- Workaround:
+  - Upgrade Kubernetes minor version to 1.17.8 and above or 1.18.5 and above. These versions contain the upstream fix for this issue.
+  - If upgrading the Kubernetes version is not possible, then there is a workaround that can be applied on your Kubernetes cluster. On each primary node, perform the following steps:
        1. Open kube-controller-manager manifest, located at `/etc/kubernetes/manifests/kube-controller-manager.yaml`
        2. Add `--disable-attach-detach-reconcile-sync` to spec.containers.command
        3. Since kube-controller-manager is a static pod, Kubelet will restart it whenever a new flag is added. Make sure the kube-controller-manager pod is up and running.
+
+## Volume resize incomplete if PVC is deleted before filesystem can be resized
+
+- Issue: Filesystem resize is skipped if the original PVC is deleted when FilesystemResizePending condition is still on the PVC, but PV and its associated volume on the storage system are not deleted due to the Retain policy. Refer to https://github.com/kubernetes/kubernetes/issues/88683 for more details.
+- Impact: User may create a new PVC to statically bind to the undeleted PV. In this case, the volume on the storage system is resized but the filesystem is not resized accordingly. User may try to write to the volume whose filesystem is out of capacity.
+- Workaround: User can log into the container to manually resize the filesystem.
+
+## Volume associated with a Statefulset cannot be resized
+
+- Issue: https://github.com/kubernetes/enhancements/issues/661
+- Impact: User cannot resize volume in a StatefulSet.
+- Workaround:
+  - Upstream solution is being tracked at https://github.com/kubernetes/enhancements/pull/2842.
+  - If the statefulset is not managed by an operator, there is a slightly risky workaround which the user can use on their own discretion depending upon their use case. Please refer to https://serverfault.com/a/989665 for more details. Kindly note that VMware does not support this option.
+
+## Recovery from volume expansion failure
+
+- Impact: If a user tries to expand a PVC to a size which may not be supported by the underlying storage system, volume expansion will keep failing and there is no way to recover.
+- Issue: https://github.com/kubernetes/enhancements/issues/1790
+- Workaround is being tracked at https://github.com/kubernetes/enhancements/blob/master/keps/sig-storage/1790-recover-resize-failure/README.md
