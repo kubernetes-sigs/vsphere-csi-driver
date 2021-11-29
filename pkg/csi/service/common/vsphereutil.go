@@ -697,13 +697,18 @@ func QueryVolumeSnapshot(ctx context.Context, volManager cnsvolume.Manager, volI
 	}
 	if len(queryResultEntries) == 0 {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed retrieve snapshot info for volume-id: %s snapshot-id: %s err: %+v", volID, snapID, err)
-
+			"no snapshot infos retrieved for volume-id: %s snapshot-id: %s from QuerySnapshot", volID, snapID)
 	}
 	snapshotResult := queryResultEntries[0]
 	if snapshotResult.Error != nil {
+		fault := snapshotResult.Error.Fault
+		if _, ok := fault.(cnstypes.CnsSnapshotNotFoundFault); ok {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"snapshot-id: %s not found for volume-id: %s during QuerySnapshots, err: %+v", snapID, volID, fault)
+		}
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed retrieve snapshot info for volume-id: %s snapshot-id: %s err: %+v", volID, snapID, snapshotResult.Error)
+			"unexpected error received when retrieving snapshot info for volume-id: %s snapshot-id: %s err: %+v",
+			volID, snapID, snapshotResult.Error.Fault)
 	}
 	//Retrieve the volume size to be returned as snapshot size.
 	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
@@ -764,6 +769,11 @@ func QueryAllVolumeSnapshots(ctx context.Context, volManager cnsvolume.Manager, 
 	//populate list of volume-ids to retrieve the volume size.
 	var volumeIds []cnstypes.CnsVolumeId
 	for _, queryResult := range queryResultEntries {
+		if queryResult.Error != nil {
+			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
+				"faults are not expected when invoking QuerySnapshots without volume-id and snapshot-id, fault: %+v",
+				queryResult.Error.Fault)
+		}
 		volumeIds = append(volumeIds, queryResult.Snapshot.VolumeId)
 	}
 	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
@@ -827,6 +837,20 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 		return nil, "", err
 	}
 	for _, queryResult := range queryResultEntries {
+		// check if the queryResult has fault, if so, the specific result can be ignored.
+		if queryResult.Error != nil {
+			// Currently, CnsVolumeNotFoundFault is the only possible fault when QuerySnapshots is
+			// invoked with only volume-id
+			fault := queryResult.Error.Fault
+			if faultInfo, ok := fault.(cnstypes.CnsVolumeNotFoundFault); ok {
+				faultVolumeId := faultInfo.VolumeId.Id
+				log.Warnf("volume %s was not found during QuerySnapshots, ignore volume..", faultVolumeId)
+				continue
+			} else {
+				return csiSnapshots, nextToken, logger.LogNewErrorCodef(log, codes.Internal,
+					"unexpected fault %+v received in QuerySnapshots result: %+v for volume: %s", fault, queryResult, volumeID)
+			}
+		}
 		snapshotCreateTimeInProto := timestamppb.New(queryResult.Snapshot.CreateTime)
 		csiSnapshotId := queryResult.Snapshot.VolumeId.Id + VSphereCSISnapshotIdDelimiter + queryResult.Snapshot.SnapshotId.Id
 		if _, ok := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id]; !ok {
