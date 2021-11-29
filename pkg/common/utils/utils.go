@@ -174,7 +174,7 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 	return allQuerySnapshotResults, "", nil
 }
 
-type cnsVolumeDetails struct {
+type CnsVolumeDetails struct {
 	VolumeID     string
 	SizeInMB     int64
 	DatastoreUrl string
@@ -183,9 +183,9 @@ type cnsVolumeDetails struct {
 
 // Query Capacity in MB and datastore URL for the source volume with expected volume type
 func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds []cnstypes.CnsVolumeId) (
-	map[string]*cnsVolumeDetails, error) {
+	map[string]*CnsVolumeDetails, error) {
 	log := logger.GetLogger(ctx)
-	volumeDetailsMap := make(map[string]*cnsVolumeDetails)
+	volumeDetailsMap := make(map[string]*CnsVolumeDetails)
 	// TODO: Update govmomi to have datastore url as selection criteria as a enum
 	datastoreSelection := "DATASTORE_URL"
 	// Select only the backing object details, volume type and datastore.
@@ -214,7 +214,7 @@ func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds 
 		volumeType := res.VolumeType
 		log.Debugf("VOLUME: %s, TYPE: %s, DATASTORE: %s, CAPACITY: %d", volumeId, volumeType, datastoreUrl,
 			volumeCapacityInMB)
-		volumeDetails := &cnsVolumeDetails{
+		volumeDetails := &CnsVolumeDetails{
 			VolumeID:     volumeId.Id,
 			SizeInMB:     volumeCapacityInMB,
 			DatastoreUrl: datastoreUrl,

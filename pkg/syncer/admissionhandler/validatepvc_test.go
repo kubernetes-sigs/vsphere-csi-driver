@@ -8,7 +8,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	snapshotclientfake "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned/fake"
