@@ -72,6 +72,8 @@ datacenters should be comma separated if deployed on multi-datacenters
     export E2E_TEST_CONF_FILE="/path/to/e2eTest.conf"
     export KUBECONFIG=~/.kube/config
     export STORAGE_POLICY_FOR_SHARED_DATASTORES="shared-ds-policy"
+    # Another shared datastore policy used in a static provisioning testcase
+    export STORAGE_POLICY_FOR_SHARED_DATASTORES_2="shared-ds-policy-2"
     export STORAGE_POLICY_FOR_NONSHARED_DATASTORES="non-shared-ds-policy"
     # For few SVC block volume expansion tests we need a storage policy which has thick provisioning enabled
     export STORAGE_POLICY_WITH_THICK_PROVISIONING="<policy-name>"
