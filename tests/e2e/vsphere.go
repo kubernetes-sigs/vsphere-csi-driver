@@ -665,6 +665,91 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	return ""
 }
 
+//getVsanClusterResource returns the vsan cluster's details
+func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...bool) *object.ClusterComputeResource {
+	refresh := false
+	var cluster *object.ClusterComputeResource
+	if len(forceRefresh) > 0 {
+		refresh = forceRefresh[0]
+	}
+	if defaultCluster == nil || refresh {
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		datacenters := []string{}
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+
+		for _, dc := range datacenters {
+			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+
+			clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			cluster = clusterComputeResource[0]
+
+			if strings.Contains(strings.ToLower(cluster.Name()), "edge") {
+				cluster = clusterComputeResource[1]
+			}
+
+			framework.Logf("Looking for cluster with the default datastore passed into test in DC: " + dc)
+			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+			if err == nil {
+				framework.Logf("Cluster %s found matching the datastore URL: %s", clusterComputeResource[0].Name(),
+					datastoreURL)
+				defaultCluster = cluster
+				break
+			}
+		}
+	} else {
+		framework.Logf("Found the default Cluster already set")
+	}
+	framework.Logf("Returning cluster %s ", defaultCluster.Name())
+	return defaultCluster
+}
+
+//getAllHostsIP reads cluster, gets hosts in it and returns IP array
+func getAllHostsIP(ctx context.Context) []string {
+	var result []string
+	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	hosts, err := cluster.Hosts(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, moHost := range hosts {
+		result = append(result, moHost.Name())
+	}
+	return result
+}
+
+//getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
+func getHostConnectionState(ctx context.Context, addr string) (string, error) {
+	var state string
+	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	hosts, err := cluster.Hosts(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for counter := range hosts {
+		var moHost mo.HostSystem
+		if hosts[counter].Name() == addr {
+			err = hosts[counter].Properties(ctx, hosts[counter].Reference(), []string{"summary"}, &moHost)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to get host system properties")
+			framework.Logf("Host owning IP: %v, and its connection state is %s", hosts[counter].Name(),
+				moHost.Summary.Runtime.ConnectionState)
+			state = string(moHost.Summary.Runtime.ConnectionState)
+			return state, nil
+		}
+	}
+	return "host not found", fmt.Errorf("host not found %s", addr)
+}
+
 //VsanQueryObjectIdentities return list of vsan uuids
 //example: For a PVC, It returns the vSAN object UUIDs to their identities
 //It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
@@ -750,5 +835,26 @@ func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, vol
 		}
 		return false, nil
 	})
+	return waitErr
+}
+
+// waitForHostConnectionState gets the connection state of the host and waits till the desired state is obtained
+func waitForHostConnectionState(ctx context.Context, addr string, state string) error {
+	var output string
+	waitErr := wait.Poll(poll, pollTimeout, func() (bool, error) {
+
+		output, err := getHostConnectionState(ctx, addr)
+		if err != nil {
+			framework.Logf("The host's %s last seen state before returning error is : %s", addr, output)
+			return false, nil
+		}
+
+		if state == output {
+			framework.Logf("The host's %s current state is as expected state : %s", addr, output)
+			return true, nil
+		}
+		return false, nil
+	})
+	framework.Logf("The host's %s last seen state before returning is : %s", addr, output)
 	return waitErr
 }

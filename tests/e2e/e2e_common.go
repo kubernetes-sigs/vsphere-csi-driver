@@ -40,6 +40,7 @@ const (
 	csiSystemNamespace                         = "vmware-system-csi"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
+	defaultProvisionerTimeInSec                = "300"
 	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
 	defaultVCRebootWaitTime                    = 180
@@ -93,6 +94,7 @@ const (
 	healthStatusAccessible                    = "accessible"
 	healthStatusInAccessible                  = "inaccessible"
 	healthStatusWaitTime                      = 2 * time.Minute
+	hostdServiceName                          = "hostd"
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
 	k8sPodTerminationTimeOutLong              = 10 * time.Minute
@@ -126,6 +128,7 @@ const (
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
 	scParamStoragePolicyID                    = "StoragePolicyId"
 	scParamStoragePolicyName                  = "StoragePolicyName"
+	shortProvisionerTimeout                   = "10"
 	sleepTimeOut                              = 30
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
@@ -134,6 +137,7 @@ const (
 	startOperation                            = "start"
 	svcStoppedMessage                         = "Stopped"
 	stopOperation                             = "stop"
+	statusOperation                           = "status"
 	supervisorClusterOperationsTimeout        = 3 * time.Minute
 	svClusterDistribution                     = "SupervisorCluster"
 	svOperationTimeout                        = 240 * time.Second
