@@ -68,15 +68,9 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
-		sc, pvc, err := createPVCAndStorageClass(client, namespace, nil,
+		_, pvc, err := createPVCAndStorageClass(client, namespace, nil,
 			scParameters, "", nil, "", false, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			ginkgo.By("Deleting Storage Class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
 		pvs, err := fpv.WaitForPVClaimBoundPhase(client,

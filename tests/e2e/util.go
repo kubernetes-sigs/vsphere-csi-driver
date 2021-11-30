@@ -654,12 +654,30 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	var storageclass *storagev1.StorageClass
+	var err error
+	isStorageClassPresent := false
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
-	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
-		scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+
+	if supervisorCluster || guestCluster {
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if storageclass != nil && err == nil {
+			isStorageClassPresent = true
+		}
+	}
+
+	if !isStorageClassPresent {
+		storageclass, err = client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
+			scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+	}
+
 	return storageclass, err
 }
 
@@ -1758,15 +1776,20 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	waitTime := 15
-	// deleteResourceQuota if already present.
-	deleteResourceQuota(client, namespace)
+	storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
-	resourceQuota := newTestResourceQuota(quotaName, size, scName)
-	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
-	ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
-	time.Sleep(time.Duration(waitTime) * time.Second)
+	_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
+	if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+		// deleteResourceQuota if already present.
+		deleteResourceQuota(client, namespace)
+
+		resourceQuota := newTestResourceQuota(quotaName, size, scName)
+		resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
+		ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
+		time.Sleep(time.Duration(waitTime) * time.Second)
+	}
 }
 
 // deleteResourceQuota deletes resource quota for the specified namespace,
@@ -3749,10 +3772,17 @@ func getRestConfigClient() *rest.Config {
 	// Get restConfig.
 	var err error
 	if restConfig == nil {
-		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		if supervisorCluster {
+			k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+		if guestCluster {
+			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+				restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			}
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	}
 	return restConfig
 }
