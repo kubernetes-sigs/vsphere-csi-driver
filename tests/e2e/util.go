@@ -661,7 +661,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 
-	if supervisorCluster || guestCluster {
+	if supervisorCluster {
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
