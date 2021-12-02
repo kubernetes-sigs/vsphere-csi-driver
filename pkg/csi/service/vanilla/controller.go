@@ -32,9 +32,9 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
 	"github.com/vmware/govmomi/vapi/tags"
+	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 
-	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
@@ -1200,94 +1200,115 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // Volume id and size is retrieved from ControllerExpandVolumeRequest.
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerExpandVolume: called with args %+v", *req)
-	//TODO: If the err is returned by invoking CNS API, then faultType should be
-	// populated by the underlying layer.
-	// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
-	// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
-	// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
-	// Later we may need to define different csi faults.
+	start := time.Now()
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	namespace := prometheus.PrometheusUnknownNamespace
+	controllerExpandVolumeInternal := func() (
+		*csi.ControllerExpandVolumeResponse, string, error) {
 
-	if strings.Contains(req.VolumeId, ".vmdk") {
-		return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
-			"cannot expand migrated vSphere volume. :%q", req.VolumeId)
-	}
+		ctx = logger.NewContextWithLogger(ctx)
+		log := logger.GetLogger(ctx)
 
-	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to verify if extend volume is supported or not. Error: %+v", err)
-	}
-	if !isExtendSupported {
-		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"volume Expansion is not supported in this vSphere release. "+
-				"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
-	}
+		log.Infof("ControllerExpandVolume: called with args %+v", *req)
+		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// populated by the underlying layer.
+		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
+		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
+		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
+		// Later we may need to define different csi faults.
 
-	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
-		c.manager.VcenterConfig.Host)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to check if online expansion is supported due to error: %v", err)
-	}
-	isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-	err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
-	if err != nil {
-		msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
-		log.Error(msg)
-		return nil, err
-	}
+		// csifault.CSIInternalFault csifault.CSIUnimplementedFault csifault.CSIInvalidArgumentFault
+		if strings.Contains(req.VolumeId, ".vmdk") {
+			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
+		}
 
-	volumeID := req.GetVolumeId()
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-	var faultType string
-
-	// Check if the volume contains CNS snapshots.
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-		snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
-			common.QuerySnapshotLimit)
+		isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to verify if extend volume is supported or not. Error: %+v", err)
 		}
-		if len(snapshots) == 0 {
-			log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
-				req.VolumeId)
-		} else {
-			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-				"volume: %s with existing snapshots %v cannot be expanded. "+
-					"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+		if !isExtendSupported {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+				"volume Expansion is not supported in this vSphere release. "+
+					"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
 		}
+
+		isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
+			c.manager.VcenterConfig.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if online expansion is supported due to error: %v", err)
+		}
+		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
+		if err != nil {
+			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, err
+		}
+		volumeType = prometheus.PrometheusBlockVolumeType
+
+		volumeID := req.GetVolumeId()
+		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
+		var faultType string
+
+		// Check if the volume contains CNS snapshots.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+				common.QuerySnapshotLimit)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+			}
+			if len(snapshots) == 0 {
+				log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
+					req.VolumeId)
+			} else {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"volume: %s with existing snapshots %v cannot be expanded. "+
+						"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+			}
+		}
+
+		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+		if err != nil {
+			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
+		}
+
+		// Always set nodeExpansionRequired to true, even if requested size is equal
+		// to current size. Volume expansion may succeed on CNS but external-resizer
+		// may fail to update API server. Requests are requeued in this case. Setting
+		// nodeExpandsionRequired to false marks PVC resize as finished which
+		// prevents kubelet from expanding the filesystem.
+		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
+		nodeExpansionRequired := true
+		// Node expansion is not required for raw block volumes.
+		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+			nodeExpansionRequired = false
+		}
+		resp := &csi.ControllerExpandVolumeResponse{
+			CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
+			NodeExpansionRequired: nodeExpansionRequired,
+		}
+		return resp, "", nil
 	}
 
-	faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+	resp, faultType, err := controllerExpandVolumeInternal()
+	log := logger.GetLogger(ctx)
 	if err != nil {
-		log.Debugf("ExpandVolumeUtil: returns fault %q for volume %q", faultType, volumeID)
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
+		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
+			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
-
-	// Always set nodeExpansionRequired to true, even if requested size is equal
-	// to current size. Volume expansion may succeed on CNS but external-resizer
-	// may fail to update API server. Requests are requeued in this case. Setting
-	// nodeExpandsionRequired to false marks PVC resize as finished which
-	// prevents kubelet from expanding the filesystem.
-	// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-	nodeExpansionRequired := true
-	// Node expansion is not required for raw block volumes.
-	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-		nodeExpansionRequired = false
-	}
-	resp := &csi.ControllerExpandVolumeResponse{
-		CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
-		NodeExpansionRequired: nodeExpansionRequired,
-	}
-	return resp, nil
+	return resp, err
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
