@@ -41,6 +41,8 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 /*
