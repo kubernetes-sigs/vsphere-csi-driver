@@ -43,6 +43,8 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 // Tests to verify Full Sync.
