@@ -26,7 +26,6 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -128,24 +127,28 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		}
 
 		for _, pod := range podsToDelete {
-			ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
+			framework.Logf("Deleting pod: %s", pod.Name)
 			volhandles := []string{}
 			for _, vol := range pod.Spec.Volumes {
-				pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
-				volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
+				if vol.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
+					volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
+				}
 			}
+			nodeName := pod.Spec.NodeName
 			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volHandle := range volhandles {
-				ginkgo.By("Verify volume is detached from the node")
-				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, pod.Spec.NodeName)
+				framework.Logf("Verify volume %v is detached from the node: %v", volHandle, nodeName)
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, nodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(isDiskDetached).To(
 					gomega.BeTrue(),
-					fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, pod.Spec.NodeName),
+					fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, nodeName),
 				)
 			}
 		}
+		podsToDelete = make([]*v1.Pod, 0)
 
 		if kubeletMigEnabled {
 			ginkgo.By("Disable CSI migration feature gates on kublets on k8s nodes")
@@ -170,15 +173,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		var defaultDatastore *object.Datastore
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
 		for _, pv := range pvsToDelete {
 			if pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimRetain {
 				err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				if defaultDatastore == nil {
-					defaultDatastore = getDefaultDatastore(ctx)
-				}
+				defaultDatastore := getDefaultDatastore(ctx)
 				if pv.Spec.CSI != nil {
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -685,13 +685,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Till the Service is down , verify that POD is not in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		err = fpod.WaitTimeoutForPodRunningInNamespace(client, pod.Name, namespace, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting sps on the vCenter")
@@ -701,10 +701,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isSPSserviceStopped = false
 
-		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
+		ginkgo.By("wait for some time and make sure POD is ready")
 		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get fresh pod info.
+		pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsToDelete = append(podsToDelete, pod)
 
 	})
@@ -777,13 +780,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		kubeletMigEnabled = true
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Till the Service is down , verify that POD is not in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		err = fpod.WaitTimeoutForPodRunningInNamespace(client, pod.Name, namespace, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting sps on the vCenter")
@@ -799,10 +802,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
-		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		ginkgo.By("wait for some time and make sure POD is ready")
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get fresh pod info.
+		pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsToDelete = append(podsToDelete, pod)
 
 	})
@@ -882,13 +888,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Till the Service is down , verify that POD is not in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		err = fpod.WaitTimeoutForPodRunningInNamespace(client, pod.Name, namespace, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting vsan-health on the vCenter")
@@ -899,9 +905,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		isVsanHealthServiceStopped = false
 
 		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get fresh pod info.
+		pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsToDelete = append(podsToDelete, pod)
 
 	})
@@ -975,13 +984,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		kubeletMigEnabled = true
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, pvclaims, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Till the Service is down , verify that POD is not in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeoutShort)
+		err = fpod.WaitTimeoutForPodRunningInNamespace(client, pod.Name, namespace, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting vsan-health on the vCenter")
@@ -998,9 +1007,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
-		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get fresh pod info.
+		pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsToDelete = append(podsToDelete, pod)
 
 	})
