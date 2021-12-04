@@ -959,13 +959,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = fdep.WaitForDeploymentComplete(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("sleep for 1 min...")
+		time.Sleep(1 * time.Minute)
 		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pods, err = wait4DeploymentPodsCreation(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(pods.Items)).NotTo(gomega.BeZero())
 		pod = pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
