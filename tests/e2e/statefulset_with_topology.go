@@ -129,4 +129,81 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		fss.DeleteAllStatefulSets(client, namespace)
 	})
 
+	/*
+		Test to verify PV node affinity details such that it should contain both zone and
+		region details of SC.
+		Verify POD is running on the same node as mentioned in node affinity details.
+		Steps
+		1. Create SC with zone and region details specified in the SC
+		2. Create statefulset with replica 3 with the above SC
+		3. Wait for all the stateful set to be up and running
+		4. Wait for pvc to be in bound state and statefulset pod in running state
+		5. Describe pv and verify node affinity details should contain both zone and region details
+		6. Verify POD is running on the same node as mentioned in node affinity details
+		7. Delete statefulset
+		8. Delete PVC and SC
+	*/
+
+	ginkgo.It("Verify pod and pv topology affinity details", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Creating StorageClass
+		ginkgo.By("Creating StorageClass for Statefulset")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Creating statefulset with 3 replicas
+		ginkgo.By("Creating statefulset with 3 replica")
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+
+		// Waiting for pods status to be Ready.
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC
+		ginkgo.By("Verify pod and pv topology affinity should contain specified zone and region details of SC")
+		for _, sspod := range ssPodsBeforeScaleDown.Items {
+			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					// verify PV node affinity details
+					pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					framework.Logf("PV %s is located in given specified zone: %s and region %s of Storage Class", pv.Name, pvZone, pvRegion)
+					nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+					framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+					if !(len(nodeList.Items) > 0) {
+						framework.Failf("Unable to find ready and schedulable Node")
+					}
+					//verify POD is running on the same node as mentioned in node affinity details
+					err = verifyPodLocation(&sspod, nodeList, pvZone, pvRegion)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					framework.Logf("Node %s is in same region %s and zone %s as pod %s pv %s is", sspod.Spec.NodeName, pvRegion, pvZone, sspod.Name, pv.Name)
+					// Verify the attached volume match the one in CNS cache
+					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Cleanup
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+		fss.DeleteAllStatefulSets(client, namespace)
+	})
 })
