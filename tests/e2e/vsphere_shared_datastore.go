@@ -24,10 +24,12 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -55,12 +57,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		scParameters          map[string]string
 		sharedDatastoreURL    string
 		nonSharedDatastoreURL string
+		storagePolicyName     string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
+		bootstrap()
 		scParameters = make(map[string]string)
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -119,6 +124,156 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		errorOccurred := checkEventsforError(client, pvclaim.Namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 		gomega.Expect(errorOccurred).To(gomega.BeTrue())
+
+	})
+
+	// Verify impact on existing pv pvc when sc recreated with different binding mode
+	// Steps
+	// 1. Create a Storage Class with Immediate Binding Mode.
+	// 2. Create a PVC using above SC.
+	// 3. Wait for PVC to be in Bound phase.
+	// 4. Create standalone pod
+	// 5. Delete Storgae Class created above
+	// 6. Recreate Storage Class with same name as above but with Binding mode WaitForFirstConsumer
+	// 7. Check PVC status after recreating storage class
+	// 8. Check pod status after recreating storage class
+	// 9. Delete Pod
+	// 10. Delete PVC and SC
+
+	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
+		"Verify impact on existing pv pvc when sc recreated with different binding mode", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Invoking Test to verify impact on existing pv pvc when sc recreated with different binding mode")
+		ginkgo.By("Creating Storage Class and PVC")
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+		// Create Storage class and PVC
+		if guestCluster {
+			scParameters[svStorageClassName] = storagePolicyName
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
+		} else if supervisorCluster {
+			namespace = getNamespaceToRunTests(f)
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+		} else if vanillaCluster {
+			scParameters[scParamFsType] = ext4FSType
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, "", nil, "", false, "")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if supervisorCluster {
+				// Update sc to Immediate Binding Mode
+				ginkgo.By("Update Storage Class to Immediate Binding Mode")
+				createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingImmediate, false, storageclass.Name)
+
+			}
+		}()
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			if supervisorCluster {
+				ginkgo.By("Delete Resource quota")
+				deleteResourceQuota(client, namespace)
+
+			}
+		}()
+
+		// Waiting for PVC to be bound
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := persistentvolumes[0]
+		volHandle := pv.Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var vmUUID string
+		var exists bool
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
+		if vanillaCluster {
+			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		}
+		framework.Logf("VMUUID : %s", vmUUID)
+
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		// Delete SC with Immediate Binding Mode
+		ginkgo.By("Delete SC created with Immediate Binding Mode")
+		client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create SC with same name but with WaitForFirstConusmer Binding Mode
+		ginkgo.By("Recreate SC with same name but with WaitForFirstConusmer Binding Mode")
+		createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("storageclass name :%s", storageclass.GetName())
+
+		// Check Pod status after recreating Storage class with different binding mode
+		ginkgo.By("Verify Pod status after recreating Storage class with different binding mode")
+		pod_status := fpod.VerifyPodsRunning(client, namespace, pod.Name, true, 0)
+		if pod.Status.Phase == v1.PodRunning {
+			framework.Logf("Pod is in Running state after recreating Storage Class")
+
+		}
+		gomega.Expect(pod_status).NotTo(gomega.HaveOccurred())
+
+		// Check PVC status after recreating Storage class with different binding mode
+		ginkgo.By("Verify PVC status after recreating Storage class with different binding mode")
+		pvclaim, err = checkPvcHasGivenStatusCondition(client,
+			namespace, pvclaim.Name, false, "")
+		if v1.PersistentVolumePhase(pvclaim.Status.Phase) == v1.VolumeBound {
+			framework.Logf("PVC is in Bound Phase after recreating Storage Class")
+
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		// Deleting Pod
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verify volume is detached from the node")
+		if supervisorCluster {
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+				pv.Spec.CSI.VolumeHandle, vmUUID))
+			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+			gomega.Expect(err).To(gomega.HaveOccurred(),
+				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+					vmUUID, pv.Spec.CSI.VolumeHandle))
+		} else {
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
+				client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		}
 
 	})
 })
