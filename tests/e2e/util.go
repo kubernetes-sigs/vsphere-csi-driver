@@ -82,6 +82,7 @@ import (
 )
 
 var (
+	defaultCluster         *object.ClusterComputeResource
 	svcClient              clientset.Interface
 	svcNamespace           string
 	vsanHealthClient       *VsanClient
@@ -939,6 +940,44 @@ func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, min
 	ginkgo.By("Waiting for a min for update operation on deployment to take effect...")
 	time.Sleep(1 * time.Minute)
 	return oldValue
+}
+
+// updateCSIDeploymentProvisionerTimeout helps to update the timeout value
+// in deployment template. For this to take effect,
+func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace string, timeout string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ignoreLabels := make(map[string]string)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	num_csi_pods := len(list_of_pods)
+
+	deployment, err := client.AppsV1().Deployments(namespace).Get(
+		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containers := deployment.Spec.Template.Spec.Containers
+	for _, c := range containers {
+		if c.Name == "csi-provisioner" {
+			for i, arg := range c.Args {
+				if strings.Contains(arg, "timeout") {
+					if strings.Contains(arg, "--timeout="+timeout+"s") {
+						framework.Logf("Provisioner Timeout value is already set to expected value, hence return")
+						return
+					} else {
+						c.Args[i] = "--timeout=" + timeout + "s"
+					}
+				}
+			}
+		}
+	}
+	deployment.Spec.Template.Spec.Containers = containers
+	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Waiting for a min for update operation on deployment to take effect...")
+	time.Sleep(1 * time.Minute)
+	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
+		pollTimeout, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // getLabelsMapFromKeyValue returns map[string]string for given array of
@@ -2843,13 +2882,13 @@ func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 
 	ginkgo.By("PSOD")
 	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
-	op, err := connectESX("root", hostIP, sshCmd)
+	op, err := runCommandOnESX("root", hostIP, sshCmd)
 	framework.Logf(op)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Injecting PSOD ")
 	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
-	op, err = connectESX("root", hostIP, psodCmd)
+	op, err = runCommandOnESX("root", hostIP, psodCmd)
 	framework.Logf(op)
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
@@ -2916,9 +2955,9 @@ func hostLogin(user, instruction string, questions []string, echos []bool) (answ
 	return answers, nil
 }
 
-// connectESX executes ssh commands on the give ESX host and returns the bash
+// runCommandOnESX executes ssh commands on the give ESX host and returns the bash
 // result.
-func connectESX(username string, addr string, cmd string) (string, error) {
+func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 	// Authentication.
 	config := &ssh.ClientConfig{
 		User:            username,
@@ -2927,6 +2966,9 @@ func connectESX(username string, addr string, cmd string) (string, error) {
 			ssh.KeyboardInteractive(hostLogin),
 		},
 	}
+
+	result := fssh.Result{Host: addr, Cmd: cmd}
+
 	// Connect.
 	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
 	if err != nil {
@@ -2940,10 +2982,64 @@ func connectESX(username string, addr string, cmd string) (string, error) {
 		return "", err
 	}
 	defer session.Close()
-	var b bytes.Buffer
-	session.Stdout = &b
-	err = session.Start(cmd)
-	return b.String(), err
+
+	// Run the command.
+	code := 0
+	var bytesStdout, bytesStderr bytes.Buffer
+	session.Stdout, session.Stderr = &bytesStdout, &bytesStderr
+	if err = session.Run(cmd); err != nil {
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful but cmd failed on the host.
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		} else {
+			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
+		}
+	}
+	result.Stdout = bytesStdout.String()
+	result.Stderr = bytesStderr.String()
+	result.Code = code
+	return result.Stdout, err
+}
+
+// stopHostDOnHost executes hostd stop service commands on the given ESX host
+func stopHostDOnHost(ctx context.Context, addr string) {
+	framework.Logf("Stopping hostd service on the host  %s ...", addr)
+	stopHostCmd := fmt.Sprintf("/etc/init.d/hostd %s", stopOperation)
+	_, err := runCommandOnESX("root", addr, stopHostCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = waitForHostConnectionState(ctx, addr, "notResponding")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	output := getHostDStatusOnHost(addr)
+	gomega.Expect(strings.Contains(output, "hostd is not running.")).NotTo(gomega.BeFalse())
+}
+
+// startHostDOnHost executes hostd start service commands on the given ESX host
+func startHostDOnHost(ctx context.Context, addr string) {
+	framework.Logf("Starting hostd service on the host  %s ...", addr)
+	startHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", startOperation)
+	_, err := runCommandOnESX("root", addr, startHostDCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = waitForHostConnectionState(ctx, addr, "connected")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	output := getHostDStatusOnHost(addr)
+	gomega.Expect(strings.Contains(output, "hostd is running.")).NotTo(gomega.BeFalse())
+}
+
+// getHostDStatusOnHost executes hostd status service commands on the given ESX host
+func getHostDStatusOnHost(addr string) string {
+	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
+	statusHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", statusOperation)
+	output, err := runCommandOnESX("root", addr, statusHostDCmd)
+	framework.Logf("hostd status command output is : " + output)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return output
 }
 
 // getPersistentVolumeSpecWithStorageclass is to create PV volume spec with

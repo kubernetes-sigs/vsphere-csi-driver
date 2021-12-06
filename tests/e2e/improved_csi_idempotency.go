@@ -22,6 +22,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -98,6 +99,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
@@ -120,6 +123,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 				err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
 					pollTimeout, ignoreLabels)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else if serviceName == hostdServiceName {
+				framework.Logf("In afterEach function to start the hostd service on all hosts")
+				hostIPs := getAllHostsIP(ctx)
+				for _, hostIP := range hostIPs {
+					startHostDOnHost(ctx, hostIP)
+				}
 			} else {
 				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
@@ -129,6 +138,50 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
+
+		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
+		updateCSIDeploymentProvisionerTimeout(client, csiSystemNamespace, defaultProvisionerTimeInSec)
+	})
+
+	/*
+		Reduce external provisioner timeout to very small interval and create pvc
+		1. Create a SC using a thick provisioned policy
+		2. Reduce external-provisioner timeout to 10s and wait for csi pod rollout
+		3. Create PVCs using SC
+		4. Wait for PVCs created to be bound
+		5. Delete PVCs and SC
+		6. Restore external-provisioner timeout to default value
+		7. Verify no orphan volumes are left (using cnsctl tool)
+	*/
+
+	ginkgo.It("Reduce external provisioner timeout and create volumes - idempotency", func() {
+		createVolumesByReducingProvisionerTime(namespace, client, storagePolicyName, scParameters,
+			volumeOpsScale, shortProvisionerTimeout)
+	})
+
+	/*
+		Create volume when hostd(esxi) goes down
+		1. Create a SC using a thick provisioned policy
+		2. Create a PVCs using SC
+		3. Find the esxi host on which the volume is being created
+			and bring hostd service on the host down and wait for 5mins (default provisioner timeout)
+		4. Bring up hostd service on the host from step 4
+		5. Wait for PVCs to be bound
+		6. Delete PVCs and SC
+		7. Verify no orphan volumes are left
+
+		Verify create volume when esx host is temporarily is disconnected
+		1. Create a SC using a thick provisioned policy
+		2. Create a PVCs using SC
+		3. Find the host on which the volume is getting created and disconnect that host for 6 mins and reconnect it
+		4. Wait for PVCs to be bound
+		5. Delete PVCs and SC
+		6. Verify no orphan volumes are left
+	*/
+	ginkgo.It("create volume when hostd service goes down - idempotency", func() {
+		serviceName = hostdServiceName
+		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+			scParameters, volumeOpsScale, isServiceStopped)
 	})
 
 	/*
@@ -228,6 +281,117 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	})
 })
 
+// createVolumesByReducingProvisionerTime creates the volumes by reducing the provisioner timeout
+func createVolumesByReducingProvisionerTime(namespace string, client clientset.Interface, storagePolicyName string,
+	scParameters map[string]string, volumeOpsScale int, customProvisionerTimeout string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ginkgo.By(fmt.Sprintf("Invoking Test for create volume by reducing the provisioner timeout to %s",
+		customProvisionerTimeout))
+	var storageclass *storagev1.StorageClass
+	var persistentvolumes []*v1.PersistentVolume
+	var pvclaims []*v1.PersistentVolumeClaim
+	var err error
+	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+
+	// Decide which test setup is available to run
+	if vanillaCluster {
+		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		// TODO: Create Thick Storage Policy from Pre-setup to support 6.7 Setups
+		scParameters[scParamStoragePolicyName] = "Management Storage Policy - Regular"
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			scParameters[scParamFsType] = nfs4FSType
+		}
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		scName := "idempotency" + curtimestring + val
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, scName)
+	} else if supervisorCluster {
+		ginkgo.By("CNS_TEST: Running for WCP setup")
+		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
+		if thickProvPolicy == "" {
+			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
+		}
+		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
+		scParameters[scParamStoragePolicyID] = profileID
+		// create resource quota
+		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+	} else {
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
+		if thickProvPolicy == "" {
+			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
+		}
+		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		scParameters[svStorageClassName] = thickProvPolicy
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer func() {
+		if !supervisorCluster {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}()
+
+	// TODO: Stop printing csi logs on the console
+	collectPodLogs(ctx, client, csiSystemNamespace)
+
+	// This assumes the tkg-controller-manager's auto sync is disabled
+	ginkgo.By(fmt.Sprintf("Reducing Provisioner time interval to %s Sec for the test...", customProvisionerTimeout))
+	updateCSIDeploymentProvisionerTimeout(client, csiSystemNamespace, customProvisionerTimeout)
+
+	defer func() {
+		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
+		updateCSIDeploymentProvisionerTimeout(client, csiSystemNamespace, defaultProvisionerTimeInSec)
+	}()
+
+	ginkgo.By("Creating PVCs using the Storage Class")
+	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
+	for i := 0; i < volumeOpsScale; i++ {
+		framework.Logf("Creating pvc%v", i)
+		accessMode := v1.ReadWriteOnce
+
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
+		pvclaims[i], err = createPVC(client, namespace, nil, "", storageclass, accessMode)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.By("Waiting for all claims to be in bound state")
+	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+		framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// TODO: Add a logic to check for the no orphan volumes
+	defer func() {
+		for _, claim := range pvclaims {
+			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		ginkgo.By("Verify PVs, volumes are deleted from CNS")
+		for _, pv := range persistentvolumes {
+			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+				framework.PodDeleteTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volumeID := pv.Spec.CSI.VolumeHandle
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+					"kubernetes", volumeID))
+		}
+	}()
+}
+
 // createVolumeWithServiceDown creates the volumes and immediately stops the services and wait for
 // the service to be up again and validates the volumes are bound
 func createVolumeWithServiceDown(serviceName string, namespace string, client clientset.Interface,
@@ -293,7 +457,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	ginkgo.By("Creating PVCs using the Storage Class")
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 	for i := 0; i < volumeOpsScale; i++ {
-		fmt.Printf("Creating %v pvc ", i)
+		framework.Logf("Creating pvc%v", i)
 		accessMode := v1.ReadWriteOnce
 
 		// Check if it is file volumes setups
@@ -344,6 +508,36 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+	} else if serviceName == hostdServiceName {
+		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
+		hostIPs := getAllHostsIP(ctx)
+		isServiceStopped = true
+
+		var wg sync.WaitGroup
+		wg.Add(len(hostIPs))
+
+		for _, hostIP := range hostIPs {
+			go stopHostD(ctx, hostIP, &wg)
+		}
+		wg.Wait()
+
+		defer func() {
+			framework.Logf("In defer function to start the hostd service on all hosts")
+			if isServiceStopped {
+				for _, hostIP := range hostIPs {
+					startHostDOnHost(ctx, hostIP)
+				}
+				isServiceStopped = false
+			}
+		}()
+
+		ginkgo.By("Sleeping for 5+1 min for default provisioner timeout")
+		time.Sleep(pollTimeoutSixMin)
+
+		for _, hostIP := range hostIPs {
+			startHostDOnHost(ctx, hostIP)
+		}
+		isServiceStopped = false
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
@@ -386,6 +580,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	// TODO: Add a logic to check for the no orphan volumes
 	defer func() {
 		for _, claim := range pvclaims {
 			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
@@ -471,7 +666,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	ginkgo.By("Creating PVCs using the Storage Class")
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 	for i := 0; i < volumeOpsScale; i++ {
-		fmt.Printf("Creating %v pvc ", i)
+		framework.Logf("Creating pvc%v", i)
 		pvclaims[i], err = fpv.CreatePVC(client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -482,6 +677,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	// TODO: Add a logic to check for the no orphan volumes
 	defer func() {
 		for _, claim := range pvclaims {
 			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
@@ -609,4 +805,10 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		pvcConditions := claims.Status.Conditions
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 	}
+}
+
+// stopHostD is a function for waitGroup to run stop hostd parallelly
+func stopHostD(ctx context.Context, addr string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	stopHostDOnHost(ctx, addr)
 }
