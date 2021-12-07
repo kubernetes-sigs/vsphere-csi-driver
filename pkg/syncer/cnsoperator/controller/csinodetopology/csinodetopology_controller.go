@@ -25,7 +25,9 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -47,6 +49,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer"
@@ -365,45 +368,56 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 			return nil, err
 		}
 
-		// In order to keep backward compatibility, we will discover existing topology labels
-		// on nodes in the cluster. Few examples on how the discovery works:
-		// Node    Topology label
-		// N1      topology.kubernetes.io/XYZ
-		// N2      topology.kubernetes.io/XYZ
-		// After the cluster is up and running, N1 and N2 will have topology labels of the
-		// form `topology.kubernetes.io/XYZ`
+		// In order to keep backward compatibility, we will discover existing topology keys
+		// from CSINodes in the cluster. Few examples on how the discovery works:
+		// CSINode   Topology Key
+		// N1        topology.kubernetes.io/XYZ
+		// N2        topology.kubernetes.io/XYZ
+		// After the cluster is up and running, nodes N1 and N2 will have topology keys of the
+		// form `topology.kubernetes.io/XYZ`.
 		//
-		// Node    Topology label
-		// N1      failure-domain.beta.kubernetes.io/XYZ
-		// N2      No label
-		// After the cluster is up and running, N1 and N2 will have topology labels of the
-		// form `failure-domain.beta.kubernetes.io/XYZ`
+		// CSINode    Topology Key
+		// N1         failure-domain.beta.kubernetes.io/XYZ
+		// N2         No label
+		// After the cluster is up and running, nodes N1 and N2 will have topology keys of the
+		// form `failure-domain.beta.kubernetes.io/XYZ`.
 		//
-		// Node    Topology label
-		// N1      failure-domain.beta.kubernetes.io/XYZ
-		// N2      topology.kubernetes.io/XYZ
-		// The nodes in the cluster will remain in CrashLoopBackOff state till the customer
-		// intervenes to have a uniform label across all nodes in the cluster.
+		// CSINode    Topology Key
+		// N1         failure-domain.beta.kubernetes.io/XYZ
+		// N2         topology.kubernetes.io/XYZ
+		// Node registration will fail as this is an unsupported configuration for the vSphere
+		// CSI driver.
 		//
-		// Node    Topology label
-		// N1      No label
-		// N2      No label
-		// After the cluster is up and running, N1 and N2 will have topology labels of the
-		// form `topology.csi.vmware.com/XYZ`
-		nodeList, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		// CSINode    Topology Key
+		// N1         No label
+		// N2         No label
+		// After the cluster is up and running, nodes N1 and N2 will have topology keys of the
+		// form `topology.csi.vmware.com/XYZ`.
+		var zoneLabel, regionLabel string
+		csiNodeList, err := k8sClient.StorageV1().CSINodes().List(ctx, metav1.ListOptions{})
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to list nodes in the cluster. Error: %+v", err)
-		}
-		zoneLabel, regionLabel, err := findExistingTopologyLabels(ctx, nodeList.Items)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to discover existing topology labels "+
-				"on the nodes in the cluster. Error: %+v", err)
-		}
-		if zoneLabel == "" && regionLabel == "" {
-			log.Infof("Did not find any existing standard topology labels on the nodes in the " +
-				"cluster, using VMware CSI topology labels instead.")
-			zoneLabel = common.TopologyLabelsDomain + "/" + zoneCat
-			regionLabel = common.TopologyLabelsDomain + "/" + regionCat
+			_, ok := err.(*apiMeta.NoKindMatchError)
+			if ok {
+				// CSINode not registered. Might be the in-tree provider.
+				log.Infof("CSINode CR not registered in environment. " +
+					"Defaulting topology labels to custom VMware labels.")
+				zoneLabel = common.TopologyLabelsDomain + "/" + zoneCat
+				regionLabel = common.TopologyLabelsDomain + "/" + regionCat
+			} else {
+				return nil, logger.LogNewErrorf(log, "failed to list CSINodes in the cluster. Error: %+v", err)
+			}
+		} else {
+			zoneLabel, regionLabel, err = findExistingTopologyLabels(ctx, csiNodeList.Items)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to discover existing topology keys "+
+					"from the CSINodes of the cluster. Error: %+v", err)
+			}
+			if zoneLabel == "" && regionLabel == "" {
+				log.Infof("Did not find any existing standard topology keys in the CSINodes of the " +
+					"cluster, using custom VMware CSI topology labels instead.")
+				zoneLabel = common.TopologyLabelsDomain + "/" + zoneCat
+				regionLabel = common.TopologyLabelsDomain + "/" + regionCat
+			}
 		}
 
 		for key, val := range topologyCategories {
@@ -429,36 +443,44 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 
 // findExistingTopologyLabels figures out if the given list of nodes were already participating
 // in a topology setup. If yes, it will discover if the nodes use the standard topology beta
-// labels or the GA labels and return those. However, if the cluster has a mix of nodes with beta
-// and GA labels, it will error out and request the customer to fix the environment before proceeding
-// further. If no topology labels were found on all nodes, it will return empty strings.
-func findExistingTopologyLabels(ctx context.Context, nodeList []corev1.Node) (string, string, error) {
+// labels or the GA labels by reading the TopologyKeys parameter in the corresponding CSINodes
+// and return those. However, if the cluster uses a mixed set of beta and GA labels, it will
+// error out and request the customer to fix the environment before proceeding further. If no
+//TopologyKeys were found on all the CSINodes in a topology aware environment, it will return
+// empty strings.
+func findExistingTopologyLabels(ctx context.Context, csiNodeList []storagev1.CSINode) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	labelMap := map[string]bool{
 		"beta": false,
 		"GA":   false,
 	}
-	for _, k8sNode := range nodeList {
-		if k8sNode.Labels[corev1.LabelTopologyZone] != "" || k8sNode.Labels[corev1.LabelTopologyRegion] != "" {
-			labelMap["GA"] = true
-		}
-		if k8sNode.Labels[corev1.LabelFailureDomainBetaZone] != "" ||
-			k8sNode.Labels[corev1.LabelFailureDomainBetaRegion] != "" {
-			labelMap["beta"] = true
+	for _, csiNode := range csiNodeList {
+		for _, driver := range csiNode.Spec.Drivers {
+			if driver.Name == csitypes.Name {
+				for _, topoKey := range driver.TopologyKeys {
+					if topoKey == corev1.LabelTopologyZone || topoKey == corev1.LabelTopologyRegion {
+						labelMap["GA"] = true
+					}
+					if topoKey == corev1.LabelFailureDomainBetaZone || topoKey == corev1.LabelFailureDomainBetaRegion {
+						labelMap["beta"] = true
+					}
+				}
+				break
+			}
 		}
 		if labelMap["GA"] && labelMap["beta"] {
-			return "", "", logger.LogNewErrorf(log, "found conflicting topology labels on certain node(s) in "+
-				"the cluster. Nodes in the cluster should either have the standard topology beta labels "+
-				"starting with \"failure-domain.beta.kubernetes.io\" or standard topology GA labels starting with "+
-				"\"topology.kubernetes.io\".")
+			return "", "", logger.LogNewErrorf(log, "found mixed set of topology keys on CSINode(s) in "+
+				"the cluster. The parameter `TopologyKeys` in the CSINodes of the cluster should either have the "+
+				"standard topology beta labels starting with \"failure-domain.beta.kubernetes.io\" or "+
+				"standard topology GA labels starting with \"topology.kubernetes.io\".")
 		}
 	}
 	switch {
 	case labelMap["GA"]:
-		log.Infof("Found standard topology GA labels on the existing nodes in the cluster.")
+		log.Infof("Found standard topology GA labels on the existing CSINodes in the cluster.")
 		return corev1.LabelTopologyZone, corev1.LabelTopologyRegion, nil
 	case labelMap["beta"]:
-		log.Infof("Found standard topology beta labels on the existing nodes in the cluster.")
+		log.Infof("Found standard topology beta labels on the existing CSINodes in the cluster.")
 		return corev1.LabelFailureDomainBetaZone, corev1.LabelFailureDomainBetaRegion, nil
 	}
 	return "", "", nil
