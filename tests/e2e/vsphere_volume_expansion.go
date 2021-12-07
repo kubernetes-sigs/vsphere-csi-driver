@@ -650,6 +650,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var originalSizeInMb, fsSize int64
 		var err error
+		var expectedErrMsg string
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
 
@@ -1435,6 +1436,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var fsSize int64
 		var err error
+
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
 
