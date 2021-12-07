@@ -650,6 +650,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var originalSizeInMb, fsSize int64
 		var err error
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -694,7 +696,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down SPS service")
 		isSPSServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -716,6 +717,23 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
+		if !featureEnabled {
+			ginkgo.By("File system resize should not succeed Since SPS service is down. Expect an error")
+			if guestCluster {
+				expectedErrMsg = "didn't find a plugin capable of expanding the volume"
+			} else {
+				expectedErrMsg = "failed to expand volume"
+			}
+			framework.Logf("Expected failure message: %+q", expectedErrMsg)
+			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Bringup SPS service")
+			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isSPSServiceStopped = false
+		}
+
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -734,11 +752,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
 		ginkgo.By("File system resize finished successfully")
 
-		ginkgo.By("Bringup SPS service")
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSServiceStopped = false
-
+		if featureEnabled {
+			ginkgo.By("Bringup SPS service")
+			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isSPSServiceStopped = false
+		}
 	})
 
 	/*
@@ -1416,6 +1435,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var fsSize int64
 		var err error
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -1430,7 +1451,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down SPS service")
 		isSPSServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1452,6 +1472,18 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
+		if featureEnabled {
+			ginkgo.By("File system resize should not succeed Since SPS service is down. Expect an error")
+			expectedErrMsg := "failed to expand volume"
+			framework.Logf("Expected failure message: %+q", expectedErrMsg)
+			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Bringup SPS service")
+			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isSPSServiceStopped = false
+		}
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
 			framework.Failf("error updating pvc size %q", pvclaim.Name)
@@ -1463,8 +1495,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringup SPS service")
