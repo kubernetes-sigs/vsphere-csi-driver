@@ -32,6 +32,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Multiple-Zones", func() {
@@ -158,4 +159,65 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		pv = nil
 
 	})
+
+	/*
+		Provisioning with multiple zones and regions specified in the Storage Class for non-shared datastore
+		//Steps
+		1. Create SC with multiple Zone and region details specified in the SC
+		2. Create statefulset with replica 5 using the above SC
+		3. Wait for PV, PVC to bound
+		4. Statefulset should get distributed across zones.
+		5. Describe PV and verify node affinity details should contain both zone and region details
+		5a. If a volume provisioned on datastore that is shared only within zone1 then node affinity will have details of only zone1
+		5b. If a volume provisioned on datastore that is shared only on zone2 then node affinity will have details of only zone2
+		6. Verify statefulset pod is running on the same node as mentioned in node affinity details
+		7. Delete POD,PVC,PV
+	*/
+
+	ginkgo.It("Verify provisioning with multiple regions and zones with non-shared datastore", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		topologyWithNoSharedDS := GetAndExpectStringEnvVar(envRegionZoneWithNoSharedDS)
+		topologyWithNoSharedDS1 := GetAndExpectStringEnvVar(envTopologyWithOnlyOneNode)
+		topologyValues := topologyWithNoSharedDS + "," + topologyWithNoSharedDS1
+		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(topologyValues)
+
+		// Creating StorageClass with multiple zone and region topology details
+		ginkgo.By("Creating StorageClass for Statefulset")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Creating statefulset with 5 replicas
+		ginkgo.By("Creating statefulset with 5 replica")
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		var replica int32 = 5
+		statefulset.Spec.Replicas = &replica
+		replicas := *(statefulset.Spec.Replicas)
+		CreateStatefulSet(namespace, statefulset, client)
+
+		// Waiting for pods status to be Ready.
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC and statefulset is distributed across zones and regions
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		err = verifyTopologyAffinityDetailsforPodAndPV(ctx, client, statefulset, namespace, zoneValues, regionValues)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Cleanup
+		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+		fss.DeleteAllStatefulSets(client, namespace)
+	})
+
 })

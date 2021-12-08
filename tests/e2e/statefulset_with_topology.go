@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	ginkgo.It("Verify pod and pv topology affinity details", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Creating StorageClass
+		// Creating StorageClass with topology details
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -174,34 +174,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Verify node and pv topology affinity should contains specified zone and region details of SC
-		ginkgo.By("Verify pod and pv topology affinity should contain specified zone and region details of SC")
-		for _, sspod := range ssPodsBeforeScaleDown.Items {
-			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			for _, volumespec := range sspod.Spec.Volumes {
-				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					// verify PV node affinity details
-					pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.Logf("PV %s is located in given specified zone: %s and region %s of Storage Class", pv.Name, pvZone, pvRegion)
-					nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
-					framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-					if !(len(nodeList.Items) > 0) {
-						framework.Failf("Unable to find ready and schedulable Node")
-					}
-					//verify POD is running on the same node as mentioned in node affinity details
-					err = verifyPodLocation(&sspod, nodeList, pvZone, pvRegion)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.Logf("Node %s is in same region %s and zone %s as pod %s pv %s is", sspod.Spec.NodeName, pvRegion, pvZone, sspod.Name, pv.Name)
-					// Verify the attached volume match the one in CNS cache
-					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(error).NotTo(gomega.HaveOccurred())
-				}
-			}
-		}
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		err = verifyTopologyAffinityDetailsforPodAndPV(ctx, client, statefulset, namespace, zoneValues, regionValues)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		// Cleanup
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 		fss.DeleteAllStatefulSets(client, namespace)

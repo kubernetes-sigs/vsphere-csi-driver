@@ -68,9 +68,11 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
@@ -92,6 +94,9 @@ var (
 	restConfig             *rest.Config
 	pvclaims               []*v1.PersistentVolumeClaim
 	pvclaimsToDelete       []*v1.PersistentVolumeClaim
+	pvZone                 string
+	pvRegion               string
+	client                 clientset.Interface
 )
 
 type TKGCluster struct {
@@ -1742,6 +1747,36 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 					gomega.Expect(regionValue).To(gomega.Equal(labelValue),
 						fmt.Sprintf("Pod %s is not running on Node located in region %v", pod.Name, regionValue))
 				}
+			}
+		}
+	}
+	framework.Logf("Pod %s is running on node located in zone: %s and region: %s", pod.Name, zoneValue, regionValue)
+	return nil
+}
+
+func verifyTopologyAffinityDetailsforPodAndPV(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, zoneValues []string, regionValues []string) error {
+	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	for _, sspod := range ssPodsBeforeScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				// verify pv node affinity details
+				pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				//verify node topology details
+				err = verifyPodLocation(&sspod, nodeList, pvZone, pvRegion)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
