@@ -35,6 +35,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
@@ -144,6 +145,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
 
+		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+
 		for _, pod := range podsToDelete {
 			ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
 			volhandles := []string{}
@@ -185,7 +188,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		fss.DeleteAllStatefulSets(client, namespace)
 
 		var defaultDatastore *object.Datastore
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
@@ -957,11 +959,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = fdep.WaitForDeploymentComplete(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pods, err = fdep.GetPodsForDeployment(client, dep1)
+		framework.Logf("sleep for 1 min...")
+		time.Sleep(1 * time.Minute)
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = wait4DeploymentPodsCreation(client, dep1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(pods.Items)).NotTo(gomega.BeZero())
 		pod = pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
@@ -1728,4 +1734,55 @@ func toggleCSIMigrationFeatureGatesOnK8snodesWithWaitForSts(ctx context.Context,
 			fss.WaitForRunningAndReady(client, *ss.Spec.Replicas, ss)
 		}
 	}
+}
+
+//scaleDownNDeleteStsDeploymentsInNamespace scales down and deletes all statefulsets and deployments in given namespace
+func scaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
+	ssList, err := c.AppsV1().StatefulSets(ns).List(
+		ctx, metav1.ListOptions{LabelSelector: labels.Everything().String()})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, sts := range ssList.Items {
+		ss := &sts
+		if ss, err = fss.Scale(c, ss, 0); err != nil {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		fss.WaitForStatusReplicas(c, ss, 0)
+		framework.Logf("Deleting statefulset %v", ss.Name)
+		// Use OrphanDependents=false so it's deleted synchronously.
+		// We already made sure the Pods are gone inside Scale().
+		deletePolicy := metav1.DeletePropagationForeground
+		err = c.AppsV1().StatefulSets(ns).Delete(ctx, ss.Name, metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	depList, err := c.AppsV1().Deployments(ns).List(
+		ctx, metav1.ListOptions{LabelSelector: labels.Everything().String()})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, deployment := range depList.Items {
+		dep := &deployment
+		err = updateDeploymentReplicawithWait(c, 0, dep.Name, ns)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deletePolicy := metav1.DeletePropagationForeground
+		err = c.AppsV1().Deployments(ns).Delete(ctx, dep.Name, metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+//wait4DeploymentPodsCreation wait for pods from deployment to be running
+func wait4DeploymentPodsCreation(c clientset.Interface, dep *appsv1.Deployment) (*v1.PodList, error) {
+	var pods *v1.PodList
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		pods, err = fdep.GetPodsForDeployment(c, dep)
+		if err != nil {
+			if strings.Contains(err.Error(), "progressing") {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	return pods, waitErr
 }
