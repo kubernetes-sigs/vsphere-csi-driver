@@ -799,12 +799,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
-		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
-		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
-
 		ginkgo.By("wait for some time and make sure POD is ready")
 		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		// Get fresh pod info.
 		pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
@@ -1003,12 +1003,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
-		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
-		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
-
 		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
 		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
 		// Get fresh pod info.
 		pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})

@@ -3300,24 +3300,23 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 }
 
 // getK8sMasterIP gets k8s master ip in vanilla setup.
-func getK8sMasterIP(ctx context.Context, client clientset.Interface) string {
+func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	var err error
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	var k8sMasterIP string
+	var k8sMasterIPs []string
 	for _, node := range nodes.Items {
 		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
 				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
-					k8sMasterIP = addr.Address
-					break
+					k8sMasterIPs = append(k8sMasterIPs, addr.Address)
 				}
 			}
 		}
 	}
-	gomega.Expect(k8sMasterIP).NotTo(gomega.BeNil(), "Unable to find k8s control plane IP")
-	return k8sMasterIP
+	gomega.Expect(k8sMasterIPs).NotTo(gomega.BeEmpty(), "Unable to find k8s control plane IP")
+	return k8sMasterIPs
 }
 
 // toggleCSIMigrationFeatureGatesOnKubeControllerManager adds/removes
@@ -3339,47 +3338,57 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 		sshCmd = "sed -i '/CSIMigration/d' " + kcmManifest
 	}
 	grepCmd := "grep CSIMigration " + kcmManifest
-	k8sMasterIP := getK8sMasterIP(ctx, client)
-	framework.Logf("Invoking command '%v' on host %v", grepCmd, k8sMasterIP)
-	sshClientConfig := &ssh.ClientConfig{
-		User: "root",
-		Auth: []ssh.AuthMethod{
-			ssh.Password("ca$hc0w"),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
-	if err != nil {
-		return err
-	}
-	if err != nil {
-		fssh.LogResult(result)
-		return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s",
-			grepCmd, k8sMasterIP, err)
-	}
-	if result.Code != 0 {
-		if add {
-			// nolint:misspell
-			sshCmd = "gawk -i inplace '/--bind-addres/ " +
-				"{ print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " +
-				kcmManifest
-		} else {
-			return nil
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	for _, k8sMasterIP := range k8sMasterIPs {
+		framework.Logf("Invoking command '%v' on host %v", grepCmd, k8sMasterIP)
+		sshClientConfig := &ssh.ClientConfig{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(k8sVmPasswd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-	}
-	framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
-	result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
+		result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+		if err != nil {
+			return err
+		}
+		if err != nil {
+			fssh.LogResult(result)
+			return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s",
+				grepCmd, k8sMasterIP, err)
+		}
+		if result.Code != 0 {
+			if add {
+				// nolint:misspell
+				sshCmd = "gawk -i inplace '/--bind-addres/ " +
+					"{ print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " +
+					kcmManifest
+			} else {
+				return nil
+			}
+		}
+		framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
+		result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
+		if err != nil || result.Code != 0 {
+			fssh.LogResult(result)
+			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
+		}
 	}
 	// Sleeping for two seconds so that the change made to manifest file is
 	// recognised.
 	time.Sleep(2 * time.Second)
-	framework.Logf("Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout)
+
+	framework.Logf(
+		"Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout*2)
 	label := labels.SelectorFromSet(labels.Set(map[string]string{"component": "kube-controller-manager"}))
-	_, err = fpod.WaitForPodsWithLabelRunningReady(client, kubeSystemNamespace, label, 1, pollTimeout)
-	framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout)
+	_, err = fpod.WaitForPodsWithLabelRunningReady(
+		client, kubeSystemNamespace, label, len(k8sMasterIPs), pollTimeout*2)
+	if err == nil {
+		framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout*2)
+	} else {
+		framework.Logf(
+			"'kube-controller-manager' controller pod is not up and/or ready within %v seconds", pollTimeout*2)
+	}
 	return err
 }
 
@@ -3786,7 +3795,7 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
-			ssh.Password("ca$hc0w"),
+			ssh.Password(k8sVmPasswd),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}

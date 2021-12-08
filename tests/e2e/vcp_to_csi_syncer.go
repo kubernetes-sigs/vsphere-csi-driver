@@ -1774,7 +1774,7 @@ func scaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.
 func wait4DeploymentPodsCreation(c clientset.Interface, dep *appsv1.Deployment) (*v1.PodList, error) {
 	var pods *v1.PodList
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
 		pods, err = fdep.GetPodsForDeployment(c, dep)
 		if err != nil {
 			if strings.Contains(err.Error(), "progressing") {
