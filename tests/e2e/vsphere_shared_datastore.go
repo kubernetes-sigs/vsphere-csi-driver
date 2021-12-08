@@ -145,11 +145,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test to verify impact on existing pv pvc when sc recreated with different binding mode")
-		ginkgo.By("Creating Storage Class and PVC")
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
+		if !vanillaCluster {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
+		}
 		// Create Storage class and PVC
+		ginkgo.By("Creating Storage Class and PVC")
 		if guestCluster {
 			scParameters[svStorageClassName] = storagePolicyName
 			storageclass, pvclaim, err = createPVCAndStorageClass(client,
@@ -166,6 +169,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, scParameters, "", nil, "", false, "")
 		}
+		framework.Logf("storageclass name :%s", storageclass.GetName())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
