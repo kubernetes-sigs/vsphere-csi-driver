@@ -96,7 +96,6 @@ var (
 	pvclaimsToDelete       []*v1.PersistentVolumeClaim
 	pvZone                 string
 	pvRegion               string
-	client                 clientset.Interface
 )
 
 type TKGCluster struct {

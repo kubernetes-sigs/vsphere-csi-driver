@@ -61,6 +61,8 @@ const (
 	envVCRebootWaitTime                        = "VC_REBOOT_WAIT_TIME"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
+	envRegionZoneWithSharedDSCluster1          = "TOPOLOGY_WITH_SHARED_DATASTORE_CLUSTER1"
+	envRegionZoneWithSharedDSCluster2          = "TOPOLOGY_WITH_SHARED_DATASTORE_CLUSTER2"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
 	envSharedVVOLDatastoreURL                  = "SHARED_VVOL_DATASTORE_URL"
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"

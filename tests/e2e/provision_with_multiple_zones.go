@@ -174,12 +174,13 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		7. Delete POD,PVC,PV
 	*/
 
-	ginkgo.It("Verify provisioning with multiple regions and zones with non-shared datastore", func() {
+	ginkgo.It("Verify provisioning with multiple regions and zones with different cluster datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		topologyWithNoSharedDS := GetAndExpectStringEnvVar(envRegionZoneWithNoSharedDS)
-		topologyWithNoSharedDS1 := GetAndExpectStringEnvVar(envTopologyWithOnlyOneNode)
-		topologyValues := topologyWithNoSharedDS + "," + topologyWithNoSharedDS1
+		// Took Region1, Zone1 of Cluster1 and Region2, Zone2 of Cluster2
+		topologyWithSharedDSCluster1 := GetAndExpectStringEnvVar(envRegionZoneWithSharedDSCluster1)
+		topologyWithSharedDSCluster2 := GetAndExpectStringEnvVar(envRegionZoneWithSharedDSCluster2)
+		topologyValues := topologyWithSharedDSCluster1 + "," + topologyWithSharedDSCluster2
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(topologyValues)
 
 		// Creating StorageClass with multiple zone and region topology details
