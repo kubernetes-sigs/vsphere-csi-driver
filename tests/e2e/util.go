@@ -1753,7 +1753,14 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 	return nil
 }
 
-func verifyTopologyAffinityDetailsforPodAndPV(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, zoneValues []string, regionValues []string) error {
+/*
+  "verifyPVnodeAffinityAndPODnodedetailsForStatefulsets" method takes statefulset, namespace, zone
+  and region values as input parameters and will verify that PV node affinity details should contain
+  both zone and region details specified in SC.
+  Also, it will validate that statefulset pod should run on the same node as mentioned in node affinity
+  details.
+*/
+func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, zoneValues []string, regionValues []string) {
 	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
@@ -1779,7 +1786,6 @@ func verifyTopologyAffinityDetailsforPodAndPV(ctx context.Context, client client
 			}
 		}
 	}
-	return nil
 }
 
 // getTopologyFromPod rturn topology value from node affinity information.

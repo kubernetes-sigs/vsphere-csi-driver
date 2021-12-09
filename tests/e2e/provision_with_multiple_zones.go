@@ -173,7 +173,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		6. Verify statefulset pod is running on the same node as mentioned in node affinity details
 		7. Delete POD,PVC,PV
 	*/
-
 	ginkgo.It("Verify provisioning with multiple regions and zones with different cluster datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -201,6 +200,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		statefulset.Spec.Replicas = &replica
 		replicas := *(statefulset.Spec.Replicas)
 		CreateStatefulSet(namespace, statefulset, client)
+		defer func() {
+			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -213,12 +216,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		// Verify node and pv topology affinity should contains specified zone and region details of SC and statefulset is distributed across zones and regions
 		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
-		err = verifyTopologyAffinityDetailsforPodAndPV(ctx, client, statefulset, namespace, zoneValues, regionValues)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Cleanup
-		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		fss.DeleteAllStatefulSets(client, namespace)
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset, namespace, zoneValues, regionValues)
 	})
 
 })
