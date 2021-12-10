@@ -2816,19 +2816,18 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	})
 
 	// Restart statefulset pod and verify pod status when one of pvc pod becomes inaccessible
-
-	// Below are the steps for TestCase
-	// Create a storage class.
-	// Create nginx service.
-	// Create nginx statefulset.
-	// Wait until all Pods are ready and PVCs are bounded with PV.
-	// Verify health annotation added on the PVC is accessible.
-	// PSOD the host where volume is mounted.
-	// Verify health annotation on the PVC is updated to inaccessible.
-	// Restart statefulset pod and check pod status.
-	// Delete the statefulset pod.
-	// Delete the PVC.
-	// Delete the storage class.
+	// Steps
+	// 1. Create a storage class.
+	// 2. Create nginx service.
+	// 3. Create nginx statefulset.
+	// 4. Wait until all Pods are ready and PVCs are bounded with PV.
+	// 5. Verify health annotation added on the PVC is accessible.
+	// 6. PSOD the host where volume is mounted.
+	// 7. Verify health annotation on the PVC is updated to inaccessible.
+	// 8. Restart statefulset and check pod status.
+	// 9. Delete the statefulset pod.
+	// 10. Delete the PVC.
+	// 11. Delete the storage class.
 
 	ginkgo.It("[csi-supervisor] [csi-guest] If pod pvc becomes inaccessible restart pod and check pod status", func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -3026,7 +3025,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		framework.RunKubectlOrDie(namespace, cmd...)
 
 		// Wait for the StatefulSet Pods to be up and Running
-		time.Sleep(pollTimeoutShort)
 		num_csi_pods := len(list_of_pods)
 		err = fpod.WaitForPodsRunningReady(client, namespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
