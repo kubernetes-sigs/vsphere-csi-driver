@@ -29,6 +29,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -329,12 +330,15 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 		}
 		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		if !supervisorCluster {
+		if vanillaCluster {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
 				*metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -442,12 +446,16 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		if !supervisorCluster {
+		if vanillaCluster {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
 				*metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -653,14 +661,22 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		scParameters[scParamFsType] = ext4FSType
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, thickProvPolicy)
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		var allowExpansion = true
+		storageclass.AllowVolumeExpansion = &allowExpansion
+		client.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
-			*metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}()
 
 	ginkgo.By("Creating PVCs using the Storage Class")
