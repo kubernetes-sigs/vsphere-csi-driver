@@ -172,19 +172,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if supervisorCluster {
-				// Update sc to Immediate Binding Mode
-				ginkgo.By("Update Storage Class to Immediate Binding Mode")
-				createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingImmediate, false, storageclass.Name)
-
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 			if supervisorCluster {
 				ginkgo.By("Delete Resource quota")
 				deleteResourceQuota(client, namespace)
@@ -227,6 +222,27 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+		defer func() {
+			ginkgo.By("Deleting the pod")
+			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify volume is detached from the node")
+			if supervisorCluster {
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+					pv.Spec.CSI.VolumeHandle, vmUUID))
+				_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+				gomega.Expect(err).To(gomega.HaveOccurred(),
+					fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+						vmUUID, pv.Spec.CSI.VolumeHandle))
+			} else {
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
+					client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			}
+
+		}()
 
 		// Delete SC with Immediate Binding Mode
 		ginkgo.By("Delete SC created with Immediate Binding Mode")
@@ -235,9 +251,19 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Create SC with same name but with WaitForFirstConusmer Binding Mode
 		ginkgo.By("Recreate SC with same name but with WaitForFirstConusmer Binding Mode")
-		createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
+		storageclass, err = createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
+		defer func() {
+			if supervisorCluster {
+				/* Cannot Update SC binding mode from WaitForFirstConsumer to Immediate
+				because it is an immutable field */
+				// If Supervisor Cluster, delete SC and recreate again with Immediate Binding Mode
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				createStorageClass(client, scParameters, nil, "", storagev1.VolumeBindingImmediate, false, storageclass.Name)
+			}
+		}()
 
 		// Check Pod status after recreating Storage class with different binding mode
 		ginkgo.By("Verify Pod status after recreating Storage class with different binding mode")
@@ -254,30 +280,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			namespace, pvclaim.Name, false, "")
 		if v1.PersistentVolumePhase(pvclaim.Status.Phase) == v1.VolumeBound {
 			framework.Logf("PVC is in Bound Phase after recreating Storage Class")
-
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
-
-		// Deleting Pod
-		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Verify volume is detached from the node")
-		if supervisorCluster {
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
-				pv.Spec.CSI.VolumeHandle, vmUUID))
-			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
-			gomega.Expect(err).To(gomega.HaveOccurred(),
-				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
-					vmUUID, pv.Spec.CSI.VolumeHandle))
-		} else {
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
-				client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		}
-
 	})
 })
