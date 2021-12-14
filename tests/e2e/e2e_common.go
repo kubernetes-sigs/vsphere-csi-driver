@@ -29,7 +29,7 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
-	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
+	busyBoxImageOnGcr                          = "k8s.gcr.io/e2e-test-images/agnhost:2.21"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
@@ -86,7 +86,7 @@ const (
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
 	ext3FSType                                = "ext3"
-	ext4FSType                                = "ext4"
+	ext4FSType                                = "ntfs"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
 	healthGreen                               = "green"
