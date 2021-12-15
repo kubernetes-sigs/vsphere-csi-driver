@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: k8s.gcr.io/nginx-slim:0.8
+        image: k8s.gcr.io/e2e-test-images/agnhost:2.21
         ports:
         - containerPort: 80
           name: web

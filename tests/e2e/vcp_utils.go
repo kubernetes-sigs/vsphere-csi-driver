@@ -117,7 +117,7 @@ func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy
 		PVSource: v1.PersistentVolumeSource{
 			VsphereVolume: &v1.VsphereVirtualDiskVolumeSource{
 				VolumePath: volumePath,
-				FSType:     "ext4",
+				FSType:     "ntfs",
 			},
 		},
 		ReclaimPolicy: persistentVolumeReclaimPolicy,
