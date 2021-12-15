@@ -1210,7 +1210,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		log := logger.GetLogger(ctx)
 
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -1221,17 +1221,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
-		}
-
-		isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to verify if extend volume is supported or not. Error: %+v", err)
-		}
-		if !isExtendSupported {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-				"volume Expansion is not supported in this vSphere release. "+
-					"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
 		}
 
 		isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
