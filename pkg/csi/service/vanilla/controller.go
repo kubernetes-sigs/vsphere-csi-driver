@@ -1185,17 +1185,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			"cannot expand migrated vSphere volume. :%q", req.VolumeId)
 	}
 
-	isExtendSupported, err := c.manager.VcenterManager.IsExtendVolumeSupported(ctx, c.manager.VcenterConfig.Host)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to verify if extend volume is supported or not. Error: %+v", err)
-	}
-	if !isExtendSupported {
-		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"volume Expansion is not supported in this vSphere release. "+
-				"Upgrade to vSphere 7.0 for offline expansion and vSphere 7.0U2 for online expansion support.")
-	}
-
 	isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
 		c.manager.VcenterConfig.Host)
 	if err != nil {
