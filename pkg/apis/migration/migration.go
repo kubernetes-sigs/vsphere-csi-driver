@@ -388,7 +388,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 			"failed to extract datastore name from in-tree volume path: %q", volumeSpec.VolumePath)
 	}
 	datastoreFullPath := re.FindAllString(volumeSpec.VolumePath, -1)[0]
-	vmdkPath := strings.TrimSpace(strings.Trim(volumeSpec.VolumePath, datastoreFullPath))
+	vmdkPath := strings.TrimSpace(strings.TrimPrefix(volumeSpec.VolumePath, datastoreFullPath))
 	datastoreFullPath = strings.Trim(strings.Trim(datastoreFullPath, "["), "]")
 	datastorePathSplit := strings.Split(datastoreFullPath, "/")
 	datastoreName := datastorePathSplit[len(datastorePathSplit)-1]
