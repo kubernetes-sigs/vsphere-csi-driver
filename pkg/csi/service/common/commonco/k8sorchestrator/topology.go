@@ -661,6 +661,8 @@ func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx contex
 	log.Infof("Topology segments retrieved from nodes accessible to datastore %q are: %+v", datastoreURL,
 		topologySegments)
 
+	// Check for each calculated topology segment if all nodes in that segment have access to this datastore.
+	// This check will filter out topology segments in which all nodes do not have access to the chosen datastore.
 	accessibleTopology, err := verifyAllNodesInTopologyAccessibleToDatastore(ctx, nodeNames,
 		datastoreURL, topologySegments)
 	if err != nil {
