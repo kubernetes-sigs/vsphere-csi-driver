@@ -880,7 +880,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		}
 		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
 			StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 		if err != nil {
 			log.Errorf("PVC Updated: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 				"with error %+v", migrationVolumeSpec, err)
@@ -983,7 +983,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		}
 		migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
 			StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 		if err != nil {
 			log.Errorf("PVC Deleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 				"with error %+v", migrationVolumeSpec, err)
@@ -1036,7 +1036,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		}
 		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx,
 			&migration.VolumeSpec{VolumePath: newPv.Spec.VsphereVolume.VolumePath,
-				StoragePolicyName: newPv.Spec.VsphereVolume.StoragePolicyName})
+				StoragePolicyName: newPv.Spec.VsphereVolume.StoragePolicyName}, true)
 		if err != nil {
 			log.Errorf("PVUpdated: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v",
 				newPv.Spec.VsphereVolume.VolumePath, err)
@@ -1230,7 +1230,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			}
 			migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
 				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 			if err != nil {
 				log.Errorf("PVDeleted: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 					"with error %+v", migrationVolumeSpec, err)
@@ -1295,7 +1295,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					}
 					migrationVolumeSpec := &migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath,
 						StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 					if err != nil {
 						log.Errorf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 							"with error %+v", migrationVolumeSpec, err)
@@ -1330,7 +1330,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 						return
 					}
 					migrationVolumeSpec := &migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath}
-					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec)
+					volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
 					if err != nil {
 						log.Warnf("Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 							"with error %+v", migrationVolumeSpec, err)

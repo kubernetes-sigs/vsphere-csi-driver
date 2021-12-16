@@ -882,7 +882,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				// Error is already wrapped in CSI error code.
 				return nil, csifault.CSIInternalFault, err
 			}
-			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId})
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId}, false)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
@@ -1021,7 +1021,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					return nil, csifault.CSIInternalFault, err
 				}
 				req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx,
-					&migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName})
+					&migration.VolumeSpec{VolumePath: volumePath, StoragePolicyName: storagePolicyName}, false)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
@@ -1138,7 +1138,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				// Error is already wrapped in CSI error code.
 				return nil, csifault.CSIInternalFault, err
 			}
-			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath})
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volumePath}, false)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
