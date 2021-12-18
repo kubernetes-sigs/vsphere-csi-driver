@@ -345,7 +345,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context, volu
 		return "", errors.New(msg)
 	}
 	datastoreFullPath := re.FindAllString(volumeSpec.VolumePath, -1)[0]
-	vmdkPath := strings.TrimSpace(strings.Trim(volumeSpec.VolumePath, datastoreFullPath))
+	vmdkPath := strings.TrimSpace(strings.TrimPrefix(volumeSpec.VolumePath, datastoreFullPath))
 	datastoreFullPath = strings.Trim(strings.Trim(datastoreFullPath, "["), "]")
 	datastorePathSplit := strings.Split(datastoreFullPath, "/")
 	datastoreName := datastorePathSplit[len(datastorePathSplit)-1]
