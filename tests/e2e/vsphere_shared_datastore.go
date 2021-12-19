@@ -181,7 +181,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			if supervisorCluster {
 				ginkgo.By("Delete Resource quota")
 				deleteResourceQuota(client, namespace)
-
 			}
 		}()
 
@@ -239,7 +238,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
 					fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			}
-
 		}()
 
 		// Delete SC with Immediate Binding Mode
@@ -268,7 +266,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		pod_status := fpod.VerifyPodsRunning(client, namespace, pod.Name, true, 0)
 		if pod.Status.Phase == v1.PodRunning {
 			framework.Logf("Pod is in Running state after recreating Storage Class")
-
 		}
 		gomega.Expect(pod_status).NotTo(gomega.HaveOccurred())
 
