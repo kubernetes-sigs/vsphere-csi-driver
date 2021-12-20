@@ -383,7 +383,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
 		nodeInfoResponse = &csi.NodeGetInfoResponse{
-			NodeId:             nodeID,
+			NodeId:             nodeName,
 			MaxVolumesPerNode:  maxVolumesPerNode,
 			AccessibleTopology: &csi.Topology{},
 		}
