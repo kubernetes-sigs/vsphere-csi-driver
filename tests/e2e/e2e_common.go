@@ -31,6 +31,7 @@ const (
 	adminPassword                              = "Admin!23"
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
+	cnsNewSync                                 = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"

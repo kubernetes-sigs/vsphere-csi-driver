@@ -652,7 +652,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var err error
 		var expectedErrMsg string
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
+		featureEnabled := isFssEnabled(vcAddress, cnsNewSync)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -719,7 +719,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		if !featureEnabled {
-			ginkgo.By("File system resize should not succeed Since SPS service is down. Expect an error")
+			ginkgo.By("File system resize should not succeed since SPS service is down. Expecting an error")
 			if guestCluster {
 				expectedErrMsg = "didn't find a plugin capable of expanding the volume"
 			} else {
@@ -1438,7 +1438,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var err error
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		featureEnabled := isFssEnabled(vcAddress, "CNS_NEW_SYNC")
+		featureEnabled := isFssEnabled(vcAddress, cnsNewSync)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -1475,7 +1475,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		if featureEnabled {
-			ginkgo.By("File system resize should not succeed Since SPS service is down. Expect an error")
+			ginkgo.By("File system resize should not succeed since SPS service is down. Expecting an error")
 			expectedErrMsg := "failed to expand volume"
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
 			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
@@ -1518,6 +1518,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
 			err = fmt.Errorf("got wrong disk size after volume expansion")
 		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")

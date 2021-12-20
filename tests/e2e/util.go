@@ -1168,14 +1168,18 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
-//checks if vCenter has a particular FSS enabled or
-func isFssEnabled(host, fss string) bool {
+// isFssEnabled invokes the given command to check if vCenter
+// has a particular FSS enabled or not
+func isFssEnabled(host, fss string) {
 	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
 	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
-	if err == nil || result.Code == 0 {
-		//fssh.LogResult(result)
+	fssh.LogResult(result)
+	if err == nil && result.Code == 0 {
 		return strings.Replace(result.Stdout, "\n", "", -1) == "enabled"
+	}
+	else {
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return false
 }
