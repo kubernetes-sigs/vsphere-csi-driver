@@ -657,8 +657,10 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -1443,8 +1445,10 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
