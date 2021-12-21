@@ -168,6 +168,8 @@ const (
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "topology.csi.vmware.com/zone"
+	topologykey                               = "topology.csi.vmware.com"
+	topologyMap                               = "TOPOLOGY_MAP"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 )

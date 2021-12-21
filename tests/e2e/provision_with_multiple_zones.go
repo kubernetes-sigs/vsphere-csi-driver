@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	})
 
 	/*
-		Provisioning with multiple zones and regions specified in the Storage Class for non-shared datastore
+		Provisioning volume using storage policy with multiple zone and region details in the allowed topology
 		//Steps
 		1. Create SC with multiple Zone and region details specified in the SC
 		2. Create statefulset with replica 5 using the above SC
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		6. Verify statefulset pod is running on the same node as mentioned in node affinity details
 		7. Delete POD,PVC,PV
 	*/
-	ginkgo.It("Verify provisioning with multiple regions and zones with different cluster datastore", func() {
+	ginkgo.It("Provisioning volume using storage policy with multiple zone and region details in the allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Took Region1, Zone1 of Cluster1 and Region2, Zone2 of Cluster2

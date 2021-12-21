@@ -130,8 +130,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	})
 
 	/*
-		Test to verify PV node affinity details such that it should contain both zone and
-		region details of SC.
+		Storage policy with single zone and region details in the allowed topology
 		Verify POD is running on the same node as mentioned in node affinity details.
 		Steps
 		1. Create SC with zone and region details specified in the SC
@@ -143,7 +142,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		7. Delete statefulset
 		8. Delete PVC and SC
 	*/
-	ginkgo.It("Verify pod and pv topology affinity details", func() {
+	ginkgo.It("Storage policy with single zone and region details in the allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Creating StorageClass with topology details
