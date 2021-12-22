@@ -2058,17 +2058,20 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 
 func getTopologySelector(topologyAffinityDetails map[string][]string, topologyCategories []string, level int, position ...int) []v1.TopologySelectorLabelRequirement {
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
-	var updateLvl int
-	var rng int
+	updateLvl := -1
+	var rnges []int
 	if len(position) > 0 {
 		updateLvl = position[0]
-		rng = position[1]
+		rnges = position[1:]
 	}
 	var values []string
 	for i := 0; i < level; i++ {
 		category := topologyCategories[i]
 		if i == updateLvl {
-			values = topologyAffinityDetails[category][rng:]
+			for _, rng := range rnges {
+				values = append(values, topologyAffinityDetails[category][rng])
+			}
+
 		} else {
 			values = topologyAffinityDetails[category]
 		}

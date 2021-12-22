@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -31,6 +32,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioning-With-Statefulset", func() {
@@ -373,7 +375,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sharedDataStoreUrl := GetAndExpectStringEnvVar(datstoreSharedBetweenClusters)
 		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1, 2)
 
 		// Create SC with BindingMode as Immediate with allowed topology details.
 		scParameters := make(map[string]string)
@@ -501,8 +503,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 	/*
 		TESTCASE-11
-			Creare Statefulset using SC which has multiple Country Specified with out datastore URL
-
 		Steps:
 		1. Create SC with WFC BindingMode and allowed topology set to multiple labels without datastore URL.
 		(here in this case - region1 > zone1 > building1 > level1 > rack > (rack1,rack2,rack3))
@@ -521,7 +521,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 0)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)[4:]
 
 		// Create SC with BindingMode as Immediate with allowed topology details.
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "nginx-sc")
@@ -558,7 +558,46 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+	})
 
+	/*
+		TESTCASE-12
+		Steps:
+		1. Create SC with Immediate BindingMode and allowed topology set to invalid topology label in any one level.
+		(here in this case - region1 > zone1 > building1 > level1 > rack > rack15)
+		2. Create PVC using above SC.
+		3. Volume Provisioning should fail with error message displayed due to incorrect topology labels specified in SC
+		4. Delete statefulset, PVC and SC.
+	*/
+
+	ginkgo.It("Verify volume provisioning when storage class specified with invalid topology label", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		log := logger.GetLogger(ctx)
+		// Get allowed topologies for Storage Class
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)
+		allowedTopologyForSC[4].Values = []string{"rack15"}
+
+		// Create SC with Immediate BindingMode and allowed topology set to invalid topology label in any one level
+		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "nginx-sc")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Create PVC using above SC
+		pvc, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Expect PVC claim to fail as invalid topology label is given in Storage Class
+		ginkgo.By("Expect claim to fail as invalid topology label is specified in Storage Class")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		if err != nil {
+			log.Errorf("Volume Provisioning Failed for PVC %s due to invalid topology label given in Storage Class", pvc.Name)
+		}
 	})
 
 })
