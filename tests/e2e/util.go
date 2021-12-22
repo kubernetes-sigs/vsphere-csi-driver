@@ -1888,6 +1888,50 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	}
 }
 
+func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context, client clientset.Interface, deployment *appsv1.Deployment, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	pods, err := fdep.GetPodsForDeployment(client, deployment)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, sspod := range pods.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				// get pv details
+				pv := getPvFromClaim(client, deployment.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+				// verify pv node affinity details as specified on SC
+				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+				if res {
+					framework.Logf("PV node affinity details is in specified allowed topologies of Storage Class")
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV node affinity details is not in specified allowed topologies of Storage Class")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// fetch node details
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				//verify pod is running on appropriate nodes
+				framework.Logf("Verifying pod location affinity details:")
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	_, scaledownErr := fss.Scale(client, statefulset, replicas)
