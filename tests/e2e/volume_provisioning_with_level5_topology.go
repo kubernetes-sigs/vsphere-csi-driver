@@ -117,7 +117,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
-
 	})
 
 	/*
@@ -198,7 +197,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
-
 	})
 
 	/*
@@ -274,7 +272,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
-
 	})
 
 	/*
@@ -434,6 +431,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		replicas = 0
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
 	})
+
 	/*
 	   TESTCASE-7
 	   Steps:
@@ -499,6 +497,68 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment, namespace, allowedTopologyForSC)
+	})
+
+	/*
+		TESTCASE-11
+			Creare Statefulset using SC which has multiple Country Specified with out datastore URL
+
+		Steps:
+		1. Create SC with WFC BindingMode and allowed topology set to multiple labels without datastore URL.
+		(here in this case - region1 > zone1 > building1 > level1 > rack > (rack1,rack2,rack3))
+		2. Create StatefulSet with default pod management policy with replica count 3 using above SC.
+		3. Wait for StatefulSet pods to be in running state and PVC to be in Bound phase.
+		4. Describe on the PV's and verify node affinity details.
+		5. Verify, PV node affinity of all 5 levels should be displayed.
+		5a. Verify, If a volume is provisioned on shared datastore, pv node affinity details contain all the availability zone details.
+		5b. Verify, If a volume provisioned on a datastore that is shared within the specific zone then node affinity will have details of specific zone and its node labels.
+		6. Verify StatefuSet pods are created on nodes as mentioned in the storage class.
+		7. Bring down statefulset replica to 0.
+		8. Delete statefulset, PVC and SC.
+	*/
+
+	ginkgo.It("Provisioning volume when storage class specified with multiple topology labels without specifying datastore url and using default pod management policy for statefulset", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Get allowed topologies for Storage Class
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 0)
+
+		// Create SC with BindingMode as Immediate with allowed topology details.
+		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "nginx-sc")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		// Creating StatefulSet with replica count 5 using default pod management policy
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+
+		// Wait for StatefulSet pods to be in up and running state
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
+
+		// Scale down statefulset to 0 replicas
+		replicas -= 3
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+
 	})
 
 })
