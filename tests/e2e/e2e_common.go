@@ -170,6 +170,7 @@ const (
 	zoneKey                                   = "topology.csi.vmware.com/zone"
 	topologykey                               = "topology.csi.vmware.com"
 	topologyMap                               = "TOPOLOGY_MAP"
+	datstoreSharedBetweenClusters             = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 )

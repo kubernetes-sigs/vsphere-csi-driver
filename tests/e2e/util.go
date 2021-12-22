@@ -32,7 +32,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1753,16 +1752,12 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 
 }
 func compareStringLists(strList1 []string, strList2 []string) bool {
-	if len(strList1) != len(strList2) {
-		return false
+	strMap := make(map[string]bool)
+	for _, str := range strList1 {
+		strMap[str] = true
 	}
-	sort.Strings(strList1)
-	sort.Strings(strList2)
-
-	for i := 0; i < len(strList1); i++ {
-		str1 := strList1[i]
-		str2 := strList2[i]
-		if str1 != str2 {
+	for _, str := range strList2 {
+		if _, ok := strMap[str]; !ok {
 			return false
 		}
 	}
@@ -1863,8 +1858,10 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 
 				// verify pv node affinity details as specified on SC
 				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
-				fmt.Println(res)
-				//gomega.Expect(res).To(gomega.BeTrue())
+				if res {
+					framework.Logf("PV node affinity details is in specified allowed topologies of Storage Class")
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV node affinity details is not in specified allowed topologies of Storage Class")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// fetch node details
@@ -1873,9 +1870,13 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				if !(len(nodeList.Items) > 0) {
 					framework.Failf("Unable to find ready and schedulable Node")
 				}
-				//verify node topology details
+				//verify pod is running on appropriate nodes
 				framework.Logf("Verifying pod location affinity details:")
-				_, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Verify the attached volume match the one in CNS cache
