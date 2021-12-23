@@ -1732,6 +1732,10 @@ func verifyVolumeTopology(pv *v1.PersistentVolume, zoneValues []string, regionVa
 	return pvRegion, pvZone, nil
 }
 
+/*
+verifyVolumeTopologyForLevel5 verifies that the pv node affinity details should match the allowed topologies specified in the storage class.
+This method returns true if allowed topologies of SC matches with the PV node affinity details else return error and false.
+*/
 func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap map[string][]string) (bool, error) {
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
 		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
@@ -1751,6 +1755,10 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 	return true, nil
 
 }
+
+/*
+This is a wrapper method which is used to comapre 2 string list and returns true if value matches else returns false.
+*/
 func compareStringLists(strList1 []string, strList2 []string) bool {
 	strMap := make(map[string]bool)
 	for _, str := range strList1 {
@@ -1764,6 +1772,9 @@ func compareStringLists(strList1 []string, strList2 []string) bool {
 	return true
 }
 
+/*
+This is a wrapper method which is used to create a topology map of all tags and categoties.
+*/
 func createAllowedTopologiesMap(allowedTopologies []v1.TopologySelectorLabelRequirement) map[string][]string {
 	allowedTopologiesMap := make(map[string][]string)
 	for _, topologySelector := range allowedTopologies {
@@ -1793,6 +1804,10 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 	return nil
 }
 
+/*
+verifyPodLocationLevel5 verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+This method returns true if all topology labels matches else returns false and error.
+*/
 func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList, allowedTopologiesMap map[string][]string) (bool, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
@@ -1811,11 +1826,9 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList, allowedTopologi
 }
 
 /*
-  "verifyPVnodeAffinityAndPODnodedetailsForStatefulsets" method takes statefulset, namespace, zone
-  and region values as input parameters and will verify that PV node affinity details should contain
-  both zone and region details specified in SC.
-  Also, it will validate that statefulset pod should run on the same node as mentioned in node affinity
-  details.
+Type-2 testbed
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsets verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, zoneValues []string, regionValues []string) {
 	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
@@ -1845,6 +1858,11 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, c
 	}
 }
 
+/*
+Type-5 testbed
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Statefulset verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+*/
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
@@ -1888,6 +1906,11 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	}
 }
 
+/*
+Type-5 testbed
+verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5 for Deployment verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+*/
 func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context, client clientset.Interface, deployment *appsv1.Deployment, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	pods, err := fdep.GetPodsForDeployment(client, deployment)
@@ -1932,6 +1955,9 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 	}
 }
 
+/*
+scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
+*/
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	_, scaledownErr := fss.Scale(client, statefulset, replicas)
@@ -1974,8 +2000,11 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface, st
 			}
 		}
 	}
-
 }
+
+/*
+scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
+*/
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	_, scaleupErr := fss.Scale(client, statefulset, replicas)
@@ -2026,6 +2055,9 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface, stat
 	}
 }
 
+/*
+This wrapper method is used to create the topology map of allowed topologies specified on VC.
+*/
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
@@ -2043,6 +2075,9 @@ func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]str
 	return topologyMap, categories
 }
 
+/*
+This wrapper method is used to create allowed topologies set required for creating Storage Class.
+*/
 func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
@@ -2056,6 +2091,9 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 	return allowedTopologies
 }
 
+/*
+This wrapper method is used to create allowed topologies required for creating Storage Class specific to testcase scenarios.
+*/
 func getTopologySelector(topologyAffinityDetails map[string][]string, topologyCategories []string, level int, position ...int) []v1.TopologySelectorLabelRequirement {
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
