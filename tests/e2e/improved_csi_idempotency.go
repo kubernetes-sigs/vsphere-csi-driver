@@ -667,7 +667,8 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		var allowExpansion = true
 		storageclass.AllowVolumeExpansion = &allowExpansion
-		client.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
