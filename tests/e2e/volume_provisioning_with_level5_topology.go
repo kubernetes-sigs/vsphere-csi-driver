@@ -30,6 +30,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -615,6 +616,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		(here in this case - region1 > zone1 > building1 > level1 > rack > (rack1,rack2,rack3))
 		2. Create PVC using above SC with access mode "accessModes" ReadWriteMany.
 		3. Verify PVC creation is stuck in pending state forever.
+		4. Delete PVC and SC.
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified ReadWriteMany access mode", func() {
@@ -651,6 +653,85 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		if err != nil {
 			log.Errorf("Volume Provisioning Failed %v because Topology feature for file volumes is not supported", err)
 		}
+	})
+
+	/*
+		TESTCASE-14
+		Create SC with one topology label with datastore URL
+		Steps:
+		1. Create SC with Immediate binding mode and one level topology detail specified with Datastore URL
+		(here in this case - rack > rack2 and datastore url specific to rack2)
+		2. Create PVC using above created SC and wait for PVC to reach bound state.
+		2. Describe PV and verify pv node affinity details should hold all the 5 levels of topology details.
+		3. Create POD using above created PVC.
+		4. Verify that the pod are running on appropriate node.
+		5. Delete POD, PVC and SC
+	*/
+
+	ginkgo.It("Verify volume provisioning when storage class specified with one level topology along with datstore url", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Get allowed topologies for Storage Class
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1)[4:]
+
+		// Create SC with Immediate BindingMode with single level topology detail specified with datatsoreUrl
+		scParameters := make(map[string]string)
+		NonSharedDataStoreUrl := GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
+		scParameters["datastoreurl"] = NonSharedDataStoreUrl
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologyForSC, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Wait for PVC to be bound
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := persistentvolumes[0]
+		volHandle := pv.Spec.CSI.VolumeHandle
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var vmUUID string
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		}()
+
+		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
+
 	})
 
 })

@@ -1859,7 +1859,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, c
 }
 
 /*
-Type-5 testbed
+For StatefulSet Pod
 verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Statefulset verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
 Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
 */
@@ -1907,7 +1907,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 }
 
 /*
-Type-5 testbed
+Fro Deployment Pod
 verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5 for Deployment verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
 Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
 */
@@ -1951,6 +1951,49 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 				gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
+		}
+	}
+}
+
+/*
+For Standalone Pod
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Standalone Pod verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+*/
+func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context, client clientset.Interface, pod *v1.Pod, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	for _, volumespec := range pod.Spec.Volumes {
+		if volumespec.PersistentVolumeClaim != nil {
+			// get pv details
+			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+			// verify pv node affinity details as specified on SC
+			res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+			if res {
+				framework.Logf("PV node affinity details is in specified allowed topologies of Storage Class")
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "PV node affinity details is not in specified allowed topologies of Storage Class")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// fetch node details
+			nodeList, err := fnodes.GetReadySchedulableNodes(client)
+			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+			if !(len(nodeList.Items) > 0) {
+				framework.Failf("Unable to find ready and schedulable Node")
+			}
+			//verify pod is running on appropriate nodes
+			framework.Logf("Verifying pod location affinity details:")
+			res, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
+			if res {
+				framework.Logf("Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "Pod is running on appropriate node as specified in allowed topolgies of Storage Class")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Verify the attached volume match the one in CNS cache
+			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+			gomega.Expect(error).NotTo(gomega.HaveOccurred())
 		}
 	}
 }
@@ -2092,7 +2135,7 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 }
 
 /*
-This wrapper method is used to create allowed topologies required for creating Storage Class specific to testcase scenarios.
+This wrapper method is used to fetch allowed topologies from default topology set required for creating Storage Class specific to testcase scenarios.
 */
 func getTopologySelector(topologyAffinityDetails map[string][]string, topologyCategories []string, level int, position ...int) []v1.TopologySelectorLabelRequirement {
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
@@ -2102,8 +2145,8 @@ func getTopologySelector(topologyAffinityDetails map[string][]string, topologyCa
 		updateLvl = position[0]
 		rnges = position[1:]
 	}
-	var values []string
 	for i := 0; i < level; i++ {
+		var values []string
 		category := topologyCategories[i]
 		if i == updateLvl {
 			for _, rng := range rnges {
