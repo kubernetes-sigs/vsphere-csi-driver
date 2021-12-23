@@ -567,7 +567,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		(here in this case - region1 > zone1 > building1 > level1 > rack > rack15)
 		2. Create PVC using above SC.
 		3. Volume Provisioning should fail with error message displayed due to incorrect topology labels specified in SC
-		4. Delete statefulset, PVC and SC.
+		4. Delete PVC and SC.
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified with invalid topology label", func() {
@@ -589,6 +589,13 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Create PVC using above SC
 		pvc, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if pvc != nil {
+				ginkgo.By("Delete the PVC")
+				err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 
 		// Expect PVC claim to fail as invalid topology label is given in Storage Class
 		ginkgo.By("Expect claim to fail as invalid topology label is specified in Storage Class")
@@ -597,6 +604,52 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		if err != nil {
 			log.Errorf("Volume Provisioning Failed for PVC %s due to invalid topology label given in Storage Class", pvc.Name)
+		}
+	})
+
+	/*
+		TESTCASE-16
+		Verify that Topology is not supported on file volumes
+		Steps:
+		1. Create SC with Immediate BindingMode and with set of allowed topologies.
+		(here in this case - region1 > zone1 > building1 > level1 > rack > (rack1,rack2,rack3))
+		2. Create PVC using above SC with access mode "accessModes" ReadWriteMany.
+		3. Verify PVC creation is stuck in pending state forever.
+	*/
+
+	ginkgo.It("Verify volume provisioning when storage class specified ReadWriteMany access mode", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		log := logger.GetLogger(ctx)
+		// Get allowed topologies for Storage Class for all 5 levels
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)
+
+		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
+		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "nginx-sc")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Create PVC with accessMode as "ReadWriteMany" using above SC
+		pvc, err := createPVC(client, namespace, nil, "", storageclass, v1.ReadWriteMany)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if pvc != nil {
+				ginkgo.By("Delete the PVC")
+				err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		// Expect PVC claim to fail as volume topology feature for file volumes is not supported
+		ginkgo.By("Expect PVC claim to fail as volume topology feature for file volumes is not supported")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		if err != nil {
+			log.Errorf("Volume Provisioning Failed %v because Topology feature for file volumes is not supported", err)
 		}
 	})
 
