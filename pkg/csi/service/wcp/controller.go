@@ -123,6 +123,17 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion, common.TKGsHASupportedVCenterMajor,
+			common.TKGsHASupportedVCenterMinor, common.TKGsHASupportedVCenterPatch)
+		if err != nil {
+			log.Errorf("checkAPI failed when tkgs-ha feature is enabled for vcenter API version: %s, err=%v",
+				vc.Client.ServiceContent.About.ApiVersion, err)
+			return err
+		}
+	}
+
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()

@@ -130,6 +130,18 @@ const (
 	// on which Snapshot feature is supported.
 	SnapshotSupportedVCenterPatch int = 3
 
+	// TKGsHASupportedVCenterMajor is the minimum major version of vCenter
+	// on which TKGsHA feature is supported.
+	TKGsHASupportedVCenterMajor int = 8
+
+	// TKGsHASupportedVCenterMinor is the minimum minor version of vCenter
+	// on which TKGsHA feature is supported.
+	TKGsHASupportedVCenterMinor int = 0
+
+	// TKGsHASupportedVCenterPatch is the minimum patch version of vCenter
+	// on which TKGsHA feature is supported.
+	TKGsHASupportedVCenterPatch int = 0
+
 	// VSphere67u3Version is the minimum vSphere version to use Vslm APIs
 	// to support volume migration feature.
 	VSphere67u3Version string = "6.7.3"
@@ -305,4 +317,7 @@ const (
 	// ProviderID on K8s Node API object set by CPI. If not set, CSI
 	// will continue to use the Provider ID from K8s Node API object.
 	UseCSINodeId = "use-csinode-id"
+	// TKGsHA is the feature gate to check whether TKGS HA feature
+	// is enabled.
+	TKGsHA = "tkgs-ha"
 )
