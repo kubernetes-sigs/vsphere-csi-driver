@@ -142,9 +142,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
-
-		expectedErrorMsg := "no pbm profile found with name: \"" + f.Namespace.Name + "\""
+		var expectedErrorMsg string
 		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, scParamStoragePolicyName, pollTimeoutShort)
+		if guestCluster {
+			expectedErrorMsg = "Volume parameter StoragePolicyName is not a valid GC CSI parameter"
+
+		} else {
+			expectedErrorMsg = "no pbm profile found with name: \"" + f.Namespace.Name + "\""
+		}
 		isFailureFound := checkEventsforError(client, namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
