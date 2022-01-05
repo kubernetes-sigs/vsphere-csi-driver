@@ -247,8 +247,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Create SC with same name but with WaitForFirstConusmer Binding Mode
 		ginkgo.By("Recreate SC with same name but with WaitForFirstConusmer Binding Mode")
-		storageclass, err = createStorageClass(client, scParameters, nil, "", 
-		storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
+		storageclass, err = createStorageClass(client, scParameters, nil, "",
+			storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 		defer func() {
@@ -258,8 +258,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 				// If Supervisor Cluster, delete SC and recreate again with Immediate Binding Mode
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				_, err = createStorageClass(client, scParameters, nil, "", 
-				storagev1.VolumeBindingImmediate, false, storageclass.Name)
+				_, err = createStorageClass(client, scParameters, nil, "",
+					storagev1.VolumeBindingImmediate, false, storageclass.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
