@@ -1831,10 +1831,20 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	waitTime := 15
+	var executeCreateResourceQuota bool
+	executeCreateResourceQuota = true
 	storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
-	_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
-	if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+	if supervisorCluster {
+		_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
+		if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+			executeCreateResourceQuota = true
+		} else {
+			executeCreateResourceQuota = false
+		}
+	}
+
+	if executeCreateResourceQuota {
 		// deleteResourceQuota if already present.
 		deleteResourceQuota(client, namespace)
 
