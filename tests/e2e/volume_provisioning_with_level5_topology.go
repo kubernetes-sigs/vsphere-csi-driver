@@ -115,14 +115,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		4. Since there is no Topology describe on SC, volume provisioning should happen on any availability zone.
 		5. Describe on the PV's and verify node affinity details.
 		5a. Verify, PV node affinity of all 5 levels should be displayed.
-		5b. Verify, If a volume is provisioned on shared datastore, pv node affinity details contain all the availability zone details.
-		5c. Verify, If a volume provisioned on a datastore that is shared within the specific zone then node affinity will have details of specific zone and its node labels.
+		5b. Verify, If a volume is provisioned on shared datastore, pv node affinity details
+			contain all the availability zone details.
+		5c. Verify, If a volume provisioned on a datastore that is shared within
+			the specific zone then node affinity will have details of specific zone and its node labels.
 		6. Verify StatefuSet pods are created on appropriate nodes.
 		7. Bring down statefulset replica to 0.
 		8. Delete statefulset, PVC and SC.
 	*/
 
-	ginkgo.It("Provisioning volume when no topology details specified in storage class and using default pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
+		"and using default pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
@@ -174,8 +177,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		4. Since there is no Topology describe on SC, volume provisioning should happen on any availability zone.
 		5. Describe on the PV's and verify node affinity details.
 		5a. Verify, PV node affinity of all 5 levels should be displayed.
-		5b. Verify, If a volume is provisioned on shared datastore, pv node affinity details contain all the availability zone details.
-		5c. Verify, If a volume provisioned on a datastore that is shared within the specific zone then node affinity will have details of specific zone and its node labels.
+		5b. Verify, If a volume is provisioned on shared datastore, pv node affinity details
+			contain all the availability zone details.
+		5c. Verify, If a volume provisioned on a datastore that is shared within the specific
+			zone then node affinity will have details of specific zone and its node labels.
 		6. Verify StatefuSet pods are created on appropriate nodes.
 		7. Scale up the StatefulSet replica count to 5.
 		8. Scale down the StatefulSet replica count to 1.
@@ -186,7 +191,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		13. Delete statefulset, PVC and SC.
 	*/
 
-	ginkgo.It("Provisioning volume when no topology details specified in storage class and using parallel pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
+		"and using parallel pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
@@ -264,7 +270,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		11. Delete statefulset, PVC and SC.
 	*/
 
-	ginkgo.It("Provisioning volume when storage class specified with WFC Binding mode with allowed topologies and using parallel pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when storage class specified with WFC Binding mode "+
+		"with allowed topologies and using parallel pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
@@ -305,8 +312,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on
+		appropriate node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running " +
+			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale up statefulset replicas to 5
@@ -314,8 +323,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Scale up statefulset replica count to 5")
 		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas)
 
-		// Verify newly created PV node affinity and that the news PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify newly created PV node affinity and that the news PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify newly created PV node affinity and that the news PODS are running
+		on appropriate node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify newly created PV node affinity and that the news PODS " +
+			"are running on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale down statefulset replicas to 0
@@ -343,7 +354,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		12. Delete statefulset, PVC and SC.
 	*/
 
-	ginkgo.It("Provisioning volume when storage class specified with Immediate BindingMode with higher level allowed topologies and using default pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when storage class specified with Immediate BindingMode "+
+		"with higher level allowed topologies and using default pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
@@ -381,8 +393,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate
+		node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running " +
+			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale up statefulset replicas to 5
@@ -395,8 +409,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Scale down statefulset replica count to 1")
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
 
-		// "Verify newly created PV node affinity and that the new PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* "Verify newly created PV node affinity and that the new PODS are
+		running on appropriate node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running " +
+			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale down statefulset replicas to 0
@@ -406,22 +422,28 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	})
 
 	/*
-	   TESTCASE-5
-	   Steps:
-	   1. Create SC with Immediate BindingMode with all 5 levels of allowedTopologies (provide multiple labels) and shared datasore URL present only in rack2 and rack3.
-	   (here in this case - region1 > zone1 > building1 > level1 > rack > (rack2 and rack3)
-	   2. Create StatefulSet with parallel pod management policy with replica count 3 using above SC.
-	   3. Wait for all StatefulSet Pods to be in up and running state and PVC to be in bound phase.
-	   5. Describe PV's. Since the datastore mentioned in SC is specific to rack2 and rack3, all the nodes should get deployed on rack2 and rack3 only. Node affinity should have details of all 5 levels.
-	   6. Verify that the pods are running on appropriate node.
-	   7. Scale up Statefulset replica count to 5.
-	   8. Scale down Statefulset replica count to 1.
-	   7. Describe newly created PV's and verify volumes are provisioned on appropriate node. PV should show proper node affinity details of all 5 levels.
-	   8. Bring down statefulset replica to 0.
-	   9. Delete statefulset , PVC, SC
+		TESTCASE-5
+		Steps:
+		1. Create SC with Immediate BindingMode with all 5 levels of allowedTopologies
+			(provide multiple labels) and shared datasore URL present only in rack2 and rack3.
+		(here in this case - region1 > zone1 > building1 > level1 > rack > (rack2 and rack3)
+		2. Create StatefulSet with parallel pod management policy with replica count 3 using above SC.
+		3. Wait for all StatefulSet Pods to be in up and running state and PVC to be in bound phase.
+		5. Describe PV's. Since the datastore mentioned in SC is specific to rack2 and rack3,
+			all the nodes should get deployed on rack2 and rack3 only. Node affinity should have
+			details of all 5 levels.
+		6. Verify that the pods are running on appropriate node.
+		7. Scale up Statefulset replica count to 5.
+		8. Scale down Statefulset replica count to 1.
+		7. Describe newly created PV's and verify volumes are provisioned on appropriate node.
+		PV should show proper node affinity details of all 5 levels.
+		8. Bring down statefulset replica to 0.
+		9. Delete statefulset , PVC, SC
 	*/
 
-	ginkgo.It("Provisioning volume when storage class specified with Immediate Bindingmode shared datastore url between multiple topology labels and using parallel pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when storage class specified with Immediate Bindingmode "+
+		"shared datastore url between multiple topology labels and using parallel pod management "+
+		"policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sharedDataStoreUrlBetweenClusters := GetAndExpectStringEnvVar(datstoreSharedBetweenClusters)
@@ -464,8 +486,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate
+		node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
+			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale up statefulset replicas to 5
@@ -478,8 +502,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Scale down statefulset replica count to 1")
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
 
-		// Verify newly created PV node affinity and that the new PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify newly created PV node affinity and that the new PODS are running on
+		appropriate node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running " +
+			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale down statefulset replicas to 0
@@ -501,7 +527,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	   7. Delete Deployment set
 	   8. Delete PVC and SC
 	*/
-	ginkgo.It("Provisioning volume when storage class specified with Immediate BindingMode with multiple allowed topologies and using DeploymentSet pod", func() {
+	ginkgo.It("Provisioning volume when storage class specified with "+
+		"Immediate BindingMode with multiple allowed topologies and using DeploymentSet pod", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var lables = make(map[string]string)
@@ -517,7 +544,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		scParameters["storagepolicyname"] = storagePolicyName
 
 		ginkgo.By("Create StorageClass and PVC for Deployment")
-		sc, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, allowedTopologyForSC, "", false, "")
+		sc, pvclaim, err := createPVCAndStorageClass(client, namespace, nil,
+			scParameters, diskSize, allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PVC to be in Bound phase
@@ -540,7 +568,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create Deployment Pod with replica count 1 using above PVC
 		ginkgo.By("Create Deployments")
-		deployment, err := createDeployment(ctx, client, int32(replica), lables, nil, namespace, pvclaims, "", false, nginxImage)
+		deployment, err := createDeployment(ctx, client, int32(replica), lables,
+			nil, namespace, pvclaims, "", false, nginxImage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")
@@ -548,8 +577,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate
+		node as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running " +
+			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment, namespace, allowedTopologyForSC)
 	})
 
@@ -562,14 +593,18 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		3. Wait for StatefulSet pods to be in running state and PVC to be in Bound phase.
 		4. Describe on the PV's and verify node affinity details.
 		5. Verify, PV node affinity of all 5 levels should be displayed.
-		5a. Verify, If a volume is provisioned on shared datastore, pv node affinity details contain all the availability zone details.
-		5b. Verify, If a volume provisioned on a datastore that is shared within the specific zone then node affinity will have details of specific zone and its node labels.
+		5a. Verify, If a volume is provisioned on shared datastore, pv node affinity
+			details contain all the availability zone details.
+		5b. Verify, If a volume provisioned on a datastore that is shared within
+			 the specific zone then node affinity will have details of specific zone and its node labels.
 		6. Verify StatefuSet pods are created on nodes as mentioned in the storage class.
 		7. Bring down statefulset replica to 0.
 		8. Delete statefulset, PVC and SC.
 	*/
 
-	ginkgo.It("Provisioning volume when storage class specified with multiple labels without specifying datastore url and using default pod management policy for statefulset", func() {
+	ginkgo.It("Provisioning volume when storage class specified with multiple labels "+
+		"without specifying datastore url and using default pod management policy "+
+		"for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
@@ -604,8 +639,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node
+		as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset, namespace, allowedTopologies)
 
 		// Scale down statefulset to 0 replicas
@@ -672,7 +709,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		4. Delete PVC and SC.
 	*/
 
-	ginkgo.It("Verify volume provisioning when storage class specified with Immediate BindingMode and pvc specified with ReadWriteMany access mode", func() {
+	ginkgo.It("Verify volume provisioning when storage class specified with Immediate "+
+		"BindingMode and pvc specified with ReadWriteMany access mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		log := logger.GetLogger(ctx)
@@ -721,7 +759,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		5. Delete POD, PVC and SC
 	*/
 
-	ginkgo.It("Verify volume provisioning when storage class specified with one level topology along with datstore url", func() {
+	ginkgo.It("Verify volume provisioning when storage class specified with one level "+
+		"topology along with datstore url", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
@@ -731,7 +770,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		scParameters := make(map[string]string)
 		NonSharedDataStoreUrl := GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
 		scParameters["datastoreurl"] = NonSharedDataStoreUrl
-		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, scParameters, "", allowedTopologyForSC, "", false, "")
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil,
+			scParameters, "", allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -781,8 +821,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node as
+		specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
+			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
 	})
 
@@ -797,14 +839,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		4. Verify that the pod are running on appropriate node.
 		5. Delete POD, PVC and SC
 	*/
-	ginkgo.It("Verify volume provisioning when storage class specified with single level topology without datstore url", func() {
+	ginkgo.It("Verify volume provisioning when storage class specified with single "+
+		"level topology without datstore url", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 0)[4:]
 
 		// Create SC with Immediate BindingMode with single level topology detail
-		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, nil, "", allowedTopologyForSC, "", false, "")
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil,
+			nil, "", allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -854,8 +898,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node as
+		specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
 	})
 
@@ -900,7 +946,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		staticPVLabels["fcd-id"] = fcdID
 
 		ginkgo.By("Creating the PV")
-		pv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID, v1.PersistentVolumeReclaimDelete, storageclass.Name, staticPVLabels, diskSize, allowedTopologyForSC)
+		pv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID,
+			v1.PersistentVolumeReclaimDelete, storageclass.Name, staticPVLabels,
+			diskSize, allowedTopologyForSC)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -964,8 +1012,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 		}()
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node
+		as specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
 
 	})
@@ -993,7 +1043,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		18. Delete POD, PVC, PV and SC.
 
 	*/
-	ginkgo.It("Verify static volume provisioning with FCD and storage class specified with datastore url and set of allowed topologies", func() {
+	ginkgo.It("Verify static volume provisioning with FCD and storage class specified "+
+		"with datastore url and set of allowed topologies", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class
@@ -1024,7 +1075,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating PV using above created SC and FCD
 		ginkgo.By("Creating the PV")
-		pv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID, v1.PersistentVolumeReclaimRetain, storageclass.Name, staticPVLabels, diskSize, allowedTopologyForSC)
+		pv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID,
+			v1.PersistentVolumeReclaimRetain, storageclass.Name, staticPVLabels,
+			diskSize, allowedTopologyForSC)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -1089,8 +1142,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 		}()
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node as
+		specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
 
 		// Deleting Pod
@@ -1147,8 +1202,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-		// Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node as specified in the allowed topologies of SC")
+		/* Verify PV node affinity and that the PODS are running on appropriate node as
+		specified in the allowed topologies of SC */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace, allowedTopologies)
 
 		// Verify volume metadata for POD, PVC and PV

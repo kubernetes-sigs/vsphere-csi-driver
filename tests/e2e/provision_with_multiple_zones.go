@@ -161,19 +161,25 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	})
 
 	/*
-		Provisioning volume using storage policy with multiple zone and region details in the allowed topology
+		Provisioning volume using storage policy with multiple zone and region details
+			in the allowed topology
 		//Steps
 		1. Create SC with multiple Zone and region details specified in the SC
 		2. Create statefulset with replica 5 using the above SC
 		3. Wait for PV, PVC to bound
 		4. Statefulset should get distributed across zones.
-		5. Describe PV and verify node affinity details should contain both zone and region details
-		5a. If a volume provisioned on datastore that is shared only within zone1 then node affinity will have details of only zone1
-		5b. If a volume provisioned on datastore that is shared only on zone2 then node affinity will have details of only zone2
-		6. Verify statefulset pod is running on the same node as mentioned in node affinity details
+		5. Describe PV and verify node affinity details should contain both
+			zone and region details
+		5a. If a volume provisioned on datastore that is shared only within
+			zone1 then node affinity will have details of only zone1
+		5b. If a volume provisioned on datastore that is shared only on zone2 then
+			node affinity will have details of only zone2
+		6. Verify statefulset pod is running on the same node as mentioned in
+			node affinity details
 		7. Delete POD,PVC,PV
 	*/
-	ginkgo.It("Provisioning volume using storage policy with multiple zone and region details in the allowed topology", func() {
+	ginkgo.It("Provisioning volume using storage policy with multiple zone and region "+
+		"details in the allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Took Region1, Zone1 of Cluster1 and Region2, Zone2 of Cluster2
@@ -214,7 +220,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify node and pv topology affinity should contains specified zone and region details of SC and statefulset is distributed across zones and regions
+		/* Verify node and pv topology affinity should contains specified zone and region
+		details of SC and statefulset is distributed across zones and regions */
 		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset, namespace, zoneValues, regionValues)
 	})

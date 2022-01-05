@@ -1733,8 +1733,10 @@ func verifyVolumeTopology(pv *v1.PersistentVolume, zoneValues []string, regionVa
 }
 
 /*
-verifyVolumeTopologyForLevel5 verifies that the pv node affinity details should match the allowed topologies specified in the storage class.
-This method returns true if allowed topologies of SC matches with the PV node affinity details else return error and false.
+verifyVolumeTopologyForLevel5 verifies that the pv node affinity details should match the
+allowed topologies specified in the storage class.
+This method returns true if allowed topologies of SC matches with the PV node
+affinity details else return error and false.
 */
 func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap map[string][]string) (bool, error) {
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
@@ -1757,7 +1759,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 }
 
 /*
-This is a wrapper method which is used to comapre 2 string list and returns true if value matches else returns false.
+This is a wrapper method which is used to compare 2 string list and returns true if value matches else returns false.
 */
 func compareStringLists(strList1 []string, strList2 []string) bool {
 	strMap := make(map[string]bool)
@@ -1805,10 +1807,12 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 }
 
 /*
-verifyPodLocationLevel5 verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+verifyPodLocationLevel5 verifies that a pod is scheduled on a node that belongs to the
+topology on which PV is provisioned.
 This method returns true if all topology labels matches else returns false and error.
 */
-func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList, allowedTopologiesMap map[string][]string) (bool, error) {
+func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
+	allowedTopologiesMap map[string][]string) (bool, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
 			for labelKey, labelValue := range node.Labels {
@@ -1827,10 +1831,14 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList, allowedTopologi
 
 /*
 Type-2 testbed
-verifyPVnodeAffinityAndPODnodedetailsForStatefulsets verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
-Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsets verifies that PV node Affinity rules
+should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on
+which PV is provisioned.
 */
-func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, zoneValues []string, regionValues []string) {
+func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
+	client clientset.Interface, statefulset *appsv1.StatefulSet,
+	namespace string, zoneValues []string, regionValues []string) {
 	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
@@ -1860,10 +1868,14 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context, c
 
 /*
 For Statefulset Pod
-verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Statefulset verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
-Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Statefulset verifies that PV
+node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on
+which PV is provisioned.
 */
-func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
+	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -1880,7 +1892,8 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				if res {
 					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// fetch node details
@@ -1893,9 +1906,11 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
 				if res {
-					framework.Logf("Pod %v is running on appropriate node as specified in the allowed topolgies of Storage Class", sspod.Name)
+					framework.Logf("Pod %v is running on appropriate node as specified "+
+						"in the allowed topolgies of Storage Class", sspod.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Verify the attached volume match the one in CNS cache
@@ -1909,10 +1924,14 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 
 /*
 For Deployment Pod
-verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5 for Deployment verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
-Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5 for Deployment verifies that PV node
+Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which
+PV is provisioned.
 */
-func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context, client clientset.Interface, deployment *appsv1.Deployment, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
+	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	pods, err := fdep.GetPodsForDeployment(client, deployment)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1930,7 +1949,8 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 				if res {
 					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// fetch node details
@@ -1943,9 +1963,11 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
 				if res {
-					framework.Logf("Pod %v is running on appropriate node as specified in the allowed topolgies of Storage Class", sspod.Name)
+					framework.Logf("Pod %v is running on appropriate node as specified in the "+
+						"allowed topolgies of Storage Class", sspod.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Verify the attached volume match the one in CNS cache
@@ -1959,10 +1981,14 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 
 /*
 For Standalone Pod
-verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Standalone Pod verifies that PV node Affinity rules should match the topology constraints specified in the storage class.
-Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV is provisioned.
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Standalone Pod verifies that PV
+node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV
+is provisioned.
 */
-func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context, client clientset.Interface, pod *v1.Pod, namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
+	client clientset.Interface, pod *v1.Pod, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
@@ -1975,7 +2001,8 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 			if res {
 				framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
 			}
-			gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified allowed topologies of Storage Class", pv.Name)
+			gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified "+
+				"allowed topologies of Storage Class", pv.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// fetch node details
@@ -1988,9 +2015,11 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 			ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 			res, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
 			if res {
-				framework.Logf("Pod %v is running on appropriate node as specified in the allowed topolgies of Storage Class", pod.Name)
+				framework.Logf("Pod %v is running on appropriate node as specified in the allowed "+
+					"topolgies of Storage Class", pod.Name)
 			}
-			gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as specified in allowed topolgies of Storage Class", pod.Name)
+			gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as "+
+				"specified in allowed topolgies of Storage Class", pod.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Verify the attached volume match the one in CNS cache
@@ -2004,7 +2033,8 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 /*
 scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
 */
-func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	_, scaledownErr := fss.Scale(client, statefulset, replicas)
 	gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
@@ -2051,7 +2081,8 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface, st
 /*
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
-func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	_, scaleupErr := fss.Scale(client, statefulset, replicas)
 	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
@@ -2138,9 +2169,12 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 }
 
 /*
-This wrapper method is used to fetch allowed topologies from default topology set required for creating Storage Class specific to testcase scenarios.
+This wrapper method is used to fetch allowed topologies from default topology set
+required for creating Storage Class specific to testcase scenarios.
 */
-func getTopologySelector(topologyAffinityDetails map[string][]string, topologyCategories []string, level int, position ...int) []v1.TopologySelectorLabelRequirement {
+func getTopologySelector(topologyAffinityDetails map[string][]string,
+	topologyCategories []string, level int,
+	position ...int) []v1.TopologySelectorLabelRequirement {
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
 	var rnges []int
@@ -3516,7 +3550,8 @@ func getPersistentVolumeSpecWithStorageclass(volumeHandle string,
 
 func getPersistentVolumeSpecWithStorageClassFCDNodeSelector(volumeHandle string,
 	persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string,
-	labels map[string]string, sizeOfDisk string, allowedTopologies []v1.TopologySelectorLabelRequirement) *v1.PersistentVolume {
+	labels map[string]string, sizeOfDisk string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) *v1.PersistentVolume {
 	var (
 		pvConfig fpv.PersistentVolumeConfig
 		pv       *v1.PersistentVolume
