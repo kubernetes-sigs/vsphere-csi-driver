@@ -1176,11 +1176,10 @@ func isFssEnabled(host, fss string) bool {
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	fssh.LogResult(result)
 	if err == nil && result.Code == 0 {
-		return strings.Replace(result.Stdout, "\n", "", -1) == "enabled"
+		return strings.TrimSpace(result.Stdout) == "enabled"
 	} else {
 		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	}
 	return false
 }
