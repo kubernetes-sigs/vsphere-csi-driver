@@ -1500,7 +1500,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
-		if featureEnabled {
+		if !featureEnabled {
 			ginkgo.By("File system resize should not succeed since SPS service is down. Expecting an error")
 			expectedErrMsg := "failed to expand volume"
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
