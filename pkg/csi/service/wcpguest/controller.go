@@ -17,6 +17,7 @@ limitations under the License.
 package wcpguest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -32,7 +33,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"

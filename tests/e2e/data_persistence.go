@@ -318,9 +318,9 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
+		_, err = createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		log.Infof("storageclass Name :%s", storageclass.GetName())
 
