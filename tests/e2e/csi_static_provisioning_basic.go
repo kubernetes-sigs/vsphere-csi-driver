@@ -1308,9 +1308,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
+		_, err = createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, nonsharedDatastoreName, metav1.GetOptions{})
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, nonsharedDatastoreName, metav1.GetOptions{})
 		log.Infof("storageclass Name :%s", storageclass.GetName())
 
 		defer func() {
