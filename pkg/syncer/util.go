@@ -75,7 +75,9 @@ func fullSyncGetInlineMigratedVolumesInfo(ctx context.Context, metadataSyncer *m
 		for _, volume := range pod.Spec.Volumes {
 			// Check if migration is ON and volumes if of type vSphereVolume
 			if migrationFeatureState && volume.VsphereVolume != nil {
-				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath, StoragePolicyName: volume.VsphereVolume.StoragePolicyName})
+				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
+					&migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath,
+						StoragePolicyName: volume.VsphereVolume.StoragePolicyName}, true)
 				if err != nil {
 					log.Warnf("FullSync: Failed to get VolumeID from volumeMigrationService for volumePath: %s with error %+v", volume.VsphereVolume.VolumePath, err)
 					continue
