@@ -58,6 +58,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		nonsharedDatastore      *object.Datastore
 		datastoreURL            string
 		nonSharedDatastoreURL   string
+		topologyLength          int
+		leafNode                int
+		leafNodeTag0            int
+		leafNodeTag1            int
+		leafNodeTag2            int
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -69,10 +74,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
-		topologylength := 5
+		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
+
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologylength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologylength)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
+		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
 			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -274,8 +280,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"with allowed topologies and using parallel pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 2)
+		/* Get allowed topologies for Storage Class
+		(region1 > zone1 > building1 > level1 > rack > rack3) */
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag2)
 
 		// Create StorageClass with allowed Topologies
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -358,7 +366,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"with higher level allowed topologies and using default pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
+		// Get allowed topologies for Storage Class (region1 > zone1 > building1)
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 3)
 
 		// Create SC with Immediate BindingMode with higher level allowed topologies using shared datastore across cluster
@@ -447,10 +455,15 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sharedDataStoreUrlBetweenClusters := GetAndExpectStringEnvVar(datstoreSharedBetweenClusters)
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1, 2)
 
-		// Create SC with Immediate BindingMode with multiple topology labels and datastore shared between those labels.
+		/* Get allowed topologies for Storage Class
+		region1 > zone1 > building1 > level1 > rack > (rack2 and rack3)
+		Taking Shared datstore between Rack2 and Rack3 */
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag1, leafNodeTag2)
+
+		/* Create SC with Immediate BindingMode with multiple topology labels and datastore
+		shared between those labels. */
 		scParameters := make(map[string]string)
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "", "", false, "nginx-sc")
@@ -535,8 +548,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		lables["app"] = "nginx"
 		replica := 1
 
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 2)
+		/* Get allowed topologies for Storage Class
+		(region1 > zone1 > building1 > level1 > rack > rack3) */
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag2)
 
 		// create SC and PVC
 		storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
@@ -607,8 +622,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)[4:]
+		// Get allowed topologies for Storage Class rack > (rack1,rack2,rack3)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, topologyLength)[4:]
 
 		// Create SC with BindingMode as Immediate with allowed topology details.
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", bindingMode, false, "nginx-sc")
@@ -666,7 +681,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		log := logger.GetLogger(ctx)
 		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, topologyLength)
 		allowedTopologyForSC[4].Values = []string{"rack15"}
 
 		// Create SC with Immediate BindingMode and allowed topology set to invalid topology label in any one level
@@ -715,7 +730,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		log := logger.GetLogger(ctx)
 		// Get allowed topologies for Storage Class for all 5 levels
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, topologyLength)
 
 		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "")
@@ -763,8 +778,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"topology along with datstore url", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1)[4:]
+		// Get allowed topologies for Storage Class (rack > rack2)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag1)[4:]
 
 		// Create SC with Immediate BindingMode with single level topology detail specified with datatsoreUrl
 		scParameters := make(map[string]string)
@@ -843,8 +859,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"level topology without datstore url", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 0)[4:]
+		// Get allowed topologies for Storage Class (rack > rack1)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag0)[4:]
 
 		// Create SC with Immediate BindingMode with single level topology detail
 		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil,
@@ -921,8 +938,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	ginkgo.It("Verify static volume provisioning with FCD and storage class with allowed topologies", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5, 4, 1)
+		/* Get allowed topologies for Storage Class
+		region1 > zone1 > building1 > level1 > rack > rack2 */
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag1)
 
 		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "")
@@ -1047,8 +1066,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"with datastore url and set of allowed topologies", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Get allowed topologies for Storage Class
-		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 5)
+		/* Get allowed topologies for Storage Class
+		zone1 > building1 > level1 > rack > rack1/rack2/rack3 */
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, topologyLength)
 
 		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
 		scParameters := make(map[string]string)

@@ -1752,10 +1752,8 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
 			}
 		}
-
 	}
 	return true, nil
-
 }
 
 /*
@@ -1819,9 +1817,7 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
 					if !contains(topologyValue, labelValue) {
 						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
-
 					}
-
 				}
 			}
 		}
@@ -2134,6 +2130,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 
 /*
 This wrapper method is used to create the topology map of allowed topologies specified on VC.
+TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:rack1,rack2,rack3"
 */
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
@@ -2189,7 +2186,6 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 			for _, rng := range rnges {
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
-
 		} else {
 			values = topologyAffinityDetails[category]
 		}
