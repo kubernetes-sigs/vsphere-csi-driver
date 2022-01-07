@@ -731,7 +731,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		if !featureEnabled {
-			ginkgo.By("File system resize should not succeed since SPS service is down. Expecting an error")
+			ginkgo.By("File system resize should not succeed since SPS service is down" +
+				" and cns new sync feature is disabled. Expecting an error")
 			if guestCluster {
 				expectedErrMsg = "didn't find a plugin capable of expanding the volume"
 			} else {
@@ -1501,7 +1502,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		if !featureEnabled {
-			ginkgo.By("File system resize should not succeed since SPS service is down. Expecting an error")
+			ginkgo.By("File system resize should not succeed since SPS service is down" +
+				" and cns new sync feature is disabled. Expecting an error")
 			expectedErrMsg := "failed to expand volume"
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
 			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
