@@ -29,7 +29,7 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
-	busyBoxImageOnGcr                          = "k8s.gcr.io/e2e-test-images/agnhost:2.21"
+	busyBoxImageOnGcr                          = "mcr.microsoft.com/windows/servercore:ltsc2019"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
