@@ -305,4 +305,7 @@ const (
 	// ProviderID on K8s Node API object set by CPI. If not set, CSI
 	// will continue to use the Provider ID from K8s Node API object.
 	UseCSINodeId = "use-csinode-id"
+	// TKGsHA is the feature gate to check whether TKGS HA feature
+	// is enabled.
+	TKGsHA = "tkgs-ha"
 )

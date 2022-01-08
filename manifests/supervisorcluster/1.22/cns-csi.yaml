@@ -356,6 +356,7 @@ data:
   "improved-csi-idempotency": "false"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
+  "tkgs-ha": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
