@@ -3970,3 +3970,144 @@ func collectPodLogs(ctx context.Context, client clientset.Interface, namespace s
 		}
 	}
 }
+
+func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, controller_name string) (string, error) {
+	ignoreLabels := make(map[string]string)
+	vsphere_controller_name := "vsphere-csi-controller"
+	var k8sMasterNodeIP string
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for i := 0; i < len(list_of_pods); i++ {
+		if strings.Contains(list_of_pods[i].Name, vsphere_controller_name) {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
+					"vmware-system-csi csi-provisioner | grep 'new leader detected, current leader:' " +
+					" | tail -1 | awk '{print $10}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+					k8sMasterIP)
+				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingCurrentLeader)
+				if err != nil || RunningLeaderInfo.Code != 0 {
+					fssh.LogResult(RunningLeaderInfo)
+					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
+					"vmware-system-csi | " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
+					k8sMasterIP)
+				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeName)
+				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeNameInfo)
+					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
+					"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
+					k8sMasterIP)
+				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeIP)
+				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
+				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeIPInfo)
+					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+				}
+			}
+		}
+		if strings.Contains(list_of_pods[i].Name, vsphere_controller_name) {
+			break
+		}
+	}
+	return k8sMasterNodeIP, nil
+}
+
+func executeDockerPauseKillCmd(k8sMasterNodeIP string) error {
+	grepCmdForGettingDockerContainer := "kubectl get nodes -owide | " +
+	"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
+	k8sMasterIP)
+	K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+	grepCmdForFindingMasterNodeIP)
+	k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
+	if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+	fssh.LogResult(K8sMasterNodeIPInfo)
+	return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+		grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+}
+}
+
+}
+
+/*
+This wrapper method is used to fetch allowed topologies from default topology set
+required for creating Storage Class specific to testcase scenarios.
+*/
+func getTopologySelector(topologyAffinityDetails map[string][]string,
+	topologyCategories []string, level int,
+	position ...int) []v1.TopologySelectorLabelRequirement {
+	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
+	updateLvl := -1
+	var rnges []int
+	if len(position) > 0 {
+		updateLvl = position[0]
+		rnges = position[1:]
+	}
+	for i := 0; i < level; i++ {
+		var values []string
+		category := topologyCategories[i]
+		if i == updateLvl {
+			for _, rng := range rnges {
+				values = append(values, topologyAffinityDetails[category][rng])
+			}
+		} else {
+			values = topologyAffinityDetails[category]
+		}
+		topologySelector := v1.TopologySelectorLabelRequirement{
+			Key:    topologykey + "/" + category,
+			Values: values,
+		}
+		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
+	}
+	return allowedTopologyForSC
+}
+
+/*This wrapper method is used to create the topology map of allowed topologies specified on VC.
+TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:rack1,rack2,rack3"
+*/
+func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
+	topologyMap := make(map[string][]string)
+	var categories []string
+	if level != 5 {
+		return nil, categories
+	}
+	topologyCategories := strings.Split(topologyMapStr, ";")
+	for _, category := range topologyCategories {
+		categoryVal := strings.Split(category, ":")
+		key := categoryVal[0]
+		categories = append(categories, key)
+		values := strings.Split(categoryVal[1], ",")
+		topologyMap[key] = values
+	}
+	return topologyMap, categories
+}
+
+/*
+This wrapper method is used to create allowed topologies set required for creating Storage Class.
+*/
+func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
+	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
+	for key, val := range topologyMap {
+		allowedTopology := v1.TopologySelectorLabelRequirement{
+			Key:    topologykey + "/" + key,
+			Values: val,
+		}
+		allowedTopologies = append(allowedTopologies, allowedTopology)
+	}
+	return allowedTopologies
+}
