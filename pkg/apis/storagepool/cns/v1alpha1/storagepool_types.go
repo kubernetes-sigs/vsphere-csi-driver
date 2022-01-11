@@ -45,6 +45,9 @@ type StoragePoolStatus struct {
 	// Error that has occurred on the storage pool. Present only when there is an error.
 	// +optional
 	Error StoragePoolError `json:"error,omitempty"`
+	// DiskDecomm indicates the status of disk decommission for the given storagepool
+	// +optional
+	DiskDecomm map[string]string `json:"diskDecomm,omitempty"`
 }
 
 // PoolCapacity is the storage capacity of the storage pool
