@@ -68,9 +68,11 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
@@ -3995,7 +3997,7 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
 				}
 				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
-					"vmware-system-csi | " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
+					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
 				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
 					k8sMasterIP)
 				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
@@ -4026,21 +4028,40 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 	return k8sMasterNodeIP, nil
 }
 
-func executeDockerPauseKillCmd(k8sMasterNodeIP string) error {
-	grepCmdForGettingDockerContainer := "kubectl get nodes -owide | " +
-	"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
-	framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
-	k8sMasterIP)
-	K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-	grepCmdForFindingMasterNodeIP)
-	k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
-	if err != nil || K8sMasterNodeIPInfo.Code != 0 {
-	fssh.LogResult(K8sMasterNodeIPInfo)
-	return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-		grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
-}
-}
-
+func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	controller_name string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
+		"awk '{print $1}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		k8sMasterNodeIP)
+	DockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForGettingDockerContainerId)
+	if err != nil || DockerContainerInfo.Code != 0 {
+		fssh.LogResult(DockerContainerInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
+	}
+	grepCmdForPausingDockerContainer := "docker pause " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForPausingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerPauseInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForPausingDockerContainer)
+	if err != nil || DockerContainerPauseInfo.Code != 0 {
+		fssh.LogResult(DockerContainerPauseInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForPausingDockerContainer, k8sMasterNodeIP, err)
+	}
+	grepCmdForKillingDockerContainer := "docker kill " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForKillingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerKillInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForKillingDockerContainer)
+	if err != nil || DockerContainerKillInfo.Code != 0 {
+		fssh.LogResult(DockerContainerKillInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForKillingDockerContainer, k8sMasterNodeIP, err)
+	}
+	return nil
 }
 
 /*
@@ -4111,3 +4132,157 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 	}
 	return allowedTopologies
 }
+
+func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
+	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	for _, sspod := range ssPodsBeforeScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				// get pv details
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+				// verify pv node affinity details as specified on SC
+				ginkgo.By("Verifying PV node affinity details")
+				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+				if res {
+					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// fetch node details
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				// verify pod is running on appropriate nodes
+				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod %v is running on appropriate node as specified "+
+						"in the allowed topolgies of Storage Class", sspod.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
+	allowedTopologiesMap map[string][]string) (bool, error) {
+	for _, node := range nodeList.Items {
+		if pod.Spec.NodeName == node.Name {
+			for labelKey, labelValue := range node.Labels {
+				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
+					if !contains(topologyValue, labelValue) {
+						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
+					}
+				}
+			}
+		}
+	}
+	return true, nil
+}
+
+func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap map[string][]string) (bool, error) {
+	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
+		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
+	}
+	for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
+		for _, topology := range nodeSelector.MatchExpressions {
+			if val, ok := allowedTopologiesMap[topology.Key]; ok {
+				if !compareStringLists(val, topology.Values) {
+					return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+				}
+			} else {
+				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+			}
+		}
+	}
+	return true, nil
+}
+
+func compareStringLists(strList1 []string, strList2 []string) bool {
+	strMap := make(map[string]bool)
+	for _, str := range strList1 {
+		strMap[str] = true
+	}
+	for _, str := range strList2 {
+		if _, ok := strMap[str]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+/*
+This is a wrapper method which is used to create a topology map of all tags and categoties.
+*/
+func createAllowedTopologiesMap(allowedTopologies []v1.TopologySelectorLabelRequirement) map[string][]string {
+	allowedTopologiesMap := make(map[string][]string)
+	for _, topologySelector := range allowedTopologies {
+		allowedTopologiesMap[topologySelector.Key] = topologySelector.Values
+	}
+	return allowedTopologiesMap
+}
+
+func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
+	_, scaledownErr := fss.Scale(client, statefulset, replicas)
+	gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+	ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	// After scale down, verify vSphere volumes are detached from deleted pods
+	ginkgo.By("Verify Volumes are detached from Nodes after Statefulsets is scaled down")
+	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	for _, sspod := range ssPodsBeforeScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		if err != nil {
+			gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
+						client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+						fmt.Sprintf("Volume %q is not detached from the node %q",
+							pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				}
+			}
+		}
+	}
+	// After scale down, verify the attached volumes match those in CNS Cache
+	for _, sspod := range ssPodsAfterScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+
