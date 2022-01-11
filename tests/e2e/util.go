@@ -3974,26 +3974,28 @@ func collectPodLogs(ctx context.Context, client clientset.Interface, namespace s
 }
 
 func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
-	client clientset.Interface, sshClientConfig *ssh.ClientConfig, controller_name string) (string, error) {
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, controller_name string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
-	vsphere_controller_name := "vsphere-csi-controller"
+	//vsphere_controller_name := "vsphere-csi-controller"
 	var k8sMasterNodeIP string
+	var csi_controller_pod string
 	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for i := 0; i < len(list_of_pods); i++ {
-		if strings.Contains(list_of_pods[i].Name, vsphere_controller_name) {
+		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			for _, k8sMasterIP := range k8sMasterIPs {
 				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
-					"vmware-system-csi csi-provisioner | grep 'new leader detected, current leader:' " +
+					"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
 					" | tail -1 | awk '{print $10}' | tr -d '\n'"
 				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 					k8sMasterIP)
 				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
 					grepCmdForFindingCurrentLeader)
+				csi_controller_pod = RunningLeaderInfo.Stdout
 				if err != nil || RunningLeaderInfo.Code != 0 {
 					fssh.LogResult(RunningLeaderInfo)
-					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
 				}
 				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
@@ -4004,7 +4006,7 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 					grepCmdForFindingMasterNodeName)
 				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
 					fssh.LogResult(K8sMasterNodeNameInfo)
-					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
 				}
 				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
@@ -4016,16 +4018,16 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
 				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
 					fssh.LogResult(K8sMasterNodeIPInfo)
-					return "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
 				}
 			}
 		}
-		if strings.Contains(list_of_pods[i].Name, vsphere_controller_name) {
+		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
 			break
 		}
 	}
-	return k8sMasterNodeIP, nil
+	return csi_controller_pod, k8sMasterNodeIP, nil
 }
 
 func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
@@ -4285,4 +4287,56 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	}
 }
 
+/*
+scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
+*/
+func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
+	_, scaleupErr := fss.Scale(client, statefulset, replicas)
+	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+	fss.WaitForStatusReplicas(client, statefulset, replicas)
+	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
+	ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	// After scale up, verify all vSphere volumes are attached to node VMs.
+	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
+	for _, sspod := range ssPodsAfterScaleUp.Items {
+		err := fpod.WaitForPodsReady(client, statefulset.Namespace, sspod.Name, 0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range pod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				var vmUUID string
+				var exists bool
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if vanillaCluster {
+					vmUUID = getNodeUUID(client, sspod.Spec.NodeName)
+				} else {
+					annotations := pod.Annotations
+					vmUUID, exists = annotations[vmUUIDLabel]
+					gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+					_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+				ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
