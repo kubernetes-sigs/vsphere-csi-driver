@@ -3974,7 +3974,8 @@ func collectPodLogs(ctx context.Context, client clientset.Interface, namespace s
 }
 
 func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
-	client clientset.Interface, sshClientConfig *ssh.ClientConfig, controller_name string) (string, string, error) {
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	controller_name string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
 	//vsphere_controller_name := "vsphere-csi-controller"
 	var k8sMasterNodeIP string
