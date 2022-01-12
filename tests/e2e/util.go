@@ -3625,7 +3625,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	time.Sleep(5 * time.Minute)
+	time.Sleep(7 * time.Minute)
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
