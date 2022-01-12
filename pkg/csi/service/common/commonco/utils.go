@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"

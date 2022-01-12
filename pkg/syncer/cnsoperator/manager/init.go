@@ -240,23 +240,22 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 	coInitParams *interface{}) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	var coCommonInterface commonco.COCommonInterface
 	var err error
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, *coInitParams)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorVanilla, *coInitParams)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorGuest, *coInitParams)
 	}
 	if err != nil {
 		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
 		return err
 	}
-	if coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
 		log.Infof("Triggerfullsync feature enabled")
 		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedTriggerCsiFullSync,
 			internalapiscnsoperatorconfig.EmbedTriggerCsiFullSyncName)

@@ -53,8 +53,19 @@ var (
 func InitStoragePoolService(ctx context.Context,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("Initializing Storage Pool Service")
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return err
+		}
+		if len(clusterComputeResourceMoIds) > 1 {
+			log.Infof("skip initializing the StoragePoolService as stretched supervisor is detected.")
+			return nil
+		}
+	}
 
+	log.Infof("Initializing Storage Pool Service")
 	// Get a config to talk to the apiserver.
 	cfg, err := config.GetConfig()
 	if err != nil {

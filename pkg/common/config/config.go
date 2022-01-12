@@ -300,6 +300,11 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		log.Error(ErrClusterIDCharLimit)
 		return ErrClusterIDCharLimit
 	}
+	// SupervisorID should not exceed 64 characters.
+	if len(cfg.Global.SupervisorID) > 64 {
+		log.Error(ErrClusterIDCharLimit)
+		return ErrClusterIDCharLimit
+	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)
 		if vcServer == "" {
