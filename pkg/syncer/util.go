@@ -230,15 +230,15 @@ func isValidvSphereVolumeClaim(ctx context.Context, pvcMetadata metav1.ObjectMet
 	// Checking if the migrated-to annotation is found in the PVC metadata.
 	if annotation, annMigratedToFound := pvcMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
 		if annotation == csitypes.Name &&
-			pvcMetadata.Annotations[common.AnnStorageProvisioner] == common.InTreePluginName {
+			pvcMetadata.Annotations[common.AnnBetaStorageProvisioner] == common.InTreePluginName {
 			log.Debugf("%v annotation found with value %q for PVC: %q",
 				common.AnnMigratedTo, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	} else { // Checking if the PVC was provisioned by CSI.
-		if pvcMetadata.Annotations[common.AnnStorageProvisioner] == csitypes.Name {
+		if pvcMetadata.Annotations[common.AnnBetaStorageProvisioner] == csitypes.Name {
 			log.Debugf("%v annotation found with value %q for PVC: %q",
-				common.AnnStorageProvisioner, csitypes.Name, pvcMetadata.Name)
+				common.AnnBetaStorageProvisioner, csitypes.Name, pvcMetadata.Name)
 			return true
 		}
 	}

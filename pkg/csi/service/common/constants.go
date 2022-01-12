@@ -195,10 +195,18 @@ const (
 	// provisioned/deleted by its corresponding CSI driver.
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
 
+	// AnnBetaStorageProvisioner annotation is added to a PVC that is supposed to
+	// be dynamically provisioned. Its value is name of volume plugin that is
+	// supposed to provision a volume for this PVC.
+	AnnBetaStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+
 	// AnnStorageProvisioner annotation is added to a PVC that is supposed to
 	// be dynamically provisioned. Its value is name of volume plugin that is
 	// supposed to provision a volume for this PVC.
-	AnnStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+	AnnStorageProvisioner = "volume.kubernetes.io/storage-provisioner"
+
+	// vSphereCSIDriverName vSphere CSI driver name
+	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 
 	// AnnDynamicallyProvisioned annotation is added to a PV that has been
 	// dynamically provisioned by Kubernetes. Its value is name of volume plugin
@@ -249,6 +257,12 @@ const (
 	// TopologyLabelsDomain is the domain name used to identify user-defined
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
+
+	//AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
+	AnnGuestClusterRequestedTopology = "csi.vsphere.guest-cluster-requested-topology"
+
+	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
+	AnnVolumeAccessibleTopology = "csi.vsphere.volumeAccessibleTopology"
 )
 
 // Supported container orchestrators.

@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -180,12 +181,14 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
-	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode,
+	annotations map[string]string) *v1.PersistentVolumeClaim {
 
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName,
-			Namespace: namespace,
+			Name:        pvcName,
+			Namespace:   namespace,
+			Annotations: annotations,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -200,6 +203,48 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 		},
 	}
 	return claim
+}
+
+// generateGuestClusterRequestedTopologyJSON translates the topology into a json string to be set on the supervisor
+// PVC
+func generateGuestClusterRequestedTopologyJSON(topologies []*csi.Topology) (string, error) {
+	segmentsArray := make([]string, 0)
+	for _, topology := range topologies {
+		jsonSegment, err := json.Marshal(topology.Segments)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal topology segment: %v to json. Err: %v", topology.Segments, err)
+		}
+		segmentsArray = append(segmentsArray, string(jsonSegment))
+	}
+	return "[" + strings.Join(segmentsArray, ",") + "]", nil
+}
+
+// generateVolumeAccessibilityRequirementsFromPVCAnnotation returns TopologyRequirement generated using
+// PVC annotation "csi.vsphere.volumeAccessibleTopology"
+func generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
+	*csi.TopologyRequirement, error) {
+	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
+	if volumeAccessibleTopology == "" {
+		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
+			common.AnnVolumeAccessibleTopology, claim.Name, claim.Namespace)
+	}
+	volumeAccessibleTopologyArray := make([]map[string]string, 0)
+	err := json.Unmarshal([]byte(volumeAccessibleTopology), &volumeAccessibleTopologyArray)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse annotation: %q value %v from the claim: %q, namespace: %q. "+
+			"err: %v", common.AnnVolumeAccessibleTopology, volumeAccessibleTopology,
+			claim.Name, claim.Namespace, err)
+	}
+	requirement := &csi.TopologyRequirement{}
+	for _, topology := range volumeAccessibleTopologyArray {
+		topologySegment := map[string]string{}
+		for key, value := range topology {
+			topologySegment[key] = fmt.Sprintf("%v", value)
+			requirement.Preferred = append(requirement.Preferred, &csi.Topology{Segments: topologySegment})
+		}
+	}
+	requirement.Requisite = requirement.Preferred
+	return requirement, nil
 }
 
 // isPVCInSupervisorClusterBound return true if the PVC is bound in the
