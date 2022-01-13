@@ -4067,6 +4067,36 @@ func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeI
 	return nil
 }
 
+func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	csi_controller_pod string) error {
+	ignoreLabels := make(map[string]string)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for i := 0; i < len(list_of_pods); i++ {
+		if list_of_pods[i].Name == csi_controller_pod {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
+					" -n vmware-system-csi"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
+					k8sMasterIP)
+				result, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForDeletingCsiControllerPod)
+				if err != nil || result.Code != 0 {
+					fssh.LogResult(result)
+					return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+				}
+			}
+		}
+		if list_of_pods[i].Name == csi_controller_pod {
+			break
+		}
+	}
+	return nil
+}
+
 /*
 This wrapper method is used to fetch allowed topologies from default topology set
 required for creating Storage Class specific to testcase scenarios.
