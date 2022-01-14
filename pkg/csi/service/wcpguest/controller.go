@@ -566,8 +566,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			// volume in the spec and patching virtualMachine instance.
 			vmvolumes := vmoperatortypes.VirtualMachineVolume{
 				Name: req.VolumeId,
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: req.VolumeId,
+				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: req.VolumeId,
+					},
 				},
 			}
 			virtualMachineLock.Lock()

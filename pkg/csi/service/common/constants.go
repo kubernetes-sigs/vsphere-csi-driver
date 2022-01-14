@@ -263,6 +263,12 @@ const (
 
 	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volumeAccessibleTopology"
+
+	// WellKnownTopologyLabelsDomain is the well-known domain name of topology labels
+	WellKnownTopologyLabelsDomain = "topology.kubernetes.io"
+
+	// TopologyLabelsZoneKey is zone key of the topology labels
+	TopologyLabelsZoneKey = "zone"
 )
 
 // Supported container orchestrators.
