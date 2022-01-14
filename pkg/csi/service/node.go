@@ -381,7 +381,8 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		}
 	}
 
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
+	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest &&
+		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		nodeInfoResponse = &csi.NodeGetInfoResponse{
 			NodeId:             nodeID,
 			MaxVolumesPerNode:  maxVolumesPerNode,
@@ -394,7 +395,8 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	var (
 		accessibleTopology map[string]string
 	)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) ||
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		// Initialize volume topology service.
 		if err = initVolumeTopologyService(ctx); err != nil {
 			return nil, err
