@@ -247,8 +247,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		nonSharedDatastoreURLInZone := GetAndExpectStringEnvVar(envInaccessibleZoneDatastoreURL)
 		scParameters := make(map[string]string)
 		scParameters[scParamDatastoreURL] = nonSharedDatastoreURLInZone
-		errStringToVerify := "DatastoreURL: " + scParameters[scParamDatastoreURL] +
-			" specified in the storage class is not accessible in the topology"
+		errStringToVerify := "Datastore: " + scParameters[scParamDatastoreURL] +
+			" specified in the storage class is not accessible to all nodes"
 		invokeTopologyBasedVolumeProvisioningWithInaccessibleParameters(f, client,
 			namespace, scParameters, allowedTopologies, errStringToVerify)
 	})

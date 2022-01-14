@@ -120,7 +120,7 @@ const (
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
 	quotaName                                 = "cns-test-quota"
-	regionKey                                 = "topology.csi.vmware.com/region"
+	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                        = 2 * time.Second
 	rqLimit                                   = "200Gi"
 	rqLimitScaleTest                          = "900Gi"
@@ -167,7 +167,7 @@ const (
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
-	zoneKey                                   = "topology.csi.vmware.com/zone"
+	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 )
