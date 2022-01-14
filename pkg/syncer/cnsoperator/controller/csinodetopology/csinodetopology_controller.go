@@ -85,13 +85,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
 		!coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s cluster",
+		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s",
 			common.ImprovedVolumeTopology, cnstypes.CnsClusterFlavorVanilla)
 		return nil
 	}
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorGuest && !coCommonInterface.IsFSSEnabled(ctx, common.TKGsHA) {
-		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s cluster",
+		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s",
 			common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		return nil
 	}
@@ -101,6 +101,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	var vmOperatorClient client.Client
 	var supervisorNamespace string
 	if enableTKGsHAinGuest {
+		log.Info("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		restClientConfigForSupervisor :=
 			k8s.GetRestClientConfigForSupervisor(ctx, configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
 		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatortypes.GroupName)
@@ -325,6 +326,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, request reconcile.Request) (
 	reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
+	log.Infof("Start reconciling the CSINodeTopology request %s in %s", request.Name, cnstypes.CnsClusterFlavorGuest)
 
 	// Fetch the CSINodeTopology instance.
 	instance := &csinodetopologyv1alpha1.CSINodeTopology{}
@@ -375,7 +377,8 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 		delete(backOffDuration, instance.Name)
 	}()
 
-	log.Infof("Successfully updated topology labels for worker %q", instance.Name)
+	log.Infof("Successfully updated topology labels for worker %q in %s",
+		instance.Name, cnstypes.CnsClusterFlavorGuest)
 	return reconcile.Result{}, nil
 }
 
