@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
 		podsToDelete               []*v1.Pod
+		csiNamespace               string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -92,6 +93,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -511,10 +513,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		ginkgo.By("Restart CSI driver")
 		framework.Logf("Stopping CSI driver")
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		err = updateDeploymentReplicawithWait(client, 1, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-create pod for test18")
