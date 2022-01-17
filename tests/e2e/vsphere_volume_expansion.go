@@ -2582,10 +2582,17 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
 func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
+	var pod *v1.Pod
+	var err error
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	if (windowsEnv) {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	
 	var exists bool
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))

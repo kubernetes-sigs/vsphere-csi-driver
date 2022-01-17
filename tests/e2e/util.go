@@ -3615,17 +3615,83 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 	return result, err
 }
 
+// func createWindowsPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
+// 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+// 		// pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+// 		// pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+
+// 		if len(command) == 0 {
+// 			command = "while (1) { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
+// 		}
+// 		podSpec := &v1.Pod{
+// 			TypeMeta: metav1.TypeMeta{
+// 				Kind:       "Pod",
+// 				APIVersion: "v1",
+// 			},
+// 			ObjectMeta: metav1.ObjectMeta{
+// 				GenerateName: "pvc-tester-",
+// 				Namespace:    namespace,
+// 			},
+// 			Spec: v1.PodSpec{
+// 				Containers: []v1.Container{
+// 					{
+// 						Name:            "write-pod",
+// 						Image:           busyBoxImageOnGcr,
+// 						Command:         GenerateScriptCmd(command),
+// 						SecurityContext: GenerateContainerSecurityContext(isPrivileged),
+// 					},
+// 				},
+// 				RestartPolicy: v1.RestartPolicyOnFailure,
+// 			},
+// 		}
+// 		var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+// 		var volumes = make([]v1.Volume, len(pvclaims))
+// 		for index, pvclaim := range pvclaims {
+// 			volumename := fmt.Sprintf("volume%v", index+1)
+// 			volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+// 			volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+// 		}
+// 		podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
+// 		podSpec.Spec.Volumes = volumes
+// 		if nodeSelector != nil {
+// 			podSpec.Spec.NodeSelector = nodeSelector
+// 		}
+		
+		
+// 		// pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+// 		// if err != nil {
+// 		// 	return nil, fmt.Errorf("pod Create API error: %v", err)
+// 		// }
+// 		// // Waiting for pod to be running.
+// 		// time.Sleep(7 * time.Minute)
+// 		// err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+// 		// if err != nil {
+// 		// 	return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+// 		// }
+// 		// // Get fresh pod info.
+// 		// pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+// 		// if err != nil {
+// 		// 	return pod, fmt.Errorf("pod Get API error: %v", err)
+// 		// }
+// 		// return pod, nil
+
+// }
+
 // createPod with given claims based on node selector.
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	if windowsEnv {
+		pod.Spec.Containers[0].Image = windowsLTSCImage
+	} else {
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	}
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	time.Sleep(7 * time.Minute)
+	//time.Sleep(7 * time.Minute)
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)

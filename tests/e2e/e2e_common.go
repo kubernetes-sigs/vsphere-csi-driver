@@ -29,7 +29,8 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
-	busyBoxImageOnGcr                          = "mcr.microsoft.com/windows/servercore:ltsc2019"
+	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
+	windowsLTSCImage                           = "mcr.microsoft.com/windows/servercore:ltsc2019"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
@@ -79,6 +80,8 @@ const (
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
+	windowsCommand                             = "while (1) " + 
+	    " { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
@@ -178,6 +181,7 @@ var (
 	supervisorCluster bool
 	guestCluster      bool
 	rwxAccessMode     bool
+	windowsEnv        bool
 )
 
 // For VCP to CSI migration tests.
@@ -243,5 +247,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	kind := os.Getenv("ACCESS_MODE")
 	if strings.TrimSpace(string(kind)) == "RWX" {
 		rwxAccessMode = true
+	}
+
+	//Check if its windows env
+	workerNode := os.Getenv("WORKER_NODE")
+	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
+		windowsEnv = true 
 	}
 }
