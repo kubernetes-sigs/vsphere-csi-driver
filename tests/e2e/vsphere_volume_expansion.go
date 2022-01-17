@@ -2615,7 +2615,7 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 	if windowsEnv{
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+			[]string{"cat", "C:\\mnt\\volume1\\data.txt"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	} else {
