@@ -3681,8 +3681,11 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	executor := []string{"powershell.exe"}
+	
 	if windowsEnv {
 		pod.Spec.Containers[0].Image = windowsLTSCImage
+		pod.Spec.Containers[0].Command = executor
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	}
@@ -3691,7 +3694,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	//time.Sleep(7 * time.Minute)
+	time.Sleep(10 * time.Minute)
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
