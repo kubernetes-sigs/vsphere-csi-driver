@@ -4371,3 +4371,96 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		}
 	}
 }
+func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
+	client clientset.Interface, pod *v1.Pod, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	for _, volumespec := range pod.Spec.Volumes {
+		if volumespec.PersistentVolumeClaim != nil {
+			// get pv details
+			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+			// verify pv node affinity details as specified on SC
+			ginkgo.By("Verifying PV node affinity details")
+			res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+			if res {
+				framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified "+
+				"allowed topologies of Storage Class", pv.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// fetch node details
+			nodeList, err := fnodes.GetReadySchedulableNodes(client)
+			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+			if !(len(nodeList.Items) > 0) {
+				framework.Failf("Unable to find ready and schedulable Node")
+			}
+			// verify pod is running on appropriate nodes
+			ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+			res, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
+			if res {
+				framework.Logf("Pod %v is running on appropriate node as specified in the allowed "+
+					"topolgies of Storage Class", pod.Name)
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as "+
+				"specified in allowed topolgies of Storage Class", pod.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Verify the attached volume match the one in CNS cache
+			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+			gomega.Expect(error).NotTo(gomega.HaveOccurred())
+		}
+	}
+}
+
+func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
+	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	pods, err := fdep.GetPodsForDeployment(client, deployment)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, sspod := range pods.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				// get pv details
+				pv := getPvFromClaim(client, deployment.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+				// verify pv node affinity details as specified on SC
+				ginkgo.By("Verifying PV node affinity details")
+				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+				if res {
+					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// fetch node details
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				// verify pod is running on appropriate nodes
+				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod %v is running on appropriate node as specified in the "+
+						"allowed topolgies of Storage Class", sspod.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
