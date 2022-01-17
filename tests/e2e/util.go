@@ -3681,11 +3681,12 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	executor := []string{"powershell.exe"}
+	//executor := []string{"powershell.exe"}
+	commands := []string{"powershell", "/c", command}
 	
 	if windowsEnv {
 		pod.Spec.Containers[0].Image = windowsLTSCImage
-		pod.Spec.Containers[0].Command = executor
+		pod.Spec.Containers[0].Command = commands
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	}
