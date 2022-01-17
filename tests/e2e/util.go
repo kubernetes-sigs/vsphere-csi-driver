@@ -3682,7 +3682,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
 	//executor := []string{"powershell.exe"}
-	commands := []string{"powershell", "/c", command}
+	commands := []string{"Powershell.exe", "-Command", command}
 	
 	if windowsEnv {
 		pod.Spec.Containers[0].Image = windowsLTSCImage
@@ -3695,7 +3695,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	time.Sleep(10 * time.Minute)
+	//time.Sleep(5 * time.Minute)
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)

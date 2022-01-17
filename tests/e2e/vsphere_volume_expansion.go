@@ -2612,11 +2612,19 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
 		"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
-	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv{
+		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	} else {
+		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	
 	return pod, vmUUID
 }
 

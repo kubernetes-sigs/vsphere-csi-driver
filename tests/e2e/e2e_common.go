@@ -81,7 +81,7 @@ const (
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	esxPassword                                = "ca$hc0w"
 	windowsCommand                             = "while (1) " + 
-	    " { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
+	    " { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
