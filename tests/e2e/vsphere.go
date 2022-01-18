@@ -189,6 +189,7 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
 	gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
 	vm := object.NewVirtualMachine(vs.Client.Client, vmRef.Reference())
+	vm.Name()
 	device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
 	if err != nil {
 		framework.Logf("failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)

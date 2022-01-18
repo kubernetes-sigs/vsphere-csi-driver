@@ -39,6 +39,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	"github.com/sfreiberg/simplessh"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -3482,6 +3483,84 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
 }
 
+func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nodeName string) string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var windowsWorkerIp string
+	for _, node := range nodes.Items {
+		if node.Name == nodeName {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+					windowsWorkerIp = addr.Address
+				}
+			}
+
+		}
+	}
+	gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
+	return windowsWorkerIp
+
+}
+
+func execCommanOnWindowsWorker(windowsWorkerIP string) string {
+
+	client, err := simplessh.ConnectWithPassword("10.92.207.193", "kubo","Ponies!23")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer client.Close()
+	cmd := "ssh capv@" + windowsWorkerIP + " 'Get-Partition -DiskNumber 1 -PartitionNumber 2 | Format-List -Property Size'"
+	framework.Logf("command to be executed in windows node %s", cmd)
+	output, err := client.Exec(cmd)
+	framework.Logf("output  %s",output)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	trimmed_size := strings.Split(string(output), ":")
+	size := strings.TrimSpace(trimmed_size[1])
+	framework.Logf("size %s", size)
+	// trimmed_size := strings.TrimSpace(string(output))
+	// lsize := strings.Split(trimmed_size, ":")
+	
+	// framework.Logf("file size: %s\n", strings.TrimSpace(lsize[1]))
+
+	// return strings.TrimSpace(lsize[1])
+
+	return size
+
+}
+
+
+
+// func connectWindows(username, host string, authMethod ssh.AuthMethod, timeout time.Duration) (*Client, error) {
+	
+// 	var HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
+// 	type Client struct {
+// 		SSHClient *ssh.Client
+// 	}
+
+// 	config := &ssh.ClientConfig{
+// 		User:            username,
+// 		//Auth:            []ssh.AuthMethod{authMethod},
+// 		HostKeyCallback: HostKeyCallback,
+// 	}
+
+// 	//host = addPortToHost(host)
+
+// 	conn, err := net.DialTimeout("tcp", host, timeout)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, host, config)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	client := ssh.NewClient(sshConn, chans, reqs)
+
+// 	c := &Client{SSHClient: client}
+// 	return c, nil
+// }
+
 // getK8sMasterIP gets k8s master ip in vanilla setup.
 func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	var err error
@@ -3614,68 +3693,6 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 	result.Code = code
 	return result, err
 }
-
-// func createWindowsPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
-// 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
-// 		// pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-// 		// pod.Spec.Containers[0].Image = busyBoxImageOnGcr
-
-// 		if len(command) == 0 {
-// 			command = "while (1) { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
-// 		}
-// 		podSpec := &v1.Pod{
-// 			TypeMeta: metav1.TypeMeta{
-// 				Kind:       "Pod",
-// 				APIVersion: "v1",
-// 			},
-// 			ObjectMeta: metav1.ObjectMeta{
-// 				GenerateName: "pvc-tester-",
-// 				Namespace:    namespace,
-// 			},
-// 			Spec: v1.PodSpec{
-// 				Containers: []v1.Container{
-// 					{
-// 						Name:            "write-pod",
-// 						Image:           busyBoxImageOnGcr,
-// 						Command:         GenerateScriptCmd(command),
-// 						SecurityContext: GenerateContainerSecurityContext(isPrivileged),
-// 					},
-// 				},
-// 				RestartPolicy: v1.RestartPolicyOnFailure,
-// 			},
-// 		}
-// 		var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
-// 		var volumes = make([]v1.Volume, len(pvclaims))
-// 		for index, pvclaim := range pvclaims {
-// 			volumename := fmt.Sprintf("volume%v", index+1)
-// 			volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
-// 			volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
-// 		}
-// 		podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
-// 		podSpec.Spec.Volumes = volumes
-// 		if nodeSelector != nil {
-// 			podSpec.Spec.NodeSelector = nodeSelector
-// 		}
-		
-		
-// 		// pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
-// 		// if err != nil {
-// 		// 	return nil, fmt.Errorf("pod Create API error: %v", err)
-// 		// }
-// 		// // Waiting for pod to be running.
-// 		// time.Sleep(7 * time.Minute)
-// 		// err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
-// 		// if err != nil {
-// 		// 	return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
-// 		// }
-// 		// // Get fresh pod info.
-// 		// pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
-// 		// if err != nil {
-// 		// 	return pod, fmt.Errorf("pod Get API error: %v", err)
-// 		// }
-// 		// return pod, nil
-
-// }
 
 // createPod with given claims based on node selector.
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,

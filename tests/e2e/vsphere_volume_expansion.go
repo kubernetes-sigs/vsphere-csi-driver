@@ -31,7 +31,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
-
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 
@@ -71,7 +70,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
+	
 		isVsanhealthServiceStopped = false
 		isSPSServiceStopped = false
 
@@ -2628,6 +2627,19 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 	return pod, vmUUID
 }
 
+func getWindowsPodSize(client clientset.Interface, pod *v1.Pod) string  {
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	podName := pod.Spec.NodeName
+	windowsWorkerIP := getk8sWindowsWorkerIPs(ctx, client, podName)
+	framework.Logf("windows worker ip %s", windowsWorkerIP)
+	size := execCommanOnWindowsWorker(windowsWorkerIP)
+
+	return size
+
+}
+
 //increaseSizeOfPvcAttachedToPod this method increases the PVC size, which is attached to POD
 func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
@@ -2635,9 +2647,17 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	var err error
 	//Fetch original FileSystemSize
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-	originalSizeInMb, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	
+	if windowsEnv {
+		size := getWindowsPodSize(client, pod)
+	
+		originalSizeInMb, _ = strconv.ParseInt(size, 10, 64)
+		framework.Logf("original size %d",originalSizeInMb)
+	} else {
+		originalSizeInMb, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	
 	//resize PVC
 	// Modify PVC spec to trigger volume expansion
 	ginkgo.By("Expanding current pvc")
@@ -2658,8 +2678,14 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 
 	var fsSize int64
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		size := getWindowsPodSize(client, pod)
+		fsSize, _ = strconv.ParseInt(size, 10, 64)
+		framework.Logf("size after re-size %d",fsSize)
+	}else {
+		fsSize, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 	framework.Logf("File system size after expansion : %v", fsSize)
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
