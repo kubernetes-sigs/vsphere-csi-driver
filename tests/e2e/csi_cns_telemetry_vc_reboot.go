@@ -145,7 +145,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName := pod.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
@@ -217,7 +217,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName2 := pod2.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID2 = getNodeUUID(client, pod2.Spec.NodeName)
+			vmUUID2 = getNodeUUID(ctx, client, pod2.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName2))
@@ -353,7 +353,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName := pod.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
