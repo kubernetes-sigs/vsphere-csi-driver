@@ -50,6 +50,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"csi-migration":         "true",
 				"file-volume":           "true",
 				"block-volume-snapshot": "true",
+				"tkgs-ha":               "true",
 			},
 		}
 		return fakeCO, nil

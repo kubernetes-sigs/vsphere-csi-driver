@@ -255,6 +255,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			volumeType = prometheus.PrometheusBlockVolumeType
 		}
 
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) && isFileVolumeRequest &&
+			req.AccessibilityRequirements != nil {
+			msg := "File Volumes are currently not supported with TKGS HA feature"
+			log.Error(msg)
+			return nil, csifault.CSIUnimplementedFault, status.Errorf(codes.Unimplemented, msg)
+		}
 		// Get PVC name and disk size for the supervisor cluster
 		// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
 		supervisorPVCName := c.tanzukubernetesClusterUID + "-" + req.Name[4:]
@@ -280,8 +286,24 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if err != nil {
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName,
-					c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
+				var annotations map[string]string
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+					req.AccessibilityRequirements != nil {
+					// generate new annotations.
+					annotations = make(map[string]string)
+					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
+					if err != nil {
+						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+
+							"on namespace: %s from supervisorCluster. Error: %+v",
+							supervisorPVCName, c.supervisorNamespace, err)
+						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+					}
+					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
+					annotations[common.AnnBetaStorageProvisioner] = common.VSphereCSIDriverName
+					annotations[common.AnnStorageProvisioner] = common.VSphereCSIDriverName
+				}
+				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
+					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations)
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(
 					ctx, claim, metav1.CreateOptions{})
@@ -321,12 +343,37 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		} else {
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
+		var accessibleTopology []*csi.Topology
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+			req.AccessibilityRequirements != nil {
+			// Retrieve the latest version of the PVC
+			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+				ctx, supervisorPVCName, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v",
+					supervisorPVCName, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			topologyRequirement, err := generateVolumeAccessibilityRequirementsFromPVCAnnotation(pvc)
+			if err != nil {
+				msg := fmt.Sprintf("failed to generate volume accessible topology for pvc with name: %s on "+
+					"namespace: %s from supervisorCluster requirements with err: %+v",
+					c.supervisorNamespace, pvc.Name, err)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			accessibleTopology = topologyRequirement.Preferred
+		}
 		resp := &csi.CreateVolumeResponse{
 			Volume: &csi.Volume{
 				VolumeId:      supervisorPVCName,
 				CapacityBytes: int64(volSizeMB * common.MbInBytes),
 				VolumeContext: attributes,
 			},
+		}
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+			req.AccessibilityRequirements != nil {
+			resp.Volume.AccessibleTopology = accessibleTopology
 		}
 		return resp, "", nil
 	}
