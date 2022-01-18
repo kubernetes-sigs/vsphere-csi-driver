@@ -283,7 +283,7 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string,
 	log := logger.GetLogger(ctx)
 	err := vc.Connect(ctx)
 	if err != nil {
-		log.Errorf("failed to connect to VirtualCenter. err=%v", err)
+		log.Errorf("failed to connect to VirtualCenter. err: %+v", err)
 		return nil, err
 	}
 	err = vc.ConnectVsan(ctx)
@@ -543,7 +543,7 @@ func getDatastoreMOsFromCluster(ctx context.Context, vc *cnsvsphere.VirtualCente
 	}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("failed to retrieve datastores. dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
+		log.Errorf("failed to retrieve datastores. dsObjList: %+v, properties: %+v, err: %+v", dsList, properties, err)
 		return nil, err
 	}
 	return dsMoList, nil
