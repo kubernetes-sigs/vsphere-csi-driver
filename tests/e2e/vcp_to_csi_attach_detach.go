@@ -520,11 +520,14 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-create pod for test18")
+
+		pod18 = createPodWithMultipleVolsVerifyVolMounts(
+			ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc18},
+		)
 		podsToDelete = append(
 			podsToDelete,
-			createPodWithMultipleVolsVerifyVolMounts(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc18}),
+			pod18,
 		)
-
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(
 			ctx, client, append(append(vcpPvcsPreMig, vcpPvcsPreMig2...), vcpPvcsPostMig...),
