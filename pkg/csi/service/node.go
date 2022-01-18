@@ -381,23 +381,22 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		}
 	}
 
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest &&
-		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		nodeInfoResponse = &csi.NodeGetInfoResponse{
-			NodeId:             nodeID,
-			MaxVolumesPerNode:  maxVolumesPerNode,
-			AccessibleTopology: &csi.Topology{},
-		}
-		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-		return nodeInfoResponse, nil
-	}
-
 	var (
 		accessibleTopology map[string]string
 	)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) ||
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		// Initialize volume topology service.
+
+	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			nodeInfoResponse = &csi.NodeGetInfoResponse{
+				NodeId:             nodeID,
+				MaxVolumesPerNode:  maxVolumesPerNode,
+				AccessibleTopology: &csi.Topology{},
+			}
+			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+			return nodeInfoResponse, nil
+		}
+
+		// Initialize volume topology service if tkgs-ha is enabled in guest cluster.
 		if err = initVolumeTopologyService(ctx); err != nil {
 			return nil, err
 		}
@@ -407,31 +406,45 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			NodeID:   nodeID,
 		}
 		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
-	} else {
-		// If ImprovedVolumeTopology is not enabled, use the VC credentials to
-		// fetch node topology information.
-		var cfg *cnsconfig.Config
-		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
-		}
-		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-				nodeInfoResponse = &csi.NodeGetInfoResponse{
-					NodeId:            nodeID,
-					MaxVolumesPerNode: maxVolumesPerNode,
-				}
-				log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-				return nodeInfoResponse, nil
+	} else if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorVanilla {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+			// Initialize volume topology service.
+			if err = initVolumeTopologyService(ctx); err != nil {
+				return nil, err
 			}
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to read CNS config. Error: %v", err)
+			// Fetch topology labels for given node.
+			nodeInfo := commoncotypes.NodeInfo{
+				NodeName: nodeName,
+				NodeID:   nodeID,
+			}
+			accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
+		} else {
+			// If ImprovedVolumeTopology is not enabled, use the VC credentials to
+			// fetch node topology information.
+			var cfg *cnsconfig.Config
+			cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
+			if cfgPath == "" {
+				cfgPath = cnsconfig.DefaultCloudConfigPath
+			}
+			cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+					nodeInfoResponse = &csi.NodeGetInfoResponse{
+						NodeId:            nodeID,
+						MaxVolumesPerNode: maxVolumesPerNode,
+					}
+					log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+					return nodeInfoResponse, nil
+				}
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to read CNS config. Error: %v", err)
+			}
+			// Fetch topology labels using VC TagManager.
+			accessibleTopology, err = driver.fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 		}
-		// Fetch topology labels using VC TagManager.
-		accessibleTopology, err = driver.fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
+
 	if err != nil {
 		return nil, err
 	}
