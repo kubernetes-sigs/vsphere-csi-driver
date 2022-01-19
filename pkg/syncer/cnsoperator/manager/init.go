@@ -184,6 +184,16 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				return err
 			}
 		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.TKGsHA) {
+			// Create CSINodeTopology CRD.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, csinodetopologyconfig.EmbedCSINodeTopologyFile,
+				csinodetopologyconfig.EmbedCSINodeTopologyFileName)
+			if err != nil {
+				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
+				return err
+			}
+		}
 	}
 
 	// Create a new operator to provide shared dependencies and start components
