@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vmware/govmomi/vim25/soap"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -703,8 +705,8 @@ func QueryVolumeSnapshot(ctx context.Context, volManager cnsvolume.Manager, volI
 	if snapshotResult.Error != nil {
 		fault := snapshotResult.Error.Fault
 		if _, ok := fault.(cnstypes.CnsSnapshotNotFoundFault); ok {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"snapshot-id: %s not found for volume-id: %s during QuerySnapshots, err: %+v", snapID, volID, fault)
+			log.Errorf("snapshot-id: %s not found for volume-id: %s during QuerySnapshots, err: %+v", snapID, volID, fault)
+			return nil, soap.WrapVimFault(fault)
 		}
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"unexpected error received when retrieving snapshot info for volume-id: %s snapshot-id: %s err: %+v",
@@ -1003,6 +1005,19 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 	cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(csiSnapshotID)
 	if err != nil {
 		return err
+	}
+
+	log.Debugf("vSphere CSI driver checks the existence of snapshot %q on volume %q before deleting it",
+		cnsSnapshotID, cnsVolumeID)
+	_, err = QueryVolumeSnapshot(ctx, manager.VolumeManager, cnsVolumeID, cnsSnapshotID, QuerySnapshotLimit)
+	if err != nil {
+		if vsphere.IsCnsSnapshotNotFoundError(err) {
+			log.Debugf("skip deleting snapshot %q on volume %q as it is not found", cnsSnapshotID, cnsVolumeID)
+			return nil
+		}
+		return logger.LogNewErrorf(log,
+			"failed to check the existence of snapshot %q on volume %q with error %+v",
+			cnsSnapshotID, cnsVolumeID, err)
 	}
 
 	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", cnsSnapshotID, cnsVolumeID)

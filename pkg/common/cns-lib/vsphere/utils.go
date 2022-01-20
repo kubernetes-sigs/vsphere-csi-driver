@@ -56,6 +56,15 @@ func IsNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
+// IsCnsSnapshotNotFoundError checks if err is the CnsSnapshotNotFoundFault fault
+func IsCnsSnapshotNotFoundError(err error) bool {
+	isCnsSnapshotNotFoundError := false
+	if soap.IsVimFault(err) {
+		_, isCnsSnapshotNotFoundError = soap.ToVimFault(err).(cnstypes.CnsSnapshotNotFoundFault)
+	}
+	return isCnsSnapshotNotFoundError
+}
+
 // IsAlreadyExists checks if err is the AlreadyExists fault.
 // If the error is AlreadyExists fault, the method returns true along with the
 // name of the managed object. Otherwise, returns false.
