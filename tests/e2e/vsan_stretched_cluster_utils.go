@@ -35,6 +35,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 type FaultDomains struct {
@@ -42,7 +43,7 @@ type FaultDomains struct {
 	secondarySiteHosts []string
 	witness            string
 	hostsDown          []string `default:"[]"`
-	// isNetworkPartitioned bool     `default:"false"`
+	hostsPartitioned   []string `default:"[]"`
 }
 
 var fds FaultDomains
@@ -67,6 +68,7 @@ func initialiseFdsVar(ctx context.Context) {
 
 }
 
+// siteFailureInParallel causes site Failure in multiple hosts of the site in parallel
 func siteFailureInParallel(primarySite bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 	siteFailover(primarySite)
@@ -234,7 +236,7 @@ func deletePodsInParallel(client clientset.Interface, namespace string, pods []*
 	}
 }
 
-// createPvcInParallel creates number of PVC in a given namespace parallelly
+// createPvcInParallel creates number of PVC in a given namespace in parallel
 func createPvcInParallel(client clientset.Interface, namespace string, diskSize string, sc *storagev1.StorageClass,
 	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup, volumeOpsScale int) {
 	defer wg.Done()
@@ -243,6 +245,119 @@ func createPvcInParallel(client clientset.Interface, namespace string, diskSize 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		lock.Lock()
 		ch <- pvc
+		lock.Unlock()
+	}
+}
+
+// siteNetworkFailure chooses a site to create or remove network failure
+func siteNetworkFailure(primarySite bool, removeNetworkFailure bool) {
+	hosts := fds.secondarySiteHosts
+	if primarySite {
+		hosts = fds.primarySiteHosts
+	}
+	if removeNetworkFailure {
+		framework.Logf("hosts to remove network failure on: %v", hosts)
+		toggleNetworkFailureParallel(hosts, false)
+		fds.hostsPartitioned = []string{}
+	} else {
+		framework.Logf("hosts to cause network failure on: %v", hosts)
+		toggleNetworkFailureParallel(hosts, true)
+		fds.hostsPartitioned = hosts
+	}
+}
+
+// waitForPodsToBeInErrorOrRunning polls for pod to be in error or running state
+func waitForPodsToBeInErrorOrRunning(c clientset.Interface, podName, namespace string, timeout time.Duration) error {
+	waitErr := wait.PollImmediate(poll, timeout, func() (bool, error) {
+		pod, err := c.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		framework.Logf("Pod is in phase: %v", pod.Status.Phase)
+		switch pod.Status.Phase {
+		// v1.PodSucceeded is for pods in ExitCode:0 state.
+		// Standalone pods are in ExitCode:0 or Running state after site failure.
+		case v1.PodRunning, v1.PodSucceeded:
+			framework.Logf("Pod %v is in state %v", podName, pod.Status.Phase)
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+// runCmdOnHostsInParallel runs command on multiple ESX in parallel
+func runCmdOnHostsInParallel(hostIP string, sshCmd string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	op, err := runCommandOnESX("root", hostIP, sshCmd)
+	framework.Logf(op)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// toggleNetworkFailureParallel causes or removes network failure on a particular site
+func toggleNetworkFailureParallel(hosts []string, causeNetworkFailure bool) {
+	var wg sync.WaitGroup
+	if causeNetworkFailure {
+		framework.Logf("Creating a Network Failure")
+		sshCmd := "localcli network firewall set --enabled true;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id fdm;"
+
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 0 0 0 1"
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+	} else {
+		framework.Logf("Removing network Failure")
+		sshCmd := "localcli network firewall set --enabled false;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id fdm;"
+
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 1 0 1 1"
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+	}
+}
+
+// deletePVCInParallel deletes PVC in a given namespace in parallel
+func deletePvcInParallel(client clientset.Interface, pvclaims []*v1.PersistentVolumeClaim,
+	namespace string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, pvclaim := range pvclaims {
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// createPodsInParallel creates Pods in a given namespace in parallel
+func createPodsInParallel(client clientset.Interface, namespace string, pvclaims []*v1.PersistentVolumeClaim,
+	ctx context.Context, lock *sync.Mutex, ch chan *v1.Pod, wg *sync.WaitGroup, volumeOpsScale int) {
+	defer wg.Done()
+
+	for i := 0; i < volumeOpsScale; i++ {
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- pod
 		lock.Unlock()
 	}
 }
