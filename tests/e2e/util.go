@@ -916,19 +916,18 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 // FULL_SYNC_INTERVAL_MINUTES in deployment template. For this to take effect,
 // we need to terminate the running csi controller pod.
 // Returns fsync interval value before the change.
-func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) string {
+func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	deployment, err := client.AppsV1().Deployments(namespace).Get(
 		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	containers := deployment.Spec.Template.Spec.Containers
-	oldValue := ""
+
 	for _, c := range containers {
 		if c.Name == "vsphere-syncer" {
 			for _, e := range c.Env {
 				if e.Name == "FULL_SYNC_INTERVAL_MINUTES" {
-					oldValue = e.Value
 					e.Value = mins
 				}
 			}
@@ -937,9 +936,21 @@ func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, min
 	deployment.Spec.Template.Spec.Containers = containers
 	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Waiting for a min for update operation on deployment to take effect...")
-	time.Sleep(1 * time.Minute)
-	return oldValue
+	ginkgo.By("Polling for update operation on deployment to take effect...")
+	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
+		deployment, err = client.AppsV1().Deployments(namespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return false, nil
+		}
+		err = fdep.WaitForDeploymentComplete(client, deployment)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	return waitErr
 }
 
 // updateCSIDeploymentProvisionerTimeout helps to update the timeout value
@@ -1259,6 +1270,59 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 			return true, nil
 		}
 		framework.Logf("Command %v output is %v", sshCmd, result.Stdout)
+		return false, nil
+	})
+	return waitErr
+}
+
+// checkVcenterServicesStatus checks and polls for vCenter essential services status
+// to be in running state
+func checkVcenterServicesRunning(host string, essentialServices []string, timeout ...time.Duration) error {
+	var pollTime time.Duration
+	if len(timeout) == 0 {
+		pollTime = pollTimeout * 2
+	} else {
+		pollTime = timeout[0]
+	}
+	waitErr := wait.PollImmediate(poll, pollTime, func() (bool, error) {
+		var runningServices []string
+		var statusMap = make(map[string]bool)
+		allServicesRunning := true
+		sshCmd := fmt.Sprintf("service-control --%s", statusOperation)
+		framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+		result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+		if err != nil || result.Code != 0 {
+			fssh.LogResult(result)
+			return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+		}
+		framework.Logf("Command %v output is %v", sshCmd, result.Stdout)
+
+		services := strings.SplitAfter(result.Stdout, svcRunningMessage+":")
+		stoppedService := strings.Split(services[1], svcStoppedMessage+":")
+		if strings.Contains(stoppedService[0], "StartPending:") {
+			runningServices = strings.Split(stoppedService[0], "StartPending:")
+		} else {
+			runningServices = append(runningServices, stoppedService[0])
+		}
+
+		for _, service := range essentialServices {
+			if strings.Contains(runningServices[0], service) {
+				statusMap[service] = true
+				framework.Logf("%s in running state", service)
+			} else {
+				statusMap[service] = false
+				framework.Logf("%s not in running state", service)
+			}
+		}
+		for _, service := range essentialServices {
+			if !statusMap[service] {
+				allServicesRunning = false
+			}
+		}
+		if allServicesRunning {
+			framework.Logf("All services are in running state")
+			return true, nil
+		}
 		return false, nil
 	})
 	return waitErr
@@ -1870,28 +1934,46 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 	}
 }
 
+// checks if resource quota gets updated or not
+func checkResourceQuota(client clientset.Interface, namespace string, size string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("currentResourceQuota %v", currentResourceQuota)
+		if err != nil {
+			return false, err
+		}
+		framework.Logf("current size of quota %v", currentResourceQuota.Status.Used["requests.storage"])
+		if currentResourceQuota.Status.Hard[v1.ResourceName("requests.storage")] == resource.MustParse(size) {
+			ginkgo.By("Resource quota updated")
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
 // setResourceQuota resource quota to the specified limit for the given namespace.
 func setResourceQuota(client clientset.Interface, namespace string, size string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// deleteResourceQuota if already present.
 	deleteResourceQuota(client, namespace)
-
 	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 	if !apierrors.IsNotFound(err) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("existingResourceQuota name %s", existingResourceQuota.GetName())
+		framework.Logf("existingResourceQuota name %s and requested size %v", existingResourceQuota.GetName(), size)
 		requestStorageQuota := updatedSpec4ExistingResourceQuota(existingResourceQuota.GetName(), size)
 		testResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Update(
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-		// TODO: Add polling instead of static wait time and assert against the
-		// updated quota.
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds", sleepTimeOut))
-		time.Sleep(sleepTimeOut * time.Second)
+		err = checkResourceQuota(client, namespace, size)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-
 }
 
 // newTestResourceQuota returns a quota that enforces default constraints for
