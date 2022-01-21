@@ -65,6 +65,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubectl/pkg/drain"
+	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
@@ -3977,7 +3978,6 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	controller_name string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
-	//vsphere_controller_name := "vsphere-csi-controller"
 	var k8sMasterNodeIP string
 	var csi_controller_pod string
 	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
@@ -4023,9 +4023,6 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
 				}
 			}
-		}
-		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
-			break
 		}
 	}
 	return csi_controller_pod, k8sMasterNodeIP, nil
@@ -4170,7 +4167,13 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
-	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	var ssPodsBeforeScaleDown *v1.PodList
+	parallelStatefulSetCreation := true
+	if parallelStatefulSetCreation {
+		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
+	} else {
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+	}
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4213,6 +4216,21 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 			}
 		}
 	}
+}
+
+// GetPodList gets the current Pods in ss.
+func GetListOfPodsInSts(c clientset.Interface, ss *appsv1.StatefulSet) *v1.PodList {
+	selector, err := metav1.LabelSelectorAsSelector(ss.Spec.Selector)
+	framework.ExpectNoError(err)
+	var StatefulSetPods *v1.PodList = new(v1.PodList)
+	podList, err := c.CoreV1().Pods(ss.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: selector.String()})
+	framework.ExpectNoError(err)
+	for _, sspod := range podList.Items {
+		if strings.Contains(sspod.Name, ss.Name) {
+			StatefulSetPods.Items = append(StatefulSetPods.Items, sspod)
+		}
+	}
+	return StatefulSetPods
 }
 
 func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
@@ -4276,17 +4294,24 @@ func createAllowedTopologiesMap(allowedTopologies []v1.TopologySelectorLabelRequ
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-	_, scaledownErr := fss.Scale(client, statefulset, replicas)
-	gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-	ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
-	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
-		"Number of Pods in the statefulset should match with number of replicas")
+	parallelStatefulSetCreation := true
+	var ssPodsAfterScaleDown *v1.PodList
+	if parallelStatefulSetCreation {
+		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
+	} else {
+		_, scaledownErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+	}
 
 	// After scale down, verify vSphere volumes are detached from deleted pods
 	ginkgo.By("Verify Volumes are detached from Nodes after Statefulsets is scaled down")
-	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
-	for _, sspod := range ssPodsBeforeScaleDown.Items {
+	//ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	for _, sspod := range ssPodsAfterScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		if err != nil {
 			gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
@@ -4318,12 +4343,98 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	}
 }
 
+// Scale scales ss to count replicas.
+func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+	name := ss.Name
+	ns := ss.Namespace
+	StatefulSetPoll := 10 * time.Second
+	StatefulSetTimeout := 10 * time.Minute
+	framework.Logf("Scaling statefulset %s to %d", name, count)
+	ss = updateSts(c, ns, name, func(ss *appsv1.StatefulSet) { *(ss.Spec.Replicas) = count })
+
+	var statefulPodList *v1.PodList
+	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+		statefulPodList = GetListOfPodsInSts(c, ss)
+		if int32(len(statefulPodList.Items)) == count {
+			return true, nil
+		}
+		return false, nil
+	})
+	if pollErr != nil {
+		unhealthy := []string{}
+		for _, statefulPod := range statefulPodList.Items {
+			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase, podutils.IsPodReady(&statefulPod)
+			if delTs != nil || phase != v1.PodRunning || !readiness {
+				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v", statefulPod.Name, delTs, phase, readiness))
+			}
+		}
+		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
+	}
+	return ss, nil
+}
+
+// udpate updates a statefulset, and it is only used within rest.go
+func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.StatefulSet)) *appsv1.StatefulSet {
+	for i := 0; i < 3; i++ {
+		ss, err := c.AppsV1().StatefulSets(ns).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			framework.Failf("failed to get statefulset %q: %v", name, err)
+		}
+		update(ss)
+		ss, err = c.AppsV1().StatefulSets(ns).Update(context.TODO(), ss, metav1.UpdateOptions{})
+		if err == nil {
+			return ss
+		}
+		if !apierrors.IsConflict(err) && !apierrors.IsServerTimeout(err) {
+			framework.Failf("failed to update statefulset %q: %v", name, err)
+		}
+	}
+	framework.Failf("too many retries draining statefulset %q", name)
+	return nil
+}
+
+// CheckMount checks that the mount at mountPath is valid for all Pods in ss.
+func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPath string) error {
+	for _, cmd := range []string{
+		// Print inode, size etc
+		fmt.Sprintf("ls -idlh %v", mountPath),
+		// Print subdirs
+		fmt.Sprintf("find %v", mountPath),
+		// Try writing
+		fmt.Sprintf("touch %v", filepath.Join(mountPath, fmt.Sprintf("%v", time.Now().UnixNano()))),
+	} {
+		if err := ExecInStsPodsInNs(c, ss, cmd); err != nil {
+			return fmt.Errorf("failed to execute %v, error: %v", cmd, err)
+		}
+	}
+	return nil
+}
+
+// ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and cmd is not execute in any subsequent Pods.
+func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
+	podList := GetListOfPodsInSts(c, ss)
+	StatefulSetPoll := 10 * time.Second
+	StatefulPodTimeout := 5 * time.Minute
+	for _, statefulPod := range podList.Items {
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace, statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 /*
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
+	// parallelStatefulSetCreation := true
+	// var ssPodsAfterScaleUp *v1.PodList
+	// if parallelStatefulSetCreation {
+	// }
 	_, scaleupErr := fss.Scale(client, statefulset, replicas)
 	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 	fss.WaitForStatusReplicas(client, statefulset, replicas)
