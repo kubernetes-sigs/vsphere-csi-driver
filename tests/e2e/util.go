@@ -4165,10 +4165,9 @@ func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelec
 
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelStatefulSetCreation bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
-	parallelStatefulSetCreation := true
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
@@ -4292,9 +4291,8 @@ func createAllowedTopologiesMap(allowedTopologies []v1.TopologySelectorLabelRequ
 }
 
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-	parallelStatefulSetCreation := true
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
 		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
@@ -4429,22 +4427,32 @@ func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-	// parallelStatefulSetCreation := true
-	// var ssPodsAfterScaleUp *v1.PodList
-	// if parallelStatefulSetCreation {
-	// }
-	_, scaleupErr := fss.Scale(client, statefulset, replicas)
-	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-	fss.WaitForStatusReplicas(client, statefulset, replicas)
-	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+	var ssPodsAfterScaleUp *v1.PodList
+	if parallelStatefulSetCreation {
+		_, scaleupErr := ScaleDownSts(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
-	ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
-	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
-		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
-	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
-		"Number of Pods in the statefulset should match with number of replicas")
+		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+	} else {
+		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+
+		ssPodsAfterScaleUp = fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+	}
 
 	// After scale up, verify all vSphere volumes are attached to node VMs.
 	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
