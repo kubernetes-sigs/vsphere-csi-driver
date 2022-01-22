@@ -53,6 +53,8 @@ var (
 func InitStoragePoolService(ctx context.Context,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
+	var clusterId string
+	clusterId = configInfo.Cfg.Global.ClusterID
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
@@ -62,6 +64,9 @@ func InitStoragePoolService(ctx context.Context,
 		if len(clusterComputeResourceMoIds) > 1 {
 			log.Infof("skip initializing the StoragePoolService as stretched supervisor is detected.")
 			return nil
+		}
+		if len(clusterComputeResourceMoIds) == 1 {
+			clusterId = clusterComputeResourceMoIds[0]
 		}
 	}
 
@@ -96,7 +101,7 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Start the services.
-	spController, err := newSPController(vc, configInfo.Cfg.Global.ClusterID)
+	spController, err := newSPController(vc, clusterId)
 	if err != nil {
 		log.Errorf("Failed starting StoragePool controller. Err: %+v", err)
 		return err
@@ -123,7 +128,7 @@ func InitStoragePoolService(ctx context.Context,
 		}
 	}()
 
-	migrationController := initMigrationController(vc, configInfo.Cfg.Global.ClusterID)
+	migrationController := initMigrationController(vc, clusterId)
 	go func() {
 		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer diskDecommEnablementTicker.Stop()
@@ -156,7 +161,7 @@ func InitStoragePoolService(ctx context.Context,
 	defaultStoragePoolService.spController = spController
 	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
 	defaultStoragePoolService.migrationCntlr = migrationController
-	defaultStoragePoolService.clusterID = configInfo.Cfg.Global.ClusterID
+	defaultStoragePoolService.clusterID = clusterId
 
 	startPropertyCollectorListener(ctx)
 
