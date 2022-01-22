@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -418,7 +419,7 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 	for _, az := range azList.Items {
 		clusterComputeResourceMoId, found, err := unstructured.NestedString(az.Object, "spec", "clusterComputeResourceMoId")
 		if !found || err != nil {
-			return nil, fmt.Errorf("failed to get clusterComputeResourceMoId from az resource: %+v, err:%+v", az.Object, err)
+			return nil, fmt.Errorf("failed to get clusterComputeResourceMoId from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
 		}
 		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoId)
 	}

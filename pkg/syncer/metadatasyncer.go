@@ -66,7 +66,7 @@ var (
 	// MetadataSyncer instance for the syncer container.
 	MetadataSyncer *metadataSyncInformer
 
-	// contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed
+	// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 	clusterComputeResourceMoIds = make([]string, 0)
 )
 

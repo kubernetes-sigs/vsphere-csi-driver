@@ -62,7 +62,7 @@ var (
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
-// contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed
+// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
 type controller struct {
