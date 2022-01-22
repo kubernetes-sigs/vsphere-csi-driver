@@ -1538,7 +1538,6 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 				csiSnapshotID, err)
 		}
 
-		log.Infof("DeleteSnapshot: successfully deleted snapshot %q", csiSnapshotID)
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 

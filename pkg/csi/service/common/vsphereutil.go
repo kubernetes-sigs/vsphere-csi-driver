@@ -1007,26 +1007,22 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 		return err
 	}
 
-	log.Debugf("vSphere CSI driver checks the existence of snapshot %q on volume %q before deleting it",
-		cnsSnapshotID, cnsVolumeID)
+	log.Infof("Check the existence of snapshot %s before deleting it", csiSnapshotID)
 	_, err = QueryVolumeSnapshot(ctx, manager.VolumeManager, cnsVolumeID, cnsSnapshotID, QuerySnapshotLimit)
 	if err != nil {
 		if vsphere.IsCnsSnapshotNotFoundError(err) {
-			log.Debugf("skip deleting snapshot %q on volume %q as it is not found", cnsSnapshotID, cnsVolumeID)
+			log.Infof("Skip deleting snapshot %s as it is not found", csiSnapshotID)
 			return nil
 		}
 		return logger.LogNewErrorf(log,
-			"failed to check the existence of snapshot %q on volume %q with error %+v",
-			cnsSnapshotID, cnsVolumeID, err)
+			"failed to check the existence of snapshot %s with error %+v", csiSnapshotID, err)
 	}
 
-	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", cnsSnapshotID, cnsVolumeID)
 	err = manager.VolumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID)
 	if err != nil {
-		return logger.LogNewErrorf(log, "failed to delete snapshot %q on volume %q with error %+v",
-			cnsSnapshotID, cnsVolumeID, err)
+		return logger.LogNewErrorf(log, "failed to delete snapshot %s with error %+v", csiSnapshotID, err)
 	}
-	log.Debugf("Successfully deleted snapshot %q on volume %q", cnsSnapshotID, cnsVolumeID)
+	log.Infof("Successfully deleted snapshot %s", csiSnapshotID)
 
 	return nil
 }
