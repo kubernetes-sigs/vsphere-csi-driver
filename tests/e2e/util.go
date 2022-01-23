@@ -76,7 +76,6 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -4599,51 +4598,24 @@ func GetPodsForMultipleDeployment(client clientset.Interface, deployment *appsv1
 	if err != nil {
 		return nil, err
 	}
-
 	replicaSetListOptions := metav1.ListOptions{LabelSelector: replicaSetSelector.String()}
 	allReplicaSets, err := client.AppsV1().ReplicaSets(deployment.Namespace).List(context.TODO(), replicaSetListOptions)
 	if err != nil {
 		return nil, err
 	}
-
 	ownedReplicaSets := make([]*appsv1.ReplicaSet, 0, len(allReplicaSets.Items))
 	for _, rs := range allReplicaSets.Items {
 		if !metav1.IsControlledBy(&rs, deployment) {
 			continue
 		}
-		if rs.Name == deployment.Name {
+		if strings.Contains(rs.Name, deployment.Name) {
 			ownedReplicaSets = append(ownedReplicaSets, &rs)
 		}
-
-		//ownedReplicaSets = append(ownedReplicaSets, &rs)
 	}
-
-	// We ignore pod-template-hash because:
-	// 1. The hash result would be different upon podTemplateSpec API changes
-	//    (e.g. the addition of a new field will cause the hash code to change)
-	// 2. The deployment template won't have hash labels
-	podTemplatesEqualsIgnoringHash := func(template1, template2 *v1.PodTemplateSpec) bool {
-		t1Copy := template1.DeepCopy()
-		t2Copy := template2.DeepCopy()
-		// Remove hash labels from template.Labels before comparing
-		delete(t1Copy.Labels, appsv1.DefaultDeploymentUniqueLabelKey)
-		delete(t2Copy.Labels, appsv1.DefaultDeploymentUniqueLabelKey)
-		return apiequality.Semantic.DeepEqual(t1Copy, t2Copy)
-	}
-
 	var replicaSet *appsv1.ReplicaSet
-	// In rare cases, such as after cluster upgrades, Deployment may end up with
-	// having more than one new ReplicaSets that have the same template as its template,
-	// see https://github.com/kubernetes/kubernetes/issues/40415
-	// We deterministically choose the oldest new ReplicaSet.
 	sort.Sort(replicaSetsByCreationTimestampDate(ownedReplicaSets))
 	for _, rs := range ownedReplicaSets {
-		if !podTemplatesEqualsIgnoringHash(&rs.Spec.Template, &deployment.Spec.Template) {
-			continue
-		}
-
 		replicaSet = rs
-		break
 	}
 
 	if replicaSet == nil {
@@ -4659,16 +4631,12 @@ func GetPodsForMultipleDeployment(client clientset.Interface, deployment *appsv1
 	if err != nil {
 		return nil, err
 	}
-
-	replicaSetUID := replicaSet.UID
 	ownedPods := &v1.PodList{Items: make([]v1.Pod, 0, len(allPods.Items))}
 	for _, pod := range allPods.Items {
-		controllerRef := metav1.GetControllerOf(&pod)
-		if controllerRef != nil && controllerRef.UID == replicaSetUID {
+		if strings.Contains(pod.Name, deployment.Name) {
 			ownedPods.Items = append(ownedPods.Items, pod)
 		}
 	}
-
 	return ownedPods, nil
 }
 

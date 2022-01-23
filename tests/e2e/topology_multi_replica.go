@@ -25,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -63,6 +64,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		podList                    []*v1.Pod
 		deploymentReplicaCount     int32
 		deploymentList             []*appsv1.Deployment
+		labelKey                   string
+		labelValue                 string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -611,6 +614,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Restart CSI daemonset
+		ginkgo.By("Restart Daemonset")
 		time.Sleep(pollTimeoutShort)
 		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
 		framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
@@ -701,7 +705,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(client, namespace, storageclass, pvcCount)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 		// Verify PVC claim to be in bound phase and create POD for each PVC
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
@@ -718,7 +722,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			// create Pod for each PVC
-			ginkgo.By("Creating the Pod")
+			ginkgo.By("Creating Pod")
 			pvclaims = append(pvclaims, pvclaimsList[i])
 			pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
 			podList = append(podList, pod)
@@ -920,7 +924,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(client, namespace, storageclass, pvcCount)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 		// Expanding PVC
 		ginkgo.By("Expand pvc and in between delete elected leader Csi-Controller-Pod " +
@@ -967,7 +971,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			// create Pod for each PVC
-			ginkgo.By("Creating the Pod")
+			ginkgo.By("Creating Pod")
 			pvclaims = append(pvclaims, pvclaimsList[i])
 			pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
 			podList = append(podList, pod)
@@ -1092,7 +1096,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(client, namespace, storageclass, pvcCount)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 		/* Verifying if all PVCs are in Bound phase and trigger Deployment Pods
 		for each created PVC.
@@ -1120,14 +1124,13 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				namespace, allowedTopologies, true)
 			deploymentList = append(deploymentList, deployment)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 			// Delete elected leader Csi-Controller-Pod where CSi-Attacher is running
-			// if i == 2 {
-			// 	ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Attacher is running")
-			// 	err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client,
-			// 		sshClientConfig, csi_controller_pod)
-			// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// }
+			if i == 2 {
+				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Attacher is running")
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client,
+					sshClientConfig, csi_controller_pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 		defer func() {
 			// cleanup code for deleting PVC
@@ -1150,15 +1153,15 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			}
 		}()
 
-		// /* Get current leader Csi-Controller-Pod where CSI Attacher is running" +
-		// find master node IP where this Csi-Controller-Pod is running */
-		// ginkgo.By("Get newly eleted current Leader Csi-Controller-Pod where CSI Attacher is running and " +
-		// 	"find the master node IP where this Csi-Controller-Pod is running")
-		// csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-		// 	client, sshClientConfig, controller_name)
-		// framework.Logf("CSI-Attacher is running on newly elected Leader Pod %s "+
-		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		/* Get current leader Csi-Controller-Pod where CSI Attacher is running" +
+		find master node IP where this Csi-Controller-Pod is running */
+		ginkgo.By("Get newly eleted current Leader Csi-Controller-Pod where CSI Attacher is running and " +
+			"find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Attacher is running on newly elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify deployment Pods to be in up and running state
 		ginkgo.By("Verify deployment Pods to be in up and running state")
@@ -1173,38 +1176,37 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 	/*
 		TESTCASE-8
-			Verify the behaviour when SPS service is down along with CSI Provisioner.
+		Verify the behaviour when SPS service is down along with CSI Provisioner.
 
-			Steps//
-			1. Identify the pod where CSI Provisioner is the leader.
-			2. Create Storage class with Immediate Binding mode.
-			3. Bring down SPS service (service-control --stop sps).
-			4. Create around 5 statefulsets with parallel POD management policy each with
-			20 replica's using above created SC.
-			5. While the Statefulsets is creating PVCs and Pods, delete the CSI controller Pod
-			identified in the step 1, where CSI provisioner is the leader.
-			6. csi-provisioner in other replica should take the leadership to help provisioning
-			of the volume.
-			7. Bring up SPS service (service-control --start sps).
-			8. Wait until all PVCs and Pods are created for Statefulsets.
-			9. Expect all PVCs for Statefulsets to be in the bound state.
-			10. Verify node affinity details on PV's.
-			11. Expect all Pods for Statefulsets to be in the running state.
-			12. Identify the Pod where CSI Attacher is the leader.
-			13. Scale down the Statefulsets replica count to 5, During scale down delete
-			CSI controller POD.
-			14. Wait untill the POD count goes down to 5.
-			15. csi-Attacher in other replica should take the leadership to detach Volume.
-			16. Delete Statefulsets and Delete PVCs.
+		Steps//
+		1. Identify the pod where CSI Provisioner is the leader.
+		2. Create Storage class with Immediate Binding mode.
+		3. Bring down SPS service (service-control --stop sps).
+		4. Create around 5 statefulsets with parallel POD management policy each with
+		20 replica's using above created SC.
+		5. While the Statefulsets is creating PVCs and Pods, delete the CSI controller Pod
+		identified in the step 1, where CSI provisioner is the leader.
+		6. csi-provisioner in other replica should take the leadership to help provisioning
+		of the volume.
+		7. Bring up SPS service (service-control --start sps).
+		8. Wait until all PVCs and Pods are created for Statefulsets.
+		9. Expect all PVCs for Statefulsets to be in the bound state.
+		10. Verify node affinity details on PV's.
+		11. Expect all Pods for Statefulsets to be in the running state.
+		12. Identify the Pod where CSI Attacher is the leader.
+		13. Scale down the Statefulsets replica count to 5, During scale down delete
+		CSI controller POD.
+		14. Wait untill the POD count goes down to 5.
+		15. csi-Attacher in other replica should take the leadership to detach Volume.
+		16. Delete Statefulsets and Delete PVCs.
 	*/
 
 	ginkgo.It("Volume provisioning when sps service is down during statefulset creation", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		controller_name := "csi-provisioner"
-		ignoreLabels := make(map[string]string)
-		var sts_count int = 3
-		var statefulSetReplicaCount int32 = 3
+		sts_count = 3
+		statefulSetReplicaCount = 3
 
 		/* Get current leader Csi-Controller-Pod where CSI Provisioner is running" +
 		find master node IP where this Csi-Controller-Pod is running */
@@ -1216,8 +1218,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		/* Get allowed topologies for Storage Class
-		region1 > zone1 > building1 > level1 > rack > rack1/rack2/rack3 */
+		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
 
@@ -1267,7 +1268,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		for i := 0; i < len(statefulSets); i++ {
 			go createParallelStatefulSets(client, namespace, statefulSets[i],
 				statefulSetReplicaCount, &wg)
-			if i == 1 {
+			if i == 2 {
 				/* Delete elected leader CSi-Controller-Pod where CSI-Attacher is running */
 				ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Provisioner is running")
 				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig,
@@ -1290,31 +1291,27 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Bring up SPS service
 		if isSPSServiceStopped {
-			framework.Logf("Bringing sps up before terminating the test")
+			framework.Logf("Bringing SPS service")
 			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(5 * time.Second)
+		time.Sleep(60 * time.Second)
 
-		// Verify that all multiple StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all multiple StatefulSets Pods creation should be in up and running state")
+		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
+		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 		for i := 0; i < len(statefulSets); i++ {
 			// verify that the StatefulSets pods are in ready state
 			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(fss.CheckMount(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
+			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
 
-			// verify that the StatefulSets pods are in running state
-			err = fpod.WaitForPodsRunningReady(client, namespace, int32(5), 0, pollTimeout, ignoreLabels)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// verify StatefulSets replica count
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[i])
-			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			// Get list of Pods in each StatefulSet and verify the replica count
+			ssPods := GetListOfPodsInSts(client, statefulSets[i])
+			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
 
@@ -1349,23 +1346,34 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 					csi_controller_pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+		}
 
-			/* Get newly elected current leader Csi-Controller-Pod where CSI Attacher is running" +
-			find new master node IP where this Csi-Controller-Pod is running */
-			ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI Provisioner is " +
-				"running and find the master node IP where this Csi-Controller-Pod is running")
-			csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-				client, sshClientConfig, controller_name)
-			framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
-				"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		/* Get newly elected current leader Csi-Controller-Pod where CSI Attacher is running" +
+		find new master node IP where this Csi-Controller-Pod is running */
+		ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI Provisioner is " +
+			"running and find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			// Scale down statefulSets replica count to 0
-			statefulSetReplicaCount = 0
-			ginkgo.By("Scale down statefulset replica count to 0")
-			for i := 0; i < len(statefulSets); i++ {
-				scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+		// Scale down statefulSets replica count to 0
+		statefulSetReplicaCount = 0
+		ginkgo.By("Scale down statefulset replica count to 0")
+		for i := 0; i < len(statefulSets); i++ {
+			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+		}
+
+		// Verify that the StatefulSet Pods, PVC's are deleted successfully
+		ginkgo.By("Verify that the StatefulSet Pods, PVC's are successfully deleted")
+		for i := 0; i < len(statefulSets); i++ {
+			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
+			if len(ssPodsAfterScaleDown.Items) == 0 {
+				framework.Logf("StatefulSet %s and it's replicas are deleted successfully", statefulSets[i].Name)
 			}
+			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+				"Number of Pods in the statefulset should match with number of replicas")
 		}
 	})
 
@@ -1386,50 +1394,35 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		9. Delete labels from PVC's and PV's
 		10. Delete the CSI process identified in the step 8, where CSI syncer is the leader.
 		11. Verify CNS metadata for PVC's and PV's , Make sure label entries should got removed
-
 	*/
 
 	ginkgo.It("Verify Label update when syncer container goes down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		controller_name := "csi-syncer"
-		var pvcCount int = 5
-		var originalSizeInMb, fsSize int64
-		var err error
-		var expectedErrMsg string
-		var podList []*v1.Pod
-		scParameters := make(map[string]string)
+		//controller_name := "csi-syncer"
+		pvcCount = 5
+		labelKey = "label-key"
+		labelValue = "label-value"
+		labels := map[string]string{labelKey: labelValue}
 
-		sshClientConfig := &ssh.ClientConfig{
-			User: "root",
-			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		}
+		// /* Get current leader Csi-Controller-Pod where CSI Syncer is running" +
+		// find master node IP where this Csi-Controller-Pod is running */
+		// ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
+		// 	"find the master node IP where this Csi-Controller-Pod is running")
+		// csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+		// 	client, sshClientConfig, controller_name)
+		// framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		/* Get current leader Csi-Controller-Pod where CSI Syncer is running" +
-		find master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
-			"find the master node IP where this Csi-Controller-Pod is running")
-		csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-			client, sshClientConfig, controller_name)
-		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		/* Get allowed topologies for Storage Class
-		region1 > zone1 > building1 > level1 > rack > rack1/rack2/rack3 */
+		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
 
-		// Create SC with Immedaite Binding mode and allowVolumeExpansion set to true
+		// Create SC with Immedaite Binding mode
 		ginkgo.By("Create SC with Immedaite Binding mode and allowVolumeExpansion set to true")
-		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		scParameters["datastoreurl"] = datastoreURL
-
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", true, "")
+		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC,
+			"", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1438,108 +1431,60 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(client, namespace, storageclass, pvcCount)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, labels)
 
 		for i := 0; i < len(pvclaimsList); i++ {
-			//var pvclaims []*v1.PersistentVolumeClaim
 			// Waiting for PVC claim to be in bound phase
 			ginkgo.By("Waiting for PVC claim to be in bound phase")
 			pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-
-			ginkgo.By("Expanding current pvc")
-			currentPvcSize := pvclaimsList[i].Spec.Resources.Requests[v1.ResourceStorage]
-			newSize := currentPvcSize.DeepCopy()
-			newSize.Add(resource.MustParse("1Gi"))
-			framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
-			pvclaim, err := expandPVCSize(pvclaimsList[i], newSize, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(pvclaim).NotTo(gomega.BeNil())
-
-			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if i == 1 {
-				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Resizer is running")
-				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client,
-					sshClientConfig, csi_controller_pod)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
 		}
 
-		// for i := 0; i < len(podList); i++ {
-		// 	//Fetch original FileSystemSize
-		// 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		// 	originalSizeInMb, err = getFSSizeMb(f, podList[i])
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// }
+		// ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Resizer is running")
+		// err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client,
+		// 	sshClientConfig, csi_controller_pod)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// /* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
+		// find master node IP where this Csi-Controller-Pod is running */
+		// ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
+		// 	"find the master node IP where this Csi-Controller-Pod is running")
+		// csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+		// 	client, sshClientConfig, controller_name)
+		// framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
+		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, pvclaimsList)
 		for i := 0; i < len(pvclaimsList); i++ {
-			// Get PV details
 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-
-			// create Pod for each PVC
-			ginkgo.By("Creating the Pod")
-			pvclaims = append(pvclaims, pvclaimsList[i])
-			pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
-			podList = append(podList, pod)
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s in namespace %s", labels, pv.Name, namespace))
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.GetName(), metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// verify volume is attached to the node
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-			vmUUID := getNodeUUID(client, pod.Spec.NodeName)
-			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+			pv.Labels = labels
+			pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
-
-			// ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-			// _, err = framework.LookForStringInPodExec(namespace, pod.Name,
-			// 	[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// ginkgo.By("Verify container volume metadata is present in CNS cache")
-			// ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", pv.Spec.CSI.VolumeHandle))
-			// _, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)
-			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+				labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			labels = make(map[string]string)
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pvc %s in namespace %s", labels, pvclaimsList[i].Name,
+				pvclaimsList[i].Namespace))
+			pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaimsList[i].Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaim.Labels = labels
+			_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvclaim, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s",
+				labels, pvclaim.Name, pvclaim.Namespace))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+				string(cnstypes.CnsKubernetesEntityTypePVC), pvclaim.Name, pvclaim.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
-		find master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
-			"find the master node IP where this Csi-Controller-Pod is running")
-		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-			client, sshClientConfig, controller_name)
-		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		for i := 0; i < len(pvclaimsList); i++ {
-			ginkgo.By("Waiting for file system resize to finish")
-			pvclaim, err := waitForFSResize(pvclaimsList[i], client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			pvcConditions := pvclaim.Status.Conditions
-			expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
-
-			ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-			fsSize, err = getFSSizeMb(f, podList[i])
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
-				fmt.Sprintf("error updating filesystem size for %q. "+
-					"Resulting filesystem size is %d", pvclaim.Name, fsSize))
-			ginkgo.By("File system resize finished successfully")
-
-		}
-
-		/* Verify PV nde affinity and that the pods are running on appropriate nodes
-		for each StatefulSet pod */
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		for i := 0; i < len(podList); i++ {
-			verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-				namespace, allowedTopologies)
-		}
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, pvclaimsList)
 	})
 
 	/*
@@ -1563,34 +1508,31 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		9. Delete POD's, PVC's and SC.
 	*/
 
-	ginkgo.It("Verify Label update when syncer container goes down", func() {
+	ginkgo.It("Verify dynamic provisioning with Thick policy when CSI-provisioner goes down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		controller_name := "csi-provisioner"
-		var pvcCount int = 5
-		var err error
-		var podList []*v1.Pod
+		//controller_name := "csi-provisioner"
+		pvcCount = 5
 		scParameters := make(map[string]string)
+		var pvclaimsList []*v1.PersistentVolumeClaim
 
 		/* Get current leader Csi-Controller-Pod where CSI Provisioner is running" +
 		find master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
+		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
 			client, sshClientConfig, controller_name)
-		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
+		framework.Logf("CSI-Provisioner is running on elected Leader Pod %s "+
 			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		/* Get allowed topologies for Storage Class
-		region1 > zone1 > building1 > level1 > rack > rack1/rack2/rack3 */
+		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
 
 		// Create SC with Immedaite Binding mode
 		ginkgo.By("Create SC with Immedaite Binding mode and thick provisioning policy")
 		scParameters[scParamStoragePolicyName] = "Management Storage Policy - Regular"
-
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
 			"", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1601,56 +1543,55 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
-		var pvclaims []*v1.PersistentVolumeClaim
 		for i := 0; i < pvcCount; i++ {
 			pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pvclaims = append(pvclaims, pvclaim)
-			if i == 3 {
-				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Resizer is running")
+			pvclaimsList = append(pvclaimsList, pvclaim)
+			if i == 4 {
+				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Provisioner is running")
 				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig, csi_controller_pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
-		/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
+
+		/* Get newly elected leader Csi-Controller-Pod where CSI Provisioner is running" +
 		find master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
+		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
 			client, sshClientConfig, controller_name)
-		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
+		framework.Logf("CSI-Provisioner is running on elected Leader Pod %s "+
 			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		for i := 0; i < len(pvclaims); i++ {
-			//var pvclaims []*v1.PersistentVolumeClaim
-			// Waiting for PVC claim to be in bound phase
-			ginkgo.By("Waiting for PVC claim to be in bound phase")
-			pvc, err := fpv.WaitForPVClaimBoundPhase(client,
-				[]*v1.PersistentVolumeClaim{pvclaims[i]}, framework.ClaimProvisionTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-		}
-
-		/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
+		/* Get elected leader Csi-Controller-Pod where CSI Attacher is running" +
 		find master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
+		ginkgo.By("Get elected leader Csi-Controller-Pod where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name = "csi-attacher"
 		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
 			client, sshClientConfig, controller_name)
-		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
+		framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
 			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		for i := 0; i < len(pvclaims); i++ {
+		// Verify PVC claim to be in bound phase and create POD for each PVC
+		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
+		for i := 0; i < len(pvclaimsList); i++ {
+			var pvclaims []*v1.PersistentVolumeClaim
+			// Waiting for PVC claim to be in bound phase
+			pvc, err := fpv.WaitForPVClaimBoundPhase(client,
+				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
+
 			// Get PV details
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			// create Pod for each PVC
-			ginkgo.By("Creating the Pod")
-			pvclaims = append(pvclaims, pvclaims[i])
-			pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
+			ginkgo.By("Creating Pod")
+			pvclaims = append(pvclaims, pvclaimsList[i])
+			pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			podList = append(podList, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1661,13 +1602,52 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
-
-			if i == 3 {
-				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Resizer is running")
+			if i == 4 {
+				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Attacher is running")
 				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig, csi_controller_pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
+		defer func() {
+			// cleanup code for deleting PVC
+			ginkgo.By("Deleting PVC's and PV's")
+			for i := 0; i < len(pvclaimsList); i++ {
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+		defer func() {
+			// cleanup code for deleting POD
+			for i := 0; i < len(podList); i++ {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+				err = fpod.DeletePodWithWait(client, podList[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			// Verify volume is detached from the node
+			ginkgo.By("Verify volume is detached from the node")
+			for i := 0; i < len(pvclaimsList); i++ {
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+			}
+		}()
+
+		/* Get newly elected leader Csi-Controller-Pod where CSI Attacher is running" +
+		find master node IP where this Csi-Controller-Pod is running */
+		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Attacher is running and " +
+			"find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -1677,6 +1657,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				namespace, allowedTopologies)
 		}
 	})
+
 	/*
 		TESTCASE-11
 		Password rotation
@@ -1701,7 +1682,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		15. Delete POD, PVC and SC
 	*/
 
-	ginkgo.It("Verify Label update when syncer container goes down", func() {
+	ginkgo.It("Password rotation", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		controller_name := "csi-provisioner"
@@ -1855,7 +1836,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			// create Pod for each PVC
-			ginkgo.By("Creating the Pod")
+			ginkgo.By("Creating Pod")
 			pvclaims = append(pvclaims, pvclaims[i])
 			pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
 			podList = append(podList, pod)
@@ -1889,7 +1870,7 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
 		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
-	framework.ExpectNoError(err)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
@@ -1906,20 +1887,19 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.St
 	return stss
 }
 
-func createMultiplePVCsInParallel(client clientset.Interface, namespace string,
-	storageclass *storagev1.StorageClass, count int) []*v1.PersistentVolumeClaim {
+func createMultiplePVCsInParallel(ctx context.Context, client clientset.Interface, namespace string,
+	storageclass *storagev1.StorageClass, count int, labels map[string]string) []*v1.PersistentVolumeClaim {
 	var pvclaims []*v1.PersistentVolumeClaim
 	for i := 0; i < count; i++ {
 		pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaims = append(pvclaims, pvclaim)
+		if labels != nil {
+			ginkgo.By("Add labels to PVC's and PV's")
+			pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+			updatePvcLabel(ctx, client, namespace, pvclaim, labels)
+			updatePvLabel(ctx, client, namespace, pv, labels)
+		}
 	}
 	return pvclaims
 }
-
-// func createSCMultipleDynamicPVC(f *framework.Framework,
-// 	client clientset.Interface, dsurl string, storagePolicyName string,
-// 	namespace string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
-// 	pvclaim, err := createPVC(client, pvcnamespace, pvclaimlabels, ds, storageclass, accessMode)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// }
