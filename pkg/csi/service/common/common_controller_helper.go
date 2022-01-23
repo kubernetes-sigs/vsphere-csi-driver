@@ -219,6 +219,25 @@ func UseVslmAPIs(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, err
 	return false, nil
 }
 
+func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.ApiVersion, ".")
+	apiVersion := strings.Join(items[:], "")
+	// Convert version string to int, e.g. 8.0.0.0" to 700.
+	vSphereMajorVersionInt, err := strconv.Atoi(string(apiVersion[0]))
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
+	}
+
+	// Check if the current vSphere version is greater 8
+	if vSphereMajorVersionInt > VSphere8VersionMajorInt {
+		return true, nil
+	}
+	// For all other versions.
+	return false, nil
+}
+
 // ValidateControllerExpandVolumeRequest is the helper function to validate
 // ControllerExpandVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.
