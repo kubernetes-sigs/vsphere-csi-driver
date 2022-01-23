@@ -319,6 +319,17 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 	}
 	if cfg != nil {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			if len(clusterComputeResourceMoIds) > 0 {
+				if cfg.Global.SupervisorID != "" {
+					// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+					// config.Global.SupervisorID is not empty string
+					cfg.Global.ClusterID = cfg.Global.SupervisorID
+				} else {
+					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+				}
+			}
+		}
 		c.manager.CnsConfig = cfg
 		log.Debugf("Updated manager.CnsConfig")
 	}

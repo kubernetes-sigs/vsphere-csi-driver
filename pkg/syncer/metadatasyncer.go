@@ -564,6 +564,19 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			metadataSyncer.host = newVCConfig.Host
 		}
 		if cfg != nil {
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+					if len(clusterComputeResourceMoIds) > 0 {
+						if cfg.Global.SupervisorID != "" {
+							// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+							// config.Global.SupervisorID is not empty string
+							cfg.Global.ClusterID = cfg.Global.SupervisorID
+						} else {
+							return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+						}
+					}
+				}
+			}
 			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
 			log.Infof("updated metadataSyncer.configInfo")
 		}
