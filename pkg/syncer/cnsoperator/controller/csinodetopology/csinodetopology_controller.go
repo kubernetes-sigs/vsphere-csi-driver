@@ -403,7 +403,7 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		topologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
 		topologyLabels = append(topologyLabels,
 			csinodetopologyv1alpha1.TopologyLabel{
-				Key:   common.WellKnownTopologyLabelsDomain + "/" + common.TopologyLabelsZoneKey,
+				Key:   corev1.LabelZoneFailureDomainStable,
 				Value: virtualMachine.Status.Zone,
 			},
 		)

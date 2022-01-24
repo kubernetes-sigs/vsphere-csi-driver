@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
@@ -44,7 +44,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		testUnexpectedVmName    = "test-unexpected-vm-name"
 		testNodeIDInSpec        = "test-node-id"
 		testSupervisorNamespace = "test-supervisor-namespace"
-		expectedZoneKey         = common.WellKnownTopologyLabelsDomain + "/" + common.TopologyLabelsZoneKey
+		expectedZoneKey         = corev1.LabelZoneFailureDomainStable
 		expectedZoneValue       = "zone-1"
 		testCSINodeTopology     = &csinodetopologyv1alpha1.CSINodeTopology{
 			ObjectMeta: metav1.ObjectMeta{
