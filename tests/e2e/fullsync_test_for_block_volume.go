@@ -859,8 +859,16 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("create a new pod pod2, using pvc1")
-		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
-		pod2.Spec.Containers[0].Image = busyBoxImageOnGcr
+		var pod2 *v1.Pod
+		if windowsEnv{
+			pod2 = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsCommand)
+			pod2.Spec.Containers[0].Image = windowsLTSCImage
+
+		}else{
+			pod2 = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
+			pod2.Spec.Containers[0].Image = busyBoxImageOnGcr
+		}
+		
 		pod2, err = client.CoreV1().Pods(namespace).Create(ctx, pod2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

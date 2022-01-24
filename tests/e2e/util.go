@@ -2089,9 +2089,16 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
 	for _, filePath := range filePaths {
-		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+		if windowsEnv{
+			_, err := framework.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "ls", filePath}, "", time.Minute)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}else {
+			_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
 			podName, "--", "/bin/ls", filePath)
-		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+			framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+		}
 	}
 }
 
@@ -3506,7 +3513,7 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 
 func execCommanOnWindowsWorker(windowsWorkerIP string) string {
 
-	client, err := simplessh.ConnectWithPassword("10.92.207.193", "kubo","Ponies!23")
+	client, err := simplessh.ConnectWithPassword("10.92.207.193","kubo","Ponies!23")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer client.Close()
 	cmd := "ssh capv@" + windowsWorkerIP + " 'Get-Partition -DiskNumber 1 -PartitionNumber 2 | Format-List -Property Size'"
@@ -3518,48 +3525,10 @@ func execCommanOnWindowsWorker(windowsWorkerIP string) string {
 	trimmed_size := strings.Split(string(output), ":")
 	size := strings.TrimSpace(trimmed_size[1])
 	framework.Logf("size %s", size)
-	// trimmed_size := strings.TrimSpace(string(output))
-	// lsize := strings.Split(trimmed_size, ":")
-	
-	// framework.Logf("file size: %s\n", strings.TrimSpace(lsize[1]))
-
-	// return strings.TrimSpace(lsize[1])
 
 	return size
 
 }
-
-
-
-// func connectWindows(username, host string, authMethod ssh.AuthMethod, timeout time.Duration) (*Client, error) {
-	
-// 	var HostKeyCallback = ssh.InsecureIgnoreHostKey()
-
-// 	type Client struct {
-// 		SSHClient *ssh.Client
-// 	}
-
-// 	config := &ssh.ClientConfig{
-// 		User:            username,
-// 		//Auth:            []ssh.AuthMethod{authMethod},
-// 		HostKeyCallback: HostKeyCallback,
-// 	}
-
-// 	//host = addPortToHost(host)
-
-// 	conn, err := net.DialTimeout("tcp", host, timeout)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, host, config)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	client := ssh.NewClient(sshConn, chans, reqs)
-
-// 	c := &Client{SSHClient: client}
-// 	return c, nil
-// }
 
 // getK8sMasterIP gets k8s master ip in vanilla setup.
 func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
@@ -3779,6 +3748,14 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	deploymentSpec.Spec.Template.Spec.Volumes = volumes
 	if nodeSelector != nil {
 		deploymentSpec.Spec.Template.Spec.NodeSelector = nodeSelector
+	}
+	if windowsEnv {
+		commands := []string{"Powershell.exe"}
+		args := []string{"-Command", command}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsLTSCImage
+		deploymentSpec.Spec.Template.Spec.Containers[0].Command = commands
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = args
+
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {

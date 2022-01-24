@@ -263,8 +263,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] madanVerify basic static provisioning workflow", func() {
 		var err error
+		var pod *v1.Pod
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -313,8 +314,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, pvclaims, false, windowsCommand)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}else{
+			pod, err = createPod(client, namespace, nil, pvclaims, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
@@ -323,10 +331,17 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
-		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if windowsEnv{
+			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+				[]string{"powershell.exe", "cat", "C:\\mnt\\volume1\\data.txt"}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		}else{
+			filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
+			_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		
 		ginkgo.By("Verify container volume metadata is present in CNS cache")
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", pv.Spec.CSI.VolumeHandle))
 		_, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)

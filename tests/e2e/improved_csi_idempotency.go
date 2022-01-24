@@ -712,11 +712,17 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 					"CNS after it is deleted from kubernetes", volumeID))
 		}
 	}()
-
+	
 	ginkgo.By("Create POD")
-	pod, err := createPod(client, namespace, nil, pvclaims, false, "")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	var pod *v1.Pod
+	if windowsEnv {
+		pod, err = createPod(client, namespace, nil, pvclaims, false, windowsCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}else{
+		pod, err = createPod(client, namespace, nil, pvclaims, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	
 	defer func() {
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
