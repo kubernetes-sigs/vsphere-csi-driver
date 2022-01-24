@@ -38,12 +38,12 @@ import (
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 )
 
 const (
@@ -158,6 +158,12 @@ func getControllerTest(t *testing.T) *controllerTest {
 		fakeOpStore, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		commonco.ContainerOrchestratorUtility, err =
+			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
 
 		manager := &common.Manager{

@@ -62,6 +62,9 @@ var (
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
+// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
+var clusterComputeResourceMoIds = make([]string, 0)
+
 type controller struct {
 	manager *common.Manager
 	authMgr common.AuthorizationService
@@ -77,6 +80,24 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCP CSI controller")
 	var err error
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return err
+		}
+		if len(clusterComputeResourceMoIds) > 0 {
+			if config.Global.SupervisorID != "" {
+				// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+				// config.Global.SupervisorID is not empty string
+				config.Global.ClusterID = config.Global.SupervisorID
+			} else {
+				return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+			}
+		}
+	}
+
 	// Get VirtualCenterManager instance and validate version.
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 	if err != nil {
@@ -298,6 +319,17 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 	}
 	if cfg != nil {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			if len(clusterComputeResourceMoIds) > 0 {
+				if cfg.Global.SupervisorID != "" {
+					// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+					// config.Global.SupervisorID is not empty string
+					cfg.Global.ClusterID = cfg.Global.SupervisorID
+				} else {
+					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+				}
+			}
+		}
 		c.manager.CnsConfig = cfg
 		log.Debugf("Updated manager.CnsConfig")
 	}
@@ -393,7 +425,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get vCenter from Manager. Error: %v", err)
 	}
-	sharedDatastores, vsanDirectDatastores, err := getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
+	// TODO: TKGS-HA -update getCandidateDatastores to handle case
+	// when c.manager.CnsConfig.Global.ClusterID  is replaced with new SupervisorID for stretched supervisor cluster
+	// revisit this code in the next PR to use all clusterComputeResourceMoIds
+	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	var vsanDirectDatastores []*cnsvsphere.DatastoreInfo
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) && len(clusterComputeResourceMoIds) > 0 {
+		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc, clusterComputeResourceMoIds[0])
+	} else {
+		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
+	}
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed finding candidate datastores to place volume. Error: %v", err)

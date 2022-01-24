@@ -45,6 +45,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
@@ -74,7 +75,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Debug("Not initializing the CnsRegisterVolume Controller as its a non-WCP CSI deployment")
 		return nil
 	}
-
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
+			if err != nil {
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				return err
+			}
+			if len(clusterComputeResourceMoIds) > 1 {
+				log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
+				return nil
+			}
+		}
+	}
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
