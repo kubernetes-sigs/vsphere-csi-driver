@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		labelsMap["app"] = "test"
 		ginkgo.By("Creating a Deployment using pvc1 & pvc2")
 
-		dep, err := createDeployment(ctx, client, 3, labelsMap, nil, namespace,
+		dep, err := createDeployment(ctx, client, 2, labelsMap, nil, namespace,
 			[]*v1.PersistentVolumeClaim{pvclaim, pvc2}, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -244,48 +244,45 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 
-		ginkgo.By("Scale down deployment to 2 replica")
+		ginkgo.By("Scale down deployment to 1 replica")
 		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		rep := dep.Spec.Replicas
-		*rep = 2
+		*rep = 1
 		dep.Spec.Replicas = rep
 		dep, err = client.AppsV1().Deployments(namespace).Update(ctx, dep, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		pods2, err := fdep.GetPodsForDeployment(client, dep)
+		_, err = fdep.GetPodsForDeployment(client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		list_of_pods, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		num_of_pods := len(list_of_pods)
-		for i := 0; i < num_of_pods; i++ {
-			framework.Logf("Pod which are running after scale-down to 2 is %s", list_of_pods[i].Name)
+		if list_of_pods[0].Name == pods.Items[0].Name {
+			missingPod = &pods.Items[1]
+		} else {
+			missingPod = &pods.Items[0]
 		}
 
-		for _, originalPod := range pods.Items {
-			if !(originalPod.Name == pods2.Items[0].Name || originalPod.Name == pods2.Items[1].Name) {
-				missingPod = originalPod.DeepCopy()
-				framework.Logf("Missing Pod name is %s", originalPod.Name)
-			} else {
-				framework.Logf("Found Pod Name in both the Array %s", originalPod.Name)
-			}
-		}
+		framework.Logf("Missing Pod name is %s", missingPod.Name)
 
 		ginkgo.By("Verifying whether Pod is Deleted or not")
 		err = fpod.WaitForPodNotFoundInNamespace(client, missingPod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod with pvc1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+pvc1NameInSV,
+		framework.Logf("Looking for the CRD " + missingPod.Spec.NodeName + "-" + pvc1NameInSV)
+		err = waitTillCNSFileAccesscrdDeleted(ctx, f, missingPod.Spec.NodeName+"-"+pvc1NameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod with pvc2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+pvc2NameInSV,
+		err = waitTillCNSFileAccesscrdDeleted(ctx, f, missingPod.Spec.NodeName+"-"+pvc2NameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up deployment to 5 replica")
 		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
@@ -336,11 +333,14 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 })
