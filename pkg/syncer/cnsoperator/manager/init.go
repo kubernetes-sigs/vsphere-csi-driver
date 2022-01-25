@@ -149,7 +149,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				}
 				// Create FileVolumeClients CRD from manifest if file volume feature
 				// is enabled.
-				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
+				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
 					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
 				if err != nil {
 					log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
