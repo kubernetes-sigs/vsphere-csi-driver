@@ -322,4 +322,6 @@ const (
 	// TKGsHA is the feature gate to check whether TKGS HA feature
 	// is enabled.
 	TKGsHA = "tkgs-ha"
+	// ListVolumes is the feature to support list volumes API
+	ListVolumes = "list-volumes"
 )
