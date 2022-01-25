@@ -2335,6 +2335,8 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.
 				ginkgo.By(fmt.Sprintf("Found CNSFileAccessConfig crd: %v, expected: %v", instance, expectedInstanceName))
 				instanceFound = true
 				break
+			} else {
+				framework.Logf("CRD is not matching : " + instance.Name)
 			}
 		}
 	}
@@ -2343,6 +2345,54 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.
 	} else {
 		gomega.Expect(instanceFound).To(gomega.BeFalse())
 	}
+}
+
+// waitTillCNSFileAccesscrdDeleted is a helper method to check if a
+// given crd is created/deleted in the supervisor cluster. This method will
+// fetch the list of CRD Objects for a given crdName, Version and Group and then
+// verifies if the given expectedInstanceName exist in the list.
+func waitTillCNSFileAccesscrdDeleted(ctx context.Context, f *framework.Framework,
+	expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) error {
+	return wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		framework.Logf("Waiting for crd %s to disappear", expectedInstanceName)
+
+		k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+		cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dynamicClient, err := dynamic.NewForConfig(cfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdName}
+
+		resourceClient := dynamicClient.Resource(gvr).Namespace("")
+		list, err := resourceClient.List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if err != nil {
+			framework.Logf("Error fetching the crds")
+			return false, nil
+		}
+
+		found := false
+
+		for _, crd := range list.Items {
+			if crdName == "cnsfileaccessconfigs" {
+				instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+				err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if expectedInstanceName == instance.Name {
+					framework.Logf("CNSFileAccessConfig crd still exists")
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			framework.Logf("CRD %s no longer exists", expectedInstanceName)
+			return true, nil
+		}
+
+		return false, nil
+	})
 }
 
 // verifyEntityReferenceForKubEntities takes context,client, pv, pvc and pod
