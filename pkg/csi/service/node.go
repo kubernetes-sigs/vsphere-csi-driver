@@ -34,7 +34,6 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const (
@@ -340,6 +339,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var nodeID string
 	var err error
+	var clusterFlavor cnstypes.CnsClusterFlavor
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
@@ -385,7 +385,12 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		accessibleTopology map[string]string
 	)
 
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
+	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			nodeInfoResponse = &csi.NodeGetInfoResponse{
 				NodeId:             nodeID,
@@ -406,7 +411,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			NodeID:   nodeID,
 		}
 		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
-	} else if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorVanilla {
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 			// Initialize volume topology service.
 			if err = initVolumeTopologyService(ctx); err != nil {
