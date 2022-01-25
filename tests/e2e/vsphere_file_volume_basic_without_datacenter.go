@@ -37,6 +37,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		originalConf           string
 		ctx                    context.Context
 		cancel                 context.CancelFunc
+		csiReplicaCount        int32
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -51,6 +52,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// Get CSI Controller's replica count from the setup
+		deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount = *deployment.Spec.Replicas
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -63,10 +71,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Restarting the controller by toggling the replica count")
+
 		ginkgo.By("Bringing the csi-controller down")
 		bringDownCsiController(client, csiControllerNamespace)
 		ginkgo.By("Bringing the csi-controller up")
-		bringUpCsiController(client, csiControllerNamespace)
+		bringUpCsiController(client, csiReplicaCount, csiControllerNamespace)
 
 		cancel()
 	})
@@ -115,7 +124,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		ginkgo.By("Bringing the csi-controller down")
 		bringDownCsiController(client, csiControllerNamespace)
 		ginkgo.By("Bringing the csi-controller up")
-		bringUpCsiController(client, csiControllerNamespace)
+		bringUpCsiController(client, csiReplicaCount, csiControllerNamespace)
 
 		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL, true)
 

@@ -1295,13 +1295,25 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		svClient, _ := getSvcClientAndNamespace()
 
 		ginkgo.By("Bring down csi-controller pod in GC")
+		tkgReplicaDeployment, err := svClient.AppsV1().Deployments(vsphereTKGSystemNamespace).Get(ctx,
+			vsphereControllerManager, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		tkgReplicaCount := *tkgReplicaDeployment.Spec.Replicas
+
+		// Get CSI Controller's replica count from the setup
+		deployment, err := gcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		bringDownTKGController(svClient)
 		bringDownCsiController(gcClient)
 		isControllerUP = false
+
 		defer func() {
 			if !isControllerUP {
-				bringUpTKGController(svClient)
-				bringUpCsiController(gcClient)
+				bringUpTKGController(svClient, tkgReplicaCount)
+				bringUpCsiController(gcClient, csiReplicaCount)
 			}
 		}()
 
@@ -1318,8 +1330,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		ginkgo.By("Bring up csi-controller pod in GC")
-		bringUpTKGController(svClient)
-		bringUpCsiController(gcClient)
+		bringUpTKGController(svClient, tkgReplicaCount)
+		bringUpCsiController(gcClient, csiReplicaCount)
 		isControllerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")
@@ -1529,12 +1541,18 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		ginkgo.By("Get svcClient")
 		svClient, _ := getSvcClientAndNamespace()
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SVC")
 		bringDownCsiController(svClient)
 		isControllerUP = false
 		defer func() {
 			if !isControllerUP {
-				bringUpCsiController(svClient)
+				bringUpCsiController(svClient, csiReplicaCount)
 			}
 		}()
 
@@ -1564,7 +1582,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		ginkgo.By("Bring up csi-controller pod in SVC")
-		bringUpCsiController(svClient)
+		bringUpCsiController(svClient, csiReplicaCount)
 		isControllerUP = true
 		ginkgo.By("Verify health status of SVC PVC after csi is up(inaccessible)")
 
@@ -2123,13 +2141,24 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		tkgReplicaDeployment, err := svcClient.AppsV1().Deployments(vsphereTKGSystemNamespace).Get(ctx,
+			vsphereControllerManager, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		tkgReplicaCount := *tkgReplicaDeployment.Spec.Replicas
+
+		// Get CSI Controller's replica count from the setup
+		deployment, err := gcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if !isControllerUP {
-				bringUpTKGController(svcClient)
-				bringUpCsiController(gcClient)
+				bringUpTKGController(svcClient, tkgReplicaCount)
+				bringUpCsiController(gcClient, csiReplicaCount)
 			}
 			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2169,8 +2198,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up csi-controller pod in GC")
-		bringUpTKGController(svcClient)
-		bringUpCsiController(gcClient)
+		bringUpTKGController(svcClient, tkgReplicaCount)
+		bringUpCsiController(gcClient, csiReplicaCount)
 		isControllerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")
