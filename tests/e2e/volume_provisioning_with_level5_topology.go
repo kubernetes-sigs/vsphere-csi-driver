@@ -171,12 +171,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Verify PV node affinity and that the PODS are running on appropriate nodes
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
@@ -246,27 +246,27 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Verify PV node affinity and that the PODS are running on appropriate node
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate nodes")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-			statefulset, namespace, allowedTopologies)
+			statefulset, namespace, allowedTopologies, false)
 
 		// Scale up statefulset replica count to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		// Scale down statefulset replica count to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		// Verify newly created PV node affinity details  and that the new PODS are running on appropriate nodes
 		ginkgo.By("Verify newly created PV node affinity details  and that the new PODS are running on appropriate nodes")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
@@ -337,24 +337,24 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Verify PV node affinity and that the PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		/* Verify newly created PV node affinity and that the news PODS are running
 		on appropriate node as specified in the allowed topologies of SC */
 		ginkgo.By("Verify newly created PV node affinity and that the news PODS " +
 			"are running on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
@@ -425,29 +425,29 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Verify PV node affinity and that the PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		// Scale down statefulset replicas to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		/* "Verify newly created PV node affinity and that the new PODS are
 		running on appropriate node as specified in the allowed topologies of SC */
 		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
@@ -527,29 +527,29 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		// Scale down statefulset replicas to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 
 		/* Verify newly created PV node affinity and that the new PODS are running on
 		appropriate node as specified in the allowed topologies of SC */
 		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
@@ -626,7 +626,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Verify PV node affinity and that the PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment,
-			namespace, allowedTopologyForSC)
+			namespace, allowedTopologyForSC, false)
 	})
 
 	/*
@@ -693,12 +693,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies)
+			namespace, allowedTopologies, false)
 
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 	})
 
 	/*
