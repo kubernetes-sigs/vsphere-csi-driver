@@ -32,14 +32,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
@@ -65,8 +66,9 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 var clusterComputeResourceMoIds = make([]string, 0)
 
 type controller struct {
-	manager *common.Manager
-	authMgr common.AuthorizationService
+	manager     *common.Manager
+	authMgr     common.AuthorizationService
+	topologyMgr commoncotypes.ControllerTopologyService
 }
 
 // New creates a CNS controller.
@@ -160,6 +162,16 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.authMgr = authMgr
 		// TODO: Invoke similar method for block volumes.
 		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+	}
+	// Create dynamic informer for AvailabilityZone instance if FSS is enabled
+	// and CR is present in environment.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		// Initialize volume topology service.
+		c.topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+		if err != nil {
+			log.Errorf("failed to initialize topology service. Error: %+v", err)
+			return err
+		}
 	}
 
 	go func() {
@@ -340,73 +352,137 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+
+	var (
+		storagePolicyID      string
+		affineToHost         string
+		storagePool          string
+		selectedDatastoreURL string
+		storageTopologyType  string
+		topologyRequirement  *csi.TopologyRequirement
+		// accessibleNodes will be used to populate volumeAccessTopology.
+		accessibleNodes      []string
+		sharedDatastores     []*cnsvsphere.DatastoreInfo
+		vsanDirectDatastores []*cnsvsphere.DatastoreInfo
+		hostnameLabelPresent bool
+		zoneLabelPresent     bool
+		err                  error
+	)
+
+	// Support case insensitive parameters.
+	for paramName := range req.Parameters {
+		param := strings.ToLower(paramName)
+		switch param {
+		case common.AttributeStoragePolicyID:
+			storagePolicyID = req.Parameters[paramName]
+		case common.AttributeStoragePool:
+			storagePool = req.Parameters[paramName]
+		case common.AttributeStorageTopologyType:
+			// TODO: TKGS-HA : Add validation
+			storageTopologyType = req.Parameters[paramName]
+		}
+	}
+
+	// Get VC instance.
+	vc, err := common.GetVCenter(ctx, c.manager)
+	// TODO: Need to extract fault from err returned by GetVirtualCenter.
+	// Currently, just return "csi.fault.Internal".
+	if err != nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter from Manager. Error: %v", err)
+	}
+	// Fetch the accessibility requirements from the request.
+	topologyRequirement = req.GetAccessibilityRequirements()
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		// Identify the topology keys in Accessibility requirements.
+		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
+		// TODO: TKGS-HA: This case will only arise when spherelet will add zone and hostname labels to CSINodes.
+		// Currently spherelet only accepts hostname. We will handle this case later.
+		if zoneLabelPresent && hostnameLabelPresent {
+			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+				"support for topology requirement with both zone and hostname labels is not yet implemented.")
+		} else if zoneLabelPresent {
+			// topologyMgr can be nil if the AZ CR was not been registered
+			// at the time of controller init. Handling that case in CreateVolume calls.
+			if c.topologyMgr == nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"topology manager not initialized.")
+			}
+			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
+			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
+			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+				commoncotypes.WCPTopologyFetchDSParams{
+					TopologyRequirement: topologyRequirement,
+					Vc:                  vc})
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find shared datastores for given topology requirement. Error: %v", err)
+			}
+		} else {
+			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
+				c.manager.CnsConfig.Global.ClusterID)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed finding candidate datastores to place volume. Error: %v", err)
+			}
+		}
+	} else {
+		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
+			c.manager.CnsConfig.Global.ClusterID)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed finding candidate datastores to place volume. Error: %v", err)
+		}
+	}
+
+	if storagePool != "" {
+		if !isValidAccessibilityRequirement(topologyRequirement) {
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"invalid accessibility requirements")
+		}
+		spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"error in specified StoragePool %s. Error: %+v", storagePool, err)
+		}
+		overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
+		if err != nil || len(overlappingNodes) == 0 {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"getOverlappingNodes failed: %v", err)
+		}
+		accessibleNodes = append(accessibleNodes, overlappingNodes...)
+		log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
+
+		if storagePoolType == vsanDirect {
+			selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"error in specified StoragePool %s. Error: %+v", storagePool, err)
+			}
+			log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+		} else if storagePoolType == vsanSna {
+			// Query API server to get ESX Host Moid from the hostLocalNodeName.
+			if len(accessibleNodes) != 1 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"too many accessible nodes")
+			}
+			hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get ESX Host Moid from API server. Error: %+v", err)
+			}
+			affineToHost = hostMoid
+			log.Debugf("Setting the affineToHost value as %s", affineToHost)
+		}
+	}
+
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
 		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-
-	var (
-		storagePolicyID     string
-		affineToHost        string
-		storagePool         string
-		topologyRequirement *csi.TopologyRequirement
-		// accessibleNodes will be used to populate volumeAccessTopology.
-		accessibleNodes []string
-		err             error
-	)
-	// Fetch the accessibility requirements from the request.
-	topologyRequirement = req.GetAccessibilityRequirements()
-	var selectedDatastoreURL string
-	// Support case insensitive parameters.
-	for paramName := range req.Parameters {
-		param := strings.ToLower(paramName)
-		if param == common.AttributeStoragePolicyID {
-			storagePolicyID = req.Parameters[paramName]
-		} else if param == common.AttributeStoragePool {
-			storagePool = req.Parameters[paramName]
-			if !isValidAccessibilityRequirement(topologyRequirement) {
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-					"invalid accessibility requirements")
-			}
-			spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"error in specified StoragePool %s. Error: %+v", storagePool, err)
-			}
-			overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
-			if err != nil || len(overlappingNodes) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"getOverlappingNodes failed: %v", err)
-			}
-			accessibleNodes = append(accessibleNodes, overlappingNodes...)
-			log.Infof("Storage pool Accessible nodes for volume topology: %+v", accessibleNodes)
-
-			if storagePoolType == vsanDirect {
-				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"error in specified StoragePool %s. Error: %+v", storagePool, err)
-				}
-				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
-			} else if storagePoolType == vsanSna {
-				// Query API server to get ESX Host Moid from the hostLocalNodeName.
-				if len(accessibleNodes) != 1 {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-						"too many accessible nodes")
-				}
-				hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to get ESX Host Moid from API server. Error: %+v", err)
-				}
-				affineToHost = hostMoid
-				log.Debugf("Setting the affineToHost value as %s", affineToHost)
-			}
-		}
-	}
-
+	// Create CreateVolumeSpec and populate values.
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:             volSizeMB,
 		Name:                   req.Name,
@@ -416,29 +492,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		VolumeType:             common.BlockVolumeType,
 		VsanDirectDatastoreURL: selectedDatastoreURL,
 	}
-	// Get candidate datastores for the Kubernetes cluster.
-	vc, err := common.GetVCenter(ctx, c.manager)
-	// Need to extract fault from err returned by GetVirtualCenter.
-	// Currently, just return "csi.fault.Internal".
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get vCenter from Manager. Error: %v", err)
-	}
-	// TODO: TKGS-HA -update getCandidateDatastores to handle case
-	// when c.manager.CnsConfig.Global.ClusterID  is replaced with new SupervisorID for stretched supervisor cluster
-	// revisit this code in the next PR to use all clusterComputeResourceMoIds
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	var vsanDirectDatastores []*cnsvsphere.DatastoreInfo
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) && len(clusterComputeResourceMoIds) > 0 {
-		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc, clusterComputeResourceMoIds[0])
-	} else {
-		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc, c.manager.CnsConfig.Global.ClusterID)
-	}
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed finding candidate datastores to place volume. Error: %v", err)
-	}
-
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 		c.manager, &createVolumeSpec, candidateDatastores)
@@ -447,6 +500,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			"failed to create volume. Error: %+v", err)
 	}
 
+	// CreateVolume response.
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	resp := &csi.CreateVolumeResponse{
@@ -456,18 +510,57 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			VolumeContext: attributes,
 		},
 	}
-	// Configure the volumeTopology in the response so that the external
-	// provisioner will properly sets up the nodeAffinity for this volume.
-	if isValidAccessibilityRequirement(topologyRequirement) {
-		for _, hostName := range accessibleNodes {
-			volumeTopology := &csi.Topology{
-				Segments: map[string]string{
-					v1.LabelHostname: hostName,
-				},
+
+	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		if zoneLabelPresent && !hostnameLabelPresent {
+			// Calculate accessible topology for the provisioned volume.
+			selectedDatastore := volumeInfo.DatastoreURL
+			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+				commoncotypes.WCPRetrieveTopologyInfoParams{
+					DatastoreURL:        selectedDatastore,
+					StorageTopologyType: storageTopologyType,
+					TopologyRequirement: topologyRequirement,
+					Vc:                  vc})
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find accessible topologies for the selected datastore %q. Error: %+v",
+					selectedDatastore, err)
 			}
-			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			// Add topology segments to the CreateVolumeResponse.
+			for _, topoSegments := range datastoreAccessibleTopology {
+				volumeTopology := &csi.Topology{
+					Segments: topoSegments,
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
+		} else if hostnameLabelPresent {
+			// Configure the volumeTopology in the response so that the external
+			// provisioner will properly sets up the nodeAffinity for this volume.
+			for _, hostName := range accessibleNodes {
+				volumeTopology := &csi.Topology{
+					Segments: map[string]string{
+						v1.LabelHostname: hostName,
+					},
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
+			log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
 		}
-		log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
+	} else {
+		// Configure the volumeTopology in the response so that the external
+		// provisioner will properly sets up the nodeAffinity for this volume.
+		if isValidAccessibilityRequirement(topologyRequirement) {
+			for _, hostName := range accessibleNodes {
+				volumeTopology := &csi.Topology{
+					Segments: map[string]string{
+						v1.LabelHostname: hostName,
+					},
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
+			log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
+		}
 	}
 
 	return resp, "", nil

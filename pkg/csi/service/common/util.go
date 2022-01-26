@@ -45,6 +45,8 @@ const (
 	defaultK8sCloudOperatorServicePort = 10000
 )
 
+var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
+
 // GetVCenter returns VirtualCenter object from specified Manager object.
 // Before returning VirtualCenter object, vcenter connection is established if
 // session doesn't exist.
@@ -417,6 +419,7 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 	}
 
 	for _, az := range azList.Items {
+		// TODO: TKGS-HA - convert to slice when appropriate
 		clusterComputeResourceMoId, found, err := unstructured.NestedString(az.Object, "spec", "clusterComputeResourceMoId")
 		if !found || err != nil {
 			return nil, fmt.Errorf("failed to get clusterComputeResourceMoId "+

@@ -446,3 +446,26 @@ func getOverlappingNodes(accessibleNodes []string, topologyRequirement *csi.Topo
 	}
 	return overlappingNodes, nil
 }
+
+// checkTopologyKeysFromAccessibilityReqs checks if the topology requirement contains zone or hostname labels.
+func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyRequirement) (bool, bool) {
+	var hostnameLabelPresent, zoneLabelPresent bool
+
+	if topologyRequirement == nil || topologyRequirement.GetPreferred() == nil {
+		return hostnameLabelPresent, zoneLabelPresent
+	}
+	for _, topology := range topologyRequirement.GetPreferred() {
+		segments := topology.GetSegments()
+		if _, exists := segments[v1.LabelHostname]; exists {
+			hostnameLabelPresent = true
+		}
+		if _, exists := segments[v1.LabelTopologyZone]; exists {
+			zoneLabelPresent = true
+		}
+		// If both zone and hostname labels are present, exit the loop and return.
+		if hostnameLabelPresent && zoneLabelPresent {
+			return hostnameLabelPresent, zoneLabelPresent
+		}
+	}
+	return hostnameLabelPresent, zoneLabelPresent
+}
