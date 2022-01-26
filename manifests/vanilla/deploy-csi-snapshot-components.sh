@@ -118,6 +118,8 @@ echo -e "✅ Created  RBACs for snapshot-controller"
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
 echo -e "✅ Deployed snapshot-controller"
 
+kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+
 wait_for_deployment snapshot-controller kube-system
 
 # Deploy the snapshot validating webhook.
@@ -184,6 +186,8 @@ kubectl delete deployment snapshot-validation-deployment --namespace "${namespac
 # patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
 curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
 echo -e "✅ Deployed snapshot-validation-deployment"
+
+kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 
 wait_for_deployment snapshot-validation-deployment kube-system
 
