@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/prometheus/common/log"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
@@ -383,6 +382,7 @@ func Contains(list []string, item string) bool {
 // GetClusterComputeResourceMoIds helps find ClusterComputeResourceMoIds from
 // AvailabilityZone CRs on the supervisor cluster
 func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
+	log := logger.GetLogger(ctx)
 	// Get a config to talk to the apiserver.
 	clusterComputeResourceMoIds := make([]string, 0)
 	cfg, err := config.GetConfig()
