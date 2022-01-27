@@ -3020,6 +3020,14 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 			if code = exiterr.ExitStatus(); code != 0 {
 				err = nil
 			}
+		}
+		if exiterr, ok := err.(*ssh.ExitMissingError); ok {
+			/* If err is ExitMissingError and the exit code is zero, we'll
+			consider the SSH is successful but the cmd is executed successfully on the host */
+			framework.Logf(exiterr.Error())
+			if code == 0 {
+				err = nil
+			}
 		} else {
 			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
 		}

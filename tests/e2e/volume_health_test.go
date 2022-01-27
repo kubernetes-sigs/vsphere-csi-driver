@@ -2886,18 +2886,15 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
 			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 		}
-
 		if guestCluster {
 			scParameters[svStorageClassName] = raid0StoragePolicyName
 			sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2909,6 +2906,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
+
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
@@ -2921,6 +2919,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		if supervisorCluster {
 			// Get the list of Volumes attached to Pods.
@@ -2940,12 +2942,12 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						pvSVC = getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
 						framework.Logf("PV name in SVC for PVC in GC %v", pvSVC.Name)
 					}
 				}
 			}
 		}
-
 		if guestCluster {
 			for _, sspod := range ssPodsBeforeScaleDown.Items {
 				_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
@@ -2960,30 +2962,23 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 						verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
 							crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
-
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 							volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 						ginkgo.By("poll for health status annotation")
 						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 						ginkgo.By("Expect health annotation is added on the SV pvc")
 						svPVC := getPVCFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 						framework.Logf("svPVC %v", svPVC)
-
 						ginkgo.By("Get svcClient and svNamespace")
 						svcClient, svNamespace := getSvcClientAndNamespace()
-
 						ginkgo.By("poll for health status annotation")
 						err = pvcHealthAnnotationWatcher(ctx, svcClient, svPVC, healthStatusAccessible)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 						pvSVC = getPvFromClaim(svcClient, svNamespace, pv.Spec.CSI.VolumeHandle)
 						framework.Logf("PV name in SVC for PVC in GC %v", pvSVC.Name)
-
 					}
 				}
 			}
@@ -2993,17 +2988,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		ginkgo.By("PSOD the host")
 		framework.Logf("pv.Name %v", pvSVC.Name)
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, pvSVC.Name)
-
 		defer func() {
 			ginkgo.By("checking host status")
 			err := waitForHostToBeUp(hostIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
 		}()
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v to allow volume health check to be triggered", svOperationTimeout))
-		time.Sleep(svOperationTimeout)
 
 		ginkgo.By("Expect health status of a pvc to be inaccessible")
 		// Get the list of Volumes attached to Pods.
@@ -3058,33 +3047,12 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		cmd := []string{"rollout", "restart", "statefulset.apps/" + statefulset.Name, "--namespace=" + namespace}
 		framework.RunKubectlOrDie(namespace, cmd...)
+		time.Sleep(sleepTimeOut * time.Second)
 
 		// Wait for the StatefulSet Pods to be up and Running
-		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(client, namespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		if supervisorCluster {
-			// Get the list of Volumes attached to Pods.
-			for _, sspod := range ssPodsBeforeScaleDown.Items {
-				for _, volumespec := range sspod.Spec.Volumes {
-					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-						// Verify the attached volume match the one in CNS cache.
-						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						ginkgo.By("Expect health status of the pvc to be accessible")
-						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
-							volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						ginkgo.By("poll for health status annotation")
-						err = pvcHealthAnnotationWatcher(ctx, client, pvc, healthStatusAccessible)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					}
-				}
-			}
+		for i := 0; i < len(list_of_pods); i++ {
+			err = fpod.WaitForPodRunningInNamespace(client, list_of_pods[i])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
 	})
 })
