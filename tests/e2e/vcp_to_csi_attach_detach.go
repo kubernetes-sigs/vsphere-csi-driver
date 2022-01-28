@@ -512,11 +512,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		deletePodAndWaitForVolsToDetach(ctx, client, pod18)
 
 		ginkgo.By("Restart CSI driver")
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas := csiDeployment.Spec.Replicas
 		framework.Logf("Stopping CSI driver")
 		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, 1, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		err = updateDeploymentReplicawithWait(client, *csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-create pod for test18")
@@ -1115,6 +1119,9 @@ func deletePodsAndWaitForVolsToDetach(
 			}
 			for _, vol := range pod.Spec.Volumes {
 				if strings.Contains(vol.Name, "kube-api-access") {
+					continue
+				}
+				if strings.Contains(vol.Name, "token") {
 					continue
 				}
 				pv := getPvFromClaim(client, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
