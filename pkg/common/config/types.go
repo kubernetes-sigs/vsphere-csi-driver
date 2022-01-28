@@ -63,6 +63,12 @@ type Config struct {
 		// CnsVolumeOperationRequestCleanupIntervalInMin specifies the interval after which
 		// stale CnsVolumeOperationRequest instances will be cleaned up.
 		CnsVolumeOperationRequestCleanupIntervalInMin int `gcfg:"cnsvolumeoperationrequest-cleanup-intervalinmin"`
+
+		// QueryLimit specifies the number of volumes that can be fetched by CNS QueryAll API at a time
+		QueryLimit int `gcfg:"query-limit"`
+		// ListVolumeThreshold specifies the maximum number of differences in volume that can exist between CNS
+		// and kubernetes
+		ListVolumeThreshold int `gcfg:"list-volume-threshold"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares

@@ -84,6 +84,12 @@ const (
 	// TopologyLabelsDomain is the domain name used to identify user-defined
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
+	// DefaultQueryLimit is the default number of volumes to be fetched from CNS QueryAll API
+	// Current default value is set to 10000
+	DefaultQueryLimit = 10000
+	// DefaultListVolumeThreshold specifies the default maximum number of differences in volumes between CNS
+	// and kubernetes
+	DefaultListVolumeThreshold = 50
 )
 
 // Errors
@@ -414,6 +420,15 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		}
 	}
 
+	if cfg.Global.QueryLimit == 0 {
+		cfg.Global.QueryLimit = DefaultQueryLimit
+		log.Debugf("Setting default queryLimit to %v", cfg.Global.QueryLimit)
+	}
+
+	if cfg.Global.ListVolumeThreshold == 0 {
+		cfg.Global.ListVolumeThreshold = DefaultListVolumeThreshold
+		log.Debugf("Setting default list volume threshold to %v", cfg.Global.ListVolumeThreshold)
+	}
 	return nil
 }
 

@@ -119,6 +119,12 @@ type VirtualCenterConfig struct {
 	TargetvSANFileShareClusters []string
 	// VCClientTimeout is the limit in minutes for requests made by vCenter client.
 	VCClientTimeout int
+	// QueryLimit specifies the number of volumes that can be fetched by CNS
+	// QueryAll API at a time
+	QueryLimit int
+	// ListVolumeThreshold specifies the maximum number of differences in volume that
+	// can exist between CNS and kubernetes
+	ListVolumeThreshold int
 }
 
 // clientMutex is used for exclusive connection creation.
