@@ -82,6 +82,14 @@ func IsManagedObjectNotFound(err error, moRef types.ManagedObjectReference) bool
 	return false
 }
 
+func IsInvalidArgumentError(err error) bool {
+	isInvalidArgumentError := false
+	if soap.IsVimFault(err) {
+		_, isInvalidArgumentError = soap.ToVimFault(err).(*types.InvalidArgument)
+	}
+	return isInvalidArgumentError
+}
+
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject
 // object from given parameters.
 func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,

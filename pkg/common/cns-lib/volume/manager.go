@@ -27,6 +27,7 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -2129,20 +2130,36 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	// Handle snapshot operation result
 	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
 	if deleteSnapshotsOperationRes.Fault != nil {
-		errMsg := fmt.Sprintf("failed to delete snapshot %s for cns volume %s. fault: %q, opId: %q",
-			snapshotID, volumeID, spew.Sdump(deleteSnapshotsOperationRes.Fault), deleteSnapshotsTaskInfo.ActivationId)
+		err = soap.WrapVimFault(deleteSnapshotsOperationRes.Fault.Fault)
 
-		if m.idempotencyHandlingEnabled {
-			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
-				deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+		isInvalidArgumentError := cnsvsphere.IsInvalidArgumentError(err)
+		var invalidProperty string
+		if isInvalidArgumentError {
+			invalidProperty = deleteSnapshotsOperationRes.Fault.Fault.(*vim25types.InvalidArgument).InvalidProperty
 		}
 
-		return logger.LogNewError(log, errMsg)
-	}
+		// Ignore errors, NotFound and InvalidArgument, in DeleteSnapshot
+		if cnsvsphere.IsNotFoundError(err) {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Ignore the error for DeleteSnapshot", snapshotID, volumeID,
+				spew.Sdump(deleteSnapshotsOperationRes.Fault))
+		} else if isInvalidArgumentError && invalidProperty == "" {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Ignore the error for DeleteSnapshot", snapshotID, volumeID,
+				spew.Sdump(deleteSnapshotsOperationRes.Fault))
+		} else {
+			errMsg := fmt.Sprintf("failed to delete snapshot %q on volume %q. fault: %q, opId: %q",
+				snapshotID, volumeID, spew.Sdump(deleteSnapshotsOperationRes.Fault), deleteSnapshotsTaskInfo.ActivationId)
 
-	snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
-	deletedSnapshotID := snapshotDeleteResult.SnapshotId.Id
+			if m.idempotencyHandlingEnabled {
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+					deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+			}
+
+			return logger.LogNewError(log, errMsg)
+		}
+	}
 
 	if m.idempotencyHandlingEnabled {
 		// create the volumeOperationDetails object for persistence
@@ -2151,7 +2168,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	}
 
-	log.Infof("DeleteSnapshot: Snapshot %s deleted successfully. volumeID: %q, opId: %q", deletedSnapshotID,
+	log.Infof("DeleteSnapshot: Snapshot %q on volume %q is deleted successfully. opId: %q", snapshotID,
 		volumeID, deleteSnapshotsTaskInfo.ActivationId)
 
 	return nil
