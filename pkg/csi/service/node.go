@@ -304,7 +304,7 @@ func isBlockVolumeMounted(
 	// have created the staging path per the spec, even for BlockVolumes. Even
 	// though we don't use the staging path for block, the fact nothing will be
 	// mounted still indicates that unstaging is done.
-	dev, err := getDevFromMount(stagingTargetPath)
+	dev, err := getDevFromMount(ctx, stagingTargetPath)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"isBlockVolumeMounted: error getting block device for volume: %s, err: %s",
@@ -494,7 +494,7 @@ func isBlockVolumePublished(ctx context.Context, volID string, target string) (b
 	log := logger.GetLogger(ctx)
 
 	// Look up block device mounted to target
-	dev, err := getDevFromMount(target)
+	dev, err := getDevFromMount(ctx, target)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"error getting block device for volume: %s, err: %v", volID, err)
@@ -816,7 +816,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 
 	// Look up block device mounted to staging target path
-	dev, err := getDevFromMount(volumePath)
+	dev, err := getDevFromMount(ctx, volumePath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error getting block device for volume: %q, err: %v",
@@ -940,7 +940,7 @@ func publishMountVol(
 	if len(devMnts) > 1 {
 		// check if publish is already there
 		for _, m := range devMnts {
-			if m.Path == params.target {
+			if unescape(ctx, m.Path) == params.target {
 				// volume already published to target
 				// if mount options look good, do nothing
 				rwo := "rw"
@@ -1025,7 +1025,7 @@ func publishBlockVol(
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.target)
 	} else if len(devMnts) == 1 {
 		// already mounted, make sure it's what we want
-		if devMnts[0].Path != params.target {
+		if unescape(ctx, devMnts[0].Path) != params.target {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
@@ -1069,7 +1069,7 @@ func publishFileVol(
 	}
 	log.Debugf("PublishFileVolume: Mounts - %+v", mnts)
 	for _, m := range mnts {
-		if m.Path == params.target {
+		if unescape(ctx, m.Path) == params.target {
 			// volume already published to target
 			// if mount options look good, do nothing
 			rwo := "rw"
@@ -1396,8 +1396,7 @@ func getDiskID(pubCtx map[string]string, log *zap.SugaredLogger) (string, error)
 	return diskID, nil
 }
 
-func getDevFromMount(target string) (*Device, error) {
-
+func getDevFromMount(ctx context.Context, target string) (*Device, error) {
 	// Get list of all mounts on system
 	mnts, err := gofsutil.GetMounts(context.Background())
 	if err != nil {
@@ -1437,7 +1436,7 @@ func getDevFromMount(target string) (*Device, error) {
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			// something is mounted to target, get underlying disk
 			d := m.Device
 			if m.Device == "udev" || m.Device == "devtmpfs" {
@@ -1453,4 +1452,24 @@ func getDevFromMount(target string) (*Device, error) {
 
 	// Did not identify a device mounted to target
 	return nil, nil
+}
+
+// un-escapes "\nnn" sequences in /proc/self/mounts. For example, replaces "\040" with space " ".
+func unescape(ctx context.Context, in string) string {
+	log := logger.GetLogger(ctx)
+	out := make([]rune, 0, len(in))
+	s := in
+	for len(s) > 0 {
+		// Un-escape single character.
+		// UnquoteChar will un-escape also \r, \n, \Unnnn and other sequences, but they should not be used in /proc/mounts.
+		rune, _, tail, err := strconv.UnquoteChar(s, '"')
+		if err != nil {
+			log.Infof("Error parsing mount %q: %s", in, err)
+			// Use escaped string as a fallback
+			return in
+		}
+		out = append(out, rune)
+		s = tail
+	}
+	return string(out)
 }
