@@ -143,7 +143,8 @@ func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo,
 	useNodeUuid bool, enableTKGsHAinGuest bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, recorder: recorder, useNodeUuid: useNodeUuid, enableTKGsHAinGuest: enableTKGsHAinGuest,
+		configInfo: configInfo, recorder: recorder,
+		useNodeUuid: useNodeUuid, enableTKGsHAinGuest: enableTKGsHAinGuest,
 		vmOperatorClient: vmOperatorClient, supervisorNamespace: supervisorNamespace}
 }
 
@@ -255,13 +256,25 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	backOffDurationMapMutex.Unlock()
 
 	// Get NodeVM instance.
-	nodeID := instance.Spec.NodeID
+	var nodeID string
 	nodeManager := node.GetManager(ctx)
 	var nodeVM *cnsvsphere.VirtualMachine
-	if r.useNodeUuid {
-		nodeUuid := nodeID
-		nodeVM, err = nodeManager.GetNode(ctx, nodeUuid, nil)
+
+	clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("failed to get cluster flavor. Error: %+v", err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if r.useNodeUuid && clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		nodeID = instance.Spec.NodeUUID
+		if nodeID != "" {
+			nodeVM, err = nodeManager.GetNode(ctx, nodeID, nil)
+		} else {
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 	} else {
+		nodeID = instance.Spec.NodeID
 		nodeVM, err = nodeManager.GetNodeByName(ctx, nodeID)
 	}
 	if err != nil {
