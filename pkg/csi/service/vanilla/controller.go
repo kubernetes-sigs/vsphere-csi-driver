@@ -804,13 +804,12 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("CreateVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -841,7 +840,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return c.createBlockVolume(ctx, req)
 	}
 	resp, faultType, err := createVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
@@ -857,13 +855,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("DeleteVolume: called with args: %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -936,7 +934,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := deleteVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
@@ -953,14 +950,13 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -1066,7 +1062,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}, "", nil
 	}
 	resp, faultType, err := controllerPublishVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
@@ -1083,13 +1078,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		var faultType string
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
@@ -1184,7 +1179,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		return &csi.ControllerUnpublishVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
@@ -1201,14 +1195,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
-
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -1288,7 +1280,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 
 	resp, faultType, err := controllerExpandVolumeInternal()
-	log := logger.GetLogger(ctx)
 	if err != nil {
 		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
@@ -1560,12 +1551,12 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ListSnapshots: called with args %+v", *req)
 		err := validateVanillaListSnapshotRequest(ctx, req)
 		if err != nil {
