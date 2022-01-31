@@ -23,8 +23,11 @@ import (
 // CSINodeTopologySpec defines the desired state of CSINodeTopology.
 type CSINodeTopologySpec struct {
 
-	// NodeID refers to the unique ID by which a Node is recognised.
+	// NodeID refers to the node name by which a Node is recognised.
 	NodeID string `json:"nodeID"`
+
+	// NodeUUID refers to the unique VM UUID by which a Node is recognised.
+	NodeUUID string `json:"nodeuuid,omitempty"`
 }
 
 type CRDStatus string
