@@ -16,8 +16,12 @@ func TestUnescape(t *testing.T) {
 		{
 			// Space is unescaped. This is basically the only test that can happen in reality
 			// and only when in-tree in-line volume in a Pod is used with CSI migration enabled.
-			in:  `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/csi.vsphere.vmware.com-[WorkloadDatastore]\0405137595f-7ce3-e95a-5c03-06d835dea807/e2e-vmdk-1641374604660540311.vmdk/globalmount`,
-			out: `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/csi.vsphere.vmware.com-[WorkloadDatastore] 5137595f-7ce3-e95a-5c03-06d835dea807/e2e-vmdk-1641374604660540311.vmdk/globalmount`,
+			in: `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/csi.vsphere.vmware.com` +
+				`-[WorkloadDatastore]\0405137595f-7ce3-e95a-5c03-06d835dea807/` +
+				`e2e-vmdk-1641374604660540311.vmdk/globalmount`,
+			out: `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/csi.vsphere.vmware.com` +
+				`-[WorkloadDatastore] 5137595f-7ce3-e95a-5c03-06d835dea807/` +
+				`e2e-vmdk-1641374604660540311.vmdk/globalmount`,
 		},
 		{
 			// Multiple spaces are unescaped.
