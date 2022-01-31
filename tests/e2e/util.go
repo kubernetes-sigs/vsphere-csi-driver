@@ -1455,10 +1455,10 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 	defer resp.Body.Close()
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	bodyString := string(bodyBytes)
 	framework.Logf("API Response status %d", resp.StatusCode)
-
+	framework.Logf(bodyString)
 	return bodyBytes, resp.StatusCode
-
 }
 
 //getVMImages returns the available gc images present in svc

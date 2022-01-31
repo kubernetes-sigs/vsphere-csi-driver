@@ -120,6 +120,11 @@ func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
 		SnapshotQueryFilter: queryFilter,
 	}
 
+	err := connectCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.CnsClient.Client, &req)
 	if err != nil {
 		return nil, err
@@ -745,6 +750,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 
 //getVsanClusterResource returns the vsan cluster's details
 func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...bool) *object.ClusterComputeResource {
+	connect(ctx, vs)
 	refresh := false
 	var cluster *object.ClusterComputeResource
 	if len(forceRefresh) > 0 {
