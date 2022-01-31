@@ -1525,6 +1525,9 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 			if strings.Contains(volume.Name, "kube-api-access") {
 				continue
 			}
+			if strings.Contains(volume.Name, "token") {
+				continue
+			}
 			if volume.VolumeSource.PersistentVolumeClaim != nil &&
 				volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
 				return &pod
