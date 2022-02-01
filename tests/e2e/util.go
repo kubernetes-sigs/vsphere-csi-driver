@@ -4491,6 +4491,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		}
 	}
 }
+
 func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) {
@@ -4650,4 +4651,83 @@ func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
 		return o[i].Name < o[j].Name
 	}
 	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
+}
+
+func getPersistentVolumeSpecWithStorageClassFCDNodeSelector(volumeHandle string,
+	persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string,
+	labels map[string]string, sizeOfDisk string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIDriverName,
+				VolumeHandle: volumeHandle,
+				ReadOnly:     false,
+				FSType:       "ext4",
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse(sizeOfDisk),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: storageClass,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv.
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
+	pv.Annotations = annotations
+	pv.Spec.NodeAffinity = new(v1.VolumeNodeAffinity)
+	pv.Spec.NodeAffinity.Required = new(v1.NodeSelector)
+	pv.Spec.NodeAffinity.Required.NodeSelectorTerms = getNodeSelectorTerms(allowedTopologies)
+	return pv
+}
+
+func getNodeSelectorTerms(allowedTopologies []v1.TopologySelectorLabelRequirement) []v1.NodeSelectorTerm {
+	var nodeSelectorRequirements []v1.NodeSelectorRequirement
+	var nodeSelectorTerms []v1.NodeSelectorTerm
+
+	for i := 0; i < len(allowedTopologies)-1; i++ {
+		topologySelector := allowedTopologies[i]
+		var nodeSelectorRequirement v1.NodeSelectorRequirement
+		nodeSelectorRequirement.Key = topologySelector.Key
+		nodeSelectorRequirement.Operator = "In"
+		nodeSelectorRequirement.Values = topologySelector.Values
+		nodeSelectorRequirements = append(nodeSelectorRequirements, nodeSelectorRequirement)
+	}
+	rackTopology := allowedTopologies[len(allowedTopologies)-1]
+	for i := 0; i < len(rackTopology.Values); i++ {
+		var nodeSelectorTerm v1.NodeSelectorTerm
+		var nodeSelectorRequirement v1.NodeSelectorRequirement
+		nodeSelectorRequirement.Key = rackTopology.Key
+		nodeSelectorRequirement.Operator = "In"
+		nodeSelectorRequirement.Values = append(nodeSelectorRequirement.Values, rackTopology.Values[i])
+		nodeSelectorTerm.MatchExpressions = append(nodeSelectorRequirements, nodeSelectorRequirement)
+		nodeSelectorTerms = append(nodeSelectorTerms, nodeSelectorTerm)
+	}
+	return nodeSelectorTerms
 }
