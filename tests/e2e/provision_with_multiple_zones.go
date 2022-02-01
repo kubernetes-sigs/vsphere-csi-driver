@@ -98,6 +98,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with shared datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		topologyValues := topologyWithSharedDS + "," + "nonexistig-region:nonexistig-zone"
+		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(topologyValues)
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
