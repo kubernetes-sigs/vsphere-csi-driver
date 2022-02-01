@@ -223,7 +223,7 @@ func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bo
 	log := logger.GetLogger(ctx)
 	items := strings.Split(aboutInfo.ApiVersion, ".")
 	apiVersion := strings.Join(items[:], "")
-	// Convert version string to int, e.g. 8.0.0.0" to 700.
+	// Convert version string to int, e.g. 8.0.0.0" to 800.
 	vSphereMajorVersionInt, err := strconv.Atoi(string(apiVersion[0]))
 	if err != nil {
 		return false, logger.LogNewErrorf(log,
@@ -231,7 +231,7 @@ func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bo
 	}
 
 	// Check if the current vSphere version is greater 8
-	if vSphereMajorVersionInt > VSphere8VersionMajorInt {
+	if vSphereMajorVersionInt >= VSphere8VersionMajorInt {
 		return true, nil
 	}
 	// For all other versions.

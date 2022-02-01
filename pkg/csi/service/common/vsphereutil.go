@@ -595,38 +595,35 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
 	var faultType string
-	if isIdempotencyHandlingEnabled {
-		// Avoid querying volume when idempotency handling is enabled.
+
+	// Checking if vsphere version is 8 and above.
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		log.Errorf("failed to get vcenter. err=%v", err)
+		return csifault.CSIInternalFault, err
+	}
+	isvSphere8AndAbove, err := IsvSphere8AndAbove(ctx, vc.Client.ServiceContent.About)
+	if err != nil {
+		return "", logger.LogNewErrorf(log,
+			"Error while determining whether vSphere version is 8 and above %q. Error= %+v",
+			vc.Client.ServiceContent.About.ApiVersion, err)
+	}
+
+	// For vSphere 8 and above we avoid querying volume to check the size.
+	// This is handled internally in the FCD layer, CSI will just invoke
+	// ExtendDisk() all the time for vSphere version 8 and above.
+	// Also avoid querying volume when idempotency handling is enabled.
+	if isIdempotencyHandlingEnabled || isvSphere8AndAbove {
 		faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 			return faultType, err
 		}
 		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
-		return "", nil
 	} else {
-		var expansionRequired bool
-		vc, err := GetVCenter(ctx, manager)
+		expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
 		if err != nil {
-			log.Errorf("failed to get vcenter. err=%v", err)
 			return csifault.CSIInternalFault, err
-		}
-		isvSphere8AndAbove, err := IsvSphere8AndAbove(ctx, vc.Client.ServiceContent.About)
-		if err != nil {
-			return "", logger.LogNewErrorf(log,
-				"Error while determining whether vSphere version is 8 and above %q, Error= %+v",
-				vc.Client.ServiceContent.About.ApiVersion, err)
-		}
-		// For vSphere 8 and above we avoid querying volume to check the size.
-		// This is handled internally in the FCD layer, CSI will just invoke
-		// ExtendDisk() all the time for vSphere version 8 and above.
-		if !isvSphere8AndAbove {
-			expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
-			if err != nil {
-				return csifault.CSIInternalFault, err
-			}
-		} else {
-			expansionRequired = true
 		}
 		if expansionRequired {
 			faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
