@@ -28,6 +28,13 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -370,4 +377,52 @@ func Contains(list []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// GetClusterComputeResourceMoIds helps find ClusterComputeResourceMoIds from
+// AvailabilityZone CRs on the supervisor cluster
+func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	// Get a config to talk to the apiserver.
+	clusterComputeResourceMoIds := make([]string, 0)
+	cfg, err := config.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
+	}
+
+	// Create a new AvailabilityZone client.
+	azClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
+	}
+	azResource := schema.GroupVersionResource{
+		Group: "topology.tanzu.vmware.com", Version: "v1alpha1", Resource: "availabilityzones"}
+	// Get AvailabilityZone list
+	azList, err := azClient.Resource(azResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// If the AvailabilityZone CR is not registered in the
+		// supervisor cluster, we receive NoKindMatchError. In such cases
+		// return nil array for ClusterComputeResourceMoIds with no error
+		// AvailabilityZone CR is not registered when supervisor cluster was installed prior to vSphere 8.0
+		// Upgrading vSphere to 8.0 does not create zone CRs on existing supervisor clusters
+		_, ok := err.(*apiMeta.NoKindMatchError)
+		if ok {
+			log.Infof("AvailabilityZone CR is not registered on the cluster")
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get AvailabilityZone lists. err: %+v", err)
+	}
+	if len(azList.Items) == 0 {
+		return nil, fmt.Errorf("could not find any AvailabilityZone")
+	}
+
+	for _, az := range azList.Items {
+		clusterComputeResourceMoId, found, err := unstructured.NestedString(az.Object, "spec", "clusterComputeResourceMoId")
+		if !found || err != nil {
+			return nil, fmt.Errorf("failed to get clusterComputeResourceMoId "+
+				"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
+		}
+		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoId)
+	}
+	return clusterComputeResourceMoIds, nil
 }

@@ -41,7 +41,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 )
 
 var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisioning", func() {
@@ -329,7 +328,7 @@ func getFileShareCreateSpec(datastore types.ManagedObjectReference) *cnstypes.Cn
 	containerClusterArray = append(containerClusterArray, *containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       "testFileSharex",
-		VolumeType: common.FileVolumeType,
+		VolumeType: "FILE",
 		Datastores: []types.ManagedObjectReference{datastore},
 		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
 			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{

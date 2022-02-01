@@ -75,6 +75,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
     verbs: ["list"]
+  - apiGroups: ["topology.tanzu.vmware.com"]
+    resources: ["availabilityzones"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

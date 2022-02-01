@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
 		podsToDelete               []*v1.Pod
+		csiNamespace               string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -92,6 +93,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -510,19 +512,26 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		deletePodAndWaitForVolsToDetach(ctx, client, pod18)
 
 		ginkgo.By("Restart CSI driver")
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas := csiDeployment.Spec.Replicas
 		framework.Logf("Stopping CSI driver")
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		err = updateDeploymentReplicawithWait(client, *csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-create pod for test18")
+
+		pod18 = createPodWithMultipleVolsVerifyVolMounts(
+			ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc18},
+		)
 		podsToDelete = append(
 			podsToDelete,
-			createPodWithMultipleVolsVerifyVolMounts(ctx, client, namespace, []*v1.PersistentVolumeClaim{pvc18}),
+			pod18,
 		)
-
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(
 			ctx, client, append(append(vcpPvcsPreMig, vcpPvcsPreMig2...), vcpPvcsPostMig...),
@@ -1110,6 +1119,9 @@ func deletePodsAndWaitForVolsToDetach(
 			}
 			for _, vol := range pod.Spec.Volumes {
 				if strings.Contains(vol.Name, "kube-api-access") {
+					continue
+				}
+				if strings.Contains(vol.Name, "token") {
 					continue
 				}
 				pv := getPvFromClaim(client, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)

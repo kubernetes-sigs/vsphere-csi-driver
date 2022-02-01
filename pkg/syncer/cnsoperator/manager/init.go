@@ -116,52 +116,70 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			return err
 		}
 
-		// Create CnsRegisterVolume CRD from manifest.
-		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsRegisterVolumeCRFile,
-			cnsoperatorconfig.EmbedCnsRegisterVolumeCRFileName)
-		if err != nil {
-			log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsRegisterVolumePlural, err)
-			return err
-		}
-
-		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
-			// Create CnsFileAccessConfig CRD from manifest if file volume feature
-			// is enabled.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsFileAccessConfigCRFile,
-				cnsoperatorconfig.EmbedCnsFileAccessConfigCRFileName)
+		var stretchedSupervisor bool
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
 			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err
 			}
-			// Create FileVolumeClients CRD from manifest if file volume feature
-			// is enabled.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
-				internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
+			if len(clusterComputeResourceMoIds) > 1 {
+				stretchedSupervisor = true
+			}
+		}
+		if !stretchedSupervisor {
+			// Create CnsRegisterVolume CRD from manifest.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsRegisterVolumeCRFile,
+				cnsoperatorconfig.EmbedCnsRegisterVolumeCRFileName)
 			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
+				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsRegisterVolumePlural, err)
 				return err
 			}
 		}
 
-		// Clean up routine to cleanup successful CnsRegisterVolume instances.
-		err = watcher(ctx, cnsOperator)
-		if err != nil {
-			log.Error("Failed to watch on config file for changes to CnsRegisterVolumesCleanupIntervalInMin. Error: %+v",
-				err)
-			return err
-		}
-		go func() {
-			for {
-				ctx, log = logger.GetNewContextWithLogger()
-				log.Infof("Triggering CnsRegisterVolume cleanup routine")
-				cleanUpCnsRegisterVolumeInstances(ctx, restConfig,
-					cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
-				log.Infof("Completed CnsRegisterVolume cleanup")
-				for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
-					time.Sleep(time.Duration(1 * time.Minute))
+		if !stretchedSupervisor {
+			if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
+				// Create CnsFileAccessConfig CRD from manifest if file volume feature
+				// is enabled.
+				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsFileAccessConfigCRFile,
+					cnsoperatorconfig.EmbedCnsFileAccessConfigCRFileName)
+				if err != nil {
+					log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
+					return err
+				}
+				// Create FileVolumeClients CRD from manifest if file volume feature
+				// is enabled.
+				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
+					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
+				if err != nil {
+					log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
+					return err
 				}
 			}
-		}()
+		}
+
+		if !stretchedSupervisor {
+			// Clean up routine to cleanup successful CnsRegisterVolume instances.
+			err = watcher(ctx, cnsOperator)
+			if err != nil {
+				log.Error("Failed to watch on config file for changes to CnsRegisterVolumesCleanupIntervalInMin. Error: %+v",
+					err)
+				return err
+			}
+			go func() {
+				for {
+					ctx, log = logger.GetNewContextWithLogger()
+					log.Infof("Triggering CnsRegisterVolume cleanup routine")
+					cleanUpCnsRegisterVolumeInstances(ctx, restConfig,
+						cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+					log.Infof("Completed CnsRegisterVolume cleanup")
+					for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+						time.Sleep(time.Duration(1 * time.Minute))
+					}
+				}
+			}()
+		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
 			// Create CSINodeTopology CRD.
@@ -240,23 +258,22 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 	coInitParams *interface{}) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	var coCommonInterface commonco.COCommonInterface
 	var err error
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorWorkload, *coInitParams)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorVanilla, *coInitParams)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, cnstypes.CnsClusterFlavorGuest, *coInitParams)
 	}
 	if err != nil {
 		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
 		return err
 	}
-	if coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
 		log.Infof("Triggerfullsync feature enabled")
 		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedTriggerCsiFullSync,
 			internalapiscnsoperatorconfig.EmbedTriggerCsiFullSyncName)

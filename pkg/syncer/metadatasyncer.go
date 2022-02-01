@@ -65,6 +65,9 @@ var (
 
 	// MetadataSyncer instance for the syncer container.
 	MetadataSyncer *metadataSyncInformer
+
+	// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
+	clusterComputeResourceMoIds = make([]string, 0)
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -131,7 +134,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	log.Infof("Initializing MetadataSyncer")
 	metadataSyncer := newInformer()
 	MetadataSyncer = metadataSyncer
-	metadataSyncer.configInfo = configInfo
 
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
@@ -148,6 +150,27 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor
+
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+			if err != nil {
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				return err
+			}
+			if len(clusterComputeResourceMoIds) > 0 {
+				if configInfo.Cfg.Global.SupervisorID != "" {
+					// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+					// config.Global.SupervisorID is not empty string
+					configInfo.Cfg.Global.ClusterID = configInfo.Cfg.Global.SupervisorID
+				} else {
+					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+				}
+			}
+		}
+	}
+	metadataSyncer.configInfo = configInfo
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
 		// initialized for guest clusters.
@@ -541,6 +564,19 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			metadataSyncer.host = newVCConfig.Host
 		}
 		if cfg != nil {
+			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+					if len(clusterComputeResourceMoIds) > 0 {
+						if cfg.Global.SupervisorID != "" {
+							// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
+							// config.Global.SupervisorID is not empty string
+							cfg.Global.ClusterID = cfg.Global.SupervisorID
+						} else {
+							return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+						}
+					}
+				}
+			}
 			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
 			log.Infof("updated metadataSyncer.configInfo")
 		}

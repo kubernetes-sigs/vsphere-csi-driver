@@ -1525,6 +1525,9 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 			if strings.Contains(volume.Name, "kube-api-access") {
 				continue
 			}
+			if strings.Contains(volume.Name, "token") {
+				continue
+			}
 			if volume.VolumeSource.PersistentVolumeClaim != nil &&
 				volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
 				return &pod
@@ -1614,10 +1617,15 @@ func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Inter
 	} else {
 		return
 	}
+	framework.Logf("pod info:\n%s", spew.Sdump(pod))
 	for _, vol := range pod.Spec.Volumes {
 		if strings.Contains(vol.Name, "kube-api-access") {
 			continue
 		}
+		if strings.Contains(vol.Name, "token") {
+			continue
+		}
+		framework.Logf("vol info:\n%s", spew.Sdump(vol))
 		pv := getPvFromClaim(client, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
 		volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
 	}

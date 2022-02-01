@@ -31,13 +31,13 @@ Refer to https://kubernetes-csi.github.io/docs/snapshot-controller.html for furt
 
 Example command:
 
-./deploy-csi-snapshot-components.sh --release v4.1.1
+./deploy-csi-snapshot-components.sh --release v5.0.1
 
 usage: ${0} [OPTIONS]
 The following flags are required.
        --release        The external-snapshot release files to use.
-                        Default: v4.1.1
-                        Supported: v4.1.0, v4.1.1
+                        Default: v5.0.1
+                        Qualified: v4.1.1, v5.0.0, v5.0.1
 EOF
     exit 1
 fi
@@ -70,15 +70,15 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+qualified_releases=("v4.1.1" "v5.0.0" "v5.0.1")
 
 if [ -z "${release}" ]
 then
-  release=v4.1.1
+  release=v5.0.1
 else
-  if [ "${release}" != "v4.1.1" ] && [ "${release}" != "v4.1.0" ]
+  if [[ ! "${qualified_releases[*]}" =~ ${release} ]]
   then
-    echo -e "❌ ERROR: Only v4.1.1 or v4.1.0 is supported"
-    exit 1
+    echo -e "❗ WARNING: Attempting to use ${release} version, only v4.1.1, v5.0.0 and v5.0.1 are qualified versions"
   fi
 fi
 echo "Using release version: ${release}"
@@ -117,6 +117,8 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snaps
 echo -e "✅ Created  RBACs for snapshot-controller"
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
 echo -e "✅ Deployed snapshot-controller"
+
+kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 
 wait_for_deployment snapshot-controller kube-system
 
@@ -185,6 +187,8 @@ kubectl delete deployment snapshot-validation-deployment --namespace "${namespac
 curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
 echo -e "✅ Deployed snapshot-validation-deployment"
 
+kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+
 wait_for_deployment snapshot-validation-deployment kube-system
 
 # Update the vSphere CSI driver to add the snapshot side car.
@@ -212,5 +216,4 @@ EOF
 
 echo -e "Patching vSphere CSI driver.."
 kubectl patch deployment vsphere-csi-controller -n vmware-system-csi --patch "$(cat "${tmpdir}"/patch.yaml)"
-echo -e "✅ Successfully patched vSphere CSI driver, please wait till deployment is updated.."
-echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature.\n"
+echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature, please wait till vSphere CSI driver deployment is updated..\n"

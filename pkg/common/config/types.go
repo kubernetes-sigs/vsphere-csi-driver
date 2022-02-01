@@ -25,6 +25,9 @@ type Config struct {
 		VCenterIP string
 		// Kubernetes Cluster ID
 		ClusterID string `gcfg:"cluster-id"`
+		// SupervisorID is the UUID representing Supervisor Cluster. ClusterID is being deprecated
+		// and SupervisorID is the replacement ID we need to use for VolumeMetadata and datastore lookup.
+		SupervisorID string `gcfg:"supervisor-id"`
 		// vCenter username.
 		User string `gcfg:"user"`
 		// vCenter password in clear text.

@@ -19,13 +19,12 @@ require (
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/prometheus/client_golang v1.11.0
-	github.com/prometheus/common v0.26.0
 	github.com/rexray/gocsi v1.2.2
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.7.0
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
-	github.com/vmware-tanzu/vm-operator-api v0.1.3
+	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
 	github.com/vmware/govmomi v0.27.0
 	go.uber.org/zap v1.17.0
 	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83

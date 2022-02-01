@@ -78,6 +78,21 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Debug("Not initializing the CnsFileAccessConfig Controller as its a non-WCP CSI deployment")
 		return nil
 	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
+			if err != nil {
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				return err
+			}
+			if len(clusterComputeResourceMoIds) > 1 {
+				log.Infof("Not initializing the CnsFileAccessConfig Controller as stretched supervisor is detected.")
+				return nil
+			}
+		}
+	}
+
 	// Initialize the k8s orchestrator interface.
 	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes,
 		cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
