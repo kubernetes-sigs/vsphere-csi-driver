@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
@@ -110,14 +109,14 @@ func (nodeTopology *mockNodeVolumeTopology) GetNodeTopologyLabels(ctx context.Co
 
 // GetSharedDatastoresInTopology retrieves shared datastores of nodes which satisfy a given topology requirement.
 func (cntrlTopology *mockControllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
-	topologyRequirement *csi.TopologyRequirement) ([]*cnsvsphere.DatastoreInfo, error) {
+	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewError(log, "GetSharedDatastoresInTopology is not yet implemented.")
 }
 
 // GetTopologyInfoFromNodes retrieves the topology information of the given list of node names.
 func (cntrlTopology *mockControllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context,
-	nodeNames []string, datastoreURL string) ([]map[string]string, error) {
+	reqParams interface{}) ([]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewError(log, "GetTopologyInfoFromNodes is not yet implemented.")
 }

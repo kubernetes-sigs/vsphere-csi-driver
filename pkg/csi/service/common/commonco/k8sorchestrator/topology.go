@@ -23,6 +23,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,11 +31,14 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -52,8 +56,12 @@ import (
 )
 
 var (
-	// controllerVolumeTopologyInstance is a singleton instance of controllerVolumeTopology.
+	// controllerVolumeTopologyInstance is a singleton instance of controllerVolumeTopology
+	// created for vanilla flavor.
 	controllerVolumeTopologyInstance *controllerVolumeTopology
+	// wcpControllerVolumeTopologyInstance is a singleton instance of wcpControllerVolumeTopology
+	// created for workload flavor.
+	wcpControllerVolumeTopologyInstance *wcpControllerVolumeTopology
 	// nodeVolumeTopologyInstance is a singleton instance of nodeVolumeTopology.
 	nodeVolumeTopologyInstance *nodeVolumeTopology
 	// controllerVolumeTopologyInstanceLock is used for handling race conditions
@@ -83,6 +91,10 @@ var (
 	domainNodeMap = make(map[string]map[string]struct{})
 	// domainNodeMapInstanceLock guards the domainNodeMap instance from concurrent writes.
 	domainNodeMapInstanceLock = &sync.RWMutex{}
+	// azClusterMap maintains a cache of AZ instance name to the clusterMoref in that zone.
+	azClusterMap = make(map[string]string)
+	// azClusterMapInstanceLock guards the azClusterMap instance from concurrent writes.
+	azClusterMapInstanceLock = &sync.RWMutex{}
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -103,8 +115,9 @@ type nodeVolumeTopology struct {
 	isCSINodeIdFeatureEnabled bool
 }
 
-// controllerVolumeTopology implements the commoncotypes.ControllerTopologyService interface. It stores
-// the necessary kubernetes configurations and clients required to implement the methods in the interface.
+// controllerVolumeTopology implements the commoncotypes.ControllerTopologyService interface
+// for vanilla flavor. It stores the necessary kubernetes configurations and clients required
+// to implement the methods in the interface.
 type controllerVolumeTopology struct {
 	//k8sConfig is the in-cluster config for client to talk to the api-server.
 	k8sConfig *restclient.Config
@@ -119,56 +132,203 @@ type controllerVolumeTopology struct {
 	isCSINodeIdFeatureEnabled bool
 }
 
+// wcpControllerVolumeTopology implements the commoncotypes.ControllerTopologyService
+// interface for workload flavor. It stores the necessary kubernetes configurations and informers required
+// to implement the methods in the interface.
+type wcpControllerVolumeTopology struct {
+	//k8sConfig is the in-cluster config for client to talk to the api-server.
+	k8sConfig *restclient.Config
+	// azInformer is an informer instance on the AvailabilityZone custom resource.
+	azInformer cache.SharedIndexInformer
+}
+
 // InitTopologyServiceInController returns a singleton implementation of the
 // commoncotypes.ControllerTopologyService interface.
 func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 	commoncotypes.ControllerTopologyService, error) {
 	log := logger.GetLogger(ctx)
 
-	controllerVolumeTopologyInstanceLock.RLock()
-	if controllerVolumeTopologyInstance == nil {
-		controllerVolumeTopologyInstanceLock.RUnlock()
-		controllerVolumeTopologyInstanceLock.Lock()
-		defer controllerVolumeTopologyInstanceLock.Unlock()
+	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		controllerVolumeTopologyInstanceLock.RLock()
 		if controllerVolumeTopologyInstance == nil {
+			controllerVolumeTopologyInstanceLock.RUnlock()
+			controllerVolumeTopologyInstanceLock.Lock()
+			defer controllerVolumeTopologyInstanceLock.Unlock()
+			if controllerVolumeTopologyInstance == nil {
 
-			// Get in cluster config for client to API server.
-			config, err := k8s.GetKubeConfig(ctx)
-			if err != nil {
-				log.Errorf("failed to get kubeconfig with error: %v", err)
-				return nil, err
+				// Get in cluster config for client to API server.
+				config, err := k8s.GetKubeConfig(ctx)
+				if err != nil {
+					log.Errorf("failed to get kubeconfig with error: %v", err)
+					return nil, err
+				}
+
+				// Get node manager instance.
+				// Node manager should already have been initialized in controller init.
+				nodeManager := node.GetManager(ctx)
+
+				// Create and start an informer on CSINodeTopology instances.
+				crInformer, err := startTopologyCRInformer(ctx, config)
+				if err != nil {
+					log.Errorf("failed to create an informer for CSINodeTopology instances. Error: %+v", err)
+					return nil, err
+				}
+
+				clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
+				if err != nil {
+					log.Errorf("failed to get cluster flavor. Error: %+v", err)
+					return nil, err
+				}
+
+				controllerVolumeTopologyInstance = &controllerVolumeTopology{
+					k8sConfig:                 config,
+					nodeMgr:                   nodeManager,
+					csiNodeTopologyInformer:   *crInformer,
+					clusterFlavor:             clusterFlavor,
+					isCSINodeIdFeatureEnabled: c.IsFSSEnabled(ctx, common.UseCSINodeId),
+				}
+				log.Info("Topology service initiated successfully")
 			}
-
-			// Get node manager instance.
-			// Node manager should already have been initialized in controller init.
-			nodeManager := node.GetManager(ctx)
-
-			// Create and start an informer on CSINodeTopology instances.
-			crInformer, err := startTopologyCRInformer(ctx, config)
-			if err != nil {
-				log.Errorf("failed to create an informer for CSINodeTopology instances. Error: %+v", err)
-				return nil, err
-			}
-
-			clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-			if err != nil {
-				log.Errorf("failed to get cluster flavor. Error: %+v", err)
-				return nil, err
-			}
-
-			controllerVolumeTopologyInstance = &controllerVolumeTopology{
-				k8sConfig:                 config,
-				nodeMgr:                   nodeManager,
-				csiNodeTopologyInformer:   *crInformer,
-				clusterFlavor:             clusterFlavor,
-				isCSINodeIdFeatureEnabled: c.IsFSSEnabled(ctx, common.UseCSINodeId),
-			}
-			log.Info("Topology service initiated successfully")
+		} else {
+			controllerVolumeTopologyInstanceLock.RUnlock()
 		}
-	} else {
-		controllerVolumeTopologyInstanceLock.RUnlock()
+		return controllerVolumeTopologyInstance, nil
+	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		controllerVolumeTopologyInstanceLock.RLock()
+		if wcpControllerVolumeTopologyInstance == nil {
+			controllerVolumeTopologyInstanceLock.RUnlock()
+			controllerVolumeTopologyInstanceLock.Lock()
+			defer controllerVolumeTopologyInstanceLock.Unlock()
+			if wcpControllerVolumeTopologyInstance == nil {
+
+				// Get in cluster config for client to API server.
+				config, err := k8s.GetKubeConfig(ctx)
+				if err != nil {
+					log.Errorf("failed to get kubeconfig with error: %v", err)
+					return nil, err
+				}
+				// Create and start an informer on AvailabilityZone instances.
+				azInformer, err := startAvailabilityZoneInformer(ctx, config)
+				if err != nil {
+					if err == common.ErrAvailabilityZoneCRNotRegistered {
+						log.Infof("Skip initializing the topology service as the AvailabilityZone " +
+							"CR is not registered.")
+						return nil, nil
+					}
+					log.Errorf("failed to create an informer for CSINodeTopology instances. Error: %+v", err)
+					return nil, err
+				}
+				wcpControllerVolumeTopologyInstance = &wcpControllerVolumeTopology{
+					k8sConfig:  config,
+					azInformer: *azInformer,
+				}
+			}
+		} else {
+			controllerVolumeTopologyInstanceLock.RUnlock()
+		}
+		return wcpControllerVolumeTopologyInstance, nil
 	}
-	return controllerVolumeTopologyInstance, nil
+	return nil, logger.LogNewErrorf(log, "InitTopologyServiceInController not implemented for "+
+		"cluster flavor: %q", c.clusterFlavor)
+}
+
+// startAvailabilityZoneInformer listens on changes to AvailabilityZone instances and updates the azClusterMap cache.
+func startAvailabilityZoneInformer(ctx context.Context, cfg *restclient.Config) (*cache.SharedIndexInformer, error) {
+	log := logger.GetLogger(ctx)
+	// Check if AZ CR is registered in the environment.
+	// Create a new AvailabilityZone client.
+	azClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
+	}
+	// Get AvailabilityZone list
+	azResource := schema.GroupVersionResource{
+		Group: "topology.tanzu.vmware.com", Version: "v1alpha1", Resource: "availabilityzones"}
+	_, err = azClient.Resource(azResource).List(ctx, metav1.ListOptions{})
+	// Handling the scenario where AvailabilityZone CR is not registered in the
+	// supervisor cluster.
+	if apiMeta.IsNoMatchError(err) {
+		log.Info("AvailabilityZone CR is not registered on the cluster")
+		return nil, common.ErrAvailabilityZoneCRNotRegistered
+	}
+	// At this point, we are sure the AZ CR is registered. Create an informer for AvailabilityZone instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
+		"v1alpha1", "availabilityzones", metav1.NamespaceAll, cfg, true)
+	if err != nil {
+		log.Errorf("failed to create dynamic informer for AvailabilityZone CR. Error: %+v",
+			err)
+		return nil, err
+	}
+	availabilityZoneInformer := dynInformer.Informer()
+	availabilityZoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			azCRAdded(obj)
+		},
+		UpdateFunc: nil,
+		DeleteFunc: func(obj interface{}) {
+			azCRDeleted(obj)
+		},
+	})
+
+	// Start informer.
+	go func() {
+		log.Info("Informer to watch on AvailabilityZone CR starting..")
+		availabilityZoneInformer.Run(make(chan struct{}))
+	}()
+	return &availabilityZoneInformer, nil
+}
+
+// azCRAdded handles adding AZ name and clusterMoref to the cache.
+func azCRAdded(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	// Retrieve name of CR instance.
+	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
+	if !found || err != nil {
+		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
+		return
+	}
+	// Retrieve clusterMoref from instance spec.
+	// TODO: TKGS-HA - convert to slice when appropriate
+	clusterComputeResourceMoId, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoId")
+	if !found || err != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoId` from AvailabilityZone instance: %+v, Error: %+v",
+			obj, err)
+		return
+	}
+	// Add to cache.
+	addToAZClusterMap(ctx, azName, clusterComputeResourceMoId)
+}
+
+// azCRUpdated handles deleting AZ name in the cache.
+func azCRDeleted(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	// Retrieve name of CR instance.
+	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
+	if !found || err != nil {
+		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
+		return
+	}
+	// Delete AZ name from cache.
+	removeFromAZClusterMap(ctx, azName)
+}
+
+// Adds the CR instance name and cluster moref to the azClusterMap.
+func addToAZClusterMap(ctx context.Context, azName, clusterMoref string) {
+	log := logger.GetLogger(ctx)
+	azClusterMapInstanceLock.Lock()
+	defer azClusterMapInstanceLock.Unlock()
+	azClusterMap[azName] = clusterMoref
+	log.Infof("Added %q cluster to %q zone in azClusterMap", clusterMoref, azName)
+}
+
+// Removes the provided zone and clusterMoref from the azClusterMap.
+func removeFromAZClusterMap(ctx context.Context, azName string) {
+	log := logger.GetLogger(ctx)
+	azClusterMapInstanceLock.Lock()
+	defer azClusterMapInstanceLock.Unlock()
+	delete(azClusterMap, azName)
+	log.Infof("Removed %q zone from azClusterMap", azName)
 }
 
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
@@ -576,9 +736,8 @@ func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
 	return watcherTimeoutInMin
 }
 
-// GetSharedDatastoresInTopology returns shared accessible datastores for the
-// specified topologyRequirement.
-// Argument topologyRequirement needs to be passed in following form:
+// GetSharedDatastoresInTopology returns shared accessible datastores for the specified topologyRequirement.
+// Argument TopologyRequirement needs to be passed in following form:
 // topologyRequirement [requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
 //                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
 //                      requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
@@ -588,32 +747,35 @@ func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
 //                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
 //                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
 func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
-	topologyRequirement *csi.TopologyRequirement) ([]*cnsvsphere.DatastoreInfo, error) {
+	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("Get shared datastores with topologyRequirement: %+v", topologyRequirement)
+	params := reqParams.(commoncotypes.VanillaTopologyFetchDSParams)
+	log.Debugf("Get shared datastores with topologyRequirement: %+v", params.TopologyRequirement)
 	var (
 		err              error
 		sharedDatastores []*cnsvsphere.DatastoreInfo
 	)
 
 	// Fetch shared datastores for the preferred topology requirement.
-	if topologyRequirement.GetPreferred() != nil {
+	if params.TopologyRequirement.GetPreferred() != nil {
 		log.Debugf("Using preferred topology")
-		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx, topologyRequirement.GetPreferred())
+		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx,
+			params.TopologyRequirement.GetPreferred())
 		if err != nil {
 			log.Errorf("Error finding shared datastores using preferred topology: %+v",
-				topologyRequirement.GetPreferred())
+				params.TopologyRequirement.GetPreferred())
 			return nil, err
 		}
 	}
 	// If there are no shared datastores for the preferred topology requirement, fetch shared
 	// datastores for the requisite topology requirement instead.
-	if len(sharedDatastores) == 0 && topologyRequirement.GetRequisite() != nil {
+	if len(sharedDatastores) == 0 && params.TopologyRequirement.GetRequisite() != nil {
 		log.Debugf("Using requisite topology")
-		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx, topologyRequirement.GetRequisite())
+		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx,
+			params.TopologyRequirement.GetRequisite())
 		if err != nil {
 			log.Errorf("Error finding shared datastores using requisite topology: %+v",
-				topologyRequirement.GetRequisite())
+				params.TopologyRequirement.GetRequisite())
 			return nil, err
 		}
 	}
@@ -636,6 +798,11 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		if err != nil {
 			log.Errorf("Failed to find nodes in topology segment %+v. Error: %+v", segments, err)
 			return nil, err
+		}
+		if len(matchingNodeVMs) == 0 {
+			log.Warnf("No nodes in the cluster matched the topology requirement provided: %+v",
+				segments)
+			continue
 		}
 
 		// Fetch shared datastores for the matching nodeVMs.
@@ -716,14 +883,15 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 
 // GetTopologyInfoFromNodes retrieves the topology information of the given
 // list of node names using the information from CSINodeTopology instances.
-func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context, nodeNames []string,
-	datastoreURL string) ([]map[string]string, error) {
+func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context, reqParams interface{}) (
+	[]map[string]string, error) {
 	log := logger.GetLogger(ctx)
+	params := reqParams.(commoncotypes.VanillaRetrieveTopologyInfoParams)
 	var topologySegments []map[string]string
 
 	// Fetch node topology information from informer cache.
 	nodeTopologyStore := volTopology.csiNodeTopologyInformer.GetStore()
-	for _, nodeName := range nodeNames {
+	for _, nodeName := range params.NodeNames {
 		// Fetch CSINodeTopology instance using node name.
 		item, exists, err := nodeTopologyStore.GetByKey(nodeName)
 		if err != nil || !exists {
@@ -769,18 +937,19 @@ func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx contex
 			topologySegments = append(topologySegments, topoLabels)
 		}
 	}
-	log.Infof("Topology segments retrieved from nodes accessible to datastore %q are: %+v", datastoreURL,
-		topologySegments)
+	log.Infof("Topology segments retrieved from nodes accessible to datastore %q are: %+v",
+		params.DatastoreURL, topologySegments)
 
 	// Check for each calculated topology segment if all nodes in that segment have access to this datastore.
 	// This check will filter out topology segments in which all nodes do not have access to the chosen datastore.
-	accessibleTopology, err := verifyAllNodesInTopologyAccessibleToDatastore(ctx, nodeNames,
-		datastoreURL, topologySegments)
+	accessibleTopology, err := verifyAllNodesInTopologyAccessibleToDatastore(ctx, params.NodeNames,
+		params.DatastoreURL, topologySegments)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to verify if all nodes in the topology segments "+
-			"retrieved are accessible to datastore %q. Error: %+v", datastoreURL, err)
+			"retrieved are accessible to datastore %q. Error: %+v", params.DatastoreURL, err)
 	}
-	log.Infof("Accessible topology calculated for datastore %q is %+v", datastoreURL, accessibleTopology)
+	log.Infof("Accessible topology calculated for datastore %q is %+v",
+		params.DatastoreURL, accessibleTopology)
 	return accessibleTopology, nil
 }
 
@@ -836,4 +1005,129 @@ func verifyAllNodesInTopologyAccessibleToDatastore(ctx context.Context, nodeName
 		}
 	}
 	return accessibleTopology, nil
+}
+
+// GetSharedDatastoresInTopology finds out shared datastores associated with the given
+// clusterMorefs which match the topology requirement.
+func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
+	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	params := reqParams.(commoncotypes.WCPTopologyFetchDSParams)
+	log.Debugf("Get shared datastores with topologyRequirement: %+v", params.TopologyRequirement)
+	var sharedDatastores []*cnsvsphere.DatastoreInfo
+	if params.TopologyRequirement.GetPreferred() == nil {
+		return sharedDatastores, nil
+	}
+
+	// Fetch shared datastores for each segment in the preferred topology requirement.
+	log.Debugf("Using preferred topology")
+	for _, topology := range params.TopologyRequirement.GetPreferred() {
+		segments := topology.GetSegments()
+
+		// For each topology segments, fetch cluster morefs satisfying the condition.
+		log.Debugf("Getting list of cluster morefs for topology segments %+v", segments)
+		clusterMorefs, err := volTopology.getClustersMatchingTopologySegment(ctx, segments)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to fetch clusters matching topology requirement. Error: %v", err)
+		}
+		if len(clusterMorefs) == 0 {
+			log.Warnf("No clusters matched the topology requirement provided: %+v",
+				segments)
+			continue
+		}
+
+		// Call GetCandidateDatastores for each cluster moref. Ignore the vsanDirectDatastores for now.
+		for _, clusterMoref := range clusterMorefs {
+			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMoref)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"failed to find candidate datastores to place volume in cluster %q. Error: %v",
+					clusterMoref, err)
+			}
+			sharedDatastores = append(sharedDatastores, accessibleDs...)
+		}
+	}
+	return sharedDatastores, nil
+}
+
+// getClustersMatchingTopologySegment fetches clusters matching the topology requirement provided by checking
+// the azClusterMap cache.
+func (volTopology *wcpControllerVolumeTopology) getClustersMatchingTopologySegment(ctx context.Context,
+	segments map[string]string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	var matchingClusterMorefs []string
+	for _, zone := range segments {
+		clusterMoref, exists := azClusterMap[zone]
+		if !exists || clusterMoref == "" {
+			return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
+				"AvailabilityZone resources", zone)
+		}
+		matchingClusterMorefs = append(matchingClusterMorefs, clusterMoref)
+	}
+	log.Infof("Clusters matching topology requirement %+v are %+v", segments, matchingClusterMorefs)
+	return matchingClusterMorefs, nil
+}
+
+// GetTopologyInfoFromNodes retrieves the topology information of the selected datastore
+// using the information from azClusterMap cache.
+func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context, reqParams interface{}) (
+	[]map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	params := reqParams.(commoncotypes.WCPRetrieveTopologyInfoParams)
+	var topologySegments []map[string]string
+
+	switch strings.ToLower(params.StorageTopologyType) {
+	case "zonal":
+		// If the topology requirement received has just one zone, use the same zone as node affinity terms on PV.
+		if len(params.TopologyRequirement.GetPreferred()) == 1 {
+			topologySegments = append(topologySegments, params.TopologyRequirement.GetPreferred()[0].GetSegments())
+		} else {
+			// If multiple zones are provided as input in the topology requirement, find the zone
+			// to which the selected datastore is associated with. If this search results in multiple zones,
+			// randomly choose one as node affinity.
+			var selectedSegments []map[string]string
+			for _, topology := range params.TopologyRequirement.GetPreferred() {
+				for label, value := range topology.GetSegments() {
+					clusterMoref, exists := azClusterMap[value]
+					if !exists || clusterMoref == "" {
+						return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
+							"AvailabilityZone resources", value)
+					}
+					datastores, err := params.Vc.GetDatastoresByCluster(ctx, clusterMoref)
+					if err != nil {
+						return nil, logger.LogNewErrorf(log,
+							"Failed to fetch datastores associated with cluster %q", clusterMoref)
+					}
+					for _, ds := range datastores {
+						if ds.Info.Url == params.DatastoreURL {
+							selectedSegments = append(selectedSegments, map[string]string{label: value})
+						}
+					}
+				}
+			}
+
+			numSelectedSegments := len(selectedSegments)
+			switch {
+			case numSelectedSegments == 0:
+				return nil, logger.LogNewErrorf(log,
+					"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
+			case numSelectedSegments > 1:
+				return nil, logger.LogNewErrorf(log,
+					"found more than one zone [%+v] having access to datastore %q where volume is provisioned",
+					selectedSegments, params.DatastoreURL)
+			default:
+				topologySegments = selectedSegments
+			}
+		}
+	case "crosszonal":
+		// TODO: TKGS-HA : Implement the node affinity logic for crossZonal
+		return nil, logger.LogNewErrorf(log,
+			"Node Affinity logic for crossZonal storageTopologyType not implemented yet.")
+	default:
+		return nil, logger.LogNewErrorf(log, "Unrecognised storageTopologyType found: %q",
+			params.StorageTopologyType)
+	}
+	log.Infof("Topology of the provisioned volume detected as %+v", topologySegments)
+	return topologySegments, nil
 }
