@@ -205,9 +205,10 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 // This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
 func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 	volumeID string, nodeName string) (bool, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if supervisorCluster {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		_, err := e2eVSphere.getVMByUUIDWithWait(ctx, nodeName, supervisorClusterOperationsTimeout)
 		if err == nil {
 			return false, fmt.Errorf(
@@ -220,7 +221,7 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		var vmUUID string
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, nodeName)
+			vmUUID = getNodeUUID(ctx, client, nodeName)
 		} else {
 			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 		}

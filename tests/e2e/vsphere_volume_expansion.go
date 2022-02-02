@@ -300,7 +300,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete Pod.
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete Pod.
@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -482,7 +482,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -678,7 +678,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -812,7 +812,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -956,7 +956,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 		}
 
 		defer func() {
@@ -1046,7 +1046,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 		}
 
 		defer func() {
@@ -1137,7 +1137,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 		}
 
 		defer func() {
@@ -1397,7 +1397,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -1798,7 +1798,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -1857,7 +1857,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("re-create Pod using the same PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1922,7 +1922,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -2027,7 +2027,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -2177,7 +2177,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		svcCsiDeployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 		defer func() {
 			// Delete POD
@@ -2579,7 +2579,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
 }
 
 //createPODandVerifyVolumeMount this method creates Pod and verifies VolumeMount
-func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Interface,
+func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
@@ -2590,7 +2590,7 @@ func createPODandVerifyVolumeMount(f *framework.Framework, client clientset.Inte
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
 	if vanillaCluster {
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	} else if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2793,7 +2793,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	var exists bool
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
 	if vanillaCluster {
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	} else if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2921,7 +2921,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+	vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3015,7 +3015,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
 		pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+	vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3445,7 +3445,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	var exists bool
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
 	if vanillaCluster {
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	} else if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3768,6 +3768,9 @@ func testCleanUpUtil(ctx context.Context, restClientConfig *restclient.Config, c
 
 func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framework.Framework, namespace string,
 	volHandle string, pvclaim *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, *v1.Pod, string) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ginkgo.By("Expanding current pvc")
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	newSize := currentPvcSize.DeepCopy()
@@ -3806,7 +3809,7 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Create Pod using the above PVC")
-	pod, vmUUID := createPODandVerifyVolumeMount(f, client, namespace, pvclaim, volHandle)
+	pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
 
 	ginkgo.By("Waiting for file system resize to finish")
 	pvclaim, err = waitForFSResize(pvclaim, client)

@@ -39,6 +39,7 @@ const (
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
+	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
@@ -197,6 +198,11 @@ var (
 // For vsan stretched cluster tests
 var (
 	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
+)
+
+// CSI Internal FSSs
+var (
+	useCsiNodeID = "use-csinode-id"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
