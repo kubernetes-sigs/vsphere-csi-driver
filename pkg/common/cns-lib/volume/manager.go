@@ -2139,7 +2139,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		}
 
 		// Ignore errors, NotFound and InvalidArgument, in DeleteSnapshot
-		if cnsvsphere.IsNotFoundError(err) {
+		if cnsvsphere.IsVimFaultNotFoundError(err) {
 			log.Infof("Snapshot %q on volume %q might have already been deleted "+
 				"with the error %v. Ignore the error for DeleteSnapshot", snapshotID, volumeID,
 				spew.Sdump(deleteSnapshotsOperationRes.Fault))
