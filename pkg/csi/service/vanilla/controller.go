@@ -496,7 +496,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 
 			// Get shared accessible datastores for matching topology requirement.
-			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement)
+			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+				commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
 			if err != nil || len(sharedDatastores) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
@@ -713,7 +714,11 @@ func (c *controller) getAccessibleTopologiesForDatastore(ctx context.Context, vc
 		accessibleNodeNames = append(accessibleNodeNames, nodeName)
 	}
 
-	datastoreAccessibleTopology, err = c.topologyMgr.GetTopologyInfoFromNodes(ctx, accessibleNodeNames, datastoreURL)
+	datastoreAccessibleTopology, err = c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+		commoncotypes.VanillaRetrieveTopologyInfoParams{
+			NodeNames:    accessibleNodeNames,
+			DatastoreURL: datastoreURL,
+		})
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to find accessible topologies for the remaining nodes %v. Error: %+v",
