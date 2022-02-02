@@ -29,7 +29,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volumes and Delete Guest Cluster", func() {
@@ -122,7 +121,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			ginkgo.Skip("Env TKG_CLUSTER_TO_DELETE is missing")
 		}
 
-		clientNewGc, err := k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err := createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
