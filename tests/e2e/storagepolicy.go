@@ -227,7 +227,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else if vanillaCluster {
-		vmUUID = getNodeUUID(client, nodeName)
+		vmUUID = getNodeUUID(ctx, client, nodeName)
 	} else {
 		vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 	}

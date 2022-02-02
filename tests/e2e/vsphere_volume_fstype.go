@@ -50,14 +50,14 @@ import (
 // Test to verify if an invalid fstype specified in storage class fails pod
 // creation.
 //
-// Steps
-// 1. Create StorageClass with inavlid.
-// 2. Create PVC which uses the StorageClass created in step 1.
-// 3. Wait for PV to be provisioned.
-// 4. Wait for PVC's status to become Bound.
-// 5. Create pod using PVC.
-// 6. Verify if the pod creation fails.
-// 7. Verify if the MountVolume.MountDevice fails because it is unable to find
+// Steps
+// 1. Create StorageClass with inavlid.
+// 2. Create PVC which uses the StorageClass created in step 1.
+// 3. Wait for PV to be provisioned.
+// 4. Wait for PVC's status to become Bound.
+// 5. Create pod using PVC.
+// 6. Verify if the pod creation fails.
+// 7. Verify if the MountVolume.MountDevice fails because it is unable to find
 //    the file system executable file on the node.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func() {
@@ -134,7 +134,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	pv := persistentvolumes[0]
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-	vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+	vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")

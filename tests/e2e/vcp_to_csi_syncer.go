@@ -1549,7 +1549,7 @@ func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client client
 	var vmUUID string
 
 	if vanillaCluster {
-		vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 	} else if guestCluster {
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
