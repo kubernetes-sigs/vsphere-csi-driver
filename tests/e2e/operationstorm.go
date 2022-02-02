@@ -178,7 +178,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if vanillaCluster {
-				vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+				vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 			} else {
 				annotations := pod.Annotations
 				vmUUID, exists = annotations[vmUUIDLabel]
@@ -309,7 +309,7 @@ var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] 
 
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if vanillaCluster {
-				vmUUID = getNodeUUID(client, podArray[podCount].Spec.NodeName)
+				vmUUID = getNodeUUID(ctx, client, podArray[podCount].Spec.NodeName)
 			}
 			if guestCluster {
 				vmUUID, err = getVMUUIDFromNodeName(podArray[podCount].Spec.NodeName)

@@ -434,13 +434,25 @@ func getPvFromClaim(client clientset.Interface, namespace string, claimName stri
 }
 
 // getNodeUUID returns Node VM UUID for requested node.
-func getNodeUUID(client clientset.Interface, nodeName string) string {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vmUUID := strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
-	gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+func getNodeUUID(ctx context.Context, client clientset.Interface, nodeName string) string {
+	vmUUID := ""
+	if isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace), useCsiNodeID) {
+		csiNode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiDriverFound := false
+		for _, driver := range csiNode.Spec.Drivers {
+			if driver.Name == e2evSphereCSIDriverName {
+				csiDriverFound = true
+				vmUUID = driver.NodeID
+			}
+		}
+		gomega.Expect(csiDriverFound).To(gomega.BeTrue(), "CSI driver not found in CSI node %s", nodeName)
+	} else {
+		node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vmUUID = strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
+		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+	}
 	ginkgo.By(fmt.Sprintf("VM UUID is: %s for node: %s", vmUUID, nodeName))
 	return vmUUID
 }
@@ -4069,4 +4081,22 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 			}
 		}
 	}
+}
+
+//isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
+func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace string, fss string) bool {
+	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fssFound := false
+	for k, v := range fssCM.Data {
+		if fss == k {
+			fssFound = true
+			if v == "true" {
+				return true
+			}
+		}
+	}
+	gomega.Expect(fssFound).To(
+		gomega.BeTrue(), "FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+	return false
 }

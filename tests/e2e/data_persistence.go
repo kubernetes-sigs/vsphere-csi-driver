@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		var vmUUID string
 		var exists bool
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		} else if supervisorCluster {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]
@@ -231,7 +231,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		} else if supervisorCluster {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]

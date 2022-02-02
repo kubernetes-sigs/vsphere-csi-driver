@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		// power off the node where vsphere-csi-controller pod is currently running
 		nodeNameOfvSphereCSIControllerPod := nodeList[0]
 		ginkgo.By(fmt.Sprintf("Power off the node: %v", nodeNameOfvSphereCSIControllerPod))
-		vmUUID := getNodeUUID(client, nodeNameOfvSphereCSIControllerPod)
+		vmUUID := getNodeUUID(ctx, client, nodeNameOfvSphereCSIControllerPod)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameOfvSphereCSIControllerPod)
 		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)

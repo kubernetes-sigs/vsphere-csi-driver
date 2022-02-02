@@ -91,6 +91,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 	verifyBasicTopologyBasedVolumeProvisioning := func(f *framework.Framework, client clientset.Interface,
 		namespace string, scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
 
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -115,7 +118,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 
 		ginkgo.By(fmt.Sprintf("Verify volume:%s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
