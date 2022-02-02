@@ -27,6 +27,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
@@ -1560,11 +1561,27 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			// res := verifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaimsList[i], pv, pod)
 			// gomega.Expect(res).NotTo(gomega.HaveOccurred())
 
-			pvLabels := make(map[string]string)
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pvc %s in namespace %s", labels,
+				pvclaimsList[i].Name, pvclaimsList[i].Namespace))
+			pvclaimsList[i].Labels = make(map[string]string)
+			_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvclaimsList[i], metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s in namespace %s", pvLabels, pv.Name, namespace))
-			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.GetName(), metav1.GetOptions{})
-			fmt.Println(pv)
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s",
+				labels, pvclaimsList[i].Name, pvclaimsList[i].Namespace))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+				pvclaimsList[i].Labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvclaimsList[i].Name,
+				pvclaimsList[i].Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s", labels, pv.Name))
+			pv.Labels = make(map[string]string)
+			_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+				pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Syncer is running")
@@ -1575,7 +1592,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			res := verifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaimsList[i], pv, pod)
 			gomega.Expect(res).NotTo(gomega.HaveOccurred())
 		}
-
 	})
 
 	/*
