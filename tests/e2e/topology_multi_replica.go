@@ -1429,18 +1429,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		//controller_name := "csi-syncer"
 		pvcCount = 5
-		staticPVLabels := make(map[string]string)
-		staticPVLabels["volumeId"] = "NewVolume"
 
-		// /* Get current leader Csi-Controller-Pod where CSI Syncer is running" +
-		// find master node IP where this Csi-Controller-Pod is running */
-		// ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
-		// 	"find the master node IP where this Csi-Controller-Pod is running")
-		// csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-		// 	client, sshClientConfig, controller_name)
-		// framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
-		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		/* Get current leader Csi-Controller-Pod where CSI Syncer is running" +
+		find master node IP where this Csi-Controller-Pod is running */
+		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
+			"find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -1459,6 +1457,33 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Creating multiple PVCs
 		ginkgo.By("Trigger multiple PVCs")
 		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+		defer func() {
+			// cleanup code for deleting PVC
+			ginkgo.By("Deleting PVC's and PV's")
+			for i := 0; i < len(pvclaimsList); i++ {
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Syncer is running")
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig,
+			csi_controller_pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		/* Get newly elected current leader Csi-Controller-Pod where CSI Syncer is running" +
+		find new master node IP where this Csi-Controller-Pod is running */
+		ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI Syncer is " +
+			"running and find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify PVC claim to be in bound phase and create POD for each PVC
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
@@ -1473,9 +1498,21 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			// Get PV details
 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
+			staticPVLabels := make(map[string]string)
+			staticPVLabels["volId"] = "pvcVolume"
+
 			ginkgo.By("Add labels to PVC's and PV's")
-			updatePvcLabel(ctx, client, namespace, pvclaimsList[i], staticPVLabels)
-			updatePvLabel(ctx, client, namespace, pv, staticPVLabels)
+			pvcLabel := updatePvcLabel(ctx, client, namespace, pvclaimsList[i], staticPVLabels)
+			fmt.Println(pvcLabel.Name)
+			pvLabel := updatePvLabel(ctx, client, namespace, pv, staticPVLabels)
+			fmt.Println(pvLabel.Name)
+
+			err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verifying CNS entry is present in cache")
+			_, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// create Pod for each PVC
 			ginkgo.By("Creating Pod")
@@ -1483,7 +1520,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			podList = append(podList, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 			// verify volume is attached to the node
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -1491,93 +1527,55 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+			defer func() {
+				// cleanup code for deleting POD
+				for i := 0; i < len(podList); i++ {
+					ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+					err = fpod.DeletePodWithWait(client, podList[i])
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+				// Verify volume is detached from the node
+				ginkgo.By("Verify volume is detached from the node")
+				for i := 0; i < len(pvclaimsList); i++ {
+					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+						pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+						fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+				}
+			}()
 
 			ginkgo.By("Verify container volume metadata is present in CNS cache")
 			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", pv.Spec.CSI.VolumeHandle))
 			_, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			labels := []types.KeyValue{{Key: "volumeId", Value: "NewVolume"}}
+			labels := []types.KeyValue{{Key: "volId", Value: "pvcVolume"}}
 			ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 			err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 				pvclaimsList[i].Name, pv.ObjectMeta.Name, pod.Name, labels...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaims[i], pv, pod)
+			// res := verifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaimsList[i], pv, pod)
+			// gomega.Expect(res).NotTo(gomega.HaveOccurred())
+
+			pvLabels := make(map[string]string)
+
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s in namespace %s", pvLabels, pv.Name, namespace))
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.GetName(), metav1.GetOptions{})
+			fmt.Println(pv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Syncer is running")
+			err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig,
+				csi_controller_pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			res := verifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaimsList[i], pv, pod)
+			gomega.Expect(res).NotTo(gomega.HaveOccurred())
 		}
-		defer func() {
-			// cleanup code for deleting PVC
-			ginkgo.By("Deleting PVC's and PV's")
-			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-				err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
-		defer func() {
-			// cleanup code for deleting POD
-			for i := 0; i < len(podList); i++ {
-				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-				err = fpod.DeletePodWithWait(client, podList[i])
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-			// Verify volume is detached from the node
-			ginkgo.By("Verify volume is detached from the node")
-			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-					fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
-			}
-		}()
-		// ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Resizer is running")
-		// err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client,
-		// 	sshClientConfig, csi_controller_pod)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// /* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
-		// find master node IP where this Csi-Controller-Pod is running */
-		// ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
-		// 	"find the master node IP where this Csi-Controller-Pod is running")
-		// csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-		// 	client, sshClientConfig, controller_name)
-		// framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
-		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// for i := 0; i < len(pvclaimsList); i++ {
-		// 	pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-		// 	ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s in namespace %s", labels, pv.Name, namespace))
-		// 	pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.GetName(), metav1.GetOptions{})
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	pv.Labels = labels
-		// 	pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
-		// 	err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
-		// 		labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	labels = make(map[string]string)
-		// 	ginkgo.By(fmt.Sprintf("Deleting labels %+v for pvc %s in namespace %s", labels, pvclaimsList[i].Name,
-		// 		pvclaimsList[i].Namespace))
-		// 	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaimsList[i].Name, metav1.GetOptions{})
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	pvclaim.Labels = labels
-		// 	_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvclaim, metav1.UpdateOptions{})
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s",
-		// 		labels, pvclaim.Name, pvclaim.Namespace))
-		// 	err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
-		// 		string(cnstypes.CnsKubernetesEntityTypePVC), pvclaim.Name, pvclaim.Namespace)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// }
-		// verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, pvclaimsList)
 	})
 
 	/*
@@ -2043,17 +2041,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(staticPv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// // Delete elected leader Csi-Controller-Pod where CSi-Syncer is running
-		// ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Syncer is running")
-		// err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig, csi_controller_pod)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Syncer is running and " +
-		// 	"find the master node IP where this Csi-Controller-Pod is running")
-		// csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
-		// 	client, sshClientConfig, controller_name)
-		// framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
-		// 	"which is running on master node %s", csi_controller_pod, k8sMasterIP)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Delete elected leader Csi-Controller-Pod where CSi-Syncer is running
+		ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Syncer is running")
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig, csi_controller_pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Syncer is running and " +
+			"find the master node IP where this Csi-Controller-Pod is running")
+		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+			client, sshClientConfig, controller_name)
+		framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Creating PVC using above created PV
 		ginkgo.By("Creating static PVC")
