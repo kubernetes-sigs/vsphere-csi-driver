@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -83,10 +82,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
-		framework.Logf("Storageclass is %v and err is %v", sc, err)
-		if (!strings.Contains(err.Error(), "not found")) && sc != nil {
-			framework.ExpectNoError(client.StorageV1().StorageClasses().Delete(ctx, defaultNginxStorageClassName,
-				*metav1.NewDeleteOptions(0)), "Unable to delete storage class "+defaultNginxStorageClassName)
+		if !apierrors.IsNotFound(err) {
+			framework.ExpectNoError(err, "Unable to fetch storage class "+defaultNginxStorageClassName)
+		}
+		if sc != nil {
+			framework.ExpectNoError(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
+				*metav1.NewDeleteOptions(0)), "Unable to delete storage class "+sc.Name)
 		}
 		scParameters = make(map[string]string)
 		nodeList, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
