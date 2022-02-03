@@ -138,6 +138,9 @@ const (
 	// to support volume migration feature.
 	VSphere7Version string = "7.0.0"
 
+	// VSphere8VersionMajorInt indicates the major version value in integer
+	VSphere8VersionMajorInt int = 8
+
 	// VSphere67u3lBuildInfo is the build number for vCenter in 6.7 Update 3l
 	// GA bits.
 	VSphere67u3lBuildInfo int = 17137327

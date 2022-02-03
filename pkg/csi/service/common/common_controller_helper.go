@@ -277,3 +277,23 @@ func GetNamespaceFromContext(ctx context.Context) string {
 	}
 	return prometheus.PrometheusUnknownNamespace
 }
+
+// IsvSphere8AndAbove returns true if vSphere version if 8.0 and above
+func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.ApiVersion, ".")
+	apiVersion := strings.Join(items[:], "")
+	// Convert version string to int, e.g. 8.0.0.0" to 800.
+	vSphereMajorVersionInt, err := strconv.Atoi(string(apiVersion[0]))
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
+	}
+
+	// Check if the current vSphere version is greater 8
+	if vSphereMajorVersionInt >= VSphere8VersionMajorInt {
+		return true, nil
+	}
+	// For all other versions.
+	return false, nil
+}
