@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +66,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubectl/pkg/drain"
+	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
@@ -4181,4 +4183,652 @@ func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace 
 	gomega.Expect(fssFound).To(
 		gomega.BeTrue(), "FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
 	return false
+}
+
+/*
+This wrapper method is used to create the topology map of allowed topologies specified on VC.
+TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:rack1,rack2,rack3"
+*/
+func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
+	topologyMap := make(map[string][]string)
+	var categories []string
+	if level != 5 {
+		return nil, categories
+	}
+	topologyCategories := strings.Split(topologyMapStr, ";")
+	for _, category := range topologyCategories {
+		categoryVal := strings.Split(category, ":")
+		key := categoryVal[0]
+		categories = append(categories, key)
+		values := strings.Split(categoryVal[1], ",")
+		topologyMap[key] = values
+	}
+	return topologyMap, categories
+}
+
+/*
+This wrapper method is used to create allowed topologies set required for creating Storage Class.
+*/
+func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
+	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
+	for key, val := range topologyMap {
+		allowedTopology := v1.TopologySelectorLabelRequirement{
+			Key:    topologykey + "/" + key,
+			Values: val,
+		}
+		allowedTopologies = append(allowedTopologies, allowedTopology)
+	}
+	return allowedTopologies
+}
+
+/*
+This is a wrapper method which is used to create a topology map of all tags and categoties.
+*/
+func createAllowedTopologiesMap(allowedTopologies []v1.TopologySelectorLabelRequirement) map[string][]string {
+	allowedTopologiesMap := make(map[string][]string)
+	for _, topologySelector := range allowedTopologies {
+		allowedTopologiesMap[topologySelector.Key] = topologySelector.Values
+	}
+	return allowedTopologiesMap
+}
+
+// GetPodList gets the current Pods in ss.
+func GetListOfPodsInSts(c clientset.Interface, ss *appsv1.StatefulSet) *v1.PodList {
+	selector, err := metav1.LabelSelectorAsSelector(ss.Spec.Selector)
+	framework.ExpectNoError(err)
+	var StatefulSetPods *v1.PodList = new(v1.PodList)
+	podList, err := c.CoreV1().Pods(ss.Namespace).List(context.TODO(),
+		metav1.ListOptions{LabelSelector: selector.String()})
+	framework.ExpectNoError(err)
+	for _, sspod := range podList.Items {
+		if strings.Contains(sspod.Name, ss.Name) {
+			StatefulSetPods.Items = append(StatefulSetPods.Items, sspod)
+		}
+	}
+	return StatefulSetPods
+}
+
+/*
+verifyVolumeTopologyForLevel5 verifies that the pv node affinity details should match the
+allowed topologies specified in the storage class.
+This method returns true if allowed topologies of SC matches with the PV node
+affinity details else return error and false.
+*/
+func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap map[string][]string) (bool, error) {
+	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
+		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
+	}
+	for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
+		for _, topology := range nodeSelector.MatchExpressions {
+			if val, ok := allowedTopologiesMap[topology.Key]; ok {
+				if !compareStringLists(val, topology.Values) {
+					return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+				}
+			} else {
+				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+			}
+		}
+	}
+	return true, nil
+}
+
+/*
+This is a wrapper method which is used to compare 2 string list and returns true if value matches else returns false.
+*/
+func compareStringLists(strList1 []string, strList2 []string) bool {
+	strMap := make(map[string]bool)
+	for _, str := range strList1 {
+		strMap[str] = true
+	}
+	for _, str := range strList2 {
+		if _, ok := strMap[str]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+/*
+For Statefulset Pod
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Statefulset verifies that PV
+node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on
+which PV is provisioned.
+*/
+func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
+	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelStatefulSetCreation bool) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	var ssPodsBeforeScaleDown *v1.PodList
+	if parallelStatefulSetCreation {
+		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
+	} else {
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+	}
+	for _, sspod := range ssPodsBeforeScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				// get pv details
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+				// verify pv node affinity details as specified on SC
+				ginkgo.By("Verifying PV node affinity details")
+				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+				if res {
+					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// fetch node details
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				// verify pod is running on appropriate nodes
+				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod %v is running on appropriate node as specified "+
+						"in the allowed topolgies of Storage Class", sspod.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+/*
+verifyPodLocationLevel5 verifies that a pod is scheduled on a node that belongs to the
+topology on which PV is provisioned.
+This method returns true if all topology labels matches else returns false and error.
+*/
+func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
+	allowedTopologiesMap map[string][]string) (bool, error) {
+	for _, node := range nodeList.Items {
+		if pod.Spec.NodeName == node.Name {
+			for labelKey, labelValue := range node.Labels {
+				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
+					if !contains(topologyValue, labelValue) {
+						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
+					}
+				}
+			}
+		}
+	}
+	return true, nil
+}
+
+// udpate updates a statefulset, and it is only used within rest.go
+func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.StatefulSet)) *appsv1.StatefulSet {
+	for i := 0; i < 3; i++ {
+		ss, err := c.AppsV1().StatefulSets(ns).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			framework.Failf("failed to get statefulset %q: %v", name, err)
+		}
+		update(ss)
+		ss, err = c.AppsV1().StatefulSets(ns).Update(context.TODO(), ss, metav1.UpdateOptions{})
+		if err == nil {
+			return ss
+		}
+		if !apierrors.IsConflict(err) && !apierrors.IsServerTimeout(err) {
+			framework.Failf("failed to update statefulset %q: %v", name, err)
+		}
+	}
+	framework.Failf("too many retries draining statefulset %q", name)
+	return nil
+}
+
+// Scale scales ss to count replicas.
+func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+	name := ss.Name
+	ns := ss.Namespace
+	StatefulSetPoll := 10 * time.Second
+	StatefulSetTimeout := 10 * time.Minute
+	framework.Logf("Scaling statefulset %s to %d", name, count)
+	ss = updateSts(c, ns, name, func(ss *appsv1.StatefulSet) { *(ss.Spec.Replicas) = count })
+
+	var statefulPodList *v1.PodList
+	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+		statefulPodList = GetListOfPodsInSts(c, ss)
+		if int32(len(statefulPodList.Items)) == count {
+			return true, nil
+		}
+		return false, nil
+	})
+	if pollErr != nil {
+		unhealthy := []string{}
+		for _, statefulPod := range statefulPodList.Items {
+			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase,
+				podutils.IsPodReady(&statefulPod)
+			if delTs != nil || phase != v1.PodRunning || !readiness {
+				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v",
+					statefulPod.Name, delTs, phase, readiness))
+			}
+		}
+		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. "+
+			"Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
+	}
+	return ss, nil
+}
+
+/*
+scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
+*/
+func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
+	var ssPodsAfterScaleDown *v1.PodList
+	if parallelStatefulSetCreation {
+		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
+	} else {
+		_, scaledownErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+	}
+
+	// After scale down, verify vSphere volumes are detached from deleted pods
+	ginkgo.By("Verify Volumes are detached from Nodes after Statefulsets is scaled down")
+	//ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	for _, sspod := range ssPodsAfterScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		if err != nil {
+			gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
+						client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+						fmt.Sprintf("Volume %q is not detached from the node %q",
+							pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				}
+			}
+		}
+	}
+	// After scale down, verify the attached volumes match those in CNS Cache
+	for _, sspod := range ssPodsAfterScaleDown.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+/*
+scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
+*/
+func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
+	var ssPodsAfterScaleUp *v1.PodList
+	if parallelStatefulSetCreation {
+		_, scaleupErr := ScaleDownSts(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+
+		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+	} else {
+		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+
+		ssPodsAfterScaleUp = fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+	}
+
+	// After scale up, verify all vSphere volumes are attached to node VMs.
+	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
+	for _, sspod := range ssPodsAfterScaleUp.Items {
+		err := fpod.WaitForPodsReady(client, statefulset.Namespace, sspod.Name, 0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range pod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				var vmUUID string
+				var exists bool
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if vanillaCluster {
+					vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
+				} else {
+					annotations := pod.Annotations
+					vmUUID, exists = annotations[vmUUIDLabel]
+					gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+					_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+				ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+/*
+This wrapper method is used to fetch allowed topologies from default topology set
+required for creating Storage Class specific to testcase scenarios.
+*/
+func getTopologySelector(topologyAffinityDetails map[string][]string,
+	topologyCategories []string, level int,
+	position ...int) []v1.TopologySelectorLabelRequirement {
+	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
+	updateLvl := -1
+	var rnges []int
+	if len(position) > 0 {
+		updateLvl = position[0]
+		rnges = position[1:]
+	}
+	for i := 0; i < level; i++ {
+		var values []string
+		category := topologyCategories[i]
+		if i == updateLvl {
+			for _, rng := range rnges {
+				values = append(values, topologyAffinityDetails[category][rng])
+			}
+		} else {
+			values = topologyAffinityDetails[category]
+		}
+		topologySelector := v1.TopologySelectorLabelRequirement{
+			Key:    topologykey + "/" + category,
+			Values: values,
+		}
+		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
+	}
+	return allowedTopologyForSC
+}
+
+// GetPodsForDeployment gets pods for the given deployment
+func GetPodsForMultipleDeployment(client clientset.Interface, deployment *appsv1.Deployment) (*v1.PodList, error) {
+	replicaSetSelector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+	if err != nil {
+		return nil, err
+	}
+	replicaSetListOptions := metav1.ListOptions{LabelSelector: replicaSetSelector.String()}
+	allReplicaSets, err := client.AppsV1().ReplicaSets(deployment.Namespace).List(context.TODO(), replicaSetListOptions)
+	if err != nil {
+		return nil, err
+	}
+	ownedReplicaSets := make([]*appsv1.ReplicaSet, 0, len(allReplicaSets.Items))
+	for _, rs := range allReplicaSets.Items {
+		if !metav1.IsControlledBy(&rs, deployment) {
+			continue
+		}
+		if strings.Contains(rs.Name, deployment.Name) {
+			ownedReplicaSets = append(ownedReplicaSets, &rs)
+		}
+	}
+	var replicaSet *appsv1.ReplicaSet
+	sort.Sort(replicaSetsByCreationTimestampDate(ownedReplicaSets))
+	for _, rs := range ownedReplicaSets {
+		replicaSet = rs
+	}
+
+	if replicaSet == nil {
+		return nil, fmt.Errorf("expected a new replica set for deployment %q, found none", deployment.Name)
+	}
+
+	podSelector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+	if err != nil {
+		return nil, err
+	}
+	podListOptions := metav1.ListOptions{LabelSelector: podSelector.String()}
+	allPods, err := client.CoreV1().Pods(deployment.Namespace).List(context.TODO(), podListOptions)
+	if err != nil {
+		return nil, err
+	}
+	ownedPods := &v1.PodList{Items: make([]v1.Pod, 0, len(allPods.Items))}
+	for _, pod := range allPods.Items {
+		if strings.Contains(pod.Name, deployment.Name) {
+			ownedPods.Items = append(ownedPods.Items, pod)
+		}
+	}
+	return ownedPods, nil
+}
+
+/*
+For Deployment Pod
+verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5 for Deployment verifies that PV node
+Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which
+PV is provisioned.
+*/
+func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
+	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelDeplCreation bool) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	var pods *v1.PodList
+	var err error
+	if parallelDeplCreation {
+		pods, err = GetPodsForMultipleDeployment(client, deployment)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pods, err = fdep.GetPodsForDeployment(client, deployment)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	for _, sspod := range pods.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				// get pv details
+				pv := getPvFromClaim(client, deployment.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+				// verify pv node affinity details as specified on SC
+				ginkgo.By("Verifying PV node affinity details")
+				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+				if res {
+					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
+					"specified allowed topologies of Storage Class", pv.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// fetch node details
+				nodeList, err := fnodes.GetReadySchedulableNodes(client)
+				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+				if !(len(nodeList.Items) > 0) {
+					framework.Failf("Unable to find ready and schedulable Node")
+				}
+				// verify pod is running on appropriate nodes
+				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				if res {
+					framework.Logf("Pod %v is running on appropriate node as specified in the "+
+						"allowed topolgies of Storage Class", sspod.Name)
+				}
+				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
+					"as specified in allowed topolgies of Storage Class", sspod.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				// Verify the attached volume match the one in CNS cache
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+}
+
+/*
+For Standalone Pod
+verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Standalone Pod verifies that PV
+node Affinity rules should match the topology constraints specified in the storage class.
+Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV
+is provisioned.
+*/
+func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
+	client clientset.Interface, pod *v1.Pod, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	for _, volumespec := range pod.Spec.Volumes {
+		if volumespec.PersistentVolumeClaim != nil {
+			// get pv details
+			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+
+			// verify pv node affinity details as specified on SC
+			ginkgo.By("Verifying PV node affinity details")
+			res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+			if res {
+				framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified "+
+				"allowed topologies of Storage Class", pv.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// fetch node details
+			nodeList, err := fnodes.GetReadySchedulableNodes(client)
+			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+			if !(len(nodeList.Items) > 0) {
+				framework.Failf("Unable to find ready and schedulable Node")
+			}
+			// verify pod is running on appropriate nodes
+			ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+			res, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
+			if res {
+				framework.Logf("Pod %v is running on appropriate node as specified in the allowed "+
+					"topolgies of Storage Class", pod.Name)
+			}
+			gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as "+
+				"specified in allowed topolgies of Storage Class", pod.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Verify the attached volume match the one in CNS cache
+			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+			gomega.Expect(error).NotTo(gomega.HaveOccurred())
+		}
+	}
+}
+
+func getPersistentVolumeSpecWithStorageClassFCDNodeSelector(volumeHandle string,
+	persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, storageClass string,
+	labels map[string]string, sizeOfDisk string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) *v1.PersistentVolume {
+	var (
+		pvConfig fpv.PersistentVolumeConfig
+		pv       *v1.PersistentVolume
+		claimRef *v1.ObjectReference
+	)
+	pvConfig = fpv.PersistentVolumeConfig{
+		NamePrefix: "vspherepv-",
+		PVSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{
+				Driver:       e2evSphereCSIDriverName,
+				VolumeHandle: volumeHandle,
+				ReadOnly:     false,
+				FSType:       "ext4",
+			},
+		},
+		Prebind: nil,
+	}
+
+	pv = &v1.PersistentVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: pvConfig.NamePrefix,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeReclaimPolicy: persistentVolumeReclaimPolicy,
+			Capacity: v1.ResourceList{
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse(sizeOfDisk),
+			},
+			PersistentVolumeSource: pvConfig.PVSource,
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			ClaimRef:         claimRef,
+			StorageClassName: storageClass,
+		},
+		Status: v1.PersistentVolumeStatus{},
+	}
+	if labels != nil {
+		pv.Labels = labels
+	}
+	// Annotation needed to delete a statically created pv.
+	annotations := make(map[string]string)
+	annotations["pv.kubernetes.io/provisioned-by"] = e2evSphereCSIDriverName
+	pv.Annotations = annotations
+	pv.Spec.NodeAffinity = new(v1.VolumeNodeAffinity)
+	pv.Spec.NodeAffinity.Required = new(v1.NodeSelector)
+	pv.Spec.NodeAffinity.Required.NodeSelectorTerms = getNodeSelectorTerms(allowedTopologies)
+	return pv
+}
+
+func getNodeSelectorTerms(allowedTopologies []v1.TopologySelectorLabelRequirement) []v1.NodeSelectorTerm {
+	var nodeSelectorRequirements []v1.NodeSelectorRequirement
+	var nodeSelectorTerms []v1.NodeSelectorTerm
+
+	for i := 0; i < len(allowedTopologies)-1; i++ {
+		topologySelector := allowedTopologies[i]
+		var nodeSelectorRequirement v1.NodeSelectorRequirement
+		nodeSelectorRequirement.Key = topologySelector.Key
+		nodeSelectorRequirement.Operator = "In"
+		nodeSelectorRequirement.Values = topologySelector.Values
+		nodeSelectorRequirements = append(nodeSelectorRequirements, nodeSelectorRequirement)
+	}
+	rackTopology := allowedTopologies[len(allowedTopologies)-1]
+	for i := 0; i < len(rackTopology.Values); i++ {
+		var nodeSelectorTerm v1.NodeSelectorTerm
+		var nodeSelectorRequirement v1.NodeSelectorRequirement
+		nodeSelectorRequirement.Key = rackTopology.Key
+		nodeSelectorRequirement.Operator = "In"
+		nodeSelectorRequirement.Values = append(nodeSelectorRequirement.Values, rackTopology.Values[i])
+		nodeSelectorTerm.MatchExpressions = append(nodeSelectorRequirements, nodeSelectorRequirement)
+		nodeSelectorTerms = append(nodeSelectorTerms, nodeSelectorTerm)
+	}
+	return nodeSelectorTerms
+}
+
+// replicaSetsByCreationTimestamp sorts a list of ReplicaSet by creation timestamp, using their names as a tie breaker.
+type replicaSetsByCreationTimestampDate []*appsv1.ReplicaSet
+
+func (o replicaSetsByCreationTimestampDate) Len() int      { return len(o) }
+func (o replicaSetsByCreationTimestampDate) Swap(i, j int) { o[i], o[j] = o[j], o[i] }
+func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
+	if o[i].CreationTimestamp.Equal(&o[j].CreationTimestamp) {
+		return o[i].Name < o[j].Name
+	}
+	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
 }

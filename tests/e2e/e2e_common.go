@@ -169,6 +169,11 @@ const (
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
+	topologykey                                = "topology.csi.vmware.com"
+	topologyMap                                = "TOPOLOGY_MAP"
+	datstoreSharedBetweenClusters              = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
+	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
+	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
 )
 
 // The following variables are required to know cluster type to run common e2e
