@@ -90,6 +90,14 @@ func IsInvalidArgumentError(err error) bool {
 	return isInvalidArgumentError
 }
 
+func IsVimFaultNotFoundError(err error) bool {
+	isNotFoundError := false
+	if soap.IsVimFault(err) {
+		_, isNotFoundError = soap.ToVimFault(err).(*types.NotFound)
+	}
+	return isNotFoundError
+}
+
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject
 // object from given parameters.
 func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
