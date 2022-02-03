@@ -4169,16 +4169,16 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace string, fss string) bool {
 	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	fssFound := false
+	// fssFound := false
 	for k, v := range fssCM.Data {
 		if fss == k {
-			fssFound = true
+			// fssFound = true
 			if v == "true" {
 				return true
 			}
 		}
 	}
-	gomega.Expect(fssFound).To(
-		gomega.BeTrue(), "FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+	// gomega.Expect(fssFound).To(
+	// 	gomega.BeTrue(), "FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
 	return false
 }
