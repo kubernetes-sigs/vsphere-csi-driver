@@ -971,8 +971,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
 		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)

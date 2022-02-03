@@ -589,37 +589,47 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
 // volumeId.
-func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64, useAsyncQueryVolume,
-	isIdempotencyHandlingEnabled bool) (string, error) {
+func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64,
+	useAsyncQueryVolume bool) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
 	var faultType string
-	if isIdempotencyHandlingEnabled {
-		// Avoid querying volume when idempotency handling is enabled.
+	var isvSphere8AndAbove, expansionRequired bool
+
+	// Checking if vsphere version is 8 and above.
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		log.Errorf("failed to get vcenter. err=%v", err)
+		return csifault.CSIInternalFault, err
+	}
+	isvSphere8AndAbove, err = IsvSphere8AndAbove(ctx, vc.Client.ServiceContent.About)
+	if err != nil {
+		return "", logger.LogNewErrorf(log,
+			"Error while determining whether vSphere version is 8 and above %q. Error= %+v",
+			vc.Client.ServiceContent.About.ApiVersion, err)
+	}
+
+	if !isvSphere8AndAbove {
+		// Query Volume to check Volume Size for vSphere version below 8.0
+		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
+		if err != nil {
+			return csifault.CSIInternalFault, err
+		}
+	} else {
+		// Skip Query Volume to check Volume Size if vSphere version is 8.0 and above
+		expansionRequired = true
+	}
+	if expansionRequired {
 		faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 			return faultType, err
 		}
-		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
-		return "", nil
-	} else {
-		expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
-		if err != nil {
-			return csifault.CSIInternalFault, err
-		}
-		if expansionRequired {
-			faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
-			if err != nil {
-				log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-				return faultType, err
-			}
-			log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
+		log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
 
-		} else {
-			log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
-		}
+	} else {
+		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
 	}
 	return "", nil
 }
