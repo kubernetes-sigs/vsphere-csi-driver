@@ -3499,7 +3499,7 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 		if node.Name == nodeName {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
-				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+				if addr.Type == v1.NodeInternalIP && (net.ParseIP(addr.Address)).To4() != nil {
 					windowsWorkerIp = addr.Address
 				}
 			}
@@ -3511,23 +3511,35 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 
 }
 
-func execCommanOnWindowsWorker(windowsWorkerIP string) string {
-
-	client, err := simplessh.ConnectWithPassword("10.92.207.193","kubo","Ponies!23")
+func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64{
+	// ips := getK8sMasterIPs(ctx,client)
+	// k8sMasterIP := ips[0]
+	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP,"Administrator",esxPassword)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer client.Close()
-	cmd := "ssh capv@" + windowsWorkerIP + " 'Get-Partition -DiskNumber 1 -PartitionNumber 2 | Format-List -Property Size'"
+	defer sshClient.Close()
+	//cmd := "ssh capv@" + windowsWorkerIP + " 'Get-Partition -DiskNumber 1 -PartitionNumber 2 | Format-List -Property Size'"
+	// cmd := fmt.Sprintf(
+	// 	"sshpass -p %s ssh Administrator@%s -o 'StrictHostKeyChecking no' 'Get-Disk | Format-List -Property Manufacturer,Size'",
+	// 	esxPassword, windowsWorkerIP)
+	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
 	framework.Logf("command to be executed in windows node %s", cmd)
-	output, err := client.Exec(cmd)
-	framework.Logf("output  %s",output)
+	output, err := sshClient.Exec(cmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	trimmed_size := strings.Split(string(output), ":")
-	size := strings.TrimSpace(trimmed_size[1])
-	framework.Logf("size %s", size)
-
-	return size
-
+	framework.Logf("GetDisk output %s\n",string(output))
+	fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	var originalSizeInbytes int64
+	for index, line := range fullStr {
+		if strings.Contains(line, "VMware") {
+			sizeList := strings.Split(fullStr[index+1],":")
+			size := strings.TrimSpace(sizeList[1])
+			originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+			if (originalSizeInbytes < 96636764160) {
+				return originalSizeInbytes
+			}
+		}
+	}
+	return originalSizeInbytes
 }
 
 // getK8sMasterIP gets k8s master ip in vanilla setup.
@@ -4038,7 +4050,33 @@ func waitForCSIMigrationFeatureGatesToggleOnkublet(ctx context.Context,
 // gates to kubelet config yaml in given k8s node.
 func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	client clientset.Interface, nodeIP string, shouldAdd bool) {
-	grepCmd := "grep CSIMigration " + kubeletConfigYaml
+	var grepCmd, copyCmd, windowskubeletConfigFile string
+	//kubeletConfigYamlstr := "/var/lib/kubelet/config.yaml"
+	if windowsEnv {
+		//kubeletConfigYamlstr = windowskubeletConfigYaml
+		windowskubeletConfigFile = "C:\\Users\\Administrator\\copyConfig.yaml"
+		copyCmd = fmt.Sprintf("cp %s %s", windowskubeletConfigYaml, windowskubeletConfigFile)
+		grepCmd = "findstr CSIMigration " + kubeletConfigYaml
+
+		framework.Logf("Invoking command '%v' on host %v", copyCmd, nodeIP)
+		sshClientConfig := &ssh.ClientConfig	{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(k8sVmPasswd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+	
+		result, err := sshExec(sshClientConfig, nodeIP, copyCmd)
+		if err != nil {
+			fssh.LogResult(result)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", copyCmd, nodeIP))
+		}
+	}else{
+		grepCmd = "grep CSIMigration " + kubeletConfigYaml
+	}
+	
 	framework.Logf("Invoking command '%v' on host %v", grepCmd, nodeIP)
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
@@ -4047,7 +4085,6 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-
 	result, err := sshExec(sshClientConfig, nodeIP, grepCmd)
 	if err != nil {
 		fssh.LogResult(result)
@@ -4055,19 +4092,57 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", grepCmd, nodeIP))
 	}
 
+	var kube_yaml string 
 	var sshCmd string
 	if result.Code != 0 && shouldAdd {
-		// Please don't change alignment in below assignment.
-		sshCmd = `echo "featureGates:
-  {
-    "CSIMigration": true,
-	"CSIMigrationvSphere": true
-  }" >>` + kubeletConfigYaml
-	} else if result.Code == 0 && !shouldAdd {
-		sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+		if windowsEnv {
+			kube_yaml, err = filepath.Abs(gcManifestPath + "kubeletConfig.yaml")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Taking yaml from %v", kube_yaml)
+			sshCmd = fmt.Sprintf("sshpass -p 'ca$hc0w' scp -o StrictHostKeyChecking=no %s Administrator@%s:/Users/Administrator/nodeConfig.yaml", kube_yaml, nodeIP)
+			framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
+			result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
+			if err != nil && result.Code != 0 {
+				fssh.LogResult(result)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, nodeIP))
+			}
+
+			sshCmd = fmt.Sprintf("mv c:\\Users\\Administrator\\nodeConfig.yaml %s", windowskubeletConfigYaml)
+
+		}else {
+			return
+		}
+	}else if result.Code == 0 && !shouldAdd {
+		if windowsEnv{
+			//sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+			sshCmd = fmt.Sprintf("mv %s %s", windowskubeletConfigFile, windowskubeletConfigYaml)
+		}else{
+			sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+		}
 	} else {
 		return
 	}
+	
+	
+// 	if result.Code != 0 && shouldAdd {
+// 		// Please don't change alignment in below assignment.
+// 		sshCmd = `echo "featureGates:
+//   {
+//     "CSIMigration": true,
+// 	"CSIMigrationvSphere": true
+//   }" | add-content ` + kubeletConfigYamlstr
+// 	} else if result.Code == 0 && !shouldAdd {
+// 		if windowsEnv{
+// 			//sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+// 			sshCmd = fmt.Sprintf("mv %s %s", windowskubeletConfigFile, windowskubeletConfigYaml)
+// 		}else{
+// 			sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+// 		}
+// 	} else {
+// 		return
+// 	}
+
 	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
 	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
 	if err != nil && result.Code != 0 {
@@ -4075,7 +4150,14 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, nodeIP))
 	}
-	restartKubeletCmd := "systemctl daemon-reload && systemctl restart kubelet"
+
+	var restartKubeletCmd string
+	if windowsEnv{
+		restartKubeletCmd = "sc.exe stop kubelet; sc.exe start kubelet"
+	}else {
+		restartKubeletCmd = "systemctl daemon-reload && systemctl restart kubelet"
+	}
+	
 	framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
 	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
 	if err != nil && result.Code != 0 {

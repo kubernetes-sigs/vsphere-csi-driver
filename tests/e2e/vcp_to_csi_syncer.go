@@ -1542,9 +1542,17 @@ func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client client
 	namespace string, pvclaims []*v1.PersistentVolumeClaim) *v1.Pod {
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV(s) to a node")
-	pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var pod *v1.Pod
+	var err error
+	if windowsEnv {
+		pod, err = createPod(client, namespace, nil, pvclaims, false, windowsCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	} else {
+		pod, err = createPod(client, namespace, nil, pvclaims, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	
 	var exists bool
 	var vmUUID string
 
@@ -1570,6 +1578,11 @@ func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client client
 			"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		if windowsEnv{
+			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+				[]string{"powershell.exe", "cat", "C:\\mnt\\volume1\\data.txt"}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
