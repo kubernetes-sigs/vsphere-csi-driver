@@ -14,12 +14,14 @@ import (
 )
 
 var (
-	validMigratedPVCMetadata   metav1.ObjectMeta
-	validMigratedPVMetadata    metav1.ObjectMeta
-	validLegacyPVCMetadata     metav1.ObjectMeta
-	validLegacyPVMetadata      metav1.ObjectMeta
-	invalidMigratedPVCMetadata metav1.ObjectMeta
-	invalidMigratedPVMetadata  metav1.ObjectMeta
+	validMigratedPVCMetadata                            metav1.ObjectMeta
+	validMigratedPVCMetadataWithGAStorageProvisionerAnn metav1.ObjectMeta
+	validMigratedPVMetadata                             metav1.ObjectMeta
+	validLegacyPVCMetadata                              metav1.ObjectMeta
+	validLegacyPVCMetadataWithGAStorageProvisionerAnn   metav1.ObjectMeta
+	validLegacyPVMetadata                               metav1.ObjectMeta
+	invalidMigratedPVCMetadata                          metav1.ObjectMeta
+	invalidMigratedPVMetadata                           metav1.ObjectMeta
 )
 
 func init() {
@@ -30,10 +32,23 @@ func init() {
 			"volume.beta.kubernetes.io/storage-provisioner": "kubernetes.io/vsphere-volume",
 		},
 	}
+	validMigratedPVCMetadataWithGAStorageProvisionerAnn = metav1.ObjectMeta{
+		Name: "migrated-vcppvc",
+		Annotations: map[string]string{
+			"pv.kubernetes.io/migrated-to":             "csi.vsphere.vmware.com",
+			"volume.kubernetes.io/storage-provisioner": "kubernetes.io/vsphere-volume",
+		},
+	}
 	validLegacyPVCMetadata = metav1.ObjectMeta{
 		Name: "vcppvcProvisionedByCSI",
 		Annotations: map[string]string{
 			"volume.beta.kubernetes.io/storage-provisioner": "csi.vsphere.vmware.com",
+		},
+	}
+	validLegacyPVCMetadataWithGAStorageProvisionerAnn = metav1.ObjectMeta{
+		Name: "vcppvcProvisionedByCSI",
+		Annotations: map[string]string{
+			"volume.kubernetes.io/storage-provisioner": "csi.vsphere.vmware.com",
 		},
 	}
 	validMigratedPVMetadata = metav1.ObjectMeta{
@@ -72,7 +87,13 @@ func TestValidMigratedAndLegacyVolume(t *testing.T) {
 	if !isValidvSphereVolumeClaim(ctx, validMigratedPVCMetadata) {
 		t.Errorf("Expected: isValidvSphereVolumeClaim to return True\n Actual: isValidvSphereVolumeClaim returned False")
 	}
+	if !isValidvSphereVolumeClaim(ctx, validMigratedPVCMetadataWithGAStorageProvisionerAnn) {
+		t.Errorf("Expected: isValidvSphereVolumeClaim to return True\n Actual: isValidvSphereVolumeClaim returned False")
+	}
 	if !isValidvSphereVolumeClaim(ctx, validLegacyPVCMetadata) {
+		t.Errorf("Expected: isValidvSphereVolumeClaim to return True\n Actual: isValidvSphereVolumeClaim returned False")
+	}
+	if !isValidvSphereVolumeClaim(ctx, validLegacyPVCMetadataWithGAStorageProvisionerAnn) {
 		t.Errorf("Expected: isValidvSphereVolumeClaim to return True\n Actual: isValidvSphereVolumeClaim returned False")
 	}
 	if isValidvSphereVolumeClaim(ctx, invalidMigratedPVCMetadata) {
