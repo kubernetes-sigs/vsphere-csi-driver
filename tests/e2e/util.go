@@ -1548,6 +1548,64 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 
 }
 
+//Setup new tkg yaml for second guest cluster
+func setupTKGyaml(wcpHost string, wcpToken string, gcName string, gc2Name string) TKGCluster {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	getGCURL := "https://" + wcpHost + tkgAPI + gcName
+	framework.Logf("URL %v", getGCURL)
+	wcpToken = "Bearer " + wcpToken
+	req, err := http.NewRequest("GET", getGCURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("Authorization", wcpToken)
+
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+	response := string(bodyBytes)
+	framework.Logf("response %v", response)
+
+	//Using Existing TKG Yaml of First Guest Cluster - Setup new TKG Yaml
+
+	var tkg TKGCluster
+	err = yaml.Unmarshal(bodyBytes, &tkg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("tkg version %s", tkg.Spec.Distribution.Version)
+
+	//Setup new tkg.yaml configuration
+	distributionVersion := tkg.Spec.Distribution.Version
+
+	//Create and add new tkg.yaml file
+	var tkg_2 TKGCluster
+	path, err := filepath.Abs(gcManifestPath + "tkg.yaml")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Taking yaml from %v", path)
+
+	//Read exisiting Yaml File
+	yamlFile, err := ioutil.ReadFile(path)
+
+	err = yaml.Unmarshal(yamlFile, &tkg_2)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	//Update Spec Version & GC name for the second tkg.yaml
+	tkg_2.Spec.Distribution.Version = distributionVersion
+	tkg_2.Metadata.Name = gc2Name
+
+	new_data, err := yaml.Marshal(&tkg_2)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	//newpath, err := filepath.Abs(gcManifestPath + "tkg_1.yaml")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	to_write := string(new_data)
+	err = writeToFile(path, to_write)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return tkg_2
+}
+
 //getGC polls for the GC status, returns error if its not in running phase
 func getGC(wcpHost string, wcpToken string, gcName string) error {
 	var response string

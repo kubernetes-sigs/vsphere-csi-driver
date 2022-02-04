@@ -164,6 +164,7 @@ const (
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	devopsTKG                                 = "test-cluster-e2e-script"
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
+	onpremrootTKG                             = "test-cluster-e2e-script-2"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
