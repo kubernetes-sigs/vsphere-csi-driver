@@ -4060,7 +4060,7 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 
 		framework.Logf("Invoking command '%v' on host %v", copyCmd, nodeIP)
 		sshClientConfig := &ssh.ClientConfig	{
-			User: "root",
+			User: "Administrator",
 			Auth: []ssh.AuthMethod{
 				ssh.Password(k8sVmPasswd),
 			},
