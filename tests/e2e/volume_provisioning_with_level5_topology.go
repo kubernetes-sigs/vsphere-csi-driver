@@ -32,6 +32,7 @@ import (
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -64,9 +65,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		leafNodeTag2              int
 	)
 	ginkgo.BeforeEach(func() {
+		var cancel context.CancelFunc
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -88,9 +97,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		SharedDSURLToSpecificCluster := GetAndExpectStringEnvVar(datastoreUrlSpecificToCluster)
-		var cancel context.CancelFunc
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -109,6 +116,18 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			DSSharedToSpecificCluster, err = getDatastoreByURL(ctx, SharedDSURLToSpecificCluster,
 				defaultDatacenter)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	})
+
+	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+		fss.DeleteAllStatefulSets(client, namespace)
+		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
