@@ -4153,19 +4153,38 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 
 	var restartKubeletCmd string
 	if windowsEnv{
-		restartKubeletCmd = "sc.exe stop kubelet; sc.exe start kubelet"
+		restartKubeletCmd = "sc.exe stop kubelet"
+		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
+		result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, nodeIP))
+
+		}
+		restartKubeletCmd = "sc.exe start kubelet"
+		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
+		result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, nodeIP))
+
+		}
 	}else {
 		restartKubeletCmd = "systemctl daemon-reload && systemctl restart kubelet"
-	}
-	
-	framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
-	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
-	if err != nil && result.Code != 0 {
-		fssh.LogResult(result)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
+		result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, nodeIP))
-	}
+		}
+	}	
+	
 }
+	
+	
 
 // getK8sNodeIP returns the IP for the given k8s node.
 func getK8sNodeIP(node *v1.Node) string {
