@@ -253,12 +253,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			volumeType = prometheus.PrometheusBlockVolumeType
 		}
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) && isFileVolumeRequest &&
-			req.AccessibilityRequirements != nil {
-			msg := "File Volumes are currently not supported with TKGS HA feature"
-			log.Error(msg)
-			return nil, csifault.CSIUnimplementedFault, status.Errorf(codes.Unimplemented, msg)
-		}
 		// Get PVC name and disk size for the supervisor cluster
 		// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
 		supervisorPVCName := c.tanzukubernetesClusterUID + "-" + req.Name[4:]
@@ -297,8 +291,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
-					annotations[common.AnnBetaStorageProvisioner] = common.VSphereCSIDriverName
-					annotations[common.AnnStorageProvisioner] = common.VSphereCSIDriverName
 				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
 					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations)
