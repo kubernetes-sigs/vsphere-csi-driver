@@ -4104,18 +4104,20 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 			conn, err := net.Dial("udp", "8.8.8.8:80")  
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer conn.Close()  
- 			ipAddress := conn.LocalAddr().(*net.UDPAddr)
-		    workerIP := string(ipAddress.IP)
+ 			ipAddress := conn.LocalAddr().String()
+		    workerIP := strings.Split(ipAddress, ":")
+			framework.Logf("worker IP %s", workerIP[0])
 			
-			framework.Logf("Invoking command '%v' on host %v", sshCmd, workerIP)
+			
+			framework.Logf("Invoking command '%v' on host %v", sshCmd, workerIP[0])
 			sshClientConfig := &ssh.ClientConfig{
-				User: "root",
+				User: "worker",
 				Auth: []ssh.AuthMethod{
 					ssh.Password(k8sVmPasswd),
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
-			result, err = sshExec(sshClientConfig, workerIP, sshCmd)
+			result, err = sshExec(sshClientConfig, workerIP[0], sshCmd)
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
