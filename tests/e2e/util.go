@@ -4100,15 +4100,29 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Taking yaml from %v", kube_yaml)
 			sshCmd = fmt.Sprintf("sshpass -p 'ca$hc0w' scp -o StrictHostKeyChecking=no %s Administrator@%s:/Users/Administrator/nodeConfig.yaml", kube_yaml, nodeIP)
-			framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
-			result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
+			
+			conn, err := net.Dial("udp", "8.8.8.8:80")  
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer conn.Close()  
+ 			ipAddress := conn.LocalAddr().(*net.UDPAddr)
+		    workerIP := string(ipAddress.IP)
+			
+			framework.Logf("Invoking command '%v' on host %v", sshCmd, workerIP)
+			sshClientConfig := &ssh.ClientConfig{
+				User: "root",
+				Auth: []ssh.AuthMethod{
+					ssh.Password(k8sVmPasswd),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			}
+			result, err = sshExec(sshClientConfig, workerIP, sshCmd)
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, nodeIP))
+					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", sshCmd, workerIP))
 			}
 
-			sshCmd = fmt.Sprintf("mv c:\\Users\\Administrator\\nodeConfig.yaml %s", windowskubeletConfigYaml)
+			sshCmd = fmt.Sprintf("cp c:\\Users\\Administrator\\nodeConfig.yaml %s", windowskubeletConfigYaml)
 
 		}else {
 			return
