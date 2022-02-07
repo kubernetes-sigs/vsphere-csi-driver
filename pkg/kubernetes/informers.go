@@ -171,6 +171,19 @@ func (im *InformerManager) AddPodListener(
 	})
 }
 
+// AddVolumeAttachmentListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddVolumeAttachmentListener(
+	add func(obj interface{}), remove func(obj interface{})) {
+	if im.volumeAttachmentInformer == nil {
+		im.volumeAttachmentInformer = im.informerFactory.Storage().V1().VolumeAttachments().Informer()
+	}
+
+	im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		DeleteFunc: remove,
+	})
+}
+
 // GetPVLister returns PV Lister for the calling informer manager.
 func (im *InformerManager) GetPVLister() corelisters.PersistentVolumeLister {
 	return im.informerFactory.Core().V1().PersistentVolumes().Lister()

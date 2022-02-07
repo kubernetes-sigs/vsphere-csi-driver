@@ -50,6 +50,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"file-volume":           "true",
 				"block-volume-snapshot": "true",
 				"tkgs-ha":               "true",
+				"list-volumes":          "true",
 			},
 		}
 		return fakeCO, nil
@@ -209,4 +210,10 @@ func (f *fakeVolumeOperationRequestInterface) StoreRequestDetails(
 ) error {
 	f.volumeOperationRequestMap[instance.Name] = instance
 	return nil
+}
+
+// GetNodesForVolumes returns nodeNames to which the given volumeIDs are attached
+func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID []string) map[string][]string {
+	nodeNames := make(map[string][]string)
+	return nodeNames
 }

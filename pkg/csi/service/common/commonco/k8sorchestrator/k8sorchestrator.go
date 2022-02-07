@@ -29,6 +29,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -103,14 +104,45 @@ func (m *volumeIDToPvcMap) get(volumeHandle string) string {
 	return m.items[volumeHandle]
 }
 
+// Map of volumeID to the list of node names in the cluster.
+// Key is the volume ID and value is the list of published nodes for the volume
+// The methods to add, remove and get entries from the map in a threadsafe
+// manner are defined.
+type volumeIDToNodesMap struct {
+	*sync.RWMutex
+	items map[string][]string
+}
+
+// Adds an entry to volumeIDToNodesMap in a thread safe manner.
+func (m *volumeIDToNodesMap) add(volumeID string, nodes []string) {
+	m.Lock()
+	defer m.Unlock()
+	m.items[volumeID] = nodes
+}
+
+// Removes a volumeID from the volumeIDToNodesMap in a thread safe manner.
+func (m *volumeIDToNodesMap) remove(volumeID string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.items, volumeID)
+}
+
+// Returns the list of published nodes for the given volumeID in a thread safe manner.
+func (m *volumeIDToNodesMap) get(volumeID string) []string {
+	m.RLock()
+	defer m.RUnlock()
+	return m.items[volumeID]
+}
+
 // K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
-	supervisorFSS    FSSConfigMapInfo
-	internalFSS      FSSConfigMapInfo
-	informerManager  *k8s.InformerManager
-	clusterFlavor    cnstypes.CnsClusterFlavor
-	volumeIDToPvcMap *volumeIDToPvcMap
-	k8sClient        clientset.Interface
+	supervisorFSS      FSSConfigMapInfo
+	internalFSS        FSSConfigMapInfo
+	informerManager    *k8s.InformerManager
+	clusterFlavor      cnstypes.CnsClusterFlavor
+	volumeIDToPvcMap   *volumeIDToPvcMap
+	volumeIDToNodesMap *volumeIDToNodesMap
+	k8sClient          clientset.Interface
 }
 
 // K8sGuestInitParams lists the set of parameters required to run the init for
@@ -173,6 +205,11 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 				initVolumeHandleToPvcMap(ctx)
 			}
+
+			if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
+				initVolumeIDToNodesMap(ctx)
+			}
+
 			k8sOrchestratorInstance.informerManager.Listen()
 			atomic.StoreUint32(&k8sOrchestratorInstanceInitialized, 1)
 			log.Info("k8sOrchestratorInstance initialized")
@@ -941,4 +978,100 @@ func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string
 		}
 	}
 	return nil
+}
+
+// initVolumeIDToNodesMap performs all the operations required to initialize
+// the volume id to node names map. It also watches for volume attachment add,
+// update & delete operations, and updates the map accordingly.
+func initVolumeIDToNodesMap(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Initializing volumeID to node name map")
+	k8sOrchestratorInstance.volumeIDToNodesMap = &volumeIDToNodesMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string][]string),
+	}
+
+	// Set up kubernetes resource listener to listen events on volume attachments
+	k8sOrchestratorInstance.informerManager.AddVolumeAttachmentListener(
+		func(obj interface{}) { // Add.
+			volumeAttachmentAdded(obj)
+		},
+		func(obj interface{}) { // Delete.
+			volumeAttachmentDeleted(obj)
+		})
+}
+
+// volumeAttachmentAdded adds a new entry or updates an existing entry
+// in the volumeIDToNodeNames map if the volume attachment status is
+// true
+func volumeAttachmentAdded(obj interface{}) {
+	log := logger.GetLogger(context.Background())
+	volAttach, ok := obj.(*storagev1.VolumeAttachment)
+	if volAttach == nil || !ok {
+		log.Warnf("volumeAttachmentAdded: unrecognized object %+v", obj)
+		return
+	}
+
+	log.Debugf("volumeAttachmentAdded: volume=%v", volAttach)
+	if volAttach.Status.Attached {
+		volumeID := *volAttach.Spec.Source.PersistentVolumeName
+		nodeName := volAttach.Spec.NodeName
+		nodes := k8sOrchestratorInstance.volumeIDToNodesMap.get(volumeID)
+		found := false
+		for _, node := range nodes {
+			if node == nodeName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			nodes = append(nodes, nodeName)
+			log.Debugf("volumeAttachmentAdded: Adding nodeName %s to volumeID %s:%v map", nodeName, volumeID, nodes)
+			k8sOrchestratorInstance.volumeIDToNodesMap.add(volumeID, nodes)
+		}
+	}
+}
+
+// volumeAttachmentDeleted deletes an entry or removes node name form an
+// existing entry in the volumeIDToNodeNames map if the volume attachment
+// status is false
+func volumeAttachmentDeleted(obj interface{}) {
+	log := logger.GetLogger(context.Background())
+	volAttach, ok := obj.(*storagev1.VolumeAttachment)
+	if volAttach == nil || !ok {
+		log.Warnf("volumeAttachmentDeleted: unrecognized object %+v", obj)
+		return
+	}
+	if !volAttach.Status.Attached {
+		log.Debugf("volumeAttachmentDeleted: volume attachment deleted: volume=%v", volAttach)
+		volumeID := *volAttach.Spec.Source.PersistentVolumeName
+		nodeName := volAttach.Spec.NodeName
+		nodes := k8sOrchestratorInstance.volumeIDToNodesMap.get(volumeID)
+		found := false
+		for i, node := range nodes {
+			if node == nodeName {
+				nodes = append(nodes[:i], nodes[i+1:]...)
+				found = true
+				break
+			}
+		}
+		if found {
+			log.Debugf("volumeAttachmentDeleted: Deleting nodeName %s to volumeID %s map", nodeName, volumeID)
+			if len(nodes) == 0 {
+				k8sOrchestratorInstance.volumeIDToNodesMap.remove(volumeID)
+			} else {
+				k8sOrchestratorInstance.volumeIDToNodesMap.add(volumeID, nodes)
+			}
+		}
+	}
+}
+
+// GetNodesForVolumes returns a map containing the volumeID to node names map for the given
+// list of volumeIDs
+func (c *K8sOrchestrator) GetNodesForVolumes(ctx context.Context, volumeIDs []string) map[string][]string {
+	volumeIDToNodeNames := make(map[string][]string)
+	for _, volumeID := range volumeIDs {
+		volumeIDToNodeNames[volumeID] = c.volumeIDToNodesMap.get(volumeID)
+	}
+	return volumeIDToNodeNames
 }
