@@ -4361,13 +4361,15 @@ func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPa
 	return nil
 }
 
-// ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and cmd is not execute in any subsequent Pods.
+/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+cmd is not execute in any subsequent Pods. */
 func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
 	podList := GetListOfPodsInSts(c, ss)
 	StatefulSetPoll := 10 * time.Second
 	StatefulPodTimeout := 5 * time.Minute
 	for _, statefulPod := range podList.Items {
-		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace, statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace,
+			statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
 		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
 		if err != nil {
 			return err
@@ -4381,7 +4383,8 @@ func GetListOfPodsInSts(c clientset.Interface, ss *appsv1.StatefulSet) *v1.PodLi
 	selector, err := metav1.LabelSelectorAsSelector(ss.Spec.Selector)
 	framework.ExpectNoError(err)
 	var StatefulSetPods *v1.PodList = new(v1.PodList)
-	podList, err := c.CoreV1().Pods(ss.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: selector.String()})
+	podList, err := c.CoreV1().Pods(ss.Namespace).List(context.TODO(),
+		metav1.ListOptions{LabelSelector: selector.String()})
 	framework.ExpectNoError(err)
 	for _, sspod := range podList.Items {
 		if strings.Contains(sspod.Name, ss.Name) {
@@ -4544,10 +4547,12 @@ func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*
 		for _, statefulPod := range statefulPodList.Items {
 			delTs, phase, readiness := statefulPod.DeletionTimestamp, statefulPod.Status.Phase, podutils.IsPodReady(&statefulPod)
 			if delTs != nil || phase != v1.PodRunning || !readiness {
-				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, readiness %v", statefulPod.Name, delTs, phase, readiness))
+				unhealthy = append(unhealthy, fmt.Sprintf("%v: deletion %v, phase %v, "+
+					"readiness %v", statefulPod.Name, delTs, phase, readiness))
 			}
 		}
-		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
+		return ss, fmt.Errorf("failed to scale statefulset to %d in %v. "+
+			"Remaining pods:\n%v", count, StatefulSetTimeout, unhealthy)
 	}
 	return ss, nil
 }
