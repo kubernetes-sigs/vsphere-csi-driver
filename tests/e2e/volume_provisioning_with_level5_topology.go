@@ -1017,6 +1017,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		9. Delete POD, PVC, PV and SC.
 	*/
 	ginkgo.It("Verify static volume provisioning with FCD and storage class with allowed topologies", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		/* Get allowed topologies for Storage Class
@@ -1089,8 +1090,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod *v1.Pod
+
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsCommand)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle,
 			pod.Spec.NodeName))

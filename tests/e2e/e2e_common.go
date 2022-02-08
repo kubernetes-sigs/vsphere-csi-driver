@@ -85,8 +85,13 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
-	ext3FSType                                = "ext3"
-	ext4FSType                                = "ext4"
+	ext3FSType       = "ext3"
+	windowsLTSCImage = "mcr.microsoft.com/windows/servercore:ltsc2019"
+	windowsCommand   = "while (1) " +
+		" { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
+	windowskubeletConfigYaml = "C:\\var\\lib\\kubelet\\config.yaml"
+
+	ext4FSType                                = "ntfs"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
 	healthGreen                               = "green"
@@ -183,6 +188,7 @@ var (
 	supervisorCluster bool
 	guestCluster      bool
 	rwxAccessMode     bool
+	windowsEnv        bool
 )
 
 // For VCP to CSI migration tests.
@@ -242,6 +248,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 		guestCluster = true
 	default:
 		vanillaCluster = true
+	}
+	//Check if its windows env
+	workerNode := os.Getenv("WORKER_NODE")
+	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
+		windowsEnv = true
 	}
 
 	// Check if the access mode is set for File volume setups
