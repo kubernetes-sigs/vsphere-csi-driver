@@ -21,17 +21,20 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
 	vsan "github.com/vmware/govmomi/vsan"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 )
 
 type FaultDomains struct {
@@ -62,6 +65,11 @@ func initialiseFdsVar(ctx context.Context) {
 	gomega.Expect(len(hostsWithoutFD) == 1).To(gomega.BeTrue())
 	fds.witness = hostsWithoutFD[0]
 
+}
+
+func siteFailureInParallel(primarySite bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+	siteFailover(primarySite)
 }
 
 //siteFailover causes a site failover by powering off hosts of the given site
@@ -182,7 +190,10 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	err := wait.PollImmediate(poll, timeout, func() (bool, error) {
 		notReady = nil
 		nodes, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-		if err != nil {
+		framework.Logf("error is %v", err)
+
+		if err != nil && !strings.Contains(err.Error(), "has prevented the request") &&
+			!strings.Contains(err.Error(), "TLS handshake timeout") {
 			return false, err
 		}
 		for _, node := range nodes.Items {
@@ -190,7 +201,7 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 				notReady = append(notReady, node)
 			}
 		}
-		return len(notReady) == 0, nil
+		return len(notReady) == 0 && err == nil, nil
 	})
 	if len(notReady) > 0 {
 		return fmt.Errorf("not ready nodes: %v", notReady)
@@ -212,5 +223,26 @@ func wait4AllK8sNodesToBeUp(
 		}
 		err := waitForHostToBeUp(nodeIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// deletePodsInParallel deletes pods in a given namespace in parallel
+func deletePodsInParallel(client clientset.Interface, namespace string, pods []*v1.Pod, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, pod := range pods {
+		fpod.DeletePodOrFail(client, namespace, pod.Name)
+	}
+}
+
+// createPvcInParallel creates number of PVC in a given namespace parallelly
+func createPvcInParallel(client clientset.Interface, namespace string, diskSize string, sc *storagev1.StorageClass,
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup, volumeOpsScale int) {
+	defer wg.Done()
+	for i := 0; i < volumeOpsScale; i++ {
+		pvc, err := createPVC(client, namespace, nil, diskSize, sc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- pvc
+		lock.Unlock()
 	}
 }
