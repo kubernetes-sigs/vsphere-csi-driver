@@ -76,6 +76,8 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
+	snapc "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -4052,7 +4054,7 @@ func getRestConfigClient() *rest.Config {
 	// Get restConfig.
 	var err error
 	if restConfig == nil {
-		if supervisorCluster {
+		if supervisorCluster || vanillaCluster {
 			k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 		}
@@ -4838,4 +4840,78 @@ func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 		return nil, err
 	}
 	return client, nil
+}
+
+// getVolumeSnapshotClassSpec returns a spec for the volume snapshot class
+func getVolumeSnapshotClassSpec(deletionPolicy snapc.DeletionPolicy,
+	parameters map[string]string) *snapc.VolumeSnapshotClass {
+	var volumesnapshotclass = &snapc.VolumeSnapshotClass{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotClass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "volumesnapshot-",
+		},
+		Driver:         e2evSphereCSIDriverName,
+		DeletionPolicy: deletionPolicy,
+	}
+
+	volumesnapshotclass.Parameters = parameters
+	return volumesnapshotclass
+}
+
+// getVolumeSnapshotSpec returns a spec for the volume snapshot
+func getVolumeSnapshotSpec(namespace string, snapshotclassname string, pvcName string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshot-",
+			Namespace:    namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			VolumeSnapshotClassName: &snapshotclassname,
+			Source: snapc.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+// waitForVolumeSnapshotReadyToUse waits for the volume's snapshot to be in ReadyToUse
+func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Context, namespace string,
+	name string) (*snapc.VolumeSnapshot, error) {
+	var volumeSnapshot *snapc.VolumeSnapshot
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		volumeSnapshot, err = client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
+		}
+		if volumeSnapshot.Status != nil && *volumeSnapshot.Status.ReadyToUse {
+			return true, nil
+		}
+		return false, nil
+	})
+	return volumeSnapshot, waitErr
+}
+
+// waitForVolumeSnapshotContentToBeDeleted wait till the volume snapshot content is deleted
+func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx context.Context,
+	name string) error {
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return true, nil
+			} else {
+				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+			}
+		}
+		return false, nil
+	})
+	return waitErr
 }
