@@ -3507,6 +3507,15 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 		}
 	}
 	gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
+	
+	switch  {
+		case windowsWorkerIp == "192.168.0.3":
+		return "10.180.150.115"
+		case windowsWorkerIp == "192.168.0.5":
+		return "10.180.144.43"
+		case windowsWorkerIp == "192.168.0.9":
+		return "10.180.158.15"
+	}
 	return windowsWorkerIp
 
 }
