@@ -360,6 +360,7 @@ data:
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "false"
   "list-volumes": "false"
+  "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
