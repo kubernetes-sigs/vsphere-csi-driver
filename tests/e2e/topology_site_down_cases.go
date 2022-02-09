@@ -55,6 +55,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		topologyClusterList     []string
 		csiNs                   string
 		powerOffHostsList       []string
+		noOfHostToBringDown     int
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -110,8 +111,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -176,16 +176,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		}
 
 		// Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2
-		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
+		ginkgo.By("Bring down ESXi's that belongs to Cluster1 and Bring down ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
 			if i == 2 {
 				break
 			}
 		}
-		csiNs = "vmware-system-csi"
 
+		csiNs = "vmware-system-csi"
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
@@ -228,7 +228,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				"Number of Pods in the statefulset should match with number of replicas")
 
 		}
-
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
@@ -250,27 +249,39 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		err = fpod.WaitForPodsRunningReady(client, namespace, int32(workloadPods.Size()), 0, pollTimeout, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		/* Verify PV nde affinity and that the pods are running on appropriate nodes
+		for each StatefulSet pod */
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		for i := 0; i < len(statefulSets); i++ {
+			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
+				statefulSets[i], namespace, allowedTopologies, true)
+		}
+
 		for i := 0; i < len(statefulSets); i++ {
 			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[i])
-			//var volumesBeforeScaleDown []string
-			for _, sspod := range ssPodsBeforeScaleDown.Items {
-				_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+			for _, pod := range ssPodsBeforeScaleDown.Items {
+				_, pvc := getPvcPvFromPod(ctx, client, namespace, &pod)
+				_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				for _, volumespec := range sspod.Spec.Volumes {
+				for _, volumespec := range pod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulSets[i].Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-						//volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 						// Verify the attached volume match the one in CNS cache
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						// err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle,
-						// 	volumespec.PersistentVolumeClaim, pv, sspod)
-						// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle,
+							pvc[1], pv, &pod)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}
 			}
 		}
+		ginkgo.By("Verify k8s cluster is healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
@@ -307,8 +318,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -376,7 +386,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
 			if i == 2 {
 				break
 			}
@@ -517,8 +527,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -586,7 +595,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
 			if i == 2 {
 				break
 			}
@@ -729,8 +738,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -798,7 +806,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
 			if i == 2 {
 				break
 			}
@@ -937,8 +945,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		var noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -1006,7 +1013,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
 			if i == 2 {
 				break
 			}
@@ -1145,8 +1152,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		var noOfHostToBringDownInCluster1 = 1
-		var noOfHostToBringDownInCluster2 = 1
+		var noOfHostToBringDown = 1
+		var powerOffHost []string
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -1214,7 +1221,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down 3 ESXi's that belongs to Cluster1 and Bring down 2 ESXi's that belongs to Cluster2")
 		for i := 0; i < len(topologyClusterList); i++ {
 			powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[i],
-				noOfHostToBringDownInCluster1, noOfHostToBringDownInCluster2)
+				noOfHostToBringDown)
+			powerOffHost = append(powerOffHost, powerOffHostsList...)
 			if i == 2 {
 				break
 			}
@@ -1266,8 +1274,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
-		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+		for i := 0; i < len(powerOffHost); i++ {
+			powerOnEsxiHostByCluster(powerOffHost[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -1349,7 +1357,7 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 }
 
 func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
-	cluster1EsxCount int, cluster2EsxCount int) []string {
+	esxCount int) []string {
 	var powerOffHostsList []string
 	var clusterHostlist []*object.ClusterComputeResource
 	var hostsInCluster []*object.HostSystem
@@ -1361,22 +1369,20 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 			hostsInCluster = getHosts(ctx, clusterHostlist)
 		}
 	}
-	for i := 0; i < cluster1EsxCount; i++ {
+	for i := 0; i < esxCount; i++ {
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
 			hostIp := strings.Split(host, "/")
 			if hostIp[6] == esxInfo["ip"] {
 				esxHostName := esxInfo["vmName"]
 				powerOffHostsList = append(powerOffHostsList, esxHostName)
-				// err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
-				// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = waitForHostToBeDown(esxInfo["ip"])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-
 		}
 	}
-
 	return powerOffHostsList
 }
 
