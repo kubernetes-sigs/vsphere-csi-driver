@@ -315,6 +315,9 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 func (vc *VirtualCenter) ListDatacenters(ctx context.Context) (
 	[]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
+	if vc.Client == nil {
+		return nil, logger.LogNewError(log, "failed to list datacenters due to VC client is not set")
+	}
 	finder := find.NewFinder(vc.Client.Client, false)
 	dcList, err := finder.DatacenterList(ctx, "*")
 	if err != nil {

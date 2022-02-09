@@ -138,6 +138,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to get vcenter. err=%v", err)
 		return err
 	}
+
 	// Check vCenter API Version against 6.7.3.
 	err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
 		common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
@@ -174,6 +175,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 	}
 
+	cfgDirPath := filepath.Dir(cfgPath)
+	log.Infof("Adding watch on path: %q", cfgDirPath)
+	err = watcher.Add(cfgDirPath)
+	if err != nil {
+		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
+		return err
+	}
+	caFileDirPath := filepath.Dir(cnsconfig.SupervisorCAFilePath)
+	log.Infof("Adding watch on path: %q", caFileDirPath)
+	err = watcher.Add(caFileDirPath)
+	if err != nil {
+		log.Errorf("failed to watch on path: %q. err=%v", caFileDirPath, err)
+		return err
+	}
+
 	go func() {
 		for {
 			log.Debugf("Waiting for event on fsnotify watcher")
@@ -183,7 +199,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					return
 				}
 				log.Debugf("fsnotify event: %q", event.String())
-				if event.Op&fsnotify.Remove == fsnotify.Remove {
+				expectedEvent :=
+					strings.Contains(event.Name, cfgDirPath) && !strings.Contains(event.Name, caFileDirPath)
+				if event.Op&fsnotify.Remove == fsnotify.Remove && expectedEvent {
 					for {
 						reloadConfigErr := c.ReloadConfiguration(false)
 						if reloadConfigErr == nil {
@@ -225,20 +243,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			log.Debugf("fsnotify event processed")
 		}
 	}()
-	cfgDirPath := filepath.Dir(cfgPath)
-	log.Infof("Adding watch on path: %q", cfgDirPath)
-	err = watcher.Add(cfgDirPath)
-	if err != nil {
-		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
-		return err
-	}
-	caFileDirPath := filepath.Dir(cnsconfig.SupervisorCAFilePath)
-	log.Infof("Adding watch on path: %q", caFileDirPath)
-	err = watcher.Add(caFileDirPath)
-	if err != nil {
-		log.Errorf("failed to watch on path: %q. err=%v", caFileDirPath, err)
-		return err
-	}
+
 	// Go module to keep the metrics http server running all the time.
 	go func() {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
