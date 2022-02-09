@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			originalSizeInMb           int64
 			fsSize                     int64
 			expectedErrMsg             string
-			podList                    []*v1.Pod
 			deploymentReplicaCount     int32
 			deploymentList             []*appsv1.Deployment
 		)
@@ -697,6 +696,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			controller_name := "csi-resizer"
 			pvcCount = 5
 			scParameters := make(map[string]string)
+			var podList []*v1.Pod
 
 			/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
 			find master node IP where this Csi-Controller-Pod is running */
@@ -903,6 +903,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			controller_name := "csi-resizer"
 			pvcCount = 5
 			scParameters := make(map[string]string)
+			var podList []*v1.Pod
 
 			/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
 			find master node IP where this Csi-Controller-Pod is running */
@@ -1450,6 +1451,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			pvcCount = 5
 			scParameters := make(map[string]string)
 			var pvclaimsList []*v1.PersistentVolumeClaim
+			var podList []*v1.Pod
 
 			/* Get current leader Csi-Controller-Pod where CSI Provisioner is running" +
 			find master node IP where this Csi-Controller-Pod is running */
@@ -1624,6 +1626,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			pvcCount = 5
 			scParameters := make(map[string]string)
 			var pvclaimsList []*v1.PersistentVolumeClaim
+			var podList []*v1.Pod
 
 			// Get allowed topologies for Storage Class
 			allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
