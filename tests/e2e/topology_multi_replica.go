@@ -1984,15 +1984,18 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// create dynamic PVC
 			ginkgo.By("Creating dynamic PVC")
-			var dynamicPvcClaims []*v1.PersistentVolumeClaim
 			dynamicPvc, err := createPVC(client, namespace, nil, "", storageclass, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			dynamicPvcClaims = append(dynamicPvcClaims, dynamicPvc)
+			var pvclaims []*v1.PersistentVolumeClaim
+			pvclaims = append(pvclaims, dynamicPvc)
+			ginkgo.By("Waiting for all claims to be in bound state")
+			_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			dynamicPv := getPvFromClaim(client, dynamicPvc.Namespace, dynamicPvc.Name)
 			pvclaimsList = append(pvclaimsList, dynamicPvc)
 
 			ginkgo.By("Creating Pod from dynamic PVC")
-			dynamicPod, err := createPod(client, namespace, nil, dynamicPvcClaims, false, "")
+			dynamicPod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			podList = append(podList, dynamicPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// verify volume is attached to the node
@@ -2095,7 +2098,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}()
 
 			ginkgo.By("Creating new Pod using dynamic pvc")
-			newDynamicPod, err := createPod(client, namespace, nil, dynamicPvcClaims, false, "")
+			newDynamicPod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// verify volume is attached to the node
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
