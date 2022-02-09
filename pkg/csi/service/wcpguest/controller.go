@@ -279,7 +279,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
 				var annotations map[string]string
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+				if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil {
 					// generate new annotations.
 					annotations = make(map[string]string)
@@ -334,7 +334,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
 		var accessibleTopology []*csi.Topology
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 			req.AccessibilityRequirements != nil {
 			// Retrieve the latest version of the PVC
 			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -361,7 +361,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				VolumeContext: attributes,
 			},
 		}
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 			req.AccessibilityRequirements != nil {
 			resp.Volume.AccessibleTopology = accessibleTopology
 		}
