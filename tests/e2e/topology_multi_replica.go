@@ -19,13 +19,18 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -65,6 +70,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			expectedErrMsg             string
 			deploymentReplicaCount     int32
 			deploymentList             []*appsv1.Deployment
+			datastoreURL               string
+			pandoraSyncWaitTime        int
+			defaultDatacenter          *object.Datacenter
+			defaultDatastore           *object.Datastore
+			fullSyncWaitTime           int
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -100,6 +110,37 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
 			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			if os.Getenv(envPandoraSyncWaitTime) != "" {
+				pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+			}
+			var datacenters []string
+			datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			finder := find.NewFinder(e2eVSphere.Client.Client, false)
+			cfg, err := getConfig()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			dcList := strings.Split(cfg.Global.Datacenters, ",")
+			for _, dc := range dcList {
+				dcName := strings.TrimSpace(dc)
+				if dcName != "" {
+					datacenters = append(datacenters, dcName)
+				}
+			}
+			for _, dc := range datacenters {
+				defaultDatacenter, err = finder.Datacenter(ctx, dc)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				finder.SetDatacenter(defaultDatacenter)
+				defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			// Read full-sync value.
+			if os.Getenv(envFullSyncWaitTime) != "" {
+				fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+				framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1808,7 +1849,285 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					namespace, allowedTopologies)
 			}
 		})
+		// TESTCASE-6
+		/*
+			Verify the behaviour when CSI syncer is deleted and check fullsync
+			Steps//
+			1. Identify the Pod where CSI syncer is the leader.
+			2. Create FCD on the shared datastore accessible to all nodes.
+			3. Create PV/PVC Statically using the above FCD and using reclaim policy retain.
+			At the same time kill CSI syncer container identified in the Step 1.
+			4. Syncer container in other replica should take leadership and take over tasks for pushing metadata of the volumes.
+			5. Create dynamic PVC's where reclaim policy is delete
+			6. Verify node affinity details on PV's
+			7. Create two POD's, one using static PVC's and another one using dynamic PVC's.
+			8. Wait for POD's to be in running state.
+			9. Delete POD's
+			10. Delete PVC where reclaim policy is retain.
+			11. Delete claim ref in PV's which are in released state and wait till it reaches available state.
+			12. Re-create PVC using reclaim PV which is in Available state.
+			13. Create two POD's, one using static PVC and another using dynamic PVC.
+			14. Wait for two full sync cycle
+			15. Expect all volume metadata, PVC metadata, Pod metadata should be present on the CNS.
+			16. Delete the POD's , PVC's and PV's
+		*/
+		ginkgo.It("Verify behaviour when CSI syncer is deleted and check fullsync", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			controller_name := "csi-syncer"
+			scParameters := make(map[string]string)
+			var pvclaimsList []*v1.PersistentVolumeClaim
+			var podList []*v1.Pod
 
+			/* Get current leader Csi-Controller-Pod where CSI Syncer is running" +
+			find master node IP where this Csi-Controller-Pod is running */
+			ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Syncer is running and " +
+				"find the master node IP where this Csi-Controller-Pod is running")
+			csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+				client, sshClientConfig, controller_name)
+			framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+				"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Get allowed topologies for Storage Class
+			allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+				topologyLength)
+			// Create SC with Immediate BindingMode and allowed topology set to 5 levels
+			ginkgo.By("Creating Storage Class")
+			scParameters["datastoreurl"] = datastoreURL
+			storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "", "",
+				false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+					*metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			// Creating FCD disk
+			ginkgo.By("Creating FCD Disk")
+			fcdID, err := e2eVSphere.createFCD(ctx, "BasicStaticFCD", diskSizeInMb,
+				defaultDatastore.Reference())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync "+
+				"with pandora",
+				pandoraSyncWaitTime, fcdID))
+			time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+			// Creating label for PV. PVC will use this label as Selector to find PV.
+			staticPVLabels := make(map[string]string)
+			staticPVLabels["fcd-id"] = fcdID
+
+			// Creating PV using above created SC and FCD
+			ginkgo.By("Creating the PV")
+			staticPv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID,
+				v1.PersistentVolumeReclaimRetain, storageclass.Name, staticPVLabels,
+				diskSize, allowedTopologyForSC)
+			staticPv, err = client.CoreV1().PersistentVolumes().Create(ctx, staticPv, metav1.CreateOptions{})
+			if err != nil {
+				return
+			}
+			err = e2eVSphere.waitForCNSVolumeToBeCreated(staticPv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Delete elected leader Csi-Controller-Pod where CSi-Syncer is running
+			ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Syncer is running")
+			err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig, csi_controller_pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Syncer is running and " +
+				"find the master node IP where this Csi-Controller-Pod is running")
+			csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+				client, sshClientConfig, controller_name)
+			framework.Logf("CSI-Syncer is running on elected Leader Pod %s "+
+				"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Creating PVC using above created PV
+			ginkgo.By("Creating static PVC")
+			staticPvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, staticPv.Name)
+			staticPvc.Spec.StorageClassName = &storageclass.Name
+			staticPvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, staticPvc,
+				metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaimsList = append(pvclaimsList, staticPvc)
+			// Wait for PV and PVC to Bind.
+			ginkgo.By("Wait for PV and PVC to Bind")
+			framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(),
+				namespace, staticPv, staticPvc))
+			ginkgo.By("Verifying CNS entry is present in cache")
+			_, err = e2eVSphere.queryCNSVolumeWithResult(staticPv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Creating Pod using above created PVC
+			ginkgo.By("Creating Pod using static PVC")
+			var staticPvcClaims []*v1.PersistentVolumeClaim
+			staticPvcClaims = append(staticPvcClaims, staticPvc)
+			StaticPod, err := createPod(client, namespace, nil, staticPvcClaims, false, "")
+			podList = append(podList, StaticPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", staticPv.Spec.CSI.VolumeHandle,
+				StaticPod.Spec.NodeName))
+			vmUUID := getNodeUUID(ctx, client, StaticPod.Spec.NodeName)
+			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, staticPv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+
+			ginkgo.By("Verify container volume metadata is present in CNS cache")
+			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", staticPv.Spec.CSI.VolumeHandle))
+			_, err = e2eVSphere.queryCNSVolumeWithResult(staticPv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
+			ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
+			err = verifyVolumeMetadataInCNS(&e2eVSphere, staticPv.Spec.CSI.VolumeHandle,
+				staticPvc.Name, staticPv.ObjectMeta.Name, StaticPod.Name, labels...)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// create dynamic PVC
+			ginkgo.By("Creating dynamic PVC")
+			var dynamicPvcClaims []*v1.PersistentVolumeClaim
+			dynamicPvc, err := createPVC(client, namespace, nil, "", storageclass, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			dynamicPvcClaims = append(dynamicPvcClaims, dynamicPvc)
+			dynamicPv := getPvFromClaim(client, dynamicPvc.Namespace, dynamicPvc.Name)
+			pvclaimsList = append(pvclaimsList, dynamicPvc)
+
+			ginkgo.By("Creating Pod from dynamic PVC")
+			dynamicPod, err := createPod(client, namespace, nil, dynamicPvcClaims, false, "")
+			podList = append(podList, dynamicPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// verify volume is attached to the node
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				dynamicPv.Spec.CSI.VolumeHandle, dynamicPod.Spec.NodeName))
+			vmUUID = getNodeUUID(ctx, client, dynamicPod.Spec.NodeName)
+			isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, dynamicPv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+
+			/* Verify PV node affinity and that the PODS are running on appropriate node as
+			specified in the allowed topologies of SC */
+			ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+				"appropriate node as specified in the allowed topologies of SC")
+			for i := 0; i < len(podList); i++ {
+				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i], namespace,
+					allowedTopologies)
+			}
+
+			// Deleting Pod's
+			for i := 0; i < len(podList); i++ {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+				err = fpod.DeletePodWithWait(client, podList[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			// Verify volume is detached from the node
+			ginkgo.By("Verify volume is detached from the node")
+			for i := 0; i < len(pvclaimsList); i++ {
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+			}
+
+			// Deleting PVC
+			ginkgo.By("Delete static PVC")
+			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, staticPvc.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("PVC %s is deleted successfully", staticPvc.Name)
+			// Verify PV exist and is in released status
+			ginkgo.By("Check PV exists and is released")
+			staticPv, err = waitForPvToBeReleased(ctx, client, staticPv.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("PV status after deleting PVC: %s", staticPv.Status.Phase)
+			// Remove claim from PV and check its status.
+			ginkgo.By("Remove claimRef from PV")
+			staticPv.Spec.ClaimRef = nil
+			staticPv, err = client.CoreV1().PersistentVolumes().Update(ctx, staticPv, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("PV status after removing claim : %s", staticPv.Status.Phase)
+
+			// Recreate PVC with same name as created above
+			ginkgo.By("ReCreating the PVC")
+			newStaticPvclaim := getPersistentVolumeClaimSpec(namespace, nil, staticPv.Name)
+			newStaticPvclaim.Spec.StorageClassName = &storageclass.Name
+			newStaticPvclaim.Name = staticPvc.Name
+			newStaticPvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, newStaticPvclaim,
+				metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Wait for newly created PVC to bind to the existing PV
+			ginkgo.By("Wait for the PVC to bind the lingering pv")
+			err = fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, staticPv,
+				newStaticPvclaim)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				ginkgo.By("Deleting the PV Claim")
+				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, newStaticPvclaim.Name, namespace),
+					"Failed to delete PVC", newStaticPvclaim.Name)
+				newStaticPvclaim = nil
+
+				ginkgo.By("Deleting the PV")
+				err = client.CoreV1().PersistentVolumes().Delete(ctx, staticPv.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			// Creating new Pod using static pvc
+			ginkgo.By("Creating new Pod using static pvc")
+			var newStaticPvcClaims []*v1.PersistentVolumeClaim
+			newStaticPvcClaims = append(newStaticPvcClaims, newStaticPvclaim)
+			newstaticPod, err := createPod(client, namespace, nil, newStaticPvcClaims, false, "")
+			// verify volume is attached to the node
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				staticPv.Spec.CSI.VolumeHandle, newstaticPod.Spec.NodeName))
+			vmUUID = getNodeUUID(ctx, client, newstaticPod.Spec.NodeName)
+			isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, staticPv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+			defer func() {
+				ginkgo.By("Deleting the Pod")
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, StaticPod), "Failed to delete pod",
+					StaticPod.Name)
+				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", StaticPod.Spec.NodeName))
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+					staticPv.Spec.CSI.VolumeHandle, StaticPod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
+			}()
+
+			ginkgo.By("Creating new Pod using dynamic pvc")
+			newDynamicPod, err := createPod(client, namespace, nil, dynamicPvcClaims, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// verify volume is attached to the node
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				dynamicPv.Spec.CSI.VolumeHandle, newDynamicPod.Spec.NodeName))
+			vmUUID = getNodeUUID(ctx, client, newDynamicPod.Spec.NodeName)
+			isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, dynamicPv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+			defer func() {
+				ginkgo.By("Deleting the Pod")
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, StaticPod), "Failed to delete pod",
+					StaticPod.Name)
+				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", StaticPod.Spec.NodeName))
+				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+					staticPv.Spec.CSI.VolumeHandle, StaticPod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
+			}()
+
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
+			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+
+			// Verify volume metadata for static POD, PVC and PV
+			ginkgo.By("Verify volume metadata for static POD, PVC and PV")
+			err = waitAndVerifyCnsVolumeMetadata(staticPv.Spec.CSI.VolumeHandle, newStaticPvclaim, staticPv, newstaticPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Verify volume metadata for dynamic POD, PVC and PV
+			ginkgo.By("Verify volume metadata for dynamic POD, PVC and PV")
+			err = waitAndVerifyCnsVolumeMetadata(dynamicPv.Spec.CSI.VolumeHandle, dynamicPvc, dynamicPv, newDynamicPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
 	})
 
 func createParallelStatefulSets(client clientset.Interface, namespace string,
