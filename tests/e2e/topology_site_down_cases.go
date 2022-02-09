@@ -71,7 +71,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
 		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
-		topologyCluster := GetAndExpectStringEnvVar(topologyClusterNames)
+		//topologyCluster := GetAndExpectStringEnvVar(topologyClusterNames)
+		topologyCluster := "cluster-1,cluster-2,cluster-3"
 		topologyClusterList = ListTopologyClusterNames(topologyCluster)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		//csiNs = GetAndExpectStringEnvVar(envCSINamespace)
