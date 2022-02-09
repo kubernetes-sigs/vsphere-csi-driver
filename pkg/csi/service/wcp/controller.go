@@ -681,6 +681,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file volume feature is disabled on the cluster")
 			}
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+				if len(clusterComputeResourceMoIds) > 1 {
+					return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
+						"file volume provisioning is not supported on a stretched supervisor cluster")
+				}
+			}
 			return c.createFileVolume(ctx, req)
 		}
 		return c.createBlockVolume(ctx, req)
