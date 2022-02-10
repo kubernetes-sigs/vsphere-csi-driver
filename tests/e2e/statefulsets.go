@@ -655,7 +655,10 @@ func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
 	defer cancel()
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
 		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector))
+	fmt.Sprintf("Creating statefulset1")
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
+	fmt.Sprintf("Creating statefulset2")
 	framework.ExpectNoError(err)
+	fmt.Sprintf("Creating statefulset3")
 	fss.WaitForRunningAndReady(c, *ss.Spec.Replicas, ss)
 }
