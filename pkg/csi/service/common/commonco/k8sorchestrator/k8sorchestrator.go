@@ -134,6 +134,28 @@ func (m *volumeIDToNodesMap) get(volumeID string) []string {
 	return m.items[volumeID]
 }
 
+// Map of nodeID to node names in the cluster. Key is the nodeID
+// and value is the corresponding node name. The methods to add
+// and remove entries from the map in a threadsafe manner are defined.
+type nodeIDToNameMap struct {
+	*sync.RWMutex
+	items map[string]string
+}
+
+// Adds an entry to nodeIDToNameMap in a thread safe manner.
+func (m *nodeIDToNameMap) add(nodeID, nodeName string) {
+	m.Lock()
+	defer m.Unlock()
+	m.items[nodeID] = nodeName
+}
+
+// Removes an entry from nodeIDToNameMap in a thread safe manner.
+func (m *nodeIDToNameMap) remove(nodeID string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.items, nodeID)
+}
+
 // K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
 	supervisorFSS      FSSConfigMapInfo
@@ -142,6 +164,7 @@ type K8sOrchestrator struct {
 	clusterFlavor      cnstypes.CnsClusterFlavor
 	volumeIDToPvcMap   *volumeIDToPvcMap
 	volumeIDToNodesMap *volumeIDToNodesMap
+	nodeIDToNameMap    *nodeIDToNameMap
 	k8sClient          clientset.Interface
 }
 
@@ -208,6 +231,9 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 			if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
 				initVolumeIDToNodesMap(ctx)
+				if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+					initNodeIDToNameMap(ctx)
+				}
 			}
 
 			k8sOrchestratorInstance.informerManager.Listen()
@@ -1074,4 +1100,98 @@ func (c *K8sOrchestrator) GetNodesForVolumes(ctx context.Context, volumeIDs []st
 		volumeIDToNodeNames[volumeID] = c.volumeIDToNodesMap.get(volumeID)
 	}
 	return volumeIDToNodeNames
+}
+
+// initNodeIDToNameMap performs all the operations required to initialize
+// the node ID to  name map. It also watches for node add, update & delete
+// operations, and updates the map accordingly.
+func initNodeIDToNameMap(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("Initializing node ID to node name map")
+	k8sOrchestratorInstance.nodeIDToNameMap = &nodeIDToNameMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
+	}
+
+	// Set up kubernetes resource listener to listen events on Node
+	k8sOrchestratorInstance.informerManager.AddNodeListener(
+		func(obj interface{}) { // Add.
+			nodeAdd(obj)
+		},
+		nil,
+		func(obj interface{}) { // Delete.
+			nodeRemove(obj)
+		})
+}
+
+// nodeAdd adds an entry into nodeIDToNameMap. The node MoID is retrieved from the
+// node annotation vmware-system-esxi-node-moid
+func nodeAdd(obj interface{}) {
+	log := logger.GetLogger(context.Background())
+	node, ok := obj.(*v1.Node)
+	if node == nil || !ok {
+		log.Warnf("nodeAdd: unrecognized object %+v", obj)
+		return
+	}
+
+	log.Debugf("nodeAdd: node=%+v", node)
+	nodeMoID, ok := node.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
+	if !ok {
+		log.Debugf("nodeAdd: %s annotation not found on the node %s", common.HostMoidAnnotationKey, node.Name)
+		return
+	}
+	k8sOrchestratorInstance.nodeIDToNameMap.add(nodeMoID, node.Name)
+}
+
+// nodeRemove removes an entry from nodeIDToNameMap. The node MoID is retrieved from the
+// node annotation vmware-system-esxi-node-moid
+func nodeRemove(obj interface{}) {
+	log := logger.GetLogger(context.Background())
+	node, ok := obj.(*v1.Node)
+	if node == nil || !ok {
+		log.Warnf("nodeRemove: unrecognized object %+v", obj)
+		return
+	}
+
+	log.Debugf("nodeRemove: node=%+v", node)
+	nodeMoID, ok := node.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
+	if !ok {
+		log.Debugf("nodeRemove: %s annotation not found on the node %s", common.HostMoidAnnotationKey, node.Name)
+		return
+	}
+	k8sOrchestratorInstance.nodeIDToNameMap.remove(nodeMoID)
+}
+
+// GetNodeIDtoNameMap returns a map containing the nodeID to node name
+func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
+	return c.nodeIDToNameMap.items
+}
+
+// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
+// to true if volumeID key is fake attached else false
+func (c *K8sOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool {
+	log := logger.GetLogger(ctx)
+	volumeIDToFakeAttachedMap := make(map[string]bool)
+	for _, volumeID := range volumeIDs {
+		// Check pvc annotations.
+		pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
+		if err != nil {
+			if err.Error() == common.ErrNotFound.Error() {
+				// PVC not found, which means PVC could have been deleted. No need to proceed.
+				log.Debugf("PVC not found, which means PVC could have been deleted. No need to proceed.")
+				return volumeIDToFakeAttachedMap
+			}
+			log.Errorf("GetFakeAttachedVolumes: failed to get pvc annotations for volume ID %s "+
+				"while checking if it was fake attached", volumeID)
+			return volumeIDToFakeAttachedMap
+		}
+		val, found := pvcAnn[common.AnnFakeAttached]
+		if found && val == "yes" {
+			volumeIDToFakeAttachedMap[volumeID] = true
+		} else {
+			volumeIDToFakeAttachedMap[volumeID] = false
+		}
+	}
+	return volumeIDToFakeAttachedMap
 }
