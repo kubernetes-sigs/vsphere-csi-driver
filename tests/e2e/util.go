@@ -39,6 +39,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	"github.com/sfreiberg/simplessh"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -1608,6 +1609,66 @@ func getWCPSessionId(hostname string, username string, password string) string {
 	framework.Logf("SessionID: %s", wcpSessionID.Session_id)
 
 	return wcpSessionID.Session_id
+
+}
+
+//getk8sWindowsWorkerIPs returns the windows worker node IPs
+func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nodeName string) string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var windowsWorkerIp string
+	for _, node := range nodes.Items {
+		if node.Name == nodeName {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeInternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+					windowsWorkerIp = addr.Address
+				}
+			}
+		}
+	}
+        gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
+        return windowsWorkerIp
+	
+} 
+
+//execCommanOnWindowsWorker func returns the size of the pod
+func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64{
+	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP,"Administrator",esxPassword)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer sshClient.Close()
+	
+	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+	framework.Logf("command to be executed in windows node %s", cmd)
+	output, err := sshClient.Exec(cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("GetDisk output %s\n",string(output))
+	fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	var originalSizeInbytes int64
+	for index, line := range fullStr {
+		if strings.Contains(line, "VMware") {
+			sizeList := strings.Split(fullStr[index+1],":")
+			size := strings.TrimSpace(sizeList[1])
+			originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+			if (originalSizeInbytes < 96636764160) {
+				return originalSizeInbytes
+			}
+		}
+	}
+	return originalSizeInbytes
+}
+
+//getWindowsPodSize finds the windowsWorkerIp and returns the size of the pod
+func getWindowsPodSize(client clientset.Interface, pod *v1.Pod) int64  {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	podName := pod.Spec.NodeName
+	windowsWorkerIP := getk8sWindowsWorkerIPs(ctx, client, podName)
+	framework.Logf("windows worker ip %s", windowsWorkerIP)
+	size := execCommanOnWindowsWorker(ctx, client, windowsWorkerIP)
+	framework.Logf("size %d",size)
+	return size
 
 }
 
@@ -3619,7 +3680,13 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	commands := []string{"Powershell.exe", "-Command", command}
+	if windowsEnv {
+		pod.Spec.Containers[0].Image = windowsLTSCImage
+		pod.Spec.Containers[0].Command = commands
+	} else {
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	}
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
