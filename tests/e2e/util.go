@@ -1628,30 +1628,30 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 			}
 		}
 	}
-        gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
-        return windowsWorkerIp
-	
-} 
+	gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
+	return windowsWorkerIp
 
-//execCommanOnWindowsWorker func returns the size of the pod
-func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64{
-	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP,"Administrator",esxPassword)
+}
+
+//execCommanOnWindowsWorker func returns the size of the volume
+func getDiskSize(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64 {
+	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, "Administrator", esxPassword)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer sshClient.Close()
-	
+
 	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
 	framework.Logf("command to be executed in windows node %s", cmd)
 	output, err := sshClient.Exec(cmd)
+	framework.Logf("GetDisk output %s\n%s", string(output))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("GetDisk output %s\n",string(output))
 	fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
 	var originalSizeInbytes int64
 	for index, line := range fullStr {
 		if strings.Contains(line, "VMware") {
-			sizeList := strings.Split(fullStr[index+1],":")
+			sizeList := strings.Split(fullStr[index+1], ":")
 			size := strings.TrimSpace(sizeList[1])
 			originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
-			if (originalSizeInbytes < 96636764160) {
+			if originalSizeInbytes < 96636764160 {
 				return originalSizeInbytes
 			}
 		}
@@ -1659,15 +1659,15 @@ func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, 
 	return originalSizeInbytes
 }
 
-//getWindowsPodSize finds the windowsWorkerIp and returns the size of the pod
-func getWindowsPodSize(client clientset.Interface, pod *v1.Pod) int64  {
+//getWindowsPodSize finds the windowsWorkerIp and returns the size of the volume
+func getWindowsPodSize(client clientset.Interface, pod *v1.Pod) int64 {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	podName := pod.Spec.NodeName
 	windowsWorkerIP := getk8sWindowsWorkerIPs(ctx, client, podName)
 	framework.Logf("windows worker ip %s", windowsWorkerIP)
-	size := execCommanOnWindowsWorker(ctx, client, windowsWorkerIP)
-	framework.Logf("size %d",size)
+	size := getDiskSize(ctx, client, windowsWorkerIP)
+	framework.Logf("size %d", size)
 	return size
 
 }
@@ -3682,7 +3682,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
 	commands := []string{"Powershell.exe", "-Command", command}
 	if windowsEnv {
-		pod.Spec.Containers[0].Image = windowsLTSCImage
+		pod.Spec.Containers[0].Image = windowsLTSC2019Image
 		pod.Spec.Containers[0].Command = commands
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr

@@ -30,7 +30,7 @@ import (
 const (
 	adminPassword                              = "Admin!23"
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
-	windowsLTSCImage                           = "mcr.microsoft.com/windows/servercore:ltsc2019"
+	windowsLTSC2019Image                       = "mcr.microsoft.com/windows/servercore:ltsc2019"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
@@ -86,11 +86,10 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
-	windowsCommand                             = "while (1) " +
-	    " { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
+	windowsPodCmd = "while (1) " +
+		" { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
 	ext3FSType                                = "ext3"
 	ext4FSType                                = "ext4"
-	windowsFSType                             = "ntfs"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
 	healthGreen                               = "green"
@@ -251,8 +250,8 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	}
 
 	//Check if its windows env
-	workerNode := os.Getenv("WORKER_NODE")
+	workerNode := os.Getenv("WORKER_TYPE")
 	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
-		windowsEnv = true 
+		windowsEnv = true
 	}
 }

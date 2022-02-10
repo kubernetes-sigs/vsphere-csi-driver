@@ -81,6 +81,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # To run common e2e tests (block & file), need to set the following env variable to identify the file volume setup
     export ACCESS_MODE="RWX"
 
+    # To run e2e tests on windows worker node environment, need to set the following env variable to identify the windows worker node setup
+    export WORKER_TYPE="WINDOWS"
+
 ### To run full sync test, need do extra following steps
 
 #### Setting SSH keys for VC with your local machine to run full sync test
