@@ -7,8 +7,9 @@ require (
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.4.0
 	github.com/davecgh/go-spew v1.1.1
+	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/elazarl/goproxy v0.0.0-20200710112657-153946a5f232 // indirect
-	github.com/fsnotify/fsnotify v1.4.9
+	github.com/fsnotify/fsnotify v1.5.1
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.2.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
@@ -18,8 +19,10 @@ require (
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.1.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
+	github.com/pkg/sftp v1.13.4 // indirect
 	github.com/prometheus/client_golang v1.11.0
 	github.com/rexray/gocsi v1.2.2
+	github.com/sfreiberg/simplessh v0.0.0-20180301191542-495cbb862a9c
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.7.0
@@ -27,11 +30,12 @@ require (
 	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
 	github.com/vmware/govmomi v0.27.0
 	go.uber.org/zap v1.17.0
-	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
+	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
-	golang.org/x/net v0.0.0-20210428140749-89ef3d95e781
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/tools v0.1.1 // indirect
+	golang.org/x/sys v0.0.0-20220207234003-57398862261d // indirect
+	golang.org/x/tools v0.1.9 // indirect
 	google.golang.org/grpc v1.27.1
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3

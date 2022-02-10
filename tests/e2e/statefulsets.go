@@ -36,7 +36,7 @@ import (
 const (
 	manifestPath                 = "tests/e2e/testing-manifests/statefulset/nginx"
 	mountPath                    = "/usr/share/nginx/html"
-	defaultNginxStorageClassName = "nginx-sc"
+	defaultNginxStorageClassName = "example-windows-sc"
 	servicename                  = "nginx"
 )
 
