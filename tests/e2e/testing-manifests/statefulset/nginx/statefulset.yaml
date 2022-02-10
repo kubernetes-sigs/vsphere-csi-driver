@@ -15,18 +15,23 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: k8s.gcr.io/nginx-slim:0.8
+        image: mcr.microsoft.com/windows/servercore:ltsc2019
+        command:
+        - "powershell.exe"
+        - "-Command"
+        - "while (1) { Add-Content -Encoding Ascii C:\\test\\data.txt $(Get-Date -Format u); sleep 1 }"
         ports:
         - containerPort: 80
           name: web
         volumeMounts:
-        - name: www
-          mountPath: /usr/share/nginx/html
+        - name: www 
+          mountPath: /test/
+          readOnly: false
   volumeClaimTemplates:
   - metadata:
       name: www
       annotations:
-        volume.beta.kubernetes.io/storage-class: nginx-sc
+        volume.beta.kubernetes.io/storage-class: example-windows-sc 
     spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:

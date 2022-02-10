@@ -180,7 +180,21 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Wait for StatefulSet pods to be in up and running state
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv{
+            ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+            statefulPodList := fss.GetPodList(client, statefulset)
+
+            for _, statefulPod := range statefulPodList.Items {
+                _, err = framework.LookForStringInPodExec(statefulPod.Namespace, statefulPod.Name,
+                    []string{"powershell.exe", "cat", "C:\\test\\data.txt"}, "", time.Minute)
+                gomega.Expect(err).NotTo(gomega.HaveOccurred())
+            }
+    
+        }else {
+            gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+        }
+
+		//gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
