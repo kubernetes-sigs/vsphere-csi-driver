@@ -1633,7 +1633,7 @@ func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nod
 
 }
 
-//execCommanOnWindowsWorker func returns the size of the volume
+//getDiskSize func returns the size of the volume
 func getDiskSize(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64 {
 	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, "Administrator", esxPassword)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1660,7 +1660,7 @@ func getDiskSize(ctx context.Context, client clientset.Interface, windowsWorkerI
 }
 
 //getWindowsPodSize finds the windowsWorkerIp and returns the size of the volume
-func getWindowsPodSize(client clientset.Interface, pod *v1.Pod) int64 {
+func getWindowsDiskSize(client clientset.Interface, pod *v1.Pod) int64 {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	podName := pod.Spec.NodeName

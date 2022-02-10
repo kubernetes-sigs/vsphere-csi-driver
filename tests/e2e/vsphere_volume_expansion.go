@@ -2388,7 +2388,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	//Fetch original FileSystemSize
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
 	if windowsEnv {
-		originalSizeInMb = getWindowsPodSize(client, pod)
+		originalSizeInMb = getWindowsDiskSize(client, pod)
 	} else {
 		originalSizeInMb, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2455,7 +2455,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	if windowsEnv {
-		fsSize = getWindowsPodSize(client, pod)
+		fsSize = getWindowsDiskSize(client, pod)
 	} else {
 		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2972,7 +2972,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
 	if windowsEnv {
-		originalFsSize = getWindowsPodSize(client, pod)
+		originalFsSize = getWindowsDiskSize(client, pod)
 	} else {
 		originalFsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
