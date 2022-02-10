@@ -1,4 +1,4 @@
-apiVersion: kubelet.config.k8s.io/v1beta1
+apiVersion: kubelet.config.k8s.io/v1beta1 
 authentication:
   anonymous:
     enabled: false
@@ -17,7 +17,7 @@ clusterDNS:
 - 10.96.0.10
 clusterDomain: cluster.local
 cpuManagerReconcilePeriod: 0s
-evictionPressureTransitionPeriod: 0s
+evictionPressureTransitionPeriod: 0s 
 fileCheckFrequency: 0s
 healthzBindAddress: 127.0.0.1
 healthzPort: 10248
@@ -29,7 +29,7 @@ memorySwap: {}
 nodeStatusReportFrequency: 0s
 nodeStatusUpdateFrequency: 0s
 resolvConf: /run/systemd/resolve/resolv.conf
-rotateCertificates: true
+rotateCertificates: true 
 runtimeRequestTimeout: 0s
 shutdownGracePeriod: 0s
 shutdownGracePeriodCriticalPods: 0s
