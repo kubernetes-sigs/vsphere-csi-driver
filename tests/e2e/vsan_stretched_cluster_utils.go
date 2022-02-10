@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
 	vsan "github.com/vmware/govmomi/vsan"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -245,4 +246,104 @@ func createPvcInParallel(client clientset.Interface, namespace string, diskSize 
 		ch <- pvc
 		lock.Unlock()
 	}
+}
+
+// witnessFailure causes witness host to be powered on or off
+func witnessFailure(witnessHostDown bool) {
+	witnessHost := []string{fds.witness}
+	if witnessHostDown {
+		framework.Logf("hosts to power off: %v", witnessHost)
+		powerOffHostParallel(witnessHost)
+	} else {
+		framework.Logf("hosts to power on: %v", witnessHost)
+		powerOnHostParallel(witnessHost)
+	}
+
+}
+
+// siteNetworkFailure chooses a site to create or remove network failure
+func siteNetworkFailure(primarySite bool, removeNetworkFailure bool) {
+	hostsToFail := fds.secondarySiteHosts
+	if primarySite {
+		hostsToFail = fds.primarySiteHosts
+	}
+	if removeNetworkFailure {
+		framework.Logf("hosts to remove network failure on: %v", hostsToFail)
+		networkFailureParallel(hostsToFail, false)
+	} else {
+		framework.Logf("hosts to cause network failure on: %v", hostsToFail)
+		networkFailureParallel(hostsToFail, true)
+	}
+}
+
+// runCmdonESXInParallel runs command on multiple ESX parallelly
+func runCmdonESXInParallel(hostIP string, sshCmd string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	op, err := runCommandOnESX("root", hostIP, sshCmd)
+	framework.Logf(op)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// networkFailureParallel causes or removes network failure on a particular site
+func networkFailureParallel(hosts []string, causeNetworkFailure bool) {
+	var wg sync.WaitGroup
+	if causeNetworkFailure {
+		framework.Logf("Creating a Network Failure")
+		sshCmd := "localcli network firewall set --enabled true;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id fdm;"
+
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdonESXInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 0 0 0 1"
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdonESXInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+	} else {
+		framework.Logf("Removing network Failure")
+		sshCmd := "localcli network firewall set --enabled false;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id fdm;"
+
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdonESXInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 1 0 1 1"
+		wg.Add(len(hosts))
+		for _, host := range hosts {
+			go runCmdonESXInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+	}
+}
+
+// checkVmStorageCompliance checks VM and storage compliance of a storage policy
+// using govmomi
+func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	masterIp := getK8sMasterIPs(ctx, client)
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(k8sVmPasswd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	cmd := "export GOVC_INSECURE=1;"
+	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s;'", vcAddress)
+	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
+	result, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return !strings.Contains(result.Stdout, "object references is empty")
 }
