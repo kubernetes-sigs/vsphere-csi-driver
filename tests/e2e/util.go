@@ -4064,24 +4064,26 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	if windowsEnv {
 		//kubeletConfigYamlstr = windowskubeletConfigYaml
 		windowskubeletConfigFile = "C:\\Users\\Administrator\\copyConfig.yaml"
-		copyCmd = fmt.Sprintf("cp %s %s", windowskubeletConfigYaml, windowskubeletConfigFile)
 		grepCmd = "findstr CSIMigration " + kubeletConfigYaml
-
-		framework.Logf("Invoking command '%v' on host %v", copyCmd, nodeIP)
-		sshClientConfig := &ssh.ClientConfig	{
-			User: "Administrator",
-			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		if shouldAdd {
+			framework.Logf("Invoking command '%v' on host %v", copyCmd, nodeIP)
+			copyCmd = fmt.Sprintf("cp %s %s", windowskubeletConfigYaml, windowskubeletConfigFile)
+			sshClientConfig := &ssh.ClientConfig	{
+				User: "Administrator",
+				Auth: []ssh.AuthMethod{
+					ssh.Password(k8sVmPasswd),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			}
+		
+			result, err := sshExec(sshClientConfig, nodeIP, copyCmd)
+			if err != nil {
+				fssh.LogResult(result)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", copyCmd, nodeIP))
+			}
 		}
-	
-		result, err := sshExec(sshClientConfig, nodeIP, copyCmd)
-		if err != nil {
-			fssh.LogResult(result)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", copyCmd, nodeIP))
-		}
+		
 	}else{
 		grepCmd = "grep CSIMigration " + kubeletConfigYaml
 	}
@@ -4138,9 +4140,10 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		}else {
 			return
 		}
-	}else if result.Code == 0 && !shouldAdd {
+	} else if result.Code == 0 && !shouldAdd {
 		if windowsEnv{
 			//sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
+			framework.Logf("Disabling feature gates")
 			sshCmd = fmt.Sprintf("mv %s %s", windowskubeletConfigFile, windowskubeletConfigYaml)
 		}else{
 			sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
@@ -4169,6 +4172,13 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 // 	}
 
 	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
+	sshClientConfig = &ssh.ClientConfig{
+		User: "Administrator",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(k8sVmPasswd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
 	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
