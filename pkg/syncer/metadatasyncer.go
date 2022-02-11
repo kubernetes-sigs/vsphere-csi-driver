@@ -126,6 +126,27 @@ func getVolumeHealthIntervalInMin(ctx context.Context) int {
 	return volumeHealthIntervalInMin
 }
 
+// getPVtoBackingDiskObjectIdIntervalInMin returns pv to backingdiskobjectid interval.
+func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	pvtoBackingDiskObjectIdIntervalInMin := defaultPVtoBackingDiskObjectIdIntervalInMin
+	if v := os.Getenv("PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s "+
+					"is equal or less than 0, will use the default interval", v)
+			} else {
+				pvtoBackingDiskObjectIdIntervalInMin = value
+				log.Infof("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval is set to %d minutes", pvtoBackingDiskObjectIdIntervalInMin)
+			}
+		} else {
+			log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s "+
+				"is invalid, will use the default interval", v)
+		}
+	}
+	return pvtoBackingDiskObjectIdIntervalInMin
+}
+
 // InitMetadataSyncer initializes the Metadata Sync Informer.
 func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo) error {
@@ -406,6 +427,30 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 		}()
+	}
+
+	// Trigger get pv to backingDiskObjectId mapping on vanilla cluster
+	pvToBackingDiskObjectIdFSSEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PVtoBackingDiskObjectIdMapping)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && pvToBackingDiskObjectIdFSSEnabled {
+		pvToBackingDiskObjectIdMappingTicker := time.NewTicker(time.Duration(getPVtoBackingDiskObjectIdIntervalInMin(ctx)) * time.Minute)
+		defer pvToBackingDiskObjectIdMappingTicker.Stop()
+
+		var pvToBackingDiskObjectIdSupportCheck bool
+		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+		if err != nil {
+			return err
+		}
+		pvToBackingDiskObjectIdSupportCheck = common.CheckPVtoBackingDiskObjectIdSupport(ctx, vCenter)
+
+		if pvToBackingDiskObjectIdSupportCheck {
+			go func() {
+				for ; true; <-pvToBackingDiskObjectIdMappingTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					log.Info("get pv to backingDiskObjectId mapping is triggered")
+					csiGetPVtoBackingDiskObjectIdMapping(ctx, k8sClient, metadataSyncer)
+				}
+			}()
+		}
 	}
 
 	volumeHealthTicker := time.NewTicker(time.Duration(getVolumeHealthIntervalInMin(ctx)) * time.Minute)
