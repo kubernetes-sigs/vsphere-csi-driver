@@ -459,3 +459,41 @@ func validateVolumeCapacity(ctx context.Context, m *defaultManager, volumeID str
 	return len(queryResult.Volumes) > 0 &&
 		queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb >= size
 }
+
+// validateSnapshotDeleted queries the CNS snapshot and validates whether the specific snapshot is deleted
+// returns true if the specific snapshot is deleted
+func validateSnapshotDeleted(ctx context.Context, m *defaultManager, volumeID string, snapshotID string) bool {
+	log := logger.GetLogger(ctx)
+
+	snapshotQueryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: []cnstypes.CnsSnapshotQuerySpec{
+			{VolumeId: cnstypes.CnsVolumeId{Id: volumeID}, SnapshotId: &cnstypes.CnsSnapshotId{Id: snapshotID}},
+		},
+		Cursor: &cnstypes.CnsCursor{Offset: 0, Limit: 1},
+	}
+
+	querySnapshotResult, querySnapshotErr := m.QuerySnapshots(ctx, snapshotQueryFilter)
+	if querySnapshotErr != nil {
+		log.Infof("failed to validate for snapshot %s on volume %s with error: %v. "+
+			"Cannot determine whether the snapshot is deleted or not", snapshotID, volumeID)
+		return false
+	}
+
+	if querySnapshotResult.Entries == nil || len(querySnapshotResult.Entries) == 0 {
+		log.Infof("failed to validate for snapshot %s on volume %s as the "+
+			"querySnapshotResult.Entries is empty", snapshotID, volumeID)
+		return false
+	}
+
+	if querySnapshotResult.Entries[0].Error == nil {
+		log.Infof("result of CNS query CNS for snapshot %s on volume %s "+
+			"does not contain any error", snapshotID, volumeID)
+		return false
+	}
+
+	faultInQuerySnapshotResult := querySnapshotResult.Entries[0].Error.Fault
+	log.Infof("fault in the result of query CNS for snapshot %s on volume %s: %v",
+		snapshotID, volumeID, spew.Sdump(querySnapshotResult.Entries[0].Error.Fault))
+
+	return cnsvsphere.IsCnsSnapshotNotFoundError(soap.WrapVimFault(faultInQuerySnapshotResult))
+}
