@@ -4832,3 +4832,157 @@ func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
 	}
 	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
 }
+
+func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	controller_name string) (string, string, error) {
+	ignoreLabels := make(map[string]string)
+	var k8sMasterNodeIP string
+	var csi_controller_pod string
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for i := 0; i < len(list_of_pods); i++ {
+		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
+					"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
+					" | tail -1 | awk '{print $10}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+					k8sMasterIP)
+				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingCurrentLeader)
+				csi_controller_pod = RunningLeaderInfo.Stdout
+				if err != nil || RunningLeaderInfo.Code != 0 {
+					fssh.LogResult(RunningLeaderInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
+					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
+					k8sMasterIP)
+				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeName)
+				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeNameInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
+					"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
+					k8sMasterIP)
+				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeIP)
+				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
+				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeIPInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+				}
+			}
+		}
+	}
+	return csi_controller_pod, k8sMasterNodeIP, nil
+}
+
+func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	controller_name string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
+		"awk '{print $1}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		k8sMasterNodeIP)
+	DockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForGettingDockerContainerId)
+	if err != nil || DockerContainerInfo.Code != 0 {
+		fssh.LogResult(DockerContainerInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
+	}
+	grepCmdForPausingDockerContainer := "docker pause " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForPausingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerPauseInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForPausingDockerContainer)
+	if err != nil || DockerContainerPauseInfo.Code != 0 {
+		fssh.LogResult(DockerContainerPauseInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForPausingDockerContainer, k8sMasterNodeIP, err)
+	}
+	grepCmdForKillingDockerContainer := "docker kill " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForKillingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerKillInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForKillingDockerContainer)
+	if err != nil || DockerContainerKillInfo.Code != 0 {
+		fssh.LogResult(DockerContainerKillInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForKillingDockerContainer, k8sMasterNodeIP, err)
+	}
+	return nil
+}
+
+// CheckMount checks that the mount at mountPath is valid for all Pods in ss.
+func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPath string) error {
+	for _, cmd := range []string{
+		// Print inode, size etc
+		fmt.Sprintf("ls -idlh %v", mountPath),
+		// Print subdirs
+		fmt.Sprintf("find %v", mountPath),
+		// Try writing
+		fmt.Sprintf("touch %v", filepath.Join(mountPath, fmt.Sprintf("%v", time.Now().UnixNano()))),
+	} {
+		if err := ExecInStsPodsInNs(c, ss, cmd); err != nil {
+			return fmt.Errorf("failed to execute %v, error: %v", cmd, err)
+		}
+	}
+	return nil
+}
+
+/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+cmd is not execute in any subsequent Pods. */
+func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
+	podList := GetListOfPodsInSts(c, ss)
+	StatefulSetPoll := 10 * time.Second
+	StatefulPodTimeout := 5 * time.Minute
+	for _, statefulPod := range podList.Items {
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace,
+			statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	csi_controller_pod string) error {
+	ignoreLabels := make(map[string]string)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for i := 0; i < len(list_of_pods); i++ {
+		if list_of_pods[i].Name == csi_controller_pod {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
+					" -n vmware-system-csi"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
+					k8sMasterIP)
+				result, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForDeletingCsiControllerPod)
+				if err != nil || result.Code != 0 {
+					fssh.LogResult(result)
+					return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+				}
+			}
+		}
+		if list_of_pods[i].Name == csi_controller_pod {
+			break
+		}
+	}
+	return nil
+}
