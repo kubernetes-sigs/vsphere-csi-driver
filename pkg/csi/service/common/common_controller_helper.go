@@ -297,3 +297,20 @@ func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bo
 	// For all other versions.
 	return false, nil
 }
+
+// CheckPVtoBackingDiskObjectIdSupport internally checks if the vCenter version is 7.0.2.
+// Support both vsan and vvol.
+func CheckPVtoBackingDiskObjectIdSupport(ctx context.Context, vc *cnsvsphere.VirtualCenter) bool {
+	log := logger.GetLogger(ctx)
+	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
+	err := CheckAPI(currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor, PVtoBackingDiskObjectIdSupportedVCenterMinor,
+		PVtoBackingDiskObjectIdSupportedVCenterPatch)
+	if err != nil {
+		log.Errorf("checkAPI failed for PV to BackingDiskObjectId mapping support on vCenter API version: %s, err=%v",
+			currentVcVersion, err)
+		return false
+	}
+	// vCenter version supported.
+	log.Infof("vCenter API version: %s supports CNS PV to BackingDiskObjectId mapping.", currentVcVersion)
+	return true
+}
