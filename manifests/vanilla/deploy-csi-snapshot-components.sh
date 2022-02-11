@@ -214,6 +214,30 @@ spec:
               name: socket-dir
 EOF
 
+numOfCSIDriverRequiredReplicas=$(kubectl get deployment vsphere-csi-controller -n vmware-system-csi -o jsonpath='{.spec.replicas}')
+numOfCSIDriverAvailableReplicas=$(kubectl get deployment vsphere-csi-controller -n vmware-system-csi -o jsonpath='{.status.availableReplicas}')
+
+echo -e "Scale down the vSphere CSI driver"
+kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas=0
+
 echo -e "Patching vSphere CSI driver.."
 kubectl patch deployment vsphere-csi-controller -n vmware-system-csi --patch "$(cat "${tmpdir}"/patch.yaml)"
-echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature, please wait till vSphere CSI driver deployment is updated..\n"
+
+echo -e "Scaling the vSphere CSI driver back to original state.."
+kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas="${numOfCSIDriverRequiredReplicas}"
+echo -e "\n"
+# Wait till at least the original number of replicas are available
+for _ in $(seq 20); do
+    currentReplicas=$(kubectl get deployment vsphere-csi-controller -n vmware-system-csi -o jsonpath='{.status.availableReplicas}')
+    if [[ ${currentReplicas} == "" ]]; then
+            currentReplicas=0
+    fi
+    if [[ ${currentReplicas} -ge "${numOfCSIDriverAvailableReplicas}" ]]; then
+        echo -e "vSphere CSI driver restored to original number of replicas before patching!\n"
+        break
+    fi
+    echo "waiting for vsphere-csi-controller deployment to scale.."
+    sleep 10
+done
+
+echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature!\n"
