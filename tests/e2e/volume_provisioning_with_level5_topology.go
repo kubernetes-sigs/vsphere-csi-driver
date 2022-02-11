@@ -241,6 +241,8 @@ bindingMode, false)
 		"and using parallel pod management policy for statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		//comment
+		//comments
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
@@ -452,7 +454,7 @@ bindingMode, false)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters["storagepolicyname"] = storagePolicyName
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "",
-			"", false, "nginx-sc")
+			"", false, "example-windows-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -562,7 +564,7 @@ bindingMode, false)
 		scParameters := make(map[string]string)
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", false, "nginx-sc")
+			"", "", false, "example-windows-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -746,7 +748,7 @@ bindingMode, false)
 
 		// Create SC with WFC BindingMode with allowed topology details.
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "example-windows-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -768,7 +770,20 @@ bindingMode, false)
 
 		// Wait for StatefulSet pods to be in up and running state
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv{
+            ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+            statefulPodList := fss.GetPodList(client, statefulset)
+
+            for _, statefulPod := range statefulPodList.Items {
+                _, err = framework.LookForStringInPodExec(statefulPod.Namespace, statefulPod.Name,
+                    []string{"powershell.exe", "cat", "C:\\test\\data.txt"}, "", time.Minute)
+                gomega.Expect(err).NotTo(gomega.HaveOccurred())
+            }
+    
+        }else {
+            gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+        }
+		//gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
