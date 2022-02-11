@@ -4144,7 +4144,7 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		if windowsEnv{
 			//sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
 			framework.Logf("Disabling feature gates")
-			sshCmd = fmt.Sprintf("mv %s %s", windowskubeletConfigFile, windowskubeletConfigYaml)
+			sshCmd = fmt.Sprintf("cp %s %s", windowskubeletConfigFile, windowskubeletConfigYaml)
 		}else{
 			sshCmd = fmt.Sprintf("head -n -5 %s > tmp.txt && mv tmp.txt %s", kubeletConfigYaml, kubeletConfigYaml)
 		}
