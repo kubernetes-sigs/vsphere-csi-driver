@@ -186,9 +186,6 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			17. Scale Down replica count 0
 			18. Delete StatefulSet Pod's, PVC's.
 			19. Verify StatefulSet Pod's, PVC's are deleted successfully.
-			20. Delete
-
-
 		*/
 
 		ginkgo.It("Volume provisioning when CSI Provisioner is deleted during statefulset creation", func() {

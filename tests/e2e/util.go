@@ -4833,6 +4833,9 @@ func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
 	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
 }
 
+/*
+This method will fetch the master node IP where controller is running
+*/
 func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	controller_name string) (string, string, error) {
@@ -4887,6 +4890,9 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 	return csi_controller_pod, k8sMasterNodeIP, nil
 }
 
+/*
+This method will kill container on the master node IP where controller is running
+*/
 func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
 	controller_name string) error {
 	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
@@ -4957,6 +4963,9 @@ func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string
 	return nil
 }
 
+/*
+This method is used to delete the CSI Controller Pod
+*/
 func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	csi_controller_pod string) error {
