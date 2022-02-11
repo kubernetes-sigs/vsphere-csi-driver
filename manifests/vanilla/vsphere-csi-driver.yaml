@@ -18,8 +18,11 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "persistentvolumeclaims", "pods", "configmaps"]
+    resources: ["nodes", "pods", "configmaps"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims/status"]
     verbs: ["patch"]
@@ -149,6 +152,7 @@ data:
   "block-volume-snapshot": "false"
   "csi-windows-support": "false"
   "use-csinode-id": "false"
+  "pv-to-backingdiskobjectid-mapping": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
