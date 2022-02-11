@@ -266,6 +266,18 @@ const (
 
 	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volumeAccessibleTopology"
+
+	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterMajor int = 7
+
+	// PVtoBackingDiskObjectIdSupportedVCenterMinor is the minimum minor version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterMinor int = 0
+
+	// PVtoBackingDiskObjectIdSupportedVCenterPatch is the minimum patch version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterPatch int = 2
 )
 
 // Supported container orchestrators.
@@ -325,4 +337,6 @@ const (
 	// TKGsHA is the feature gate to check whether TKGS HA feature
 	// is enabled.
 	TKGsHA = "tkgs-ha"
+	// PVtoBackingDiskObjectIdMapping is the feature to support pv to backingDiskObjectId mapping on vSphere CSI driver.
+	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 )
