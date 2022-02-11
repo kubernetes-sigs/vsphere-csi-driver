@@ -45,6 +45,9 @@ const (
 	// key for HealthStatus annotation on PVC
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
 
+	// key for PV to backingDiskObjectId mapping annotation on PVC
+	annPVtoBackingDiskObjectId = "cns.vmware.com/pv-to-backingdiskobjectid-mapping"
+
 	// key for expressing timestamp for volume health annotation
 	annVolumeHealthTS = "volumehealth.storage.kubernetes.io/health-timestamp"
 
@@ -61,6 +64,9 @@ const (
 	volumeHealthWorkers = 10
 	// key for dynamically provisioned PV in volume attributes of PV spec
 	attribCSIProvisionerID = "storage.kubernetes.io/csiProvisionerIdentity"
+
+	// default interval for pv to backingdiskobjectid mapping
+	defaultPVtoBackingDiskObjectIdIntervalInMin = 10
 )
 
 var (
@@ -89,6 +95,8 @@ type (
 	volumeHandlePVCMap = map[string]*v1.PersistentVolumeClaim
 	// Maps CnsVolume's VolumeId.Id to vol.HealthStatus
 	volumeIdHealthStatusMap = map[string]string
+	// Maps CnsVolume's VolumeId.Id to pvuid
+	volumeIdToPvUidMap = map[string]string
 )
 
 type metadataSyncInformer struct {
