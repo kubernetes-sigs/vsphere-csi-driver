@@ -38,7 +38,7 @@ streamingConnectionIdleTimeout: 0s
 syncFrequency: 0s
 volumeStatsAggPeriod: 0s
 featureGates:
-{
+  {
     "CSIMigration": true,
     "CSIMigrationvSphere": true
-}
+  }
