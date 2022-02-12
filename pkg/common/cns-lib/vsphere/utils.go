@@ -98,6 +98,15 @@ func IsVimFaultNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
+// IsCnsSnapshotNotFoundError checks if err is the CnsSnapshotNotFoundFault fault returned by CNS QuerySnapshots API
+func IsCnsSnapshotNotFoundError(err error) bool {
+	isCnsSnapshotNotFoundError := false
+	if soap.IsVimFault(err) {
+		_, isCnsSnapshotNotFoundError = soap.ToVimFault(err).(cnstypes.CnsSnapshotNotFoundFault)
+	}
+	return isCnsSnapshotNotFoundError
+}
+
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject
 // object from given parameters.
 func GetCnsKubernetesEntityMetaData(entityName string, labels map[string]string,
