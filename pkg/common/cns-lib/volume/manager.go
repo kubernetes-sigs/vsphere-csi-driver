@@ -2110,21 +2110,48 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	}
 
 	// Get the taskInfo
-	deleteSnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, deleteSnapshotTask)
-	if err != nil || deleteSnapshotsTaskInfo == nil {
+	deleteSnapshotsTaskInfo, err := deleteSnapshotTask.WaitForResult(ctx, nil)
+	if err != nil {
+		if cnsvsphere.IsManagedObjectNotFound(err, deleteSnapshotTask.Reference()) {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Calling CNS QuerySnapshots API to confirm it", snapshotID, volumeID, err)
+			if validateSnapshotDeleted(ctx, m, volumeID, snapshotID) {
+				if m.idempotencyHandlingEnabled {
+					// Create the volumeOperationDetails object for persistence
+					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+						volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+						deleteSnapshotTask.Reference().Value, volumeOperationDetails.OperationDetails.OpID,
+						taskInvocationStatusSuccess, "")
+				}
+
+				log.Infof("DeleteSnapshot: Snapshot %q on volume %q is confirmed to be deleted successfully",
+					snapshotID, volumeID)
+
+				return nil
+			}
+		}
+
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
+
 		return logger.LogNewErrorf(log, "Failed to get taskInfo for DeleteSnapshots task from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
 	}
+
 	log.Infof("DeleteSnapshot: VolumeID: %q, SnapshotID: %q, opId: %q", volumeID, snapshotID,
 		deleteSnapshotsTaskInfo.ActivationId)
 
 	// Get the taskResult
-	deleteSnapshotsTaskResult, err := cns.GetTaskResult(ctx, deleteSnapshotsTaskInfo)
-	if err != nil || deleteSnapshotsTaskResult == nil {
-		log.Errorf("unable to find the task result for DeleteSnapshots task from vCenter %q. taskID: %q, "+
-			"opId: %q createResults: %+v", m.virtualCenter.Config.Host, deleteSnapshotsTaskInfo.Task.Value,
-			deleteSnapshotsTaskInfo.ActivationId, deleteSnapshotsTaskResult)
-		return err
+	deleteSnapshotsTaskResult, err := getTaskResultFromTaskInfo(ctx, deleteSnapshotsTaskInfo)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get the task result for DeleteSnapshots task "+
+			"from vCenter %q. taskID: %q, opId: %q createResults: %+v", m.virtualCenter.Config.Host,
+			deleteSnapshotsTaskInfo.Task.Value, deleteSnapshotsTaskInfo.ActivationId, deleteSnapshotsTaskResult)
+	}
+	if deleteSnapshotsTaskResult == nil {
+		return logger.LogNewErrorf(log, "task result is empty for DeleteSnapshot task: %q, opID: %q",
+			deleteSnapshotsTaskInfo.Task.Value, deleteSnapshotsTaskInfo.ActivationId)
 	}
 
 	// Handle snapshot operation result
