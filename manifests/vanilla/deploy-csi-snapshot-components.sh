@@ -120,6 +120,10 @@ echo -e "✅ Deployed snapshot-controller"
 
 kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 
+kubectl patch deployment -n kube-system snapshot-controller \
+--type=json \
+-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
+
 wait_for_deployment snapshot-controller kube-system
 
 # Deploy the snapshot validating webhook.
@@ -203,6 +207,8 @@ spec:
           image: 'k8s.gcr.io/sig-storage/csi-snapshotter:${release}'
           args:
             - '--v=4'
+            - '--kube-api-qps=100'
+            - '--kube-api-burst=100'
             - '--timeout=300s'
             - '--csi-address=\$(ADDRESS)'
             - '--leader-election'
@@ -240,4 +246,4 @@ for _ in $(seq 20); do
     sleep 10
 done
 
-echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature!\n"
+echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature, please wait till vSphere CSI driver deployment is updated..\n"
