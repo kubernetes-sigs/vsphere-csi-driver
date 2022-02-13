@@ -5228,6 +5228,28 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	return nil
 }
 
+func ListTopologyClusterNames(topologyCluster string) []string {
+	topologyClusterList := strings.Split(topologyCluster, ",")
+	return topologyClusterList
+}
+
+// CheckMount checks that the mount at mountPath is valid for all Pods in ss.
+func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPath string) error {
+	for _, cmd := range []string{
+		// Print inode, size etc
+		fmt.Sprintf("ls -idlh %v", mountPath),
+		// Print subdirs
+		fmt.Sprintf("find %v", mountPath),
+		// Try writing
+		fmt.Sprintf("touch %v", filepath.Join(mountPath, fmt.Sprintf("%v", time.Now().UnixNano()))),
+	} {
+		if err := ExecInStsPodsInNs(c, ss, cmd); err != nil {
+			return fmt.Errorf("failed to execute %v, error: %v", cmd, err)
+		}
+	}
+	return nil
+}
+
 // Fetching IP address of master node from a given master node name
 func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interface,
 	masterNodeName string) (string, error) {
@@ -5295,4 +5317,19 @@ func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
 		},
 	}
 	return volumesnapshotSpec
+}
+
+// ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and cmd is not execute in any subsequent Pods.
+func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
+	podList := GetListOfPodsInSts(c, ss)
+	StatefulSetPoll := 10 * time.Second
+	StatefulPodTimeout := 5 * time.Minute
+	for _, statefulPod := range podList.Items {
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace, statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
