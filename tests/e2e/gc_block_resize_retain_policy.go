@@ -40,7 +40,6 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation policy retain", func() {
@@ -170,11 +169,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	//    policy set to 'Retain'.
 	// 2. create a GC PVC using the SC created in step 1 and wait for binding
 	//    with PV.
-	// 3. Create a pod  in GC to use PVC created in step 2 and file system init.
+	// 3. Create a pod  in GC to use PVC created in step 2 and file system init.
 	// 4. Delete GC pod created in step 3.
 	// 5. Delete GC PVC created in step 2.
 	// 6. Verify GC PVC is removed but SVC PVC, PV and GC PV still exists.
-	// 7. Remove claimRef from the PV lingering in GC  to get it to Available
+	// 7. Remove claimRef from the PV lingering in GC  to get it to Available
 	//    state.
 	// 8. Create new PVC in GC using the PV lingering in GC using the same SC
 	//    from step 1.
@@ -378,7 +377,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	//    policy set to delete.
 	// 8. Create new PV in GC2 using the SVC PVC from step 5 and SC created in
 	//    step 7.
-	// 9. create new  PVC in GC2 using PV created in step 8.
+	// 9. create new  PVC in GC2 using PV created in step 8.
 	// 10. verify a new PVC API object is created.
 	// 11. Resize PVC from step 9 in GC2.
 	// 12. Wait for PVC in GC2 and SVC to reach "FilesystemResizePending" state.
@@ -396,7 +395,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		if newGcKubconfigPath == "" {
 			ginkgo.Skip("Env NEW_GUEST_CLUSTER_KUBE_CONFIG is missing")
 		}
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
@@ -795,7 +794,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		if newGcKubconfigPath == "" {
 			ginkgo.Skip("Env NEW_GUEST_CLUSTER_KUBE_CONFIG is missing")
 		}
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")

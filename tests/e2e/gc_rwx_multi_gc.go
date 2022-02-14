@@ -33,7 +33,6 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", func() {
@@ -223,7 +222,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		// Getting the client for the second GC
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
@@ -463,7 +462,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 		// Getting the client for the second GC
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
@@ -695,7 +694,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 		// Getting the client for the second GC
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 

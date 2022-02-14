@@ -36,7 +36,6 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 // Steps
@@ -311,7 +310,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		var volumeFiles []string
 
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 
 		// Get a config to talk to the apiserver.
@@ -328,7 +326,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		ginkgo.By("Get the Profile ID")
 		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		log.Infof("Profile ID :%s", profileID)
+		framework.Logf("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
 
@@ -349,7 +347,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
 			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
 		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
-		log.Infof("cnsRegisterVolumeName : %s", cnsRegisterVolumeName)
+		framework.Logf("cnsRegisterVolumeName : %s", cnsRegisterVolumeName)
 
 		ginkgo.By("verify created PV, PVC and check the bidirectional referance")
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})

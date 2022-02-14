@@ -27,8 +27,6 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
-
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"
@@ -41,7 +39,7 @@ func init() {
 		os.Setenv(kubeconfigEnvVar, kubeconfig)
 	}
 	framework.AfterReadingAllFlags(&framework.TestContext)
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(envClusterFlavor))
 	setClusterFlavor(clusterFlavor)
 }
 
