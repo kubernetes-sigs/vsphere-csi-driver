@@ -35,7 +35,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
@@ -1232,7 +1231,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvStorageClass := pv.Spec.StorageClassName
 
 		// Create PV in New GC.
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
@@ -1250,7 +1249,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		var svClient clientset.Interface
 		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
-			svClient, err = k8s.CreateKubernetesClientFromConfig(k8senvsv)
+			svClient, err = createKubernetesClientFromConfig(k8senvsv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		svcNamespace := os.Getenv("SVC_NAMESPACE")
@@ -1457,7 +1456,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		var svClient clientset.Interface
 		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
-			svClient, err = k8s.CreateKubernetesClientFromConfig(k8senvsv)
+			svClient, err = createKubernetesClientFromConfig(k8senvsv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		svcNamespace := os.Getenv("SVC_NAMESPACE")
