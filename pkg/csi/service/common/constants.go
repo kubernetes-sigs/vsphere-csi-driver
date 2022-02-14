@@ -267,10 +267,10 @@ const (
 	TopologyLabelsDomain = "topology.csi.vmware.com"
 
 	//AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
-	AnnGuestClusterRequestedTopology = "csi.vsphere.guest-cluster-requested-topology"
+	AnnGuestClusterRequestedTopology = "csi.vsphere.volume-requested-topology"
 
 	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
-	AnnVolumeAccessibleTopology = "csi.vsphere.volumeAccessibleTopology"
+	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 
 	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
 	// on which PV to BackingDiskObjectId mapping feature is supported.
