@@ -53,6 +53,7 @@ const (
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
+	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"

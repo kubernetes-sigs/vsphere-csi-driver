@@ -517,11 +517,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 
 		framework.Logf("Patch storage class as default SC")
-		err = updateSCtoDefault(ctx, storagePolicyName, "true")
+		err = updateSCtoDefault(ctx, client, storagePolicyName, "true")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = updateSCtoDefault(ctx, storagePolicyName, "false")
+			err = updateSCtoDefault(ctx, client, storagePolicyName, "false")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -632,11 +632,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 
 		framework.Logf("Patch storage class as default SC")
-		err := updateSCtoDefault(ctx, storagePolicyName, "true")
+		err := updateSCtoDefault(ctx, client, storagePolicyName, "true")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = updateSCtoDefault(ctx, storagePolicyName, "false")
+			err = updateSCtoDefault(ctx, client, storagePolicyName, "false")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 

@@ -79,7 +79,6 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
@@ -699,16 +698,11 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 }
 
 // updateSCtoDefault updates the given SC to default
-func updateSCtoDefault(ctx context.Context, scName, isDefault string) error {
-	log := logger.GetLogger(ctx)
-	clientSet, err := k8s.NewClient(ctx)
+func updateSCtoDefault(ctx context.Context, client clientset.Interface, scName, isDefault string) error {
+
+	sc, err := client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("Failed to create k8s client for cluster, err=%+v", err)
-		return err
-	}
-	_, err = clientSet.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("Failed to get storage class object from cluster, err=%+v", err)
+		framework.Failf("Failed to get storage class %s from cluster, err=%+v", sc.Name, err)
 		return err
 	}
 
@@ -721,18 +715,18 @@ func updateSCtoDefault(ctx context.Context, scName, isDefault string) error {
 	}
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
-		log.Errorf("Failed to marshal patch(%s): %s", patch, err)
+		framework.Failf("Failed to marshal patch(%s): %s", patch, err)
 		return err
 	}
 
 	// Patch the storage class with the updated annotation.
-	updatedSC, err := clientSet.StorageV1().StorageClasses().Patch(ctx,
+	updatedSC, err := client.StorageV1().StorageClasses().Patch(ctx,
 		scName, "application/merge-patch+json", patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		log.Errorf("Failed to patch the storage class object with isDefault. Err = %+v", err)
+		framework.Failf("Failed to patch the storage class object with isDefault. Err = %+v", err)
 		return err
 	}
-	log.Debug("Successfully updated is default annotations of storage class: ", scName, updatedSC.Annotations)
+	framework.Logf("Successfully updated annotations of storage class '%s' to:\n%v", scName, updatedSC.Annotations)
 	return nil
 }
 
@@ -920,7 +914,7 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 	var err error
 	if svcClient == nil {
 		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
@@ -1981,7 +1975,7 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 	var svcClient clientset.Interface
 	var err error
 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		svcClient, err = createKubernetesClientFromConfig(k8senv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
@@ -1996,7 +1990,7 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 	var svcClient clientset.Interface
 	var err error
 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-		svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+		svcClient, err = createKubernetesClientFromConfig(k8senv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
@@ -2585,8 +2579,7 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 	var (
 		cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume
 	)
-	log := logger.GetLogger(ctx)
-	log.Infof("get CNSRegisterVolume spec")
+	framework.Logf("get CNSRegisterVolume spec")
 	cnsRegisterVolume = &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -2614,11 +2607,10 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 // Create CNS register volume.
 func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
-	log := logger.GetLogger(ctx)
 
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	log.Infof("Create CNSRegisterVolume")
+	framework.Logf("Create CNSRegisterVolume")
 	err = cnsOperatorClient.Create(ctx, cnsRegisterVolume)
 
 	return err
@@ -2629,8 +2621,7 @@ func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config,
 	cnsRegistervolumeName string, namespace string) bool {
 	isPresent := false
-	log := logger.GetLogger(ctx)
-	log.Infof("cleanUpCnsRegisterVolumeInstances: start")
+	framework.Logf("cleanUpCnsRegisterVolumeInstances: start")
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2642,7 +2633,7 @@ func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config,
 	cns := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegistervolumeName, Namespace: namespace}, cns)
 	if err == nil {
-		log.Infof("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
+		framework.Logf("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
 		isPresent = true
 	}
 
@@ -2654,7 +2645,6 @@ func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config,
 // provisioning.
 func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientset.Interface,
 	pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, fcdID string) {
-	log := logger.GetLogger(ctx)
 
 	pvcName := pvc.GetName()
 	pvcNamespace := pvc.GetNamespace()
@@ -2668,21 +2658,21 @@ func verifyBidirectionalReferenceOfPVandPVC(ctx context.Context, client clientse
 	pvvolumeHandle := pv.Spec.PersistentVolumeSource.CSI.VolumeHandle
 
 	if pvClaimRefName != pvcName && pvClaimRefNamespace != pvcNamespace {
-		log.Infof("PVC Name :%s PVC namespace : %s", pvcName, pvcNamespace)
-		log.Infof("PV Name :%s PVnamespace : %s", pvcName, pvcNamespace)
-		log.Errorf("Mismatch in PV and PVC name and namespace")
+		framework.Logf("PVC Name :%s PVC namespace : %s", pvcName, pvcNamespace)
+		framework.Logf("PV Name :%s PVnamespace : %s", pvcName, pvcNamespace)
+		framework.Failf("Mismatch in PV and PVC name and namespace")
 	}
 
 	if pvcvolume != pvName {
-		log.Errorf("PVC volume :%s PV name : %s expected to be same", pvcvolume, pvName)
+		framework.Failf("PVC volume :%s PV name : %s expected to be same", pvcvolume, pvName)
 	}
 
 	if pvvolumeHandle != fcdID {
-		log.Errorf("Mismatch in PV volumeHandle:%s and the actual fcdID: %s", pvvolumeHandle, fcdID)
+		framework.Failf("Mismatch in PV volumeHandle:%s and the actual fcdID: %s", pvvolumeHandle, fcdID)
 	}
 
 	if pvccapacity != pvcapacity {
-		log.Errorf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
+		framework.Failf("Mismatch in pv capacity:%d and pvc capacity: %d", pvcapacity, pvccapacity)
 	}
 }
 
@@ -4100,4 +4090,20 @@ func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace 
 		framework.Logf("FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
 	}
 	return false
+}
+
+// createKubernetesClientFromConfig creaates a newk8s client from given
+// kubeConfig file.
+func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interface, error) {
+
+	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }

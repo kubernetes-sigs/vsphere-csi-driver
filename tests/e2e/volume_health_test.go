@@ -34,8 +34,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("Volume health check", func() {
@@ -144,7 +142,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 
 		ginkgo.By("Invoking Test for validating health status")
@@ -227,7 +224,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -317,7 +314,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 		// Decide which test setup is available to run.
@@ -430,7 +426,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -465,7 +461,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 		// Decide which test setup is available to run.
@@ -530,7 +525,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -587,7 +582,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})
@@ -612,7 +607,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 		// Decide which test setup is available to run.
@@ -725,7 +719,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -753,7 +747,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 		// Decide which test setup is available to run.
@@ -859,7 +852,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})
@@ -967,7 +960,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 		// Decide which test setup is available to run.
@@ -1026,7 +1018,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -1053,7 +1045,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 		ginkgo.By("Invoking Test for validating health status")
 
@@ -1134,7 +1125,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 
@@ -1254,7 +1245,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var isControllerUP = true
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
 		defer cancel()
 
 		ginkgo.By("Creating Storage Class and PVC")
@@ -1298,7 +1288,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		var gcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
-			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By("Get svcClient and svNamespace")
@@ -1351,7 +1341,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -1373,7 +1363,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 
 		if supervisorCluster {
@@ -1464,7 +1454,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -1493,7 +1483,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var isControllerUP = true
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
@@ -1601,7 +1591,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 
 		}
@@ -1631,7 +1621,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pv *v1.PersistentVolume
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
@@ -1742,7 +1732,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		// It checks the colour code returned by cns for pv.
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red)")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthRed))
 		}
 
@@ -1773,7 +1763,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})
@@ -1800,7 +1790,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		var isSvcUp bool
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
@@ -1860,7 +1850,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Bringing SV API server down")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		log.Infof("VC ip address: %v", vcAddress)
+		framework.Logf("VC ip address: %v", vcAddress)
 
 		err = bringSvcK8sAPIServerDown(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1916,7 +1906,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pv *v1.PersistentVolume
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
 		if raid0StoragePolicyName == "" {
@@ -2063,7 +2053,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})
@@ -2093,7 +2083,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var isControllerUP = true
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
@@ -2129,7 +2119,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		var gcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
-			gcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			gcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -2202,7 +2192,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(len(queryResult.Volumes) > 0)
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})
@@ -2460,7 +2450,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		var err error
 		var pvclaims []*v1.PersistentVolumeClaim
 		ctx, cancel := context.WithCancel(context.Background())
-		log := logger.GetLogger(ctx)
+
 		defer cancel()
 		raid0StoragePolicyName = os.Getenv("RAID_0_STORAGE_POLICY")
 		if raid0StoragePolicyName == "" {
@@ -2545,7 +2535,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthRed))
 		}
 
@@ -2610,7 +2600,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
 		for _, vol := range queryResult.Volumes {
-			log.Infof("Volume health status: %s", vol.HealthStatus)
+			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
 	})

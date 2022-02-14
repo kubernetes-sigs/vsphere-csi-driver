@@ -34,7 +34,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
@@ -285,7 +284,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		var svcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -669,7 +668,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
