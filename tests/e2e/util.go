@@ -4096,7 +4096,8 @@ func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace 
 			}
 		}
 	}
-	gomega.Expect(fssFound).To(
-		gomega.BeTrue(), "FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+	if !fssFound {
+		framework.Logf("FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+	}
 	return false
 }
