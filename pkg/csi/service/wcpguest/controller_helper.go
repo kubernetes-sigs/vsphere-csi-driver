@@ -220,7 +220,7 @@ func generateGuestClusterRequestedTopologyJSON(topologies []*csi.Topology) (stri
 }
 
 // generateVolumeAccessibilityRequirementsFromPVCAnnotation returns TopologyRequirement generated using
-// PVC annotation "csi.vsphere.volumeAccessibleTopology"
+// PVC annotation "csi.vsphere.volume-accessible-topology"
 func generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
 	*csi.TopologyRequirement, error) {
 	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
