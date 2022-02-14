@@ -41,7 +41,7 @@ goformat_exit_code=0; test -z "$(head -n 1 "${out}")" || goformat_exit_code=1
 rm -f "${out}" && touch "${out}"
 
 # Run goimports on all the sources.
-go get golang.org/x/tools/cmd/goimports@v0.1.1
+go install golang.org/x/tools/cmd/goimports@v0.1.1
 
 # shellcheck disable=SC2046
 $(go env GOPATH)/bin/goimports -d $(find . -type f -name '*.go' -not -path "./vendor/*") | tee "${out}"

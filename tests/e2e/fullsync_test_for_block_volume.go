@@ -39,6 +39,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 /*
