@@ -748,7 +748,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 // scaleUpStsAndVerifyPodMetadata scales up replica of a statefulset if required
 // and verifies count of sts replica and if its vSphere volumes are attached to node VMs
 func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
-	namespace string, statefulset *appsv1.StatefulSet, volumesBeforeScaleDown []string,
+	namespace string, statefulset *appsv1.StatefulSet,
 	replicas int32, isScaleUpRequired bool, verifyCnsVolumes bool) {
 	if isScaleUpRequired {
 		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
@@ -837,4 +837,27 @@ func deleteCsiControllerPodOnOtherMasters(client clientset.Interface,
 		go deleteCsiPodInParallel(client, csiPod, csiSystemNamespace, &wg)
 	}
 	wg.Wait()
+}
+
+// hostFailure causes a host in either site to be powered on or off
+func hostFailure(esxHost string, hostDown bool) {
+	host := []string{esxHost}
+	if hostDown {
+		framework.Logf("hosts to power off: %v", host)
+		powerOffHostParallel(host)
+	} else {
+		framework.Logf("hosts to power on: %v", host)
+		powerOnHostParallel(host)
+	}
+}
+
+// scaleStsReplicaInParallel scales statefulset's replica up/down in parallel
+func scaleStsReplicaInParallel(client clientset.Interface, stsList []*appsv1.StatefulSet,
+	regex string, replicas int32, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, statefulset := range stsList {
+		if strings.Contains(statefulset.Name, regex) {
+			fss.UpdateReplicas(client, statefulset, replicas)
+		}
+	}
 }
