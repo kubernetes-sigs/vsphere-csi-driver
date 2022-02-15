@@ -13,6 +13,7 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -87,6 +88,82 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 		return nil, err
 	}
 	return &res.Returnval, nil
+}
+
+// queryCNSVolumeSnapshotWithResult Call CnsQuerySnapshots
+// and returns CnsSnapshotQueryResult to client
+func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
+	snapshotId string) (*cnstypes.CnsSnapshotQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: &cnstypes.CnsSnapshotId{
+			Id: snapshotId,
+		},
+	})
+
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: snapshotSpec,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+
+	req := cnstypes.CnsQuerySnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotQueryFilter: queryFilter,
+	}
+
+	res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskResult, err := cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return taskResult, nil
+}
+
+// verifySnapshotIsDeletedInCNS verifies the snapshotId's presence on CNS
+func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != "" {
+		return fmt.Errorf("snapshot entry is still present in CNS %s",
+			querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id)
+	}
+	return nil
+}
+
+// verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
+func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != snapshotId {
+		return fmt.Errorf("snapshot entry is not present in CNS %s", snapshotId)
+	}
+	return nil
 }
 
 // getAllDatacenters returns all the DataCenter Objects
