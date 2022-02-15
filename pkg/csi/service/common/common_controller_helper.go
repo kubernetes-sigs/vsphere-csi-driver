@@ -303,8 +303,8 @@ func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bo
 func CheckPVtoBackingDiskObjectIdSupport(ctx context.Context, vc *cnsvsphere.VirtualCenter) bool {
 	log := logger.GetLogger(ctx)
 	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
-	err := CheckAPI(currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor, PVtoBackingDiskObjectIdSupportedVCenterMinor,
-		PVtoBackingDiskObjectIdSupportedVCenterPatch)
+	err := CheckAPI(currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor,
+		PVtoBackingDiskObjectIdSupportedVCenterMinor, PVtoBackingDiskObjectIdSupportedVCenterPatch)
 	if err != nil {
 		log.Errorf("checkAPI failed for PV to BackingDiskObjectId mapping support on vCenter API version: %s, err=%v",
 			currentVcVersion, err)

@@ -86,7 +86,8 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 
 	for _, vol := range queryAllResult.Volumes {
 		// NOTE: BackingDiskObjectId is the id of vvol or vSan; BackingDiskId is the same as VolumeId.
-		volumeIdToBackingObjectIdMap[vol.VolumeId.Id] = vol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).BackingDiskObjectId
+		volumeIdToBackingObjectIdMap[vol.VolumeId.Id] = vol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).
+			BackingDiskObjectId
 	}
 
 	for volID, pvc := range volumeHandleToPvcMap {
@@ -97,7 +98,8 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 			return
 		}
 		if updated {
-			log.Infof("csiGetPVtoBackingDiskObjectIdMapping: pvc %s is updated with pv to backingDiskObjectId mapping %s", pvc.Name, pvToBackingDiskObjectIdPair)
+			log.Infof("csiGetPVtoBackingDiskObjectIdMapping: pvc %s is updated with pv to backingDiskObjectId mapping %s",
+				pvc.Name, pvToBackingDiskObjectIdPair)
 		}
 	}
 
@@ -127,7 +129,8 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 			log.Debugf("updatePVtoBackingDiskObjectIdMappingStatus: no previous mapping found in annotation. No need to update.")
 			return false, nil
 		} else {
-			// If there is any previous pv to backingdiskobjectid mapping found, set it as empty as queryAll returns nothing in this cycle
+			// If there is any previous pv to backingdiskobjectid mapping found,
+			// set it as empty as queryAll returns nothing in this cycle
 			pvToBackingDiskObjectIdPair = ""
 		}
 	}
@@ -136,27 +139,27 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 		// PVToBackingDiskObjectId annotation on pvc is changed, set it to new value.
 		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
 
-		log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: set pv to backingdiskobjectid annotation for pvc %s/%s from old "+
-			"value %s to new value %s",
+		log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: set pv to backingdiskobjectid annotation for "+
+			"pvc %s/%s from old value %s to new value %s",
 			pvc.Namespace, pvc.Name, val, pvToBackingDiskObjectIdPair)
 		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) {
-				log.Debugf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
-					pvc.Namespace, pvc.Name, err)
+				log.Debugf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v, "+
+					"will retry the update", pvc.Namespace, pvc.Name, err)
 				// pvc get from pvcLister may be stale, try to get updated pvc which
 				// bound to pv from API server.
 				newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
 					ctx, pvc.Name, metav1.GetOptions{})
 				if err != nil {
-					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: pv to backingdiskobjectid annotation for pvc %s/%s is not updated because "+
-						"failed to get pvc from API server. err=%+v",
+					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: pv to backingdiskobjectid annotation for "+
+						"pvc %s/%s is not updated because failed to get pvc from API server. err=%+v",
 						pvc.Namespace, pvc.Name, err)
 					return false, err
 				}
 
-				log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: updating pv to backingdiskobjectid annotation for pvc %s/%s which "+
-					"get from API server from old value %s to new value %s",
+				log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: updating pv to backingdiskobjectid annotation "+
+					"for pvc %s/%s which get from API server from old value %s to new value %s",
 					newPvc.Namespace, newPvc.Name, val, pvToBackingDiskObjectIdPair)
 				metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
 				_, err = k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx,
@@ -169,8 +172,8 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 					return true, nil
 				}
 			} else {
-				log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: pv to backingdiskobjectid annotation for pvc %s/%s is not updated because "+
-					"failed to get pvc from API server. err=%+v",
+				log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: pv to backingdiskobjectid annotation for "+
+					"pvc %s/%s is not updated because failed to get pvc from API server. err=%+v",
 					pvc.Namespace, pvc.Name, err)
 				return false, err
 			}

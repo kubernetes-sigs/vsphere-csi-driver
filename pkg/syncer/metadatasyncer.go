@@ -133,15 +133,17 @@ func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 	if v := os.Getenv("PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			if value <= 0 {
-				log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s "+
-					"is equal or less than 0, will use the default interval", v)
+				log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable "+
+					"PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s is equal or less than 0, will use the "+
+					"default interval", v)
 			} else {
 				pvtoBackingDiskObjectIdIntervalInMin = value
-				log.Infof("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval is set to %d minutes", pvtoBackingDiskObjectIdIntervalInMin)
+				log.Infof("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval is set to %d minutes",
+					pvtoBackingDiskObjectIdIntervalInMin)
 			}
 		} else {
-			log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s "+
-				"is invalid, will use the default interval", v)
+			log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable "+
+				"PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
 		}
 	}
 	return pvtoBackingDiskObjectIdIntervalInMin
@@ -430,9 +432,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Trigger get pv to backingDiskObjectId mapping on vanilla cluster
-	pvToBackingDiskObjectIdFSSEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PVtoBackingDiskObjectIdMapping)
+	pvToBackingDiskObjectIdFSSEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+		common.PVtoBackingDiskObjectIdMapping)
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && pvToBackingDiskObjectIdFSSEnabled {
-		pvToBackingDiskObjectIdMappingTicker := time.NewTicker(time.Duration(getPVtoBackingDiskObjectIdIntervalInMin(ctx)) * time.Minute)
+		pvToBackingDiskObjectIdMappingTicker := time.NewTicker(time.Duration(
+			getPVtoBackingDiskObjectIdIntervalInMin(ctx)) * time.Minute)
 		defer pvToBackingDiskObjectIdMappingTicker.Stop()
 
 		var pvToBackingDiskObjectIdSupportCheck bool
