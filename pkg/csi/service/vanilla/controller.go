@@ -62,6 +62,7 @@ type NodeManagerInterface interface {
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
+	GetNodeNameByVmMoID(ctx context.Context, vmMoID string) (string, error)
 }
 
 type controller struct {

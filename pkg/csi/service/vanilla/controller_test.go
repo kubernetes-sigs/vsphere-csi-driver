@@ -281,6 +281,10 @@ func (f *FakeNodeManager) GetSharedDatastoresInTopology(ctx context.Context,
 	return nil, nil, nil
 }
 
+func (f *FakeNodeManager) GetNodeNameByVmMoID(ctx context.Context, vmMoID string) (string, error) {
+	return "", nil
+}
+
 func (f *FakeAuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
 	datastoreMapForBlockVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
 	fmt.Print("FakeAuthManager: GetDatastoreMapForBlockVolumes")

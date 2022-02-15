@@ -202,6 +202,11 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) (
 	return nodes.cnsNodeManager.GetAllNodes(ctx)
 }
 
+// GetNodeNameByVmMoID fetches the k8s name of the given node given the VM MoID
+func (nodes *Nodes) GetNodeNameByVmMoID(ctx context.Context, vmMoID string) (string, error) {
+	return nodes.cnsNodeManager.GetNodeNameByVmMoID(ctx, vmMoID)
+}
+
 // GetSharedDatastoresInTopology returns shared accessible datastores for
 // specified topologyRequirement along with the map of datastore URL and
 // array of accessibleTopology map for each datastore returned from this

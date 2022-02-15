@@ -63,6 +63,8 @@ type Manager interface {
 	GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMachine, error)
 	// UnregisterNode unregisters a registered node given its name.
 	UnregisterNode(ctx context.Context, nodeName string) error
+	// GetNodeNameByVmMoID fetches the k8s name of the given node given the VM MoID
+	GetNodeNameByVmMoID(ctx context.Context, vmMoID string) (string, error)
 }
 
 // Metadata represents node metadata.
@@ -99,6 +101,8 @@ type defaultManager struct {
 	// useNodeUuid uses K8s CSINode API instead of
 	// K8s Node to retrieve the node UUID.
 	useNodeUuid bool
+	// node name to VM MoID map.
+	nodeNameToVmMoID sync.Map
 }
 
 // SetKubernetesClient sets specified kubernetes client to defaultManager.k8sClient
@@ -305,4 +309,38 @@ func (m *defaultManager) UnregisterNode(ctx context.Context, nodeName string) er
 	m.nodeVMs.Delete(nodeUUID)
 	log.Infof("Successfully unregistered node with nodeName %s", nodeName)
 	return nil
+}
+
+// GetNodeNameByVmMoID fetches the k8s name of the given node given the VM MoID
+func (m *defaultManager) GetNodeNameByVmMoID(ctx context.Context, vmMoID string) (string, error) {
+	var nodeName string
+	var err error
+	log := logger.GetLogger(ctx)
+	nodeNameInf, ok := m.nodeNameToVmMoID.Load(vmMoID)
+	if !ok {
+		m.nodeVMs.Range(func(nodeUUIDInf, vmInf interface{}) bool {
+			if vmInf == nil {
+				log.Warnf("VM instance was nil, ignoring with nodeUUID %v", nodeUUIDInf)
+				return true
+			}
+
+			nodeUUID := nodeUUIDInf.(string)
+			vm := vmInf.(*vsphere.VirtualMachine)
+			if vm.Name() == vmMoID {
+				nodeName, err = m.GetNodeNameByUUID(ctx, nodeUUID)
+				if err != nil {
+					log.Errorf("Node name not found for node UUID %v", nodeUUID)
+					return false
+				}
+				m.nodeNameToVmMoID.Store(vmMoID, nodeName)
+			}
+			return true
+		})
+	} else {
+		nodeName = nodeNameInf.(string)
+	}
+	if nodeName == "" {
+		return "", logger.LogNewErrorf(log, "failed to find node name for VM with MoID: %q", vmMoID)
+	}
+	return nodeName, nil
 }
