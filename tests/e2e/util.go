@@ -5518,3 +5518,22 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 	}
 	return powerOffHostsList
 }
+
+// getVolumeSnapshotSpecWithoutSC returns a spec for the volume snapshot
+func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshot-",
+			Namespace:    namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			Source: snapc.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
