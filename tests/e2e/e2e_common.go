@@ -189,6 +189,7 @@ var (
 	supervisorCluster bool
 	guestCluster      bool
 	rwxAccessMode     bool
+	windowsEnv        bool
 )
 
 // For VCP to CSI migration tests.
@@ -248,6 +249,12 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 		guestCluster = true
 	default:
 		vanillaCluster = true
+	}
+
+	//Check if its windows env
+	workerNode := os.Getenv("WORKER_NODE")
+	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
+		windowsEnv = true
 	}
 
 	// Check if the access mode is set for File volume setups

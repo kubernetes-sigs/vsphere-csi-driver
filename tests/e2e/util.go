@@ -87,6 +87,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
+
 var (
 	defaultCluster         *object.ClusterComputeResource
 	svcClient              clientset.Interface
@@ -5153,8 +5154,10 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 					k8sMasterIP)
 				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
 					grepCmdForFindingMasterNodeIP)
+				framework.Logf("K8sMasterNodeIPInfo is '%v'",K8sMasterNodeIPInfo)
 				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
 				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+					framework.Logf("HERE")
 					fssh.LogResult(K8sMasterNodeIPInfo)
 					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
@@ -5162,6 +5165,7 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 			}
 		}
 	}
+	framework.Logf("K8sMasterNodeIP is '%v'",k8sMasterNodeIP)
 	return csi_controller_pod, k8sMasterNodeIP, nil
 }
 
