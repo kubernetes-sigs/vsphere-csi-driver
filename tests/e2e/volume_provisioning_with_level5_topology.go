@@ -42,7 +42,7 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioning-With-Statefulset-Level5", func() {
+var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Statefulset-Level5", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client                    clientset.Interface
