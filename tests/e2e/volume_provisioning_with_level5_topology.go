@@ -40,7 +40,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioning-With-Statefulset-Level5", func() {
@@ -735,7 +734,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	ginkgo.It("Verify volume provisioning when storage class specified with invalid topology label", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		log := logger.GetLogger(ctx)
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
@@ -768,7 +766,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		if err != nil {
-			log.Errorf("Volume Provisioning Failed for PVC %s due to invalid topology "+
+			framework.Logf("Volume Provisioning Failed for PVC %s due to invalid topology "+
 				"label given in Storage Class", pvc.Name)
 		}
 	})
@@ -788,7 +786,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		"BindingMode and pvc specified with ReadWriteMany access mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		log := logger.GetLogger(ctx)
 		// Get allowed topologies for Storage Class for all 5 levels
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
@@ -820,7 +817,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		if err != nil {
-			log.Errorf("Volume Provisioning Failed %v because Topology feature for file "+
+			framework.Logf("Volume Provisioning Failed %v because Topology feature for file "+
 				"volumes is not supported", err)
 		}
 	})
