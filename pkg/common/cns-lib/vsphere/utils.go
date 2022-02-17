@@ -209,8 +209,11 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 		TargetvSANFileShareClusters:      targetvSANClustersForFile,
 		VCClientTimeout:                  vcClientTimeout,
+		QueryLimit:                       cfg.Global.QueryLimit,
+		ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
 	}
 
+	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
 		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
