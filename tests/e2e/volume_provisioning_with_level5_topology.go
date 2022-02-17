@@ -765,10 +765,8 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
 			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		if err != nil {
-			framework.Logf("Volume Provisioning Failed for PVC %s due to invalid topology "+
-				"label given in Storage Class", pvc.Name)
-		}
+		framework.Logf("Volume Provisioning Failed for PVC %s due to invalid topology "+
+			"label given in Storage Class", pvc.Name)
 	})
 
 	/*
@@ -816,10 +814,8 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
 			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		if err != nil {
-			framework.Logf("Volume Provisioning Failed %v because Topology feature for file "+
-				"volumes is not supported", err)
-		}
+		framework.Logf("Volume Provisioning Failed %v because Topology feature for file "+
+			"volumes is not supported", err)
 	})
 
 	/*
