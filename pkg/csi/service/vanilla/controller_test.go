@@ -40,6 +40,7 @@ import (
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/simulator/vpx"
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -100,6 +101,13 @@ func configFromSim() (*config.Config, func()) {
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
+	// Currently the simulated vc has a version of 6.5.0, modifying service content to 7.0.3
+	// TODO: update in govmomi
+	serviceContent := vpx.ServiceContent
+	serviceContent.About.Version = "7.0.3"
+	serviceContent.About.ApiVersion = "7.0"
+	model.ServiceContent = serviceContent
+
 	defer model.Remove()
 
 	err := model.Create()

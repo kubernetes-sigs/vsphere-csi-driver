@@ -55,6 +55,9 @@ type VirtualCenterManager interface {
 	// IsOnlineExtendVolumeSupported checks if online extend volume is supported
 	// or not on the vCenter Host.
 	IsOnlineExtendVolumeSupported(ctx context.Context, host string) (bool, error)
+	// IsCnsSnapshotSupported checks if cns volume snapshot is supported
+	// or not on the vCenter Host.
+	IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error)
 }
 
 var (
@@ -181,5 +184,28 @@ func (m *defaultVirtualCenterManager) IsOnlineExtendVolumeSupported(ctx context.
 		return true, nil
 	}
 	log.Infof("Online volume expansion is not supported on vCenter version %q", vCenterVersion)
+	return false, nil
+}
+
+// IsCnsSnapshotSupported checks if cns snapshot is supported or not.
+func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get VC instance.
+	vcenter, err := m.GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("Failed to get vCenter. Err: %v", err)
+		return false, err
+	}
+	vcVersion := vcenter.Client.ServiceContent.About.Version
+	isvSphere70U3orAbove, err := IsvSphereVersion70U3orAbove(ctx, vcenter.Client.ServiceContent.About)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "Error while checking the vSphere Version %q , Err= %+v",
+			vcVersion, err)
+	}
+	if isvSphere70U3orAbove {
+		return true, nil
+	}
+	log.Infof("CNS Snapshot features are not supported on vCenter version %q", vcVersion)
 	return false, nil
 }
