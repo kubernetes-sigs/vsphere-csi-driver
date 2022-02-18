@@ -86,6 +86,10 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
+	windowsLTSCImage = "mcr.microsoft.com/windows/servercore:ltsc2019"
+	windowsCommand   = "while (1) " +
+		" { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
+	windowskubeletConfigYaml = "C:\\var\\lib\\kubelet\\config.yaml"
 	ext3FSType                                = "ext3"
 	ext4FSType                                = "ext4"
 	fcdName                                   = "BasicStaticFCD"
