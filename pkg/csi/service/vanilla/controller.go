@@ -153,7 +153,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
 		common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
 	if err != nil {
-		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
+		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v",
+			vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
 
@@ -385,6 +386,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID string
 	if isBlockVolumeSnapshotEnabled && volumeSource != nil {
+		isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+			c.manager.VcenterConfig.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if cns snapshot operations are supported on VC due to error: %v", err)
+		}
+		if !isCnsSnapshotSupported {
+			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
+				"VC version does not support snapshot operations")
+		}
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
 			return nil, csifault.CSIInvalidArgumentFault,
@@ -905,19 +916,27 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		}
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
-				common.QuerySnapshotLimit)
+			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+				c.manager.VcenterConfig.Host)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
+					"failed to check if cns snapshot operations are supported on VC due to error: %v", err)
 			}
-			if len(snapshots) == 0 {
-				log.Infof("no CNS snapshots found for volume: %s, the volume can be safely deleted",
-					req.VolumeId)
-			} else {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"volume: %s with existing snapshots %v cannot be deleted, "+
-						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+			if isCnsSnapshotSupported {
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
+					common.QuerySnapshotLimit)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
+				}
+				if len(snapshots) == 0 {
+					log.Infof("no CNS snapshots found for volume: %s, the volume can be safely deleted",
+						req.VolumeId)
+				} else {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"volume: %s with existing snapshots %v cannot be deleted, "+
+							"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+				}
 			}
 		}
 		// TODO: Add code to determine the volume type and set volumeType for
@@ -1242,19 +1261,27 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
-				common.QuerySnapshotLimit)
+			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+				c.manager.VcenterConfig.Host)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+					"failed to check if cns snapshot is supported on VC due to error: %v", err)
 			}
-			if len(snapshots) == 0 {
-				log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
-					req.VolumeId)
-			} else {
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"volume: %s with existing snapshots %v cannot be expanded. "+
-						"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+			if isCnsSnapshotSupported {
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+					common.QuerySnapshotLimit)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+				}
+				if len(snapshots) == 0 {
+					log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
+						req.VolumeId)
+				} else {
+					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"volume: %s with existing snapshots %v cannot be expanded. "+
+							"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+				}
 			}
 		}
 
@@ -1357,20 +1384,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-	}
-	var vcSnapshotSupportCheck, csiSnapshotFSSEnabled bool
-	// Report capability only if CSI Snapshot FSS is enabled and VC supports
-	// snapshot feature.
-	csiSnapshotFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if csiSnapshotFSSEnabled {
-		// Check VC support only if internal FSS is enabled.
-		vcSnapshotSupportCheck = common.CheckSnapshotSupport(ctx, c.manager)
-	}
-
-	if csiSnapshotFSSEnabled && vcSnapshotSupportCheck {
-		log.Infof("ControllerGetCapabilities: reporting Snapshot capabilities as snapshot FSS is enabled.")
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 
 	var caps []*csi.ControllerServiceCapability
@@ -1397,7 +1412,16 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	if !isBlockVolumeSnapshotEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
 	}
-
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
@@ -1524,6 +1548,17 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
 	}
 
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
+
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
 		err := common.DeleteSnapshotUtil(ctx, c.manager, csiSnapshotID)
@@ -1559,6 +1594,17 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
+
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
 
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
 		log.Infof("ListSnapshots: called with args %+v", *req)
