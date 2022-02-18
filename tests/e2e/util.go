@@ -5137,8 +5137,10 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
 				}
+				//grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
+				//	"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
 				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
-					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
+					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $(NF-2)}' | tr -d '\n'"
 				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
 					k8sMasterIP)
 				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
