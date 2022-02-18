@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -3664,18 +3665,45 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 	var output string
 	var err error
+	//var element string
 
-	if supervisorCluster {
-		namespace := getNamespaceToRunTests(f)
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
-		output = framework.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
-	} else {
-		output, _, err = fvolume.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
-		if err != nil {
-			return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
+	if windowsEnv{
+		
+		    namespace := getNamespaceToRunTests(f)
+			cmd := []string{"exec", pod.Name, "--namespace=" + namespace,"powershell.exe", "Get-ChildItem C:\\mnt\\volume1 -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum | Select-Object Sum"}
+			output = framework.RunKubectlOrDie(namespace, cmd...)
+			framework.Logf("output is %v",output)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			re := regexp.MustCompile(`[-]?\d[\d,]*[\.]?[\d{2}]*`)
+	        fmt.Printf("Pattern: %v\n", re.String()) // Print Pattern
+	        fmt.Printf("String contains any match: %v\n", re.MatchString(output)) // True
+	        output := re.FindAllString(output, -1)
+            framework.Logf("element is %v",output[0])
+			intSizeInMb, err := strconv.ParseInt(output[0], 10, 64)
+			return intSizeInMb, err
+
+	}else{
+		if supervisorCluster {
+			namespace := getNamespaceToRunTests(f)
+			cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+			output = framework.RunKubectlOrDie(namespace, cmd...)
+			gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
+		} else {
+			output, _, err = fvolume.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
+			if err != nil {
+				return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
+			}
 		}
-	}
+	}	
+	 
+
+
+
+	
+
+
+    
+	framework.Logf("outout issis %v",output[0])
 
 	arrMountOut := strings.Fields(string(output))
 	if len(arrMountOut) <= 0 {

@@ -3806,7 +3806,15 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	commands := []string{"Powershell.exe", "-Command", command}
+	if windowsEnv {
+		pod.Spec.Containers[0].Image = windowsLTSCImage
+		pod.Spec.Containers[0].Command = commands
+	} else {
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	}
+	
+	//pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
@@ -3888,6 +3896,15 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	if err != nil {
 		return nil, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
 	}
+	if windowsEnv {
+		commands := []string{"Powershell.exe"}
+		args := []string{"-Command", command}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsLTSCImage
+		deploymentSpec.Spec.Template.Spec.Containers[0].Command = commands
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = args
+
+	}
+
 	return deployment, nil
 }
 

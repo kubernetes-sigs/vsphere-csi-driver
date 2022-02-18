@@ -954,6 +954,10 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			for i := 0; i < len(podList); i++ {
 				ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 				fsSize, err = getFSSizeMb(f, podList[i])
+				framework.Logf("originalSizeInMb is %v",originalSizeInMb)
+				framework.Logf("fsSizemb is %v",fsSize)
+
+				
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
 					fmt.Sprintf("error updating filesystem size."+
