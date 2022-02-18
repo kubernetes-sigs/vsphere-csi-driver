@@ -886,8 +886,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			// In-tree volume support.
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled.
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal, "volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			}
 			// Migration feature switch is enabled.
 			volumePath = req.VolumeId
