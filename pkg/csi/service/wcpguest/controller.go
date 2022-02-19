@@ -281,7 +281,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				var annotations map[string]string
 				if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil {
-					// generate new annotations.
+					// Generate volume topology requirement annotation.
 					annotations = make(map[string]string)
 					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
 					if err != nil {
@@ -333,27 +333,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		} else {
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
-		var accessibleTopology []*csi.Topology
-		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
-			req.AccessibilityRequirements != nil {
-			// Retrieve the latest version of the PVC
-			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-				ctx, supervisorPVCName, metav1.GetOptions{})
-			if err != nil {
-				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. Error: %+v",
-					supervisorPVCName, c.supervisorNamespace, err)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-			}
-			topologyRequirement, err := generateVolumeAccessibilityRequirementsFromPVCAnnotation(pvc)
-			if err != nil {
-				msg := fmt.Sprintf("failed to generate volume accessible topology for pvc with name: %s on "+
-					"namespace: %s from supervisorCluster requirements with err: %+v",
-					c.supervisorNamespace, pvc.Name, err)
-				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-			}
-			accessibleTopology = topologyRequirement.Preferred
-		}
+
 		resp := &csi.CreateVolumeResponse{
 			Volume: &csi.Volume{
 				VolumeId:      supervisorPVCName,
@@ -361,9 +341,36 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				VolumeContext: attributes,
 			},
 		}
+		// Calculate node affinity terms for topology aware provisioning.
+		var accessibleTopologies []map[string]string
 		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 			req.AccessibilityRequirements != nil {
-			resp.Volume.AccessibleTopology = accessibleTopology
+			// Retrieve the latest version of the PVC
+			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+				ctx, supervisorPVCName, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. "+
+					"Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+			}
+			// Generate accessible topologies for volume.
+			accessibleTopologies, err = generateVolumeAccessibleTopologyFromPVCAnnotation(pvc)
+			if err != nil {
+				msg := fmt.Sprintf("failed to generate volume accessible topology for pvc with name: %s on "+
+					"namespace: %s from supervisorCluster requirements with err: %+v",
+					c.supervisorNamespace, pvc.Name, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+			}
+			log.Infof("Volume %q created is accessible from zones: %+v", supervisorPVCName,
+				accessibleTopologies)
+
+			// Add topology segments to the CreateVolumeResponse.
+			for _, topoSegments := range accessibleTopologies {
+				volumeTopology := &csi.Topology{
+					Segments: topoSegments,
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
 		}
 		return resp, "", nil
 	}
@@ -376,6 +383,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
 	}
+	log.Debugf("CreateVolume response: %+v", resp)
 	return resp, err
 }
 
