@@ -331,9 +331,9 @@ func createTestTopologyRequirement() *csi.TopologyRequirement {
 	return topologyRequirement
 }
 
-// TestGenerateAccessibilityRequirementsFromPVCAnnotation helps unit test
-// generateVolumeAccessibilityRequirementsFromPVCAnnotation function
-func TestGenerateAccessibilityRequirementsFromPVCAnnotation(t *testing.T) {
+// TestGenerateVolumeAccessibleTopologyFromPVCAnnotation helps unit test
+// generateVolumeAccessibleTopologyFromPVCAnnotation function.
+func TestGenerateVolumeAccessibleTopologyFromPVCAnnotation(t *testing.T) {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "name",
@@ -344,35 +344,31 @@ func TestGenerateAccessibilityRequirementsFromPVCAnnotation(t *testing.T) {
 	claim.Annotations[common.AnnVolumeAccessibleTopology] =
 		"[{\"topology.kubernetes.io/zone\":\"zone1\"},{\"topology.kubernetes.io/zone\":\"zone2\"}]"
 
-	t.Logf("Calling generateVolumeAccessibilityRequirementsFromPVCAnnotation with "+
+	t.Logf("Calling generateVolumeAccessibleTopologyFromPVCAnnotation with "+
 		"%s annotation value %q", common.AnnVolumeAccessibleTopology,
 		claim.Annotations[common.AnnVolumeAccessibleTopology])
 
-	topologyRequirement, err := generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim)
+	accessibleTopologies, err := generateVolumeAccessibleTopologyFromPVCAnnotation(claim)
 	if err != nil {
 		t.Fatalf("failed to generate AccessibilityRequirements from PVC annotation. Err: %v", err)
 	}
 
-	topology := make([]*csi.Topology, 0)
-	topology = append(topology, &csi.Topology{Segments: map[string]string{"topology.kubernetes.io/zone": "zone1"}})
-	topology = append(topology, &csi.Topology{Segments: map[string]string{"topology.kubernetes.io/zone": "zone2"}})
-
-	expectedTopologyRequirement := &csi.TopologyRequirement{
-		Requisite: topology,
-		Preferred: topology,
+	expectedAccessibleTopologies := []map[string]string{
+		{"topology.kubernetes.io/zone": "zone1"},
+		{"topology.kubernetes.io/zone": "zone2"},
 	}
 
-	if !reflect.DeepEqual(topologyRequirement, expectedTopologyRequirement) {
-		t.Fatalf("topologyRequirement %v does not match with expectedTopologyRequirement: %v",
-			topologyRequirement, expectedTopologyRequirement)
+	if !reflect.DeepEqual(accessibleTopologies, expectedAccessibleTopologies) {
+		t.Fatalf("accessibleTopologies %v does not match with expectedAccessibleTopologies: %v",
+			accessibleTopologies, expectedAccessibleTopologies)
 	}
-	t.Logf("topologyRequirement %v match with expectedTopologyRequirement: %v",
-		topologyRequirement, expectedTopologyRequirement)
+	t.Logf("accessibleTopologies %v match with expectedAccessibleTopologies: %v",
+		accessibleTopologies, expectedAccessibleTopologies)
 }
 
-// TestGenerateVolumeAccessibilityRequirementsFromInvalidPVCAnnotation helps unit test
-// generateVolumeAccessibilityRequirementsFromPVCAnnotation function for ill-formed annotation
-func TestGenerateVolumeAccessibilityRequirementsFromInvalidPVCAnnotation(t *testing.T) {
+// TestGenerateVolumeAccessibleTopologyFromInvalidPVCAnnotation helps unit test
+// generateVolumeAccessibleTopologyFromPVCAnnotation function for ill-formed annotation.
+func TestGenerateVolumeAccessibleTopologyFromInvalidPVCAnnotation(t *testing.T) {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "name",
@@ -383,14 +379,14 @@ func TestGenerateVolumeAccessibilityRequirementsFromInvalidPVCAnnotation(t *test
 	claim.Annotations[common.AnnVolumeAccessibleTopology] =
 		"[{\"topology.kubernetes.io/zone\":\"zone1\",{\"topology.kubernetes.io/zone\":\"zone2\"}]"
 
-	t.Logf("Calling generateVolumeAccessibilityRequirementsFromPVCAnnotation with "+
+	t.Logf("Calling generateVolumeAccessibleTopologyFromPVCAnnotation with "+
 		"%s annotation value %q", common.AnnVolumeAccessibleTopology,
 		claim.Annotations[common.AnnVolumeAccessibleTopology])
 
-	topologyRequirement, err := generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim)
+	accessibleTopologies, err := generateVolumeAccessibleTopologyFromPVCAnnotation(claim)
 	if err == nil {
-		t.Fatalf("generateVolumeAccessibilityRequirementsFromPVCAnnotation should have failed. "+
-			"topologyRequirement: %v", topologyRequirement)
+		t.Fatalf("generateVolumeAccessibleTopologyFromPVCAnnotation should have failed. "+
+			"accessibleTopologies: %v", accessibleTopologies)
 	} else {
 		t.Logf("expected error: %v", err)
 	}
