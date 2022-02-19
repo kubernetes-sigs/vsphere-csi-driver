@@ -467,6 +467,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context,
 }
 
 // GetDatastoresByCluster return datastores inside the cluster using its moref.
+// NOTE: The return value can contain duplicates.
 func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context,
 	clusterMorefValue string) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)

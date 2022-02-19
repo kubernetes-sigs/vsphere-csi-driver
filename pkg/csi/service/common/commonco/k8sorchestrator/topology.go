@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"reflect"
 	"strconv"
@@ -1102,6 +1103,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 					for _, ds := range datastores {
 						if ds.Info.Url == params.DatastoreURL {
 							selectedSegments = append(selectedSegments, map[string]string{label: value})
+							break
 						}
 					}
 				}
@@ -1113,9 +1115,13 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 				return nil, logger.LogNewErrorf(log,
 					"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
 			case numSelectedSegments > 1:
-				return nil, logger.LogNewErrorf(log,
-					"found more than one zone [%+v] having access to datastore %q where volume is provisioned",
-					selectedSegments, params.DatastoreURL)
+				// This situation will arise when datastore belongs to multiple zones but the
+				// storageTopologyType is `zonal`. In such cases, we will choose a random zone among
+				// the retrieved zones and use it as node affinity for the PV.
+				rand.Seed(time.Now().Unix())
+				topologySegments = append(topologySegments, selectedSegments[rand.Intn(len(selectedSegments))])
+				log.Infof("Selected topology %+v from possible selections %+v", topologySegments,
+					selectedSegments)
 			default:
 				topologySegments = selectedSegments
 			}
