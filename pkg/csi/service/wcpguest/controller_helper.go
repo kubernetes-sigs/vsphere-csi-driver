@@ -219,10 +219,10 @@ func generateGuestClusterRequestedTopologyJSON(topologies []*csi.Topology) (stri
 	return "[" + strings.Join(segmentsArray, ",") + "]", nil
 }
 
-// generateVolumeAccessibilityRequirementsFromPVCAnnotation returns TopologyRequirement generated using
-// PVC annotation "csi.vsphere.volume-accessible-topology"
-func generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
-	*csi.TopologyRequirement, error) {
+// generateVolumeAccessibleTopologyFromPVCAnnotation returns accessible topologies generated using
+// PVC annotation "csi.vsphere.volume-accessible-topology".
+func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
+	[]map[string]string, error) {
 	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
 	if volumeAccessibleTopology == "" {
 		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
@@ -235,16 +235,7 @@ func generateVolumeAccessibilityRequirementsFromPVCAnnotation(claim *v1.Persiste
 			"err: %v", common.AnnVolumeAccessibleTopology, volumeAccessibleTopology,
 			claim.Name, claim.Namespace, err)
 	}
-	requirement := &csi.TopologyRequirement{}
-	for _, topology := range volumeAccessibleTopologyArray {
-		topologySegment := map[string]string{}
-		for key, value := range topology {
-			topologySegment[key] = fmt.Sprintf("%v", value)
-			requirement.Preferred = append(requirement.Preferred, &csi.Topology{Segments: topologySegment})
-		}
-	}
-	requirement.Requisite = requirement.Preferred
-	return requirement, nil
+	return volumeAccessibleTopologyArray, nil
 }
 
 // isPVCInSupervisorClusterBound return true if the PVC is bound in the
