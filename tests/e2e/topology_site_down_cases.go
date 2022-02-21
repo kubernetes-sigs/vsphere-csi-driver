@@ -224,8 +224,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
-
 		}
+
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
@@ -259,7 +259,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				}
 			}
 		}
-
 		ginkgo.By("Verify k8s cluster is healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
@@ -1363,13 +1362,13 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 
 func powerOnEsxiHostByCluster(hostToPowerOn string) {
 	for _, esxInfo := range tbinfo.esxHosts {
-		if hostToPowerOn == esxInfo["ip"] {
-			esxHostName := esxInfo["vmName"]
-			err := vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, true)
+		if hostToPowerOn == esxInfo["vmName"] {
+			esxHostIp := esxInfo["ip"]
+			err := vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostIp, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
-		err := waitForHostToBeUp(hostToPowerOn)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+	err := waitForHostToBeUp(hostToPowerOn)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
