@@ -1361,14 +1361,15 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 }
 
 func powerOnEsxiHostByCluster(hostToPowerOn string) {
+	var esxHostIp string = ""
 	for _, esxInfo := range tbinfo.esxHosts {
 		if hostToPowerOn == esxInfo["vmName"] {
-			esxHostIp := esxInfo["ip"]
-			err := vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostIp, true)
+			esxHostIp = esxInfo["ip"]
+			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
 	}
-	err := waitForHostToBeUp(hostToPowerOn)
+	err := waitForHostToBeUp(esxHostIp)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
