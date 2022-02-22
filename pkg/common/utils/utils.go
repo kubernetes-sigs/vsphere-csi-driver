@@ -242,12 +242,13 @@ func GetDatastoreRefByURLFromGivenDatastoreList(
 	var candidateDsObj *cnsvsphere.Datastore
 	// traverse each datacenter and find the datastore with the specified dsURL
 	for _, datacenter := range datacenters {
-		candidateDsObj, err = datacenter.GetDatastoreByURL(ctx, dsURL)
+		candidateDsInfoObj, err := datacenter.GetDatastoreInfoByURL(ctx, dsURL)
 		if err != nil {
 			log.Errorf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
 				dsURL, datacenter.InventoryPath, vc.Config.Host, err)
 			continue
 		}
+		candidateDsObj = candidateDsInfoObj.Datastore
 		break
 	}
 
