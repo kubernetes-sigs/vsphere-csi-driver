@@ -339,4 +339,6 @@ const (
 	TKGsHA = "tkgs-ha"
 	// PVtoBackingDiskObjectIdMapping is the feature to support pv to backingDiskObjectId mapping on vSphere CSI driver.
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
+	// Block Create Volume for datastores that are in suspended mode
+	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
 )

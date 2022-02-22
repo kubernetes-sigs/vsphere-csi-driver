@@ -439,9 +439,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			"failed finding candidate datastores to place volume. Error: %v", err)
 	}
 
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, candidateDatastores)
+		c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -529,8 +530,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 			"no datastores found to create file volume")
 	}
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, filteredDatastores)
+		c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)

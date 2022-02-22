@@ -28,6 +28,7 @@ import (
 const (
 	vsanDType                       = "vsanD"
 	defaultVCClientTimeoutInMinutes = 5
+	cnsMgrDatastoreSuspended        = "cns.vmware.com/datastoreSuspended"
 	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to use query volume async API.
 	VSphere70u3Version int = 703
@@ -465,4 +466,35 @@ func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 	}
 	// For all other versions.
 	return false, nil
+}
+
+// IsVolumeCreationSuspended checks whether a given Datastore has cns.vmware.com/datastoreSuspended customValue
+func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo) bool {
+	log := logger.GetLogger(ctx)
+
+	for _, customValField := range datastoreInfo.CustomValues {
+		customVal := customValField.(*types.CustomFieldStringValue)
+		if customVal.Value == cnsMgrDatastoreSuspended {
+			log.Infof("Ignoring datastore %v as it is suspended. Datastore moref: %v", datastoreInfo.Info.Name,
+				datastoreInfo.Datastore.Reference())
+			return true
+		}
+	}
+
+	return false
+}
+
+// FilterSuspendedDatastores filters out datastores which cns.vmware.com/datastoreSuspended customValue
+func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*DatastoreInfo) []*DatastoreInfo {
+	log := logger.GetLogger(ctx)
+
+	var filteredList []*DatastoreInfo
+	for _, ds := range datastoreInfoList {
+		if !IsVolumeCreationSuspended(ctx, ds) {
+			filteredList = append(filteredList, ds)
+		}
+	}
+
+	log.Infof("Updated filtered list of datastores %+v", filteredList)
+	return filteredList
 }
