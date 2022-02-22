@@ -535,7 +535,7 @@ func getDatastoreMOsFromCluster(ctx context.Context, vc *cnsvsphere.VirtualCente
 
 	// Get datastore properties.
 	pc := property.DefaultCollector(vc.Client.Client)
-	properties := []string{"info", "summary"}
+	properties := []string{"info", "summary", "customValue"}
 	var dsList []vim25types.ManagedObjectReference
 	var dsMoList []mo.Datastore
 	for _, datastore := range datastores {

@@ -446,7 +446,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context,
 		}
 		var dsMoList []mo.Datastore
 		pc := property.DefaultCollector(dc.Client())
-		properties := []string{"summary", "info"}
+		properties := []string{"summary", "info", "customValue"}
 		err = pc.Retrieve(ctx, dsMorList, properties, &dsMoList)
 		if err != nil {
 			log.Errorf("failed to get Datastore managed objects from datastore objects."+
@@ -459,7 +459,7 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context,
 				vsanDsURLInfoMap[dsMo.Info.GetDatastoreInfo().Url] = &DatastoreInfo{
 					&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
 						dc},
-					dsMo.Info.GetDatastoreInfo()}
+					dsMo.Info.GetDatastoreInfo(), dsMo.CustomValue}
 			}
 		}
 	}

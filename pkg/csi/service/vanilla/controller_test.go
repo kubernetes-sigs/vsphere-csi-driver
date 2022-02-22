@@ -218,7 +218,8 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 			Datastore: &cnsvsphere.Datastore{
 				Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
 				Datacenter: nil},
-			Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+			Info:         sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+			CustomValues: []types.BaseCustomFieldValue{},
 		},
 	}, nil
 }

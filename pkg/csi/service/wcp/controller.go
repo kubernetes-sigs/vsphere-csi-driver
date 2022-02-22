@@ -398,6 +398,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		// Identify the topology keys in Accessibility requirements.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
@@ -499,7 +500,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, candidateDatastores)
+		c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -627,8 +628,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 			"no datastores found to create file volume")
 	}
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, filteredDatastores)
+		c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)

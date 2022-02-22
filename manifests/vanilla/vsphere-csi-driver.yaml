@@ -154,6 +154,7 @@ data:
   "use-csinode-id": "false"
   "list-volumes": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
+  "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
