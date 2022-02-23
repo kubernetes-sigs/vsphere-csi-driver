@@ -46,8 +46,8 @@ func (dc *Datacenter) String() string {
 		dc.Datacenter, dc.VirtualCenterHost)
 }
 
-// GetDatastoreByURL returns the *Datastore instance given its URL.
-func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string) (*Datastore, error) {
+// GetDatastoreInfoByURL returns the *DatastoreInfo instance given its URL.
+func (dc *Datacenter) GetDatastoreInfoByURL(ctx context.Context, datastoreURL string) (*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(dc.Datacenter.Client(), false)
 	finder.SetDatacenter(dc.Datacenter)
@@ -63,7 +63,7 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 
 	var dsMoList []mo.Datastore
 	pc := property.DefaultCollector(dc.Client())
-	properties := []string{DatastoreInfoProperty}
+	properties := []string{DatastoreInfoProperty, "customValue"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
 		log.Errorf("failed to get Datastore managed objects from datastore objects."+
@@ -72,8 +72,10 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 	}
 	for _, dsMo := range dsMoList {
 		if dsMo.Info.GetDatastoreInfo().Url == datastoreURL {
-			return &Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
-				dc}, nil
+			return &DatastoreInfo{
+				&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
+					dc},
+				dsMo.Info.GetDatastoreInfo(), dsMo.CustomValue}, nil
 		}
 	}
 	err = fmt.Errorf("couldn't find Datastore given URL %q", datastoreURL)
@@ -227,7 +229,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 		dsURLInfoMap[dsMo.Info.GetDatastoreInfo().Url] = &DatastoreInfo{
 			&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
 				dc},
-			dsMo.Info.GetDatastoreInfo()}
+			dsMo.Info.GetDatastoreInfo(), []types.BaseCustomFieldValue{}}
 	}
 	return dsURLInfoMap, nil
 }

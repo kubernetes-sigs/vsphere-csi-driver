@@ -249,14 +249,16 @@ func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 				Datastore: &cnsvsphere.Datastore{
 					Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
 					Datacenter: nil},
-				Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+				Info:         sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+				CustomValues: []types.BaseCustomFieldValue{},
 			},
 		}, []*cnsvsphere.DatastoreInfo{
 			{
 				Datastore: &cnsvsphere.Datastore{
 					Datastore:  object.NewDatastore(nil, vsanDirectDatastoreManagedObject.Reference()),
 					Datacenter: nil},
-				Info: vsanDirectDatastoreManagedObject.Info.GetDatastoreInfo(),
+				Info:         vsanDirectDatastoreManagedObject.Info.GetDatastoreInfo(),
+				CustomValues: []types.BaseCustomFieldValue{},
 			},
 		}, nil
 }

@@ -237,13 +237,13 @@ func TestSyncerWorkflows(t *testing.T) {
 		return
 	}
 
-	datastoreObj, err := dc[0].GetDatastoreByURL(ctx, sharedDatastore)
+	datastoreInfoObj, err := dc[0].GetDatastoreInfoByURL(ctx, sharedDatastore)
 	if err != nil {
 		t.Errorf("failed to get datastore with URL: %s. Error: %v", sharedDatastore, err)
 		t.Fatal(err)
 		return
 	}
-	dsList = append(dsList, datastoreObj.Reference())
+	dsList = append(dsList, datastoreInfoObj.Datastore.Reference())
 
 	runTestMetadataSyncInformer(t)
 	runTestFullSyncWorkflows(t)
