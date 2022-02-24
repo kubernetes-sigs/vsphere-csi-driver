@@ -161,7 +161,7 @@ spec:
       hostNetwork: true
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.1.0_vmware.7
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.2.2_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
