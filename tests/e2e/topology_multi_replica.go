@@ -1098,7 +1098,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 				
 				if windowsEnv {
-					pod, err = createPod(client, namespace, nil, pvclaims, false, "")
+					pod, err = createPod(client, namespace, nil, pvclaims, false, windowsCommand)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
 					pod, err = createPod(client, namespace, nil, pvclaims, false, "")
@@ -1178,11 +1178,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			/* Verify PV nde affinity and that the pods are running on appropriate nodes
 			for each StatefulSet pod */
-			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		/*	ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
 					namespace, allowedTopologies)
-			}
+			}*/
 		})
 
 		/*

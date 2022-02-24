@@ -3808,7 +3808,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
 	commands := []string{"Powershell.exe", "-Command", command}
 	if windowsEnv {
-		pod.Spec.Containers[0].Image = windowsLTSCImage
+		pod.Spec.Containers[0].Image = windowsLTSC2019Image 
 		pod.Spec.Containers[0].Command = commands
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
@@ -3899,7 +3899,8 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	if windowsEnv {
 		commands := []string{"Powershell.exe"}
 		args := []string{"-Command", command}
-		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsLTSCImage
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image =  windowsLTSC2019Image
+	                      
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = commands
 		deploymentSpec.Spec.Template.Spec.Containers[0].Args = args
 
@@ -5500,6 +5501,8 @@ func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 
 	return claim
 }
+
+
 
 // getVolumeSnapshotSpecWithoutSC returns a spec for the volume snapshot
 func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapc.VolumeSnapshot {

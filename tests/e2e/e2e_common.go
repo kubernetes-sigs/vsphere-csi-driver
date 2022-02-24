@@ -135,6 +135,7 @@ const (
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
 	scParamStoragePolicyID                    = "StoragePolicyId"
 	scParamStoragePolicyName                  = "StoragePolicyName"
+	snapshotapigroup                          = "snapshot.storage.k8s.io"
 	shortProvisionerTimeout                   = "10"
 	sleepTimeOut                              = 30
 	oneMinuteWaitTimeInSeconds                = 60
@@ -184,6 +185,7 @@ const (
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+     windowsLTSC2019Image                       = "mcr.microsoft.com/windows/servercore:ltsc2019"
 )
 
 // The following variables are required to know cluster type to run common e2e

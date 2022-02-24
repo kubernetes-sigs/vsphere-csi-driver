@@ -937,56 +937,6 @@ func waitForHostConnectionState(ctx context.Context, addr string, state string) 
 	return waitErr
 }
 
-// deleteVolumeSnapshotInCNS Call deleteSnapshots API
-func (vs *vSphere) deleteVolumeSnapshotInCNS(fcdID string, snapshotId string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Connect to VC
-	connect(ctx, vs)
-
-	var cnsSnapshotDeleteSpecList []cnstypes.CnsSnapshotDeleteSpec
-	cnsSnapshotDeleteSpec := cnstypes.CnsSnapshotDeleteSpec{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: fcdID,
-		},
-		SnapshotId: cnstypes.CnsSnapshotId{
-			Id: snapshotId,
-		},
-	}
-	cnsSnapshotDeleteSpecList = append(cnsSnapshotDeleteSpecList, cnsSnapshotDeleteSpec)
-
-	req := cnstypes.CnsDeleteSnapshots{
-		This:                cnsVolumeManagerInstance,
-		SnapshotDeleteSpecs: cnsSnapshotDeleteSpecList,
-	}
-
-	res, err := cnsmethods.CnsDeleteSnapshots(ctx, vs.CnsClient.Client, &req)
-
-	if err != nil {
-		return err
-	}
-
-	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	deleteSnapshotsTaskResult, err := cns.GetTaskResult(ctx, taskInfo)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
-
-	if deleteSnapshotsOperationRes.Fault != nil {
-		err = fmt.Errorf("failed to create snapshots: fault=%+v", deleteSnapshotsOperationRes.Fault)
-	}
-
-	snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
-	framework.Logf("DeleteSnapshots: Snapshot deleted successfully. volumeId: %q, snapshot id %q",
-		fcdID, snapshotDeleteResult.SnapshotId)
-	return err
-}
 
 // createVolumeSnapshotInCNS Call createSnapshots API and returns snapshotId to client
 func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
@@ -1031,8 +981,56 @@ func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
 	snapshotCreateResult := interface{}(taskResult).(*cnstypes.CnsSnapshotCreateResult)
 	snapshotId := snapshotCreateResult.Snapshot.SnapshotId.Id
 	snapshotCreateTime := snapshotCreateResult.Snapshot.CreateTime
-	framework.Logf("CreateSnapshot: Snapshot created successfully. volumeId: %q, snapshot id %q, time stamp %+v",
+	framework.Logf("CreateSnapshots: Snapshot created successfully. volumeId: %q, snapshot id %q, time stamp %+v",
 		fcdID, snapshotId, snapshotCreateTime)
 
 	return snapshotId, err
+}
+
+// deleteVolumeSnapshotInCNS Call deleteSnapshots API
+func (vs *vSphere) deleteVolumeSnapshotInCNS(fcdID string, snapshotId string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var cnsSnapshotDeleteSpecList []cnstypes.CnsSnapshotDeleteSpec
+	cnsSnapshotDeleteSpec := cnstypes.CnsSnapshotDeleteSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: cnstypes.CnsSnapshotId{
+			Id: snapshotId,
+		},
+	}
+	cnsSnapshotDeleteSpecList = append(cnsSnapshotDeleteSpecList, cnsSnapshotDeleteSpec)
+
+	req := cnstypes.CnsDeleteSnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotDeleteSpecs: cnsSnapshotDeleteSpecList,
+	}
+
+	res, err := cnsmethods.CnsDeleteSnapshots(ctx, vs.CnsClient.Client, &req)
+
+	if err != nil {
+		return err
+	}
+
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	deleteSnapshotsTaskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
+
+	if deleteSnapshotsOperationRes.Fault != nil {
+		err = fmt.Errorf("failed to create snapshots: fault=%+v", deleteSnapshotsOperationRes.Fault)
+	}
+
+	snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
+	framework.Logf("DeleteSnapshots: Snapshot deleted successfully. volumeId: %q, snapshot id %q",
+		fcdID, snapshotDeleteResult.SnapshotId)
+	return err
 }
