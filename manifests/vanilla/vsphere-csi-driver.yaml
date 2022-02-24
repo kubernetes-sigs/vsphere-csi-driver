@@ -151,7 +151,7 @@ data:
   "improved-volume-topology": "true"
   "block-volume-snapshot": "false"
   "csi-windows-support": "false"
-  "use-csinode-id": "false"
+  "use-csinode-id": "true"
   "list-volumes": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "false"
