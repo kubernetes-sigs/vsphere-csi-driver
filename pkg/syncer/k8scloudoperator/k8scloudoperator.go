@@ -109,7 +109,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 	var (
 		vmuuid   string
 		err      error
-		timeout  = 5 * time.Minute
+		timeout  = 4 * time.Minute
 		pollTime = time.Duration(getPodPollIntervalInSecs(ctx)) * time.Second
 		volumeID = req.VolumeID
 		nodeName = req.NodeName
