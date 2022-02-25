@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc                        *v1.PersistentVolumeClaim
 		defaultDatacenter          *object.Datacenter
 		defaultDatastore           *object.Datastore
+		mgmtDatastore              *object.Datastore
 		nonsharedDatastore         *object.Datastore
 		deleteFCDRequired          bool
 		pandoraSyncWaitTime        int
@@ -1508,6 +1509,68 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			}
 			pv = nil
 		}()
+
+	})
+
+	// This test verifies the static provisioning workflow in guest cluster.
+	//
+	// Test Steps:
+	// 1. Create FCD with valid storage policy on gc-svc.
+	// 2. Create Resource quota.
+	// 3. Create CNS register volume with above created FCD on SVC.
+	// 4. verify CNS register volume creation fails
+
+	ginkgo.It("[vmc] Create CNS register volume on management datastore", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		svpvcName := "cns-pvc-" + curtimestring + val
+		framework.Logf("pvc name :%s", svpvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		_, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		// Get supvervisor cluster client.
+		_, svNamespace := getSvcClientAndNamespace()
+
+		// Get restConfig.
+		var restConfig *restclient.Config
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		mgmtDatastoreURL := os.Getenv("MANAGEMENT_DATASTORE_URL")
+		if mgmtDatastoreURL == "" {
+			ginkgo.Skip("Env MANAGEMENT_DATASTORE_URL is missing")
+		}
+
+		mgmtDatastore, err = getDatastoreByURL(ctx, mgmtDatastoreURL, defaultDatacenter)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimestring, profileID, diskSizeInMb, mgmtDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+			pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, fcdID, "", svpvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
 
 	})
 
