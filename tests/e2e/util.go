@@ -1640,12 +1640,13 @@ func getAuthToken(refreshToken string) string {
 
 }
 
+//rotateVCCertinVMC recreates the cert for VC in VMC environment
 func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 	client := &http.Client{Transport: transCfg}
-	certRotateURL := "https://vmc.vmware.com/vmc/api/orgs/" + orgId + "/sddcs/" + sddcId + "/certificate/VCENTER"
+	certRotateURL := vmcPrdEndpoint + orgId + "/sddcs/" + sddcId + "/certificate/VCENTER"
 
 	req, err := http.NewRequest("POST", certRotateURL, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1664,12 +1665,13 @@ func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	return certRotate.ID
 }
 
+//getTaskStatus polls status for given task id and returns true once task is completed
 func getTaskStatus(authToken string, orgID string, taskID string) error {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 	client := &http.Client{Transport: transCfg}
-	getTaskStatusURL := "https://vmc.vmware.com/vmc/api/orgs/" + orgID + "/tasks/" + taskID
+	getTaskStatusURL := vmcPrdEndpoint + orgID + "/tasks/" + taskID
 	framework.Logf("getTaskStatusURL %s", getTaskStatusURL)
 
 	req, err := http.NewRequest("GET", getTaskStatusURL, nil)

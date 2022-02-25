@@ -32,8 +32,8 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-var _ = ginkgo.Describe("Upgrade TKG", func() {
-	f := framework.NewDefaultFramework("vmc-upgrade-tkg")
+var _ = ginkgo.Describe("VMC VC Cert Rotate", func() {
+	f := framework.NewDefaultFramework("vmc-cert-rotate")
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -110,11 +110,6 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(client, namespace)
-			if supervisorCluster {
-				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
 		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
@@ -126,7 +121,7 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		gomega.Expect(len(ssPodsBeforeScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Verify volumesa are attached to the nodes.
+		// Verify volumes are attached to the nodes.
 		for _, sspod := range ssPodsBeforeScaleUp.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
