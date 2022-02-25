@@ -877,6 +877,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
+	cnsVolumeType := common.UnknownVolumeType
 	namespace := prometheus.PrometheusUnknownNamespace
 
 	deleteVolumeInternal := func() (
@@ -897,6 +898,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		var volumePath string
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			volumeType = prometheus.PrometheusBlockVolumeType
+			cnsVolumeType = common.BlockVolumeType
 			// In-tree volume support.
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled.
@@ -917,8 +919,22 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
-		// Check if the volume contains CNS snapshots.
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		if cnsVolumeType == common.UnknownVolumeType {
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			if err != nil {
+				if err.Error() == common.ErrNotFound.Error() {
+					// The volume couldn't be found during query, assuming the delete operation as success
+					return &csi.DeleteVolumeResponse{}, "", nil
+				} else {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
+				}
+			}
+			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
+		}
+		// Check if the volume contains CNS snapshots only for block volumes.
+		if cnsVolumeType == common.BlockVolumeType &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
 			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
 				c.manager.VcenterConfig.Host)
 			if err != nil {
@@ -942,8 +958,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				}
 			}
 		}
-		// TODO: Add code to determine the volume type and set volumeType for
-		// Prometheus metric accordingly.
 		faultType, err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1261,7 +1275,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
-
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
 			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
