@@ -105,6 +105,9 @@ const (
 	// FileVolumeType is the VolumeType for CNS File Share Volume.
 	FileVolumeType = "FILE"
 
+	// UnknownVolumeType is assigned to CNS volumes whose type couldn't be determined.
+	UnknownVolumeType = "UNKNOWN"
+
 	// Nfsv4AccessPointKey is the key for NFSv4 access point.
 	Nfsv4AccessPointKey = "NFSv4.1"
 

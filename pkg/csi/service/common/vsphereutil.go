@@ -1057,6 +1057,34 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 	return nil
 }
 
+// GetCnsVolumeType is the helper function that determines the volume type based on the volume-id
+func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (string, error) {
+	log := logger.GetLogger(ctx)
+	var volumeType string
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeId}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+		},
+	}
+	// Select only the volume type.
+	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		return "", logger.LogNewErrorCodef(log, codes.Internal,
+			"queryVolume failed for volumeID: %q with err=%+v", volumeId, err)
+	}
+
+	if len(queryResult.Volumes) == 0 {
+		log.Infof("volume: %s not found during query while determining CNS volume type", volumeId)
+		return "", ErrNotFound
+	}
+	volumeType = queryResult.Volumes[0].VolumeType
+	log.Infof("volume: %s is of type: %s", volumeId, volumeType)
+	return volumeType, nil
+}
+
 // GetNodeVMsWithAccessToDatastore finds out NodeVMs which have access to the given
 // datastore URL by using the moref approach.
 func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCenter, dsURL string,
