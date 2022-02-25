@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -125,4 +126,14 @@ func validateVanillaListSnapshotRequest(ctx context.Context, req *csi.ListSnapsh
 		}
 	}
 	return nil
+}
+
+func convertCnsVolumeType(ctx context.Context, cnsVolumeType string) string {
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	if cnsVolumeType == common.BlockVolumeType {
+		volumeType = prometheus.PrometheusBlockVolumeType
+	} else if cnsVolumeType == common.FileVolumeType {
+		volumeType = prometheus.PrometheusFileVolumeType
+	}
+	return volumeType
 }
