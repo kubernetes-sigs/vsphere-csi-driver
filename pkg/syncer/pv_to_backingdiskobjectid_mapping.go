@@ -44,6 +44,7 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
 			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
 		},
 	}
 	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
@@ -86,8 +87,14 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 
 	for _, vol := range queryAllResult.Volumes {
 		// NOTE: BackingDiskObjectId is the id of vvol or vSan; BackingDiskId is the same as VolumeId.
-		volumeIdToBackingObjectIdMap[vol.VolumeId.Id] = vol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).
-			BackingDiskObjectId
+		// This is only supported for block volumes.
+		if vol.VolumeType != string(cnstypes.CnsVolumeTypeBlock) {
+			continue
+		}
+		val, ok := vol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+		if ok {
+			volumeIdToBackingObjectIdMap[vol.VolumeId.Id] = val.BackingDiskObjectId
+		}
 	}
 
 	for volID, pvc := range volumeHandleToPvcMap {
