@@ -27,6 +27,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -374,6 +375,110 @@ type VMImages struct {
 		ResourceVersion string `json:"resourceVersion"`
 		SelfLink        string `json:"selfLink"`
 	} `json:"metadata"`
+}
+
+type AuthToken struct {
+	IDToken      string `json:"id_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+type CertRotate struct {
+	UserID                     string        `json:"user_id"`
+	UserName                   string        `json:"user_name"`
+	Created                    time.Time     `json:"created"`
+	Version                    int           `json:"version"`
+	ID                         string        `json:"id"`
+	UpdatedByUserID            string        `json:"updated_by_user_id"`
+	UpdatedByUserName          string        `json:"updated_by_user_name"`
+	Updated                    time.Time     `json:"updated"`
+	Status                     string        `json:"status"`
+	ResourceID                 string        `json:"resource_id"`
+	ResourceType               string        `json:"resource_type"`
+	StartResourceEntityVersion interface{}   `json:"start_resource_entity_version"`
+	EndResourceEntityVersion   interface{}   `json:"end_resource_entity_version"`
+	ParentTaskID               interface{}   `json:"parent_task_id"`
+	SubStatus                  string        `json:"sub_status"`
+	TaskType                   string        `json:"task_type"`
+	ErrorMessage               interface{}   `json:"error_message"`
+	CustomerErrorMessage       interface{}   `json:"customer_error_message"`
+	LocalizedErrorMessage      interface{}   `json:"localized_error_message"`
+	StartTime                  time.Time     `json:"start_time"`
+	EndTime                    interface{}   `json:"end_time"`
+	Retries                    int           `json:"retries"`
+	TaskVersion                string        `json:"task_version"`
+	ProgressPercent            int           `json:"progress_percent"`
+	EstimatedRemainingMinutes  int           `json:"estimated_remaining_minutes"`
+	TaskProgressPhases         interface{}   `json:"task_progress_phases"`
+	ServiceErrors              []interface{} `json:"service_errors"`
+	Params                     struct {
+		CertType struct {
+			CertType            string      `json:"cert_type"`
+			CertificateToDelete interface{} `json:"certificate_to_delete"`
+			CertificateToSave   interface{} `json:"certificate_to_save"`
+			ValidDays           interface{} `json:"valid_days"`
+			Version             interface{} `json:"version"`
+			CertificateConfig   interface{} `json:"certificate_config"`
+		} `json:"certType"`
+	} `json:"params"`
+	OrgType         string      `json:"org_type"`
+	CorrelationID   interface{} `json:"correlation_id"`
+	PhaseInProgress string      `json:"phase_in_progress"`
+	OrgID           string      `json:"org_id"`
+}
+
+type GetTaskTstatus struct {
+	UserID                     string        `json:"user_id"`
+	UserName                   string        `json:"user_name"`
+	Created                    time.Time     `json:"created"`
+	Version                    int           `json:"version"`
+	ID                         string        `json:"id"`
+	UpdatedByUserID            string        `json:"updated_by_user_id"`
+	UpdatedByUserName          string        `json:"updated_by_user_name"`
+	Updated                    time.Time     `json:"updated"`
+	Status                     string        `json:"status"`
+	ResourceID                 string        `json:"resource_id"`
+	ResourceType               string        `json:"resource_type"`
+	StartResourceEntityVersion interface{}   `json:"start_resource_entity_version"`
+	EndResourceEntityVersion   interface{}   `json:"end_resource_entity_version"`
+	ParentTaskID               interface{}   `json:"parent_task_id"`
+	SubStatus                  string        `json:"sub_status"`
+	TaskType                   string        `json:"task_type"`
+	ErrorMessage               interface{}   `json:"error_message"`
+	CustomerErrorMessage       interface{}   `json:"customer_error_message"`
+	LocalizedErrorMessage      interface{}   `json:"localized_error_message"`
+	StartTime                  time.Time     `json:"start_time"`
+	EndTime                    time.Time     `json:"end_time"`
+	Retries                    int           `json:"retries"`
+	TaskVersion                string        `json:"task_version"`
+	ProgressPercent            int           `json:"progress_percent"`
+	EstimatedRemainingMinutes  int           `json:"estimated_remaining_minutes"`
+	TaskProgressPhases         interface{}   `json:"task_progress_phases"`
+	ServiceErrors              []interface{} `json:"service_errors"`
+	Params                     struct {
+		CertType struct {
+			CertType            string `json:"cert_type"`
+			CertificateToDelete []struct {
+				Entity      string `json:"entity"`
+				SerialNum   string `json:"serial_num"`
+				Fingerprint string `json:"fingerprint"`
+				Certificate string `json:"certificate"`
+			} `json:"certificate_to_delete"`
+			CertificateToSave []struct {
+				Entity      string `json:"entity"`
+				SerialNum   string `json:"serial_num"`
+				Fingerprint string `json:"fingerprint"`
+				Certificate string `json:"certificate"`
+			} `json:"certificate_to_save"`
+		} `json:"certType"`
+	} `json:"params"`
+	OrgType         string      `json:"org_type"`
+	CorrelationID   interface{} `json:"correlation_id"`
+	PhaseInProgress string      `json:"phase_in_progress"`
+	OrgID           string      `json:"org_id"`
 }
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage
@@ -1505,6 +1610,92 @@ func createGC(wcpHost string, wcpToken string) {
 	response := string(bodyBytes)
 	framework.Logf(response)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
+}
+
+func getAuthToken(refreshToken string) string {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	data := url.Values{}
+	data.Set("refresh_token", refreshToken)
+
+	client := &http.Client{Transport: transCfg}
+	req, err := http.NewRequest("POST", authAPI, strings.NewReader(data.Encode()))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer resp.Body.Close()
+	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
+
+	auth := AuthToken{}
+	err = json.NewDecoder(resp.Body).Decode(&auth)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return auth.AccessToken
+
+}
+
+//rotateVCCertinVMC recreates the cert for VC in VMC environment
+func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+	client := &http.Client{Transport: transCfg}
+	certRotateURL := vmcPrdEndpoint + orgId + "/sddcs/" + sddcId + "/certificate/VCENTER"
+
+	req, err := http.NewRequest("POST", certRotateURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add("csp-auth-token", authToken)
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer resp.Body.Close()
+
+	certRotate := CertRotate{}
+	err = json.NewDecoder(resp.Body).Decode(&certRotate)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 202))
+	framework.Logf("task ID %s ", certRotate.ID)
+
+	return certRotate.ID
+}
+
+//getTaskStatus polls status for given task id and returns true once task is completed
+func getTaskStatus(authToken string, orgID string, taskID string) error {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+	client := &http.Client{Transport: transCfg}
+	getTaskStatusURL := vmcPrdEndpoint + orgID + "/tasks/" + taskID
+	framework.Logf("getTaskStatusURL %s", getTaskStatusURL)
+
+	req, err := http.NewRequest("GET", getTaskStatusURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeoutShort*5, func() (bool, error) {
+		framework.Logf("Polling for Task Status")
+		req.Header.Add("csp-auth-token", authToken)
+		resp, err := client.Do(req)
+		gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer resp.Body.Close()
+
+		getTaskStatus := GetTaskTstatus{}
+		err = json.NewDecoder(resp.Body).Decode(&getTaskStatus)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if getTaskStatus.ProgressPercent == 100 && getTaskStatus.Status == "FINISHED" {
+			framework.Logf("VC Cert Rotate Task Finished")
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
 }
 
 //scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
