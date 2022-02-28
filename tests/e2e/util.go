@@ -3556,7 +3556,8 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd, k8sMasterIP))
+				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+					k8sMasterIP))
 		}
 	}
 	// Sleeping for two seconds so that the change made to manifest file is
