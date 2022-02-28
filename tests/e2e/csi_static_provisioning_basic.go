@@ -1525,6 +1525,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		mgmtDatastoreURL := os.Getenv("MANAGEMENT_DATASTORE_URL")
+		if mgmtDatastoreURL == "" {
+			ginkgo.Skip("Env MANAGEMENT_DATASTORE_URL is missing")
+		}
+
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -1546,10 +1551,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		mgmtDatastoreURL := os.Getenv("MANAGEMENT_DATASTORE_URL")
-		if mgmtDatastoreURL == "" {
-			ginkgo.Skip("Env MANAGEMENT_DATASTORE_URL is missing")
-		}
+		
 
 		mgmtDatastore, err = getDatastoreByURL(ctx, mgmtDatastoreURL, defaultDatacenter)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
