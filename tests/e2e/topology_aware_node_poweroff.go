@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By(fmt.Sprintf("Power off the node: %v", nodeNameToPowerOff))
 
-		vmUUID := getNodeUUID(client, nodeNameToPowerOff)
+		vmUUID := getNodeUUID(ctx, client, nodeNameToPowerOff)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameToPowerOff)
 		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		failoverNode := pod.Spec.NodeName
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, failoverNode))
-		vmUUID = getNodeUUID(client, failoverNode)
+		vmUUID = getNodeUUID(ctx, client, failoverNode)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
@@ -247,7 +247,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By(fmt.Sprintf("Power off the node: %v", nodeNameBeforePowerOff))
 
-		vmUUID := getNodeUUID(client, nodeNameBeforePowerOff)
+		vmUUID := getNodeUUID(ctx, client, nodeNameBeforePowerOff)
 		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameBeforePowerOff)
 		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)

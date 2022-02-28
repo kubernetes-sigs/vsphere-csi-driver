@@ -828,7 +828,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By("create a pod pod1, using pvc1")
-		pod, _ := createPODandVerifyVolumeMount(f, client, namespace, pvc, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvc, volHandle)
 		defer func() {
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -897,7 +897,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		pod2, err = client.CoreV1().Pods(namespace).Get(ctx, pod2.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod2.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod2.Spec.NodeName)
 		} else if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(pod2.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

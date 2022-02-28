@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		} else if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

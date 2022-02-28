@@ -171,7 +171,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))

@@ -39,6 +39,7 @@ const (
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
+	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
@@ -52,6 +53,7 @@ const (
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
+	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
@@ -199,6 +201,11 @@ var (
 // For vsan stretched cluster tests
 var (
 	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
+)
+
+// CSI Internal FSSs
+var (
+	useCsiNodeID = "use-csinode-id"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
