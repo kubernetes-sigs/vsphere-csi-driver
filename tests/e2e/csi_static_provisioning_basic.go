@@ -1551,8 +1551,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		
-
 		mgmtDatastore, err = getDatastoreByURL(ctx, mgmtDatastoreURL, defaultDatacenter)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
