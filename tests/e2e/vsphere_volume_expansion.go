@@ -733,14 +733,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if !featureEnabled {
 			ginkgo.By("File system resize should not succeed since SPS service is down" +
 				" and cns new sync feature is disabled. Expecting an error")
-			if guestCluster {
-				expectedErrMsg = "didn't find a plugin capable of expanding the volume"
-			} else {
-				expectedErrMsg = "failed to expand volume"
-			}
+			expectedErrMsg = "VolumeResizeFailed"
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
-			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+			isFailureFound, err := getEventsListAndVerifyPvcError(client, namespace, pvclaim, expectedErrMsg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrMsg)
 
 			ginkgo.By("Bringup SPS service")
 			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
@@ -3833,4 +3830,28 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	framework.Logf("Offline volume expansion on PVC is successful")
 	return pvclaim, pod, vmUUID
 
+}
+
+/* This util method fetches pvc events list and matches the events list with the
+specified error message and returns true if expected error found */
+func getEventsListAndVerifyPvcError(client clientset.Interface, namespace string,
+	pvclaim *v1.PersistentVolumeClaim, expectedErrMsg string) (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	isFailureFound := false
+	ginkgo.By("Checking for error in events related to pvc " + pvclaim.Name)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)})
+		for _, item := range eventList.Items {
+			if strings.Contains(item.Reason, expectedErrMsg) {
+				framework.Logf("Expected Error msg found. EventList Reason: "+
+					"%q"+" EventList item: %q", item.Reason, item.Message)
+				isFailureFound = true
+				break
+			}
+		}
+		return isFailureFound, nil
+	})
+	return isFailureFound, waitErr
 }
