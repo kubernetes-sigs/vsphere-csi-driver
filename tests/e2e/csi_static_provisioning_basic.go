@@ -1558,7 +1558,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
 			"staticfcd"+curtimestring, profileID, diskSizeInMb, mgmtDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		deleteFCDRequired = false
+		deleteFCDRequired = true
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
