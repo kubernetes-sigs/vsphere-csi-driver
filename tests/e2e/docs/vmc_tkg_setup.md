@@ -68,6 +68,8 @@ The section outlines how to set the env variable for running the e2e test.
     export SHARED_NFS_DATASTORE_URL="<shared-NFS-datastore-url>"
     #shared VMFS datastore url
     export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
+    #management datastore url
+    export MANAGEMENT_DATASTORE_URL="<mgmt-datastore-url>"
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
