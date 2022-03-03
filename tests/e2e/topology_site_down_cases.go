@@ -890,7 +890,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		statefulSetReplicaCount = 3
 		noOfHostToBringDown = 1
 		var ssPods *v1.PodList
-		sharedDataStoreUrlBetweenClusters := GetAndExpectStringEnvVar(datstoreSharedBetweenClusters)
 
 		/* Get allowed topologies for Storage Class
 		region1 > zone1 > building1 > level1 > rack > (rack2 and rack3)
@@ -900,10 +899,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		/* Create SC with Immediate BindingMode with multiple topology labels and datastore
 		shared between those labels. */
-		scParameters := make(map[string]string)
-		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", false, "nginx-sc")
+		// Create SC with WFC BindingMode
+		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
+		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -991,15 +990,15 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
-		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
-		ginkgo.By("Scale down statefulset replica count")
-		for i := 0; i < len(statefulSets); i++ {
-			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
-			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
+		// // Scale down statefulSets replica count
+		// statefulSetReplicaCount = 2
+		// ginkgo.By("Scale down statefulset replica count")
+		// for i := 0; i < len(statefulSets); i++ {
+		// 	scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+		// 	ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
+		// 	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+		// 		"Number of Pods in the statefulset should match with number of replicas")
+		// }
 
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
