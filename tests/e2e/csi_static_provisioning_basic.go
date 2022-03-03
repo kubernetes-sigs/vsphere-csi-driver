@@ -1861,7 +1861,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pv := getPvFromClaim(client, namespace, pvcName)
-			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+			pvName := pvc.Spec.VolumeName
+			//pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
+			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
+			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, volumeID)
 
 			// TODO: need to add code to delete VMDK hard disk and to create POD.
 
