@@ -14,7 +14,7 @@ spec:
     listKind: TriggerCsiFullSyncList
     plural: triggercsifullsyncs
     singular: triggercsifullsync
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
