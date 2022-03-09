@@ -149,7 +149,7 @@ data:
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
   "improved-volume-topology": "true"
-  "block-volume-snapshot": "false"
+  "block-volume-snapshot": "true"
   "csi-windows-support": "false"
   "use-csinode-id": "true"
   "list-volumes": "false"
@@ -361,6 +361,21 @@ spec:
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+        - name: csi-snapshotter
+          image: k8s.gcr.io/sig-storage/csi-snapshotter:v5.0.1
+          args:
+            - "--v=4"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
+            - "--timeout=300s"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
           env:
             - name: ADDRESS
               value: /csi/csi.sock

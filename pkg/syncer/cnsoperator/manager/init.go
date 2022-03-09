@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/config"
 	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/config"
 	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/config"
@@ -234,6 +235,10 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	}
 	if err = csinodetopologyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Errorf("failed to add CSINodeTopology to scheme with error: %+v", err)
+		return err
+	}
+	if err = internalapis.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Errorf("failed to add internalapis to scheme with error: %+v", err)
 		return err
 	}
 
