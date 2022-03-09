@@ -18,7 +18,6 @@ package vanilla
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -1262,12 +1261,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to check if online expansion is supported due to error: %v", err)
 		}
-		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
+
+		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionSupported)
 		if err != nil {
-			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, err
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 

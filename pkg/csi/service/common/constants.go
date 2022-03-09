@@ -302,8 +302,6 @@ const (
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion.
 	VolumeExtend = "volume-extend"
-	// OnlineVolumeExtend guards the feature for online volume expansion.
-	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check.
