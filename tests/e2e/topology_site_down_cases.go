@@ -1073,7 +1073,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 3
-		noOfHostToBringDown = 1
 		var ssPods *v1.PodList
 
 		/* Get allowed topologies for Storage Class
@@ -1142,11 +1141,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
 				statefulSets[i], namespace, allowedTopologies, true)
 		}
-		HostsList := getListOfHostsInCluster(ctx, &e2eVSphere, topologyClusterList[2])
+		HostsList := getListOfHostsInCluster(ctx, &e2eVSphere, topologyClusterList[1])
 
 		// Bring down all ESXi's that belongs to Cluster2
 		ginkgo.By("Bring down all ESXi's that belongs to Cluster2")
-
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			len(HostsList))
 
