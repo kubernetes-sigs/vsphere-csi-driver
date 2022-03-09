@@ -3,23 +3,24 @@ package admissionhandler
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/rest"
 	"os"
+	"strconv"
+
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
-	"strconv"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 const (
 	//WebhookTlsMinVersion = "1.2"
-	ValidationWebhookPath = "/validate"
-	DefaultWebhookPort = 9883
+	ValidationWebhookPath            = "/validate"
+	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
 )
 
@@ -65,7 +66,7 @@ func startCNSCSIWebhookManager(ctx context.Context) {
 	// we should not allow TLS < 1.2
 	//mgr.GetWebhookServer().TLSMinVersion = WebhookTlsMinVersion
 	mgr.GetWebhookServer().Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
-		Client: mgr.GetClient(),
+		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),
 	}})
 
@@ -84,12 +85,15 @@ type CSISupervisorWebhook struct {
 
 func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
 	log := logger.GetLogger(ctx)
-	log.Info("CSISupervisorWebhook validation handler is triggered")
-	resp = admission.Allowed("dummy webhook handler always allow any request")
+	log.Debugf("CNS-CSI validation webhook handler called with request: %+v", req)
+
+	resp = admission.Allowed("")
 	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		if req.Kind.Kind == "PersistentVolumeClaim" {
 			resp = validatePVCAnnotation(ctx, req)
 		}
 	}
-	return resp
+
+	log.Debugf("CNS-CSI validation webhook handler completed for the request: %+v", req)
+	return
 }
