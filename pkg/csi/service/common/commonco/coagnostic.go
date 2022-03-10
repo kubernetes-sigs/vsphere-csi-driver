@@ -51,6 +51,8 @@ type COCommonInterface interface {
 	// InitTopologyServiceInNode initializes the necessary resources
 	// required for topology related functionality in the nodes.
 	InitTopologyServiceInNode(ctx context.Context) (types.NodeTopologyService, error)
+	// GetNodesForVolumes returns a map of volumeID to list of node names
+	GetNodesForVolumes(ctx context.Context, volumeIds []string) map[string][]string
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

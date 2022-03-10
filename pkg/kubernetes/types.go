@@ -80,4 +80,7 @@ type InformerManager struct {
 	podInformer cache.SharedInformer
 	// Function to determine if podInformer has been synced
 	podSynced cache.InformerSynced
+
+	// volume attachment informer
+	volumeAttachmentInformer cache.SharedInformer
 }
