@@ -18,6 +18,9 @@ package k8sorchestrator
 
 import (
 	"context"
+	"reflect"
+	"strconv"
+	"sync"
 	"testing"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -230,5 +233,27 @@ func TestIsFSSEnabledWithWrongClusterFlavor(t *testing.T) {
 	isEnabled := k8sOrchestrator.IsFSSEnabled(ctx, "volume-extend")
 	if isEnabled {
 		t.Errorf("volume-extend feature state enabled even when cluster flavor is wrong")
+	}
+}
+
+func TestGetNodesForVolumes(t *testing.T) {
+	volumeIDToNodesMap := &volumeIDToNodesMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string][]string),
+	}
+	for i := 1; i <= 5; i += 1 {
+		volumeIDToNodesMap.items["volume-"+strconv.Itoa(i)] = []string{"node" + strconv.Itoa(i), "node" + strconv.Itoa(i+5)}
+	}
+	k8sOrchestrator := K8sOrchestrator{
+		volumeIDToNodesMap: volumeIDToNodesMap,
+	}
+
+	volumeIDs := []string{"volume-1", "volume-3"}
+	nodeNames := k8sOrchestrator.GetNodesForVolumes(ctx, volumeIDs)
+	expectedNodeNames := make(map[string][]string)
+	expectedNodeNames["volume1"] = []string{"node-1", "node-6"}
+	expectedNodeNames["volume3"] = []string{"node-3", "node-8"}
+	if reflect.DeepEqual(nodeNames, expectedNodeNames) {
+		t.Errorf("Expected node names %v but got %v", expectedNodeNames, nodeNames)
 	}
 }
