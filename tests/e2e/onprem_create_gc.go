@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,12 +26,13 @@ var _ = ginkgo.Describe("Create GC", func() {
 
 	ginkgo.BeforeEach(func() {
 		bootstrap()
+
 	})
 
 	/*
 		Test to Create TKC using root user
 		Steps
-			1.	Get WCP session id with devops user
+			1.	Get WCP session id with root user
 			2.	Create TKC with the session id from step 1
 			3.	Verify newly created TKC is up and running
 	*/
@@ -45,7 +46,7 @@ var _ = ginkgo.Describe("Create GC", func() {
 		framework.Logf("wcphost %s", wcpHost)
 		wcpToken := getWCPSessionId(wcpHost, e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
 		updatedtkg := setupTKGyaml(wcpHost, wcpToken, devopsTKG, onpremrootTKG)
-		framework.Logf("Secound Guest cluster %s", updatedtkg)
+		framework.Logf("Second Guest cluster %s", updatedtkg)
 
 		ginkgo.By("Creating Guest Cluster with root User")
 		createGC(wcpHost, wcpToken)

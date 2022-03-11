@@ -1597,7 +1597,6 @@ func setupTKGyaml(wcpHost string, wcpToken string, gcName string, gc2Name string
 	new_data, err := yaml.Marshal(&tkg_2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//newpath, err := filepath.Abs(gcManifestPath + "tkg_1.yaml")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	to_write := string(new_data)
 	err = writeToFile(path, to_write)
