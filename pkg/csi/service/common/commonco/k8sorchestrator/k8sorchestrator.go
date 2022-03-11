@@ -1241,11 +1241,11 @@ func (c *K8sOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeIDs 
 			if err.Error() == common.ErrNotFound.Error() {
 				// PVC not found, which means PVC could have been deleted. No need to proceed.
 				log.Debugf("PVC not found, which means PVC could have been deleted. No need to proceed.")
-				return volumeIDToFakeAttachedMap
+				continue
 			}
 			log.Errorf("GetFakeAttachedVolumes: failed to get pvc annotations for volume ID %s "+
 				"while checking if it was fake attached", volumeID)
-			return volumeIDToFakeAttachedMap
+			continue
 		}
 		val, found := pvcAnn[common.AnnFakeAttached]
 		if found && val == "yes" {
@@ -1269,4 +1269,14 @@ func (c *K8sOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId stri
 		return nil, err
 	}
 	return volumeAttachment, nil
+}
+
+// GetAllVolumes returns list of volumes in a bound state for wcp clusters.
+// This will not return VCP-CSI migrated volumes.
+func (c *K8sOrchestrator) GetAllVolumes() []string {
+	volumeIDs := make([]string, 0)
+	for volumeID := range c.volumeIDToPvcMap.items {
+		volumeIDs = append(volumeIDs, volumeID)
+	}
+	return volumeIDs
 }

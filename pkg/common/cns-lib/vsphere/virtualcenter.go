@@ -553,3 +553,42 @@ func GetVirtualCenterInstance(ctx context.Context,
 	}
 	return vCenterInstance, nil
 }
+
+// GetAllVirtualMachines gets the VM Managed Objects with the given properties from the
+// VM object.
+func (vc *VirtualCenter) GetAllVirtualMachines(ctx context.Context,
+	hostObjList []*HostSystem) ([]*object.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	var hostMoList []mo.HostSystem
+	var hostRefs []types.ManagedObjectReference
+	if len(hostObjList) < 1 {
+		msg := "host object list is empty"
+		log.Errorf(msg+": %v", hostObjList)
+		return nil, fmt.Errorf(msg)
+	}
+
+	properties := []string{"vm"}
+	for _, hostObj := range hostObjList {
+		hostRefs = append(hostRefs, hostObj.Reference())
+	}
+
+	pc := property.DefaultCollector(vc.Client.Client)
+	err := pc.Retrieve(ctx, hostRefs, properties, &hostMoList)
+	if err != nil {
+		log.Errorf("failed to get host managed objects from host objects. hostObjList: %+v, properties: %+v, err: %v",
+			hostObjList, properties, err)
+		return nil, err
+	}
+
+	var vmRefList []types.ManagedObjectReference
+	for _, hostMo := range hostMoList {
+		vmRefList = append(vmRefList, hostMo.Vm...)
+	}
+
+	var virtualMachines []*object.VirtualMachine
+	for _, vmRef := range vmRefList {
+		vm := object.NewVirtualMachine(vc.Client.Client, vmRef)
+		virtualMachines = append(virtualMachines, vm)
+	}
+	return virtualMachines, nil
+}
