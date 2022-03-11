@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 5
 		noOfHostToBringDown = 1
 		var ssPods *v1.PodList
 
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -354,7 +354,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(60 * time.Second)
+		time.Sleep(pollTimeoutSixMin)
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -540,7 +540,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -733,7 +733,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -921,7 +921,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -1107,7 +1107,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -1230,7 +1230,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	})
 })
 
-func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
+func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
 	for i := 0; i < no_of_sts; i++ {
@@ -1239,6 +1239,7 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.St
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
 	return stss
@@ -1251,7 +1252,7 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
