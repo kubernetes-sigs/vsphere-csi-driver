@@ -401,7 +401,7 @@ metadata:
 spec:
   ports:
     - port: 443
-      targetPort: 9883 # need to request an available port in WCP
+      targetPort: 9883
   selector:
     app: vsphere-csi-webhook
 ---
