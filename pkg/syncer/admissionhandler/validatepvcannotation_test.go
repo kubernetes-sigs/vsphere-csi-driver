@@ -3,13 +3,14 @@ package admissionhandler
 import (
 	"context"
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/runtime"
 	"reflect"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sync"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,13 +42,13 @@ var (
 )
 
 type pvcAnnotationAdmissionTest struct {
-	pvcWithoutAnnotationRaw []byte
+	pvcWithoutAnnotationRaw                                 []byte
 	pvcWithAnnGuestClusterRequestedTopologyButEmptyValueRaw []byte
-	pvcWithAnnGuestClusterRequestedTopologyRaw []byte
-	pvcWithAnotherAnnGuestClusterRequestedTopologyRaw []byte
-	pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw []byte
-	pvcWithAnnVolumeAccessibleTopologyRaw []byte
-	pvcWithAnotherAnnVolumeAccessibleTopologyRaw []byte
+	pvcWithAnnGuestClusterRequestedTopologyRaw              []byte
+	pvcWithAnotherAnnGuestClusterRequestedTopologyRaw       []byte
+	pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw      []byte
+	pvcWithAnnVolumeAccessibleTopologyRaw                   []byte
+	pvcWithAnotherAnnVolumeAccessibleTopologyRaw            []byte
 }
 
 func getPVCAnnotationAdmissionTest(t *testing.T) *pvcAnnotationAdmissionTest {
@@ -99,7 +100,6 @@ func getPVCAnnotationAdmissionTest(t *testing.T) *pvcAnnotationAdmissionTest {
 		pvcWithAnnVolumeAccessibleTopologyButEmptyValue.Annotations = make(map[string]string)
 		pvcWithAnnVolumeAccessibleTopologyButEmptyValue.Annotations[common.AnnVolumeAccessibleTopology] = ""
 
-
 		pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw, err :=
 			json.Marshal(pvcWithAnnVolumeAccessibleTopologyButEmptyValue)
 		if err != nil {
@@ -132,14 +132,13 @@ func getPVCAnnotationAdmissionTest(t *testing.T) *pvcAnnotationAdmissionTest {
 		}
 
 		pvcAnnotationAdmissionTestInstance = &pvcAnnotationAdmissionTest{
-			pvcWithoutAnnotationRaw: pvcWithoutAnnotationRaw,
-			pvcWithAnnGuestClusterRequestedTopologyButEmptyValueRaw:
-				pvcWithAnnGuestClusterRequestedTopologyButEmptyValueRaw,
-			pvcWithAnnGuestClusterRequestedTopologyRaw: pvcWithAnnGuestClusterRequestedTopologyRaw,
-			pvcWithAnotherAnnGuestClusterRequestedTopologyRaw: pvcWithAnotherAnnGuestClusterRequestedTopologyRaw,
-			pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw: pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw,
-			pvcWithAnnVolumeAccessibleTopologyRaw: pvcWithAnnVolumeAccessibleTopologyRaw,
-			pvcWithAnotherAnnVolumeAccessibleTopologyRaw: pvcWithAnotherAnnVolumeAccessibleTopologyRaw,
+			pvcWithoutAnnotationRaw:                                 pvcWithoutAnnotationRaw,
+			pvcWithAnnGuestClusterRequestedTopologyButEmptyValueRaw: pvcWithAnnGuestClusterRequestedTopologyButEmptyValueRaw,
+			pvcWithAnnGuestClusterRequestedTopologyRaw:              pvcWithAnnGuestClusterRequestedTopologyRaw,
+			pvcWithAnotherAnnGuestClusterRequestedTopologyRaw:       pvcWithAnotherAnnGuestClusterRequestedTopologyRaw,
+			pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw:      pvcWithAnnVolumeAccessibleTopologyButEmptyValueRaw,
+			pvcWithAnnVolumeAccessibleTopologyRaw:                   pvcWithAnnVolumeAccessibleTopologyRaw,
+			pvcWithAnotherAnnVolumeAccessibleTopologyRaw:            pvcWithAnotherAnnVolumeAccessibleTopologyRaw,
 		}
 	})
 	return pvcAnnotationAdmissionTestInstance
@@ -149,7 +148,7 @@ func TestValidatePVCAnnotation(t *testing.T) {
 	testValidatePVCAnnotationInstance := getPVCAnnotationAdmissionTest(t)
 
 	tests := []struct {
-		name string
+		name             string
 		admissionReview  admission.Request
 		expectedResponse admission.Response
 	}{
