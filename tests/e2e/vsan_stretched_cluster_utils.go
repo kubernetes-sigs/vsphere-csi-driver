@@ -387,10 +387,13 @@ func updatePvcLabelsInParallel(ctx context.Context, client clientset.Interface, 
 	for _, pvc := range pvclaims {
 		framework.Logf(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
 			labels, pvc.Name, namespace))
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
-		_, err := client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"Error on updating pvc labels is: %v", err)
+
 	}
 }
 
@@ -405,6 +408,7 @@ func updatePvLabelsInParallel(ctx context.Context, client clientset.Interface, n
 		_, err := client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"Error on updating pv labels is: %v", err)
+
 	}
 }
 
@@ -801,4 +805,36 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 			}
 		}
 	}
+}
+
+// deleteCsiPodInParallel deletes csi pod present in csi namespace in parallel
+func deleteCsiPodInParallel(client clientset.Interface, pod *v1.Pod, namespace string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	framework.Logf("Deleting the pod: %s", pod.Name)
+	err := fpod.DeletePodWithWait(client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// deleteCsiControllerPodOnOtherMasters deletes the CSI Controller Pod
+// on other master nodes which are not present on that site.
+func deleteCsiControllerPodOnOtherMasters(client clientset.Interface,
+	csiPodOnSite string) {
+	ignoreLabels := make(map[string]string)
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Remove csi pod which is running on that site from list of all csi Pods
+	var otherCsiControllerPods []*v1.Pod
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) &&
+			csiPod.Name != csiPodOnSite {
+			otherCsiControllerPods = append(otherCsiControllerPods, csiPod)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(otherCsiControllerPods))
+	for _, csiPod := range otherCsiControllerPods {
+		go deleteCsiPodInParallel(client, csiPod, csiSystemNamespace, &wg)
+	}
+	wg.Wait()
 }
