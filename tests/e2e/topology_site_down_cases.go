@@ -31,7 +31,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -73,6 +72,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		topologyLength = 5
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
@@ -83,17 +83,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 	})
 
-	ginkgo.AfterEach(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
-		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-	})
+	// ginkgo.AfterEach(func() {
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
+	// 	ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+	// 	fss.DeleteAllStatefulSets(client, namespace)
+	// 	ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+	// 	err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+	// 	if !apierrors.IsNotFound(err) {
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}
+	// })
 
 	/*
 		TESTCASE-1
