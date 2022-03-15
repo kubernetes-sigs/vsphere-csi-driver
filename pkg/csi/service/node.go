@@ -352,11 +352,6 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get system uuid for node VM with error: %v", err)
 		}
-		nodeID, err = driver.osUtils.ConvertUUID(nodeID)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"convertUUID failed with error: %v", err)
-		}
 	} else {
 		nodeID = nodeName
 	}
