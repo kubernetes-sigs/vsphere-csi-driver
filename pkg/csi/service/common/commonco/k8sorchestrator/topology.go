@@ -416,9 +416,16 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 				return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
 			}
 		} else {
-			if csiNodeTopology.Spec.NodeUUID == "" {
-				log.Infof("CSINodeTopology instance: %q with empty nodeUUID found. "+
-					"Patching the instance with nodeUUID", nodeInfo.NodeName)
+			if csiNodeTopology.Spec.NodeUUID == "" ||
+				csiNodeTopology.Spec.NodeUUID != nodeInfo.NodeID {
+				if csiNodeTopology.Spec.NodeUUID == "" {
+					log.Infof("CSINodeTopology instance: %q with empty nodeUUID found. "+
+						"Patching the instance with nodeUUID", nodeInfo.NodeName)
+				} else {
+					log.Infof("CSINodeTopology instance: %q with different "+
+						"nodeUUID: %s found. Patching the instance with nodeUUID: %s",
+						nodeInfo.NodeName, csiNodeTopology.Spec.NodeUUID, nodeInfo.NodeID)
+				}
 				patch := []byte(fmt.Sprintf(`{"spec":{"nodeID":"%s","nodeuuid":"%s"}}`, nodeInfo.NodeName, nodeInfo.NodeID))
 				// Patch the CSINodeTopology instance with nodeUUID
 				err = volTopology.csiNodeTopologyK8sClient.Patch(ctx,
@@ -429,8 +436,9 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 					},
 					client.RawPatch(types.MergePatchType, patch))
 				if err != nil {
-					msg := fmt.Sprintf("Fail to patch CsiNodeTopology for the node: %q. Error: %+v",
-						nodeInfo.NodeName, err)
+					msg := fmt.Sprintf("Fail to patch CsiNodeTopology for the node: %q "+
+						"with nodeUUID: %s. Error: %+v",
+						nodeInfo.NodeName, nodeInfo.NodeID, err)
 					return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
 				}
 				log.Infof("Successfully patched CSINodeTopology instance: %q with Uuid: %q",
