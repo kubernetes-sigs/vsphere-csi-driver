@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -250,5 +251,10 @@ func (c *FakeK8SOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId 
 // GetAllVolumes returns list of volumes in a bound state
 func (c *FakeK8SOrchestrator) GetAllVolumes() []string {
 	// TODO - This can be implemented if we add WCP controller tests for list volume
+	return nil
+}
+
+// GetAllK8sVolumes returns list of volumes in a bound state, present in the K8s cluster
+func (c *FakeK8SOrchestrator) GetAllK8sVolumes() []string {
 	return nil
 }

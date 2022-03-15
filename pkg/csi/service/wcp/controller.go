@@ -1123,7 +1123,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		return nil, status.Error(codes.Unimplemented, "")
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
-		log.Infof("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
+		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
 		startingIdx := 0
