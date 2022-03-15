@@ -5106,3 +5106,148 @@ func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 	})
 	return waitErr
 }
+
+// getK8sMasterNodeIPWhereControllerLeaderIsRunning fetches the master node IP
+// where controller is running
+func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	containerName string) (string, string, error) {
+	ignoreLabels := make(map[string]string)
+	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	k8sMasterIP := k8sMasterIPs[0]
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
+			// Putting the grepped logs for leader of container of different CSI pods
+			// to same temporary file
+			// NOTE: This is not valid for vsphere-csi-controller container as for
+			// vsphere-csi-controller all the replicas will behave as leaders
+			if containerName == syncerContainerName {
+				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+					csiSystemNamespace + containerName + " | grep 'successfully acquired lease' " +
+					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+			} else {
+				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+					csiSystemNamespace + containerName + " | grep 'new leader detected, current leader:' " +
+					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+			}
+			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+				k8sMasterIP)
+			result, err := sshExec(sshClientConfig, k8sMasterIP,
+				grepCmdForFindingCurrentLeader)
+			if err != nil || result.Code != 0 {
+				fssh.LogResult(result)
+				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+			}
+		}
+	}
+
+	// Sorting the temporary file according to timestamp to find the latest container leader
+	// from the CSI pod replicas
+	cmd := "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		k8sMasterIP)
+	result, err := sshExec(sshClientConfig, k8sMasterIP,
+		grepCmdForFindingCurrentLeader)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, k8sMasterIP, err)
+	}
+	csiControllerPodName = result.Stdout
+
+	// delete the temporary log file
+	cmd = "rm leader.log"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		k8sMasterIP)
+	result, err = sshExec(sshClientConfig, k8sMasterIP,
+		grepCmdForFindingCurrentLeader)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, k8sMasterIP, err)
+	}
+
+	if csiControllerPodName == "" {
+		return "", "", fmt.Errorf("couldn't find CSI pod where %s leader is running",
+			containerName)
+	}
+
+	framework.Logf("CSI pod %s where %s leader is running", csiControllerPodName, containerName)
+	// Fetching master node name where container leader is running
+	podData, err := client.CoreV1().Pods(csiSystemNamespace).Get(ctx, csiControllerPodName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	masterNodeName := podData.Spec.NodeName
+	framework.Logf("Master node name %s where %s leader is running", masterNodeName, containerName)
+	// Fetching IP address of master node where container leader is running
+	k8sMasterNodeIP, err := getMasterIpFromMasterNodeName(ctx, client, masterNodeName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Master node ip %s where %s leader is running", k8sMasterNodeIP, containerName)
+	return csiControllerPodName, k8sMasterNodeIP, nil
+}
+
+// execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
+func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	containerName string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
+		"awk '{print $1}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		k8sMasterNodeIP)
+	dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForGettingDockerContainerId)
+	fssh.LogResult(dockerContainerInfo)
+	if err != nil || dockerContainerInfo.Code != 0 {
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
+	}
+	dockerContainerPauseCmd := "docker pause " + dockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", dockerContainerPauseCmd,
+		k8sMasterNodeIP)
+	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		dockerContainerPauseCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			dockerContainerPauseCmd, k8sMasterNodeIP, err)
+	}
+	framework.Logf("Waiting for 5 seconds as leader election happens every 5 secs")
+	time.Sleep(5 * time.Second)
+	dockerContainerKillCmd := "docker kill " + dockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", dockerContainerKillCmd,
+		k8sMasterNodeIP)
+	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
+		dockerContainerKillCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			dockerContainerKillCmd, k8sMasterNodeIP, err)
+	}
+	return nil
+}
+
+// Fetching IP address of master node from a given master node name
+func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interface,
+	masterNodeName string) (string, error) {
+	k8sMasterNodeIP := ""
+	k8sNodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, node := range k8sNodes.Items {
+		if node.Name == masterNodeName {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeInternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+					k8sMasterNodeIP = addr.Address
+					break
+				}
+			}
+		}
+	}
+	if k8sMasterNodeIP != "" {
+		return k8sMasterNodeIP, nil
+	} else {
+		return "", fmt.Errorf("couldn't find master ip from master node: %s", masterNodeName)
+	}
+}

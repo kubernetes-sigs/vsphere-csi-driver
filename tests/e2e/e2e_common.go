@@ -119,6 +119,7 @@ const (
 	psodTime                                  = "120"
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
+	provisionerContainerName                  = "csi-provisioner"
 	quotaName                                 = "cns-test-quota"
 	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                        = 2 * time.Second
@@ -144,6 +145,7 @@ const (
 	svClusterDistribution                     = "SupervisorCluster"
 	svOperationTimeout                        = 240 * time.Second
 	svStorageClassName                        = "SVStorageClass"
+	syncerContainerName                       = "vsphere-syncer"
 	totalResizeWaitPeriod                     = 10 * time.Minute
 	tkgClusterDistribution                    = "TKGService"
 	vanillaClusterDistribution                = "CSI-Vanilla"
