@@ -45,6 +45,7 @@ const (
 	devDiskID   = "/dev/disk/by-id"
 	blockPrefix = "wwn-0x"
 	dmiDir      = "/sys/class/dmi"
+	UUIDPrefix  = "VMware-"
 )
 
 // defaultFileMountOptions are the mount flag options used by default while publishing a file volume.
@@ -813,14 +814,29 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 // GetSystemUUID returns the UUID used to identify node vm
 func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
-	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_serial"))
 	if err != nil {
 		return "", err
 	}
-	log.Debugf("uuid in bytes: %v", idb)
-	id := strings.TrimSpace(string(idb))
-	log.Debugf("uuid in string: %s", id)
-	return strings.ToLower(id), nil
+	uuidFromFile := string(idb[:])
+	//strip leading and trailing white space and new line char
+	uuid := strings.TrimSpace(uuidFromFile)
+	log.Debugf("product_serial in string: %s", uuid)
+	// check the uuid starts with "VMware-"
+	if !strings.HasPrefix(uuid, UUIDPrefix) {
+		return "", fmt.Errorf("failed to match Prefix, UUID read from the file is %s",
+			uuidFromFile)
+	}
+	// Strip the prefix and while spaces and -
+	uuid = strings.Replace(uuid[len(UUIDPrefix):], " ", "", -1)
+	uuid = strings.Replace(uuid, "-", "", -1)
+	if len(uuid) != 32 {
+		return "", fmt.Errorf("length check failed, UUID read from the file is %v", uuidFromFile)
+	}
+	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
+	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
+	log.Infof("UUID is %s", uuid)
+	return uuid, nil
 }
 
 // convertUUID helps convert UUID to vSphere format, for example,
