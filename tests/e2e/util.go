@@ -5251,3 +5251,48 @@ func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interfa
 		return "", fmt.Errorf("couldn't find master ip from master node: %s", masterNodeName)
 	}
 }
+
+// getVolumeSnapshotContentSpec returns a spec for the volume snapshot content
+func getVolumeSnapshotContentSpec(deletionPolicy snapc.DeletionPolicy, snapshotHandle string,
+	futureSnapshotName string, namespace string) *snapc.VolumeSnapshotContent {
+	var volumesnapshotContentSpec = &snapc.VolumeSnapshotContent{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotContent",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshotcontent-",
+		},
+		Spec: snapc.VolumeSnapshotContentSpec{
+			DeletionPolicy: deletionPolicy,
+			Driver:         e2evSphereCSIDriverName,
+			Source: snapc.VolumeSnapshotContentSource{
+				SnapshotHandle: &snapshotHandle,
+			},
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name:      futureSnapshotName,
+				Namespace: namespace,
+			},
+		},
+	}
+	return volumesnapshotContentSpec
+}
+
+// getVolumeSnapshotSpecByName returns a spec for the volume snapshot by name
+func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
+	snapshotcontentname string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      snapshotName,
+			Namespace: namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			Source: snapc.VolumeSnapshotSource{
+				VolumeSnapshotContentName: &snapshotcontentname,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
