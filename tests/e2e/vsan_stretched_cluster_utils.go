@@ -27,6 +27,8 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
 	vsan "github.com/vmware/govmomi/vsan"
+	vsantypes "github.com/vmware/govmomi/vsan/types"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,8 +157,19 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	for _, host := range hosts {
 		vsanSystem, _ := host.ConfigManager().VsanSystem(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		hostConfig, err := vsanClient.VsanHostGetConfig(ctx, vsanSystem.Reference())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var hostConfig *vsantypes.VsanHostConfigInfoEx
+		// Wait for hosts to come out of error state and poll for hostconfig to be found
+		waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
+			hostConfig, err = vsanClient.VsanHostGetConfig(ctx, vsanSystem.Reference())
+			if err == nil {
+				return true, nil
+			}
+			if err != nil && !strings.Contains(err.Error(), "host vSAN config not found") {
+				return false, fmt.Errorf("hosts are not in ready state")
+			}
+			return false, nil
+		})
+		gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 		fdMap[host.Name()] = ""
 		if hostConfig.FaultDomainInfo != nil {
 			fdMap[host.Name()] = hostConfig.FaultDomainInfo.Name
@@ -360,4 +373,142 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 		ch <- pod
 		lock.Unlock()
 	}
+}
+
+// updatePvcLabelsInParallel updates the labels of pvc in a namespace in parallel
+func updatePvcLabelsInParallel(ctx context.Context, client clientset.Interface, namespace string,
+	labels map[string]string, pvclaims []*v1.PersistentVolumeClaim, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, pvc := range pvclaims {
+		framework.Logf(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
+			labels, pvc.Name, namespace))
+		pvc.Labels = labels
+		_, err := client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// updatePvLabelsInParallel updates the labels of pv in parallel
+func updatePvLabelsInParallel(ctx context.Context, client clientset.Interface, namespace string,
+	labels map[string]string, persistentVolumes []*v1.PersistentVolume, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, pv := range persistentVolumes {
+		framework.Logf(fmt.Sprintf("Updating labels %+v for pv %s in namespace %s",
+			labels, pv.Name, namespace))
+		pv.Labels = labels
+		_, err := client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// getMasterIpOnSite returns IP address of master node on a particular site. This function has to be
+// only used in deployments where k8s masters are spread across sites
+func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primarySite bool) (string, error) {
+	siteEsxMap := make(map[string]bool)
+	masterIpOnSite := ""
+
+	siteHosts := fds.secondarySiteHosts
+	if primarySite {
+		siteHosts = fds.primarySiteHosts
+	}
+
+	for _, x := range siteHosts {
+		siteEsxMap[x] = true
+	}
+	allMasterIps := getK8sMasterIPs(ctx, client)
+	framework.Logf("all master ips : %v", allMasterIps)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(k8sVmPasswd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	framework.Logf("Site esx map : %v", siteEsxMap)
+	// Assuming atleast one master is on that site
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname
+	for _, masterIp := range allMasterIps {
+		cmd := "export GOVC_INSECURE=1;"
+		cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
+		cmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
+		result, err := sshExec(sshClientConfig, masterIp, cmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		hostIp := strings.Split(result.Stdout, "Host:")
+		host := strings.TrimSpace(hostIp[1])
+		if siteEsxMap[host] {
+			masterIpOnSite = masterIp
+			break
+		}
+	}
+	framework.Logf("Master IP on site : %s", masterIpOnSite)
+	if masterIpOnSite != "" {
+		return masterIpOnSite, nil
+	} else {
+		return "", fmt.Errorf("couldn't find a master running on site")
+	}
+}
+
+// changeLeaderOfContainerToComeUpOnMaster ensures that the leader of a container comes up on
+// a specific master node on that site
+func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clientset.Interface,
+	sshClientConfig *ssh.ClientConfig, csiContainerName string, primarySite bool) error {
+	// Fetch the IP address of master node on that site
+	masterIpOnSite, err := getMasterIpOnSite(ctx, client, primarySite)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Get the master Ip where leader of csi container is running
+	allMasterIps := getK8sMasterIPs(ctx, client)
+	// Remove master ip which is on that site from list of master ip of all nodes
+	for i, v := range allMasterIps {
+		if v == masterIpOnSite {
+			allMasterIps = append(allMasterIps[:i], allMasterIps[i+1:]...)
+			break
+		}
+	}
+
+	leaderFoundOnsite := false
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeout, func() (bool, error) {
+		// Check if leader of csi container comes up on master node of secondary site
+		_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client, sshClientConfig,
+			csiContainerName)
+		framework.Logf("%s container leader is %s on %s ", csiContainerName, masterIp)
+		if err != nil {
+			return false, err
+		}
+		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Pause and kill container of csi container on other master nodes
+		if masterIp == masterIpOnSite {
+			leaderFoundOnsite = true
+			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(csipods.Size()),
+				0, pollTimeoutShort, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Leader of %s found on site", csiContainerName)
+			return true, nil
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(len(allMasterIps))
+		for _, masterIp := range allMasterIps {
+			go invokeDockerPauseNKillOnContainerInParallel(sshClientConfig, masterIp,
+				csiContainerName, &wg)
+		}
+		wg.Wait()
+
+		return false, nil
+	})
+
+	if !leaderFoundOnsite {
+		return fmt.Errorf("couldn't get %s leader on %s", csiContainerName, masterIpOnSite)
+	}
+	return waitErr
+}
+
+// invokeDockerPauseNKillOnContainerInParallel invokes docker pause and kill command on
+//the particular CSI container on the master node in parallel
+func invokeDockerPauseNKillOnContainerInParallel(sshClientConfig *ssh.ClientConfig, k8sMasterIp string,
+	csiContainerName string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIp, csiContainerName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
