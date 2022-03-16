@@ -5126,12 +5126,12 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			// vsphere-csi-controller all the replicas will behave as leaders
 			if containerName == syncerContainerName {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + containerName + " | grep 'successfully acquired lease' " +
-					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
+					"tail -1` 'podName:" + csiPod.Name + "' >> leader.log"
 			} else {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + containerName + " | grep 'new leader detected, current leader:' " +
-					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
+					"tail -1` >> leader.log"
 			}
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
@@ -5147,11 +5147,18 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 
 	// Sorting the temporary file according to timestamp to find the latest container leader
 	// from the CSI pod replicas
-	cmd := "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+	var cmd string
+	if containerName == syncerContainerName {
+		cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+
+	} else {
+		cmd = "sort -k 2n leader.log | tail -1 |awk '{print $10}' | tr -d '\n'"
+	}
+
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err := sshExec(sshClientConfig, k8sMasterIP,
-		grepCmdForFindingCurrentLeader)
+		cmd)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5164,7 +5171,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err = sshExec(sshClientConfig, k8sMasterIP,
-		grepCmdForFindingCurrentLeader)
+		cmd)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
