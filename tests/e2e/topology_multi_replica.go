@@ -676,7 +676,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
 
 			// Wait for the CSI Pods to be up and Running
-			time.Sleep(pollTimeoutShort)
+			time.Sleep(pollTimeoutSixMin)
 			num_csi_pods := len(list_of_pods)
 			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

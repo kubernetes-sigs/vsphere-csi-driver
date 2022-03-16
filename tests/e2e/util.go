@@ -2832,6 +2832,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "cnsregistervolumes-cleanup-intervalinmin":
 			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "topology-categories":
+			config.Global.TopologyCategories = value
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
