@@ -502,10 +502,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// When reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
 		// for this case, we need count it as an attach/detach failure
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
-			prometheus.PrometheusFailStatus, request.Namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, request.Namespace, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
-			prometheus.PrometheusPassStatus, request.Namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, request.Namespace, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }

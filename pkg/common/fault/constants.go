@@ -19,6 +19,9 @@ const (
 	// CSITaskInfoEmptyFault is the fault type when taskInfo is empty.
 	CSITaskInfoEmptyFault = "csi.fault.TaskInfoEmpty"
 
+	// CSIVmUuidNotFoundFault is the fault type when Pod VMs do not have the vmware-system-vm-uuid annotation.
+	CSIVmUuidNotFoundFault = "csi.fault.nonstorage.VmUuidNotFound"
+
 	// CSITaskResultEmptyFault is the fault type when taskResult is empty.
 	CSITaskResultEmptyFault = "csi.fault.TaskResultEmpty"
 
