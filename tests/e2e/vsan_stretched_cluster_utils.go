@@ -384,7 +384,8 @@ func updatePvcLabelsInParallel(ctx context.Context, client clientset.Interface, 
 			labels, pvc.Name, namespace))
 		pvc.Labels = labels
 		_, err := client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"Error on updating pvc labels is: %v", err)
 	}
 }
 
@@ -397,7 +398,8 @@ func updatePvLabelsInParallel(ctx context.Context, client clientset.Interface, n
 			labels, pv.Name, namespace))
 		pv.Labels = labels
 		_, err := client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"Error on updating pv labels is: %v", err)
 	}
 }
 
@@ -470,7 +472,7 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 		// Check if leader of csi container comes up on master node of secondary site
 		_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client, sshClientConfig,
 			csiContainerName)
-		framework.Logf("%s container leader is %s on %s ", csiContainerName, masterIp)
+		framework.Logf("%s container leader is on a master node with IP %s ", csiContainerName, masterIp)
 		if err != nil {
 			return false, err
 		}
