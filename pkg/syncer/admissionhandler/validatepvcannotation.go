@@ -3,7 +3,6 @@ package admissionhandler
 import (
 	"context"
 	"encoding/json"
-
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -12,8 +11,8 @@ import (
 )
 
 const (
-	CreatePVCWithAnnGuestClusterRequestedTopologyButEmptyValue = "Create PVC with AnnGuestClusterRequestedTopology " +
-		"but empty value"
+	CreatePVCWithAnnGuestClusterRequestedTopologyButEmptyValue =
+		"Create PVC with annotation " + common.AnnGuestClusterRequestedTopology + " but empty value"
 	AddPVCAnnotation    = "Add a new PVC Annotation"
 	UpdatePVCAnnotation = "Update the PVC Annotation"
 	RemovePVCAnnotation = "Remove the PVC Annotation"
@@ -65,8 +64,8 @@ func validatePVCAnnotation(ctx context.Context, request admission.Request) admis
 		newAnnVolumeAccessibleTopologyValue, newOk := newPVC.Annotations[common.AnnVolumeAccessibleTopology]
 		if oldOk && newOk {
 			if oldAnnVolumeAccessibleTopologyValue != newAnnVolumeAccessibleTopologyValue {
-				// disallow changing AnnGuestClusterRequestedTopology to another a different value except
-				// only allow changing AnnGuestClusterRequestedTopology from an empty value to a non-empty value
+				// disallow changing AnnVolumeAccessibleTopology to another a different value except
+				// only allow changing AnnVolumeAccessibleTopology from an empty value to a non-empty value
 				if !(oldAnnVolumeAccessibleTopologyValue == "" && newAnnVolumeAccessibleTopologyValue != "") {
 					return admission.Denied(UpdatePVCAnnotation + ", " + common.AnnVolumeAccessibleTopology)
 				}
@@ -75,7 +74,7 @@ func validatePVCAnnotation(ctx context.Context, request admission.Request) admis
 			// disallow removing the annotation of AnnVolumeAccessibleTopology in an existing PVC
 			return admission.Denied(RemovePVCAnnotation + ", " + common.AnnVolumeAccessibleTopology)
 		} else if newOk {
-			// Note: allow adding an annotation of AnnGuestClusterRequestedTopology in an existing PVC for now;
+			// Note: allow adding an annotation of AnnVolumeAccessibleTopology in an existing PVC for now;
 			// We can prevent SV DevOps from doing that by checking request.userInfo if necessary
 			log.Debugf("Allowing adding an annotation, %v, in an existing PVC for now. "+
 				"Might be denied later if necessary", common.AnnVolumeAccessibleTopology)

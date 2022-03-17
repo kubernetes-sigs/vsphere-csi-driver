@@ -18,13 +18,12 @@ import (
 )
 
 const (
-	//WebhookTlsMinVersion = "1.2"
 	ValidationWebhookPath            = "/validate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
 )
 
-func GetWebhookPort() int {
+func getWebhookPort() int {
 	portStr, ok := os.LookupEnv("CNSCSI_WEBHOOK_SERVICE_CONTAINER_PORT")
 	if !ok {
 		return DefaultWebhookPort
@@ -38,7 +37,7 @@ func GetWebhookPort() int {
 	return int(result)
 }
 
-func GetMetricsBindAddress() string {
+func getMetricsBindAddress() string {
 	metricsAddr, ok := os.LookupEnv("CNSCSI_WEBHOOK_SERVICE_METRICS_BIND_ADDR")
 	if !ok {
 		return DefaultWebhookMetricsBindAddress
@@ -47,32 +46,30 @@ func GetMetricsBindAddress() string {
 	return metricsAddr
 }
 
+// startCNSCSIWebhookManager starts the webhook server in supervisor cluster
 func startCNSCSIWebhookManager(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 
-	webhookPort := GetWebhookPort()
-	metricsBindAddress := GetMetricsBindAddress()
+	webhookPort := getWebhookPort()
+	metricsBindAddress := getMetricsBindAddress()
 	log.Infof("setting up webhook manager with webhookPort %v and metricsBindAddress %v",
 		webhookPort, metricsBindAddress)
 	mgr, err := manager.New(crConfig.GetConfigOrDie(), manager.Options{
 		MetricsBindAddress: metricsBindAddress,
 		Port:               webhookPort})
 	if err != nil {
-		log.Error(err, "unable to set up overall controller manager")
-		os.Exit(1)
+		log.Fatal(err, "unable to set up overall controller manager")
 	}
 
 	log.Infof("registering validating webhook with the endpoint %v", ValidationWebhookPath)
 	// we should not allow TLS < 1.2
-	//mgr.GetWebhookServer().TLSMinVersion = WebhookTlsMinVersion
 	mgr.GetWebhookServer().Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),
 	}})
 
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		log.Error(err, "unable to run the webhook manager")
-		os.Exit(1)
+		log.Fatal(err, "unable to run the webhook manager")
 	}
 }
 
