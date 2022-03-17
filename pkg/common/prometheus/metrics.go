@@ -118,7 +118,7 @@ var (
 		// Possible voltype - "unknown", "block", "file"
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume"
 		// Possible status - "pass", "fail"
-		[]string{"voltype", "optype", "status", "namespace"})
+		[]string{"voltype", "optype", "status", "namespace", "faulttype"})
 
 	// CnsControlOpsHistVec is a histogram vector metric to observe various control
 	// operations on CNS. Note that this captures the time taken by CNS into a bucket

@@ -28,6 +28,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -103,7 +104,9 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 }
 
 // GetPodVMUUIDAnnotation provide the implementation the GetPodVMUUIDAnnotation
-// interface method.
+// interface method. The method return codes.NotFound only when VMUUID annotation
+// is not found. For other errors like Pod not found or volume not found,
+// the method will return Internal or custom error messages
 func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Context,
 	req *PodListenerRequest) (*PodListenerResponse, error) {
 	var (
@@ -123,34 +126,74 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 	if pv.Spec.ClaimRef == nil {
 		return nil, logger.LogNewErrorf(log, "No Claim ref found for this PV with volumeID: %s", volumeID)
 	}
-	podResult, err := k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
-	if err != nil {
-		return nil, err
-	}
-	podName := podResult.Name
-	podNamespace := podResult.Namespace
+	log.Infof("PV for volumeID: %s has claim: %s, claimNamespace: %s",
+		volumeID, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace)
+
+	var podName string
+	var podNamespace string
+	var vmUuidAnnotationexists bool
+	// Use vmUuidNotFoundError to set to false for all error paths except
+	// vm-uuid annotation not found on the pod
+	vmUuidNotFoundError := true
 	err = wait.Poll(pollTime, timeout, func() (bool, error) {
-		var exists bool
-		pod, err := k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
-		if err != nil {
-			log.Errorf("Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
-				podName, podNamespace, err)
-			return false, err
+		var pod *v1.Pod
+		// Retrieve the pod name and namespace only if they are non-empty.
+		// If they are already pre-populated, use them to get the pod
+		// info from API server.
+		if podName == "" || podNamespace == "" {
+			pod, err = k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
+			if err != nil {
+				log.Infof("retrying the getPod operation again with PVC: %s on namespace: %s on node: %s. Err: %+v",
+					pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName, err)
+				return false, nil
+			}
+			if pod != nil {
+				podName = pod.Name
+				podNamespace = pod.Namespace
+			} else {
+				log.Infof("pod info is empty for PVC: %s. Retrying the operation again.",
+					pv.Spec.ClaimRef.Name)
+				return false, nil
+			}
+		}
+		if pod == nil {
+			pod, err = k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
+			if err != nil {
+				vmUuidNotFoundError = false
+				return false, logger.LogNewErrorf(log,
+					"Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
+					podName, podNamespace, err)
+			}
 		}
 		annotations := pod.Annotations
-		vmuuid, exists = annotations[vmUUIDLabel]
-		if !exists {
+		vmuuid, vmUuidAnnotationexists = annotations[vmUUIDLabel]
+		if !vmUuidAnnotationexists {
 			log.Debugf("Waiting for %s annotation in Pod: %s", vmUUIDLabel, spew.Sdump(pod))
 			return false, nil
 		}
+		vmUuidNotFoundError = false
 		log.Debugf("%s annotation with value: %s found in Pod: %s", vmUUIDLabel, vmuuid, spew.Sdump(pod))
 		return true, nil
 	})
 	if err != nil {
+		if podName == "" {
+			return nil, logger.LogNewErrorf(log,
+				"failed to get Pod with PVC: %s mapping to volumeID: %s"+
+					" on namespace: %s on node: %s. Err: %+v",
+				pv.Spec.ClaimRef.Name, volumeID, pv.Spec.ClaimRef.Namespace,
+				nodeName, err)
+		}
+		// vmUuidNotFoundError not set indicates errors other than annotation not found
+		if vmUuidNotFoundError && !vmUuidAnnotationexists {
+			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+				"Unable to find %s annotation on pod with name: %s in namespace: %s. Err: %+v",
+				vmUUIDLabel, podName, podNamespace, err)
+		}
 		return nil, logger.LogNewErrorf(log,
-			"Unable to find pod %s and annotation %s on namespace %s in timeout: %d. Err: %+v",
-			podName, vmUUIDLabel, podNamespace, timeout, err)
+			"Unable to find annotation %s on pod %s in namespace %s in timeout: %d. Err: %+v",
+			vmUUIDLabel, podName, podNamespace, timeout, err)
 	}
+
 	log.Infof("Found the %s: %s annotation on Pod: %s referring to VolumeID: %s running on node: %s",
 		vmUUIDLabel, vmuuid, podName, volumeID, nodeName)
 	response := PodListenerResponse{VmuuidAnnotation: vmuuid}
