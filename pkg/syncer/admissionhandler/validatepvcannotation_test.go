@@ -180,7 +180,7 @@ func TestValidatePVCAnnotation(t *testing.T) {
 					},
 				},
 			},
-			expectedResponse: admission.Denied(CreatePVCWithAnnGuestClusterRequestedTopologyButEmptyValue),
+			expectedResponse: admission.Denied(CreatePVCWithInvalidAnnotation),
 		},
 		{
 			name: "TestUpdatePVCToAddAnnGuestClusterRequestedTopology",

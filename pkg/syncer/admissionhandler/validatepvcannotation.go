@@ -3,6 +3,7 @@ package admissionhandler
 import (
 	"context"
 	"encoding/json"
+
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -11,11 +12,10 @@ import (
 )
 
 const (
-	CreatePVCWithAnnGuestClusterRequestedTopologyButEmptyValue =
-		"Create PVC with annotation " + common.AnnGuestClusterRequestedTopology + " but empty value"
-	AddPVCAnnotation    = "Add a new PVC Annotation"
-	UpdatePVCAnnotation = "Update the PVC Annotation"
-	RemovePVCAnnotation = "Remove the PVC Annotation"
+	CreatePVCWithInvalidAnnotation = "Create PVC with invalid annotation " + common.AnnGuestClusterRequestedTopology
+	AddPVCAnnotation               = "Add a new PVC Annotation"
+	UpdatePVCAnnotation            = "Update the PVC Annotation"
+	RemovePVCAnnotation            = "Remove the PVC Annotation"
 )
 
 func validatePVCAnnotation(ctx context.Context, request admission.Request) admission.Response {
@@ -33,7 +33,7 @@ func validatePVCAnnotation(ctx context.Context, request admission.Request) admis
 		// disallow PVC Create with AnnGuestClusterRequestedTopology key but empty value
 		annGuestClusterRequestedTopologyValue, ok := newPVC.Annotations[common.AnnGuestClusterRequestedTopology]
 		if ok && annGuestClusterRequestedTopologyValue == "" {
-			return admission.Denied(CreatePVCWithAnnGuestClusterRequestedTopologyButEmptyValue)
+			return admission.Denied(CreatePVCWithInvalidAnnotation)
 		}
 	} else if request.Operation == admissionv1.Update {
 		oldPVC := corev1.PersistentVolumeClaim{}
