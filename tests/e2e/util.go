@@ -479,6 +479,7 @@ type GetTaskTstatus struct {
 	CorrelationID   interface{} `json:"correlation_id"`
 	PhaseInProgress string      `json:"phase_in_progress"`
 	OrgID           string      `json:"org_id"`
+	
 }
 
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage
@@ -5107,93 +5108,167 @@ func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 	return waitErr
 }
 
-// getK8sMasterNodeIPWhereControllerLeaderIsRunning fetches the master node IP
-// where controller is running
-func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
+/*
+This method will fetch the master node IP where controller is running
+*/
+func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	containerName string) (string, string, error) {
+	controller_name string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
-	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
-	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	var k8sMasterNodeIP string
+	var csi_controller_pod string
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	k8sMasterIP := k8sMasterIPs[0]
-	for _, csiPod := range csiPods {
-		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
-			// Putting the grepped logs for leader of container of different CSI pods
-			// to same temporary file
-			// NOTE: This is not valid for vsphere-csi-controller container as for
-			// vsphere-csi-controller all the replicas will behave as leaders
-			if containerName == syncerContainerName {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
-					"tail -1` 'podName:" + csiPod.Name + "' >> leader.log"
-			} else {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
-					"tail -1` >> leader.log"
-			}
-			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
-				k8sMasterIP)
-			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForFindingCurrentLeader)
-			if err != nil || result.Code != 0 {
-				fssh.LogResult(result)
-				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-					grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+	for i := 0; i < len(list_of_pods); i++ {
+		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
+					"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
+					" | tail -1 | awk '{print $10}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+					k8sMasterIP)
+				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingCurrentLeader)
+				csi_controller_pod = RunningLeaderInfo.Stdout
+				if err != nil || RunningLeaderInfo.Code != 0 {
+					fssh.LogResult(RunningLeaderInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
+					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $7}' | tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
+					k8sMasterIP)
+				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeName)
+				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeNameInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
+				}
+				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
+					"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
+					k8sMasterIP)
+				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingMasterNodeIP)
+				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
+				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+					fssh.LogResult(K8sMasterNodeIPInfo)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+				}
 			}
 		}
 	}
+	return csi_controller_pod, k8sMasterNodeIP, nil
+}
 
-	// Sorting the temporary file according to timestamp to find the latest container leader
-	// from the CSI pod replicas
-	var cmd string
-	if containerName == syncerContainerName {
-		cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
-
-	} else {
-		cmd = "sort -k 2n leader.log | tail -1 |awk '{print $10}' | tr -d '\n'"
+/*
+This method will kill container on the master node IP where controller is running
+*/
+func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	controller_name string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
+		"awk '{print $1}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		k8sMasterNodeIP)
+	DockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForGettingDockerContainerId)
+	if err != nil || DockerContainerInfo.Code != 0 {
+		fssh.LogResult(DockerContainerInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
 	}
-
-	framework.Logf("Invoking command '%v' on host %v", cmd,
-		k8sMasterIP)
-	result, err := sshExec(sshClientConfig, k8sMasterIP,
-		cmd)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			cmd, k8sMasterIP, err)
+	grepCmdForPausingDockerContainer := "docker pause " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForPausingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerPauseInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForPausingDockerContainer)
+	if err != nil || DockerContainerPauseInfo.Code != 0 {
+		fssh.LogResult(DockerContainerPauseInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForPausingDockerContainer, k8sMasterNodeIP, err)
 	}
-	csiControllerPodName = result.Stdout
-
-	// delete the temporary log file
-	cmd = "rm leader.log"
-	framework.Logf("Invoking command '%v' on host %v", cmd,
-		k8sMasterIP)
-	result, err = sshExec(sshClientConfig, k8sMasterIP,
-		cmd)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			cmd, k8sMasterIP, err)
+	grepCmdForKillingDockerContainer := "docker kill " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForKillingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerKillInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForKillingDockerContainer)
+	if err != nil || DockerContainerKillInfo.Code != 0 {
+		fssh.LogResult(DockerContainerKillInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForKillingDockerContainer, k8sMasterNodeIP, err)
 	}
+	return nil
+}
 
-	if csiControllerPodName == "" {
-		return "", "", fmt.Errorf("couldn't find CSI pod where %s leader is running",
-			containerName)
+// CheckMount checks that the mount at mountPath is valid for all Pods in ss.
+func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPath string) error {
+	for _, cmd := range []string{
+		// Print inode, size etc
+		fmt.Sprintf("ls -idlh %v", mountPath),
+		// Print subdirs
+		fmt.Sprintf("find %v", mountPath),
+		// Try writing
+		fmt.Sprintf("touch %v", filepath.Join(mountPath, fmt.Sprintf("%v", time.Now().UnixNano()))),
+	} {
+		if err := ExecInStsPodsInNs(c, ss, cmd); err != nil {
+			return fmt.Errorf("failed to execute %v, error: %v", cmd, err)
+		}
 	}
+	return nil
+}
 
-	framework.Logf("CSI pod %s where %s leader is running", csiControllerPodName, containerName)
-	// Fetching master node name where container leader is running
-	podData, err := client.CoreV1().Pods(csiSystemNamespace).Get(ctx, csiControllerPodName, metav1.GetOptions{})
+/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+cmd is not execute in any subsequent Pods. */
+func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
+	podList := GetListOfPodsInSts(c, ss)
+	StatefulSetPoll := 10 * time.Second
+	StatefulPodTimeout := 5 * time.Minute
+	for _, statefulPod := range podList.Items {
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace,
+			statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+/*
+This method is used to delete the CSI Controller Pod
+*/
+func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	csi_controller_pod string) error {
+	ignoreLabels := make(map[string]string)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	masterNodeName := podData.Spec.NodeName
-	framework.Logf("Master node name %s where %s leader is running", masterNodeName, containerName)
-	// Fetching IP address of master node where container leader is running
-	k8sMasterNodeIP, err := getMasterIpFromMasterNodeName(ctx, client, masterNodeName)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("Master node ip %s where %s leader is running", k8sMasterNodeIP, containerName)
-	return csiControllerPodName, k8sMasterNodeIP, nil
+	for i := 0; i < len(list_of_pods); i++ {
+		if list_of_pods[i].Name == csi_controller_pod {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			for _, k8sMasterIP := range k8sMasterIPs {
+				grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
+					" -n vmware-system-csi"
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
+					k8sMasterIP)
+				result, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForDeletingCsiControllerPod)
+				if err != nil || result.Code != 0 {
+					fssh.LogResult(result)
+					return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+				}
+			}
+		}
+		if list_of_pods[i].Name == csi_controller_pod {
+			break
+		}
+	}
+	return nil
 }
 
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
@@ -5235,6 +5310,89 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	return nil
 }
 
+
+
+// getK8sMasterNodeIPWhereControllerLeaderIsRunning fetches the master node IP
+// where controller is running
+func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	containerName string) (string, string, error) {
+	ignoreLabels := make(map[string]string)
+	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	k8sMasterIP := k8sMasterIPs[0]
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
+			// Putting the grepped logs for leader of container of different CSI pods
+			// to same temporary file
+			// NOTE: This is not valid for vsphere-csi-controller container as for
+			// vsphere-csi-controller all the replicas will behave as leaders
+			if containerName == syncerContainerName {
+				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+					csiSystemNamespace + containerName + " | grep 'successfully acquired lease' " +
+					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+			} else {
+				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+					csiSystemNamespace + containerName + " | grep 'new leader detected, current leader:' " +
+					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+			}
+			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+				k8sMasterIP)
+			result, err := sshExec(sshClientConfig, k8sMasterIP,
+				grepCmdForFindingCurrentLeader)
+			if err != nil || result.Code != 0 {
+				fssh.LogResult(result)
+				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+			}
+		}
+	}
+
+	// Sorting the temporary file according to timestamp to find the latest container leader
+	// from the CSI pod replicas
+	cmd := "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		k8sMasterIP)
+	result, err := sshExec(sshClientConfig, k8sMasterIP,
+		grepCmdForFindingCurrentLeader)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, k8sMasterIP, err)
+	}
+	csiControllerPodName = result.Stdout
+
+	// delete the temporary log file
+	cmd = "rm leader.log"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		k8sMasterIP)
+	result, err = sshExec(sshClientConfig, k8sMasterIP,
+		grepCmdForFindingCurrentLeader)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, k8sMasterIP, err)
+	}
+
+	if csiControllerPodName == "" {
+		return "", "", fmt.Errorf("couldn't find CSI pod where %s leader is running",
+			containerName)
+	}
+
+	framework.Logf("CSI pod %s where %s leader is running", csiControllerPodName, containerName)
+	// Fetching master node name where container leader is running
+	podData, err := client.CoreV1().Pods(csiSystemNamespace).Get(ctx, csiControllerPodName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	masterNodeName := podData.Spec.NodeName
+	framework.Logf("Master node name %s where %s leader is running", masterNodeName, containerName)
+	// Fetching IP address of master node where container leader is running
+	k8sMasterNodeIP, err := getMasterIpFromMasterNodeName(ctx, client, masterNodeName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Master node ip %s where %s leader is running", k8sMasterNodeIP, containerName)
+	return csiControllerPodName, k8sMasterNodeIP, nil
+}
 // Fetching IP address of master node from a given master node name
 func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interface,
 	masterNodeName string) (string, error) {
@@ -5259,6 +5417,87 @@ func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interfa
 	}
 }
 
+//getVolumeSnapshotSpecByName returns a spec for the volume snapshot by name
+func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
+	snapshotcontentname string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      snapshotName,
+			Namespace: namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			Source: snapc.VolumeSnapshotSource{
+				VolumeSnapshotContentName: &snapshotcontentname,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := diskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
+}
+
+// getVolumeSnapshotSpecWithoutSC returns a spec for the volume snapshot
+func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshot-",
+			Namespace:    namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			Source: snapc.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+
 // getVolumeSnapshotContentSpec returns a spec for the volume snapshot content
 func getVolumeSnapshotContentSpec(deletionPolicy snapc.DeletionPolicy, snapshotHandle string,
 	futureSnapshotName string, namespace string) *snapc.VolumeSnapshotContent {
@@ -5282,24 +5521,4 @@ func getVolumeSnapshotContentSpec(deletionPolicy snapc.DeletionPolicy, snapshotH
 		},
 	}
 	return volumesnapshotContentSpec
-}
-
-// getVolumeSnapshotSpecByName returns a spec for the volume snapshot by name
-func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
-	snapshotcontentname string) *snapc.VolumeSnapshot {
-	var volumesnapshotSpec = &snapc.VolumeSnapshot{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "VolumeSnapshot",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      snapshotName,
-			Namespace: namespace,
-		},
-		Spec: snapc.VolumeSnapshotSpec{
-			Source: snapc.VolumeSnapshotSource{
-				VolumeSnapshotContentName: &snapshotcontentname,
-			},
-		},
-	}
-	return volumesnapshotSpec
 }
