@@ -1367,18 +1367,20 @@ func getListOfHostsInCluster(ctx context.Context, vs *vSphere, clusterName strin
 func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
 	esxCount int) []string {
 	var powerOffHostsList []string
-	var clusterHostlist []*object.ClusterComputeResource
 	var hostsInCluster []*object.HostSystem
-	clusterLists, _, err := getClusterName(ctx, &e2eVSphere)
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	fmt.Println("============== clusterComputeResource ============== ", clusterComputeResource)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for i := 0; i < len(clusterLists); i++ {
-		if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
-			fmt.Println("========= clusterName found ============", clusterName)
-			clusterHostlist = append(clusterHostlist, clusterLists[i])
-			hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
-			fmt.Println("=============== hostsInCluster ============= ", hostsInCluster)
-		}
-	}
+	// for i := 0; i < len(clusterLists); i++ {
+	// 	var clusterHostlist []*object.ClusterComputeResource
+	// 	if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
+	// 		fmt.Println("========= clusterName found ============", clusterName)
+	// 		clusterHostlist = append(clusterHostlist, clusterLists[i])
+	// 		hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
+	// 		fmt.Println("=============== hostsInCluster ============= ", hostsInCluster)
+	// 	}
+	// }
+	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
 	for i := 0; i < esxCount; i++ {
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
@@ -1395,7 +1397,6 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 			}
 		}
 	}
-	fmt.Println("================ powerOffHostsList ===============", powerOffHostsList)
 	return powerOffHostsList
 }
 
