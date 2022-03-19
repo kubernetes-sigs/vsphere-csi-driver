@@ -201,11 +201,16 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Bring down 1 ESXi's that belongs to Cluster1 and Bring down 1 ESXi's that belongs to Cluster2
 		ginkgo.By("Bring down 1 ESXi host that belongs to Cluster1 and Bring down 1 ESXi " +
 			"host that belongs to Cluster2")
+		fmt.Println("=================topologyClusterList[0]============", topologyClusterList[0])
+		fmt.Println("=================topologyClusterList[1]============", topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
 			noOfHostToBringDown)
+		fmt.Println("=================powerOffHostsList============", powerOffHostsList)
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
+		fmt.Println("=================powerOffHostsList1============", powerOffHostsList1)
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
+		fmt.Println("=================powerOffHostsList============", powerOffHostsList)
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -1357,6 +1362,7 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for i := 0; i < len(clusterLists); i++ {
 		if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
+			fmt.Println("========= clusterName found ============", clusterName)
 			clusterHostlist = append(clusterHostlist, clusterLists[i])
 			hostsInCluster = getHosts(ctx, clusterHostlist)
 		}
@@ -1375,14 +1381,17 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 			}
 		}
 	}
+	fmt.Println("================ powerOffHostsList ===============", powerOffHostsList)
 	return powerOffHostsList
 }
 
 func powerOnEsxiHostByCluster(hostToPowerOn string) {
+	fmt.Println("=============hostToPowerOn ==============", hostToPowerOn)
 	var esxHostIp string = ""
 	for _, esxInfo := range tbinfo.esxHosts {
 		if hostToPowerOn == esxInfo["vmName"] {
 			esxHostIp = esxInfo["ip"]
+			fmt.Println("================ esxHostIp ===============", esxHostIp)
 			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
