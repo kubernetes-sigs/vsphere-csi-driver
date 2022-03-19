@@ -563,7 +563,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 5
+		statefulSetReplicaCount = 3
 		var ssPods *v1.PodList
 		var nodeNamesToPowerOn []string
 
