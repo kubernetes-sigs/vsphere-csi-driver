@@ -636,6 +636,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			(len(hostsInCluster) - 1))
+		defer func() {
+			ginkgo.By("Bring up all ESXi host which were powered off")
+			for i := 0; i < len(powerOffHostsList); i++ {
+				powerOnEsxiHostByCluster(powerOffHostsList[i])
+			}
+		}()
 
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -657,39 +663,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			}
 		}
 
-		// Verify all the workload Pods are in up and running state
-		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
-		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
 				statefulSets[i], namespace, allowedTopologies, true)
-		}
-
-		// Scale up statefulSets replicas count
-		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
-		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
-		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
-		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
-
-		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
-		ginkgo.By("Scale down statefulset replica count")
-		for i := 0; i < len(statefulSets); i++ {
-			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
-			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
 		}
 
 		// Bring up
@@ -714,6 +693,25 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 			err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// Scale up statefulSets replicas count
+		ginkgo.By("Scaleup any one StatefulSets replica")
+		statefulSetReplicaCount = 3
+		ginkgo.By("Scale down statefulset replica and verify the replica count")
+		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Scale down statefulSets replica count
+		statefulSetReplicaCount = 2
+		ginkgo.By("Scale down statefulset replica count")
+		for i := 0; i < len(statefulSets); i++ {
+			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
+			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+				"Number of Pods in the statefulset should match with number of replicas")
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -869,6 +867,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			(len(hostsInCluster) - 1))
+		defer func() {
+			ginkgo.By("Bring up all ESXi host which were powered off")
+			for i := 0; i < len(powerOffHostsList); i++ {
+				powerOnEsxiHostByCluster(powerOffHostsList[i])
+			}
+		}()
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
@@ -1061,6 +1065,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		HostsList := getListOfHostsInCluster(ctx, &e2eVSphere, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			len(HostsList))
+		defer func() {
+			ginkgo.By("Bring up all ESXi host which were powered off")
+			for i := 0; i < len(powerOffHostsList); i++ {
+				powerOnEsxiHostByCluster(powerOffHostsList[i])
+			}
+		}()
 
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -1318,6 +1328,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Bring down all ESXi's that belongs to Cluster2")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			len(HostsList))
+		defer func() {
+			ginkgo.By("Bring up all ESXi host which were powered off")
+			for i := 0; i < len(powerOffHostsList); i++ {
+				powerOnEsxiHostByCluster(powerOffHostsList[i])
+			}
+		}()
 
 		ssPods = fss.GetPodList(client, statefulSets[1])
 		for _, pod := range ssPods.Items {
