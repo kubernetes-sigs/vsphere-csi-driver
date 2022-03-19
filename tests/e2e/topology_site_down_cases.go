@@ -420,11 +420,22 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Bring down 1 ESXi's that belongs to Cluster2 and Bring down 1 ESXi's that belongs to Cluster3
 		ginkgo.By("Bring down 1 ESXi host that belongs to Cluster2 and Bring down 1 ESXi " +
 			"host that belongs to Cluster3")
-		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
+		fmt.Println("=================topologyClusterList[1]============", topologyClusterList[1])
+		fmt.Println("=================topologyClusterList[2]============", topologyClusterList[2])
+		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
-		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
+		fmt.Println("=================powerOffHostsList============", powerOffHostsList)
+		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
+		fmt.Println("=================powerOffHostsList1============", powerOffHostsList1)
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
+		fmt.Println("=================powerOffHostsList============", powerOffHostsList)
+		defer func() {
+			ginkgo.By("Bring up all ESXi host which were powered off")
+			for i := 0; i < len(powerOffHostsList); i++ {
+				powerOnEsxiHostByCluster(powerOffHostsList[i])
+			}
+		}()
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
@@ -1365,12 +1376,15 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 			fmt.Println("========= clusterName found ============", clusterName)
 			clusterHostlist = append(clusterHostlist, clusterLists[i])
 			hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
+			fmt.Println("=============== hostsInCluster ============= ", hostsInCluster)
 		}
 	}
 	for i := 0; i < esxCount; i++ {
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
+			fmt.Println("========== Host============", host)
 			hostIp := strings.Split(host, "/")
+			fmt.Println("========== Host ip ============", hostIp)
 			if hostIp[6] == esxInfo["ip"] {
 				esxHostName := esxInfo["vmName"]
 				powerOffHostsList = append(powerOffHostsList, esxHostName)
