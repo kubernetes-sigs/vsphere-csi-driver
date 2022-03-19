@@ -1348,7 +1348,7 @@ func getListOfHostsInCluster(ctx context.Context, vs *vSphere, clusterName strin
 	for i := 0; i < len(clusterLists); i++ {
 		if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
 			clusterHostlist = append(clusterHostlist, clusterLists[i])
-			hostsInCluster = getHosts(ctx, clusterHostlist)
+			hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
 		}
 	}
 	return hostsInCluster
@@ -1364,7 +1364,7 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 		if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
 			fmt.Println("========= clusterName found ============", clusterName)
 			clusterHostlist = append(clusterHostlist, clusterLists[i])
-			hostsInCluster = getHosts(ctx, clusterHostlist)
+			hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
 		}
 	}
 	for i := 0; i < esxCount; i++ {
