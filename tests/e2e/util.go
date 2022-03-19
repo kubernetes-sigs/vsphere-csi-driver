@@ -3210,28 +3210,21 @@ func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterCompu
 }
 
 // getHosts returns list of hosts and it takes clusterComputeResource as input.
-// This method is used by WCP and GC tests.
 func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource,
 	clusterName string) []*object.HostSystem {
 	var err error
-	if hosts == nil {
-		computeCluster := clusterName
-		if computeCluster == "" {
-			if guestCluster {
-				computeCluster = "compute-cluster"
-			} else if supervisorCluster {
-				computeCluster = "wcp-app-platform-sanity-cluster"
-			}
-			framework.Logf("Default cluster is chosen for test")
-		}
-		for _, cluster := range clusterComputeResource {
-			framework.Logf("clusterComputeResource %v", clusterComputeResource)
-			if strings.Contains(cluster.Name(), computeCluster) {
-				fmt.Println("======== Cluster found =========", cluster.Name())
-				hosts, err = cluster.Hosts(ctx)
-				fmt.Println("=========hosts===========", hosts)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
+	computeCluster := clusterName
+	if computeCluster == "" {
+		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
+		return nil
+	}
+	for _, cluster := range clusterComputeResource {
+		framework.Logf("clusterComputeResource %v", clusterComputeResource)
+		if strings.Contains(cluster.Name(), computeCluster) {
+			fmt.Println("======== Cluster found =========", cluster.Name())
+			hosts, err = cluster.Hosts(ctx)
+			fmt.Println("=========hosts===========", hosts)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
 	gomega.Expect(hosts).NotTo(gomega.BeNil())
