@@ -55,6 +55,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		powerOffHostsList       []string
 		noOfHostToBringDown     int
 		topologyLength          int
+		pvcSelectedNode         string = "volume.kubernetes.io/selected-node"
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -77,9 +78,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
 		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
-		//topologyCluster := GetAndExpectStringEnvVar(topologyClusterNames)
-		topologyCluster := "cluster-1,cluster-2,cluster-3"
-		topologyClusterList = ListTopologyClusterNames(topologyCluster)
+		topologyClusterNames := GetAndExpectStringEnvVar(topologyCluster)
+		topologyClusterList = ListTopologyClusterNames(topologyClusterNames)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 	})
 
@@ -904,30 +904,30 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 	})
 
 	/*
-		TESTCASE-5
-		Bring  zone3 completely down
-		Steps//
-		1. Create SC with waitForFirstConsumer
-		2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
-		3. Wait for all the workload pods to reach running state
-		4. Verify that all the POD's spread across zones
-		5. Verify that the PV's has proper node affinity details
-		6. In cluster2 bring down all  ESX's
-		7. The POD's that were created on nodes of zone 2 may reach terminating state
-		8. Verify that the Node affinity details on the PV should have proper node affinity details
-		9. scale up any one stateful set to 10 replica's
-		10. Wait for some time and make sure all 10 replica's are in running state
-		11. Scale down the stateful set to 5 replicas
-		12. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
-		13. Bring up all the ESX hosts
-		14. Wait for testbed to be back to normal
-		15. Verify that all the POD's and sts are up and running
-		16. Verify All the PV's has proper node affinity details and also make sure
-		POD's are running on the same node where respective PVC is created
-		17. Verify there were no issue with replica scale up/down and verify pod entry in
-		CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
-		18. Make sure K8s cluster  is healthy
-		19. Delete above created STS, PVC's and SC
+		Testcase-5
+			Bring  zone3 completely down
+			Steps//
+			1. Create SC with  waitForFirstConsumer
+			2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
+			3. Wait for all the workload pods to reach running state
+			4. Verify that all the POD's spread across zones
+			5. Verify that the PV's has proper node affinity details
+			6. In cluster2 bring down all  ESX's
+			7. The POD's that were created on nodes of zone 2 may reach terminating state
+			8. Verify that the Node affinity details on the PV should have proper node affinity details
+			9. scale up any one stateful set to 10 replica's
+			10. Wait for some time and make sure all 10 replica's are in running state
+			11. Scale down the stateful set to 5 replicas
+			12. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
+			13. Bring up all the ESX hosts
+			14. Wait for testbed to be back to normal
+			15. Verify that all the POD's and sts are up and running
+			16. Verify All the PV's has proper node affinity details and also make sure
+			POD's are running on the same node where respective PVC is created
+			17. Verify there were no issue with replica scale up/down and verify pod entry in
+			CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
+			18. Make sure K8s cluster  is healthy
+			19. Delete above created STS, PVC's and SC
 	*/
 
 	ginkgo.It("Volume provisioning when zone3 is completely down", func() {
@@ -976,6 +976,35 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
 		time.Sleep(pollTimeoutSixMin)
+
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		for _, sspod := range ssPodsBeforeScaleDown.Items {
+			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pvcName := volumespec.PersistentVolumeClaim.ClaimName
+					pvc, _ := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+					if pvc.Status.Phase == "Terminating" {
+						nodeNameToPowerOn, _ := pvc.Annotations[pvcSelectedNode]
+						vmUUID := getNodeUUID(ctx, client, nodeNameToPowerOn)
+						gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+						framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameToPowerOn)
+						vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+						gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
+						vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
+						_, err = vm.PowerOn(ctx)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+					}
+				}
+			}
+		}
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -1048,21 +1077,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 			powerOnEsxiHostByCluster(powerOffHostsList[i])
 		}
 
-		nodeNameToPowerOn := "test"
-		vmUUID := getNodeUUID(ctx, client, nodeNameToPowerOn)
-		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-		framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeNameToPowerOn)
-		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
-		gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
-		vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
-		_, err = vm.PowerOn(ctx)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
@@ -1078,7 +1092,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
