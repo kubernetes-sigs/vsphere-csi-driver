@@ -3227,7 +3227,9 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 		for _, cluster := range clusterComputeResource {
 			framework.Logf("clusterComputeResource %v", clusterComputeResource)
 			if strings.Contains(cluster.Name(), computeCluster) {
+				fmt.Println("======== Cluster found =========", cluster.Name())
 				hosts, err = cluster.Hosts(ctx)
+				fmt.Println("=========hosts===========", hosts)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

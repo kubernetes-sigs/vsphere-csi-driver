@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when partial site cluster1 and cluster2 hosts are down", func() {
+	ginkgo.It("Volume provisioning when partial sites zone1 and zone2 hosts are down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when partial site cluster2 and cluster3 hosts are down", func() {
+	ginkgo.It("Volume provisioning when partial sites zone2 and zone3 hosts are down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -1369,18 +1369,10 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 	var powerOffHostsList []string
 	var hostsInCluster []*object.HostSystem
 	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
-	fmt.Println("============== clusterComputeResource ============== ", clusterComputeResource)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// for i := 0; i < len(clusterLists); i++ {
-	// 	var clusterHostlist []*object.ClusterComputeResource
-	// 	if strings.Contains(clusterLists[i].ComputeResource.Common.InventoryPath, clusterName) {
-	// 		fmt.Println("========= clusterName found ============", clusterName)
-	// 		clusterHostlist = append(clusterHostlist, clusterLists[i])
-	// 		hostsInCluster = getHostsByClusterName(ctx, clusterHostlist, clusterName)
-	// 		fmt.Println("=============== hostsInCluster ============= ", hostsInCluster)
-	// 	}
-	// }
+	fmt.Println("============= clusterName ============", clusterName)
 	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	fmt.Println("============ hostsInCluster ============ ", hostsInCluster)
 	for i := 0; i < esxCount; i++ {
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
