@@ -393,10 +393,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		find the master node IP where this Csi-Controller-Pod is running */
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
-		csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+		containerName, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			"which is running on master node %s", containerName, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get allowed topologies for Storage Class
@@ -461,10 +461,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		find new master node IP where this Csi-Controller-Pod is running */
 		ginkgo.By("Get newly Leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
-		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+		containerName, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Provisioner is running on newly elected Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			"which is running on master node %s", containerName, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Waiting for StatefulSets Pods to be in Ready State
@@ -505,10 +505,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		containerName = "CSI-Attacher"
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
-		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+		containerName, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			"which is running on master node %s", containerName, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -549,10 +549,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		containerName = "csi-provisioner"
-		csi_controller_pod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+		containerName, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
-			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
+			"which is running on master node %s", containerName, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for i := 0; i < len(statefulSets); i++ {
