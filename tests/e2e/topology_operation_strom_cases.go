@@ -539,7 +539,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 				is running */
 				ginkgo.By("Kill container CSI-Attacher on the master node where elected leader CSi-Controller-Pod " +
 					"is running")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName)
+				err = executeDockerPauseKillCmd(sshClientConfig, k8sMasterIP, containerName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

@@ -5235,6 +5235,45 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	return nil
 }
 
+/*
+This method will kill container on the master node IP where controller is running
+*/
+func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	controller_name string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
+		"awk '{print $1}' |  tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		k8sMasterNodeIP)
+	DockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForGettingDockerContainerId)
+	if err != nil || DockerContainerInfo.Code != 0 {
+		fssh.LogResult(DockerContainerInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
+	}
+	grepCmdForPausingDockerContainer := "docker pause " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForPausingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerPauseInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForPausingDockerContainer)
+	if err != nil || DockerContainerPauseInfo.Code != 0 {
+		fssh.LogResult(DockerContainerPauseInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForPausingDockerContainer, k8sMasterNodeIP, err)
+	}
+	grepCmdForKillingDockerContainer := "docker kill " + DockerContainerInfo.Stdout
+	framework.Logf("Invoking command '%v' on host %v", grepCmdForKillingDockerContainer,
+		k8sMasterNodeIP)
+	DockerContainerKillInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
+		grepCmdForKillingDockerContainer)
+	if err != nil || DockerContainerKillInfo.Code != 0 {
+		fssh.LogResult(DockerContainerKillInfo)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			grepCmdForKillingDockerContainer, k8sMasterNodeIP, err)
+	}
+	return nil
+}
+
 // Fetching IP address of master node from a given master node name
 func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interface,
 	masterNodeName string) (string, error) {
