@@ -5239,8 +5239,8 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 This method will kill container on the master node IP where controller is running
 */
 func executeDockerPauseKillCmd(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
-	controller_name string) error {
-	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | " +
+	containerName string, controller_name string) error {
+	grepCmdForGettingDockerContainerId := "docker ps | grep " + controller_name + " | grep " + containerName + " | " +
 		"awk '{print $1}' |  tr -d '\n'"
 	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
 		k8sMasterNodeIP)
