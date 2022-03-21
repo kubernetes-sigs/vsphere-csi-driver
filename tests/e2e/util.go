@@ -5394,9 +5394,7 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	for _, cluster := range clusterComputeResource {
 		framework.Logf("clusterComputeResource %v", clusterComputeResource)
 		if strings.Contains(cluster.Name(), computeCluster) {
-			fmt.Println("======== Cluster found =========", cluster.Name())
 			hosts, err = cluster.Hosts(ctx)
-			fmt.Println("=========hosts===========", hosts)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
@@ -5404,59 +5402,67 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	return hosts
 }
 
-/*
-This method will fetch the master node IP where controller is running
-*/
-func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
-	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	controller_name string) (string, string, error) {
-	ignoreLabels := make(map[string]string)
-	var k8sMasterNodeIP string
-	var csi_controller_pod string
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
+	stss := []*appsv1.StatefulSet{}
+	var statefulset *appsv1.StatefulSet
+	for i := 0; i < no_of_sts; i++ {
+		statefulset = GetStatefulSetFromManifest(namespace)
+		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+		statefulset.Spec.Replicas = &replicas
+		stss = append(stss, statefulset)
+	}
+	return stss
+}
+
+func createParallelStatefulSets(client clientset.Interface, namespace string,
+	statefulset *appsv1.StatefulSet, replicas int32, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Creating statefulset")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
+	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for i := 0; i < len(list_of_pods); i++ {
-		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
-			k8sMasterIPs := getK8sMasterIPs(ctx, client)
-			for _, k8sMasterIP := range k8sMasterIPs {
-				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
-					"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
-					" | tail -1 | awk '{print $10}' | tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
-					k8sMasterIP)
-				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingCurrentLeader)
-				csi_controller_pod = RunningLeaderInfo.Stdout
-				if err != nil || RunningLeaderInfo.Code != 0 {
-					fssh.LogResult(RunningLeaderInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
-				}
-				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
-					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $(NF-2)}' | tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
-					k8sMasterIP)
-				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingMasterNodeName)
-				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
-					fssh.LogResult(K8sMasterNodeNameInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
-				}
-				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
-					"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
-					k8sMasterIP)
-				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingMasterNodeIP)
-				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
-				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
-					fssh.LogResult(K8sMasterNodeIPInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
-				}
+}
+
+func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
+	esxCount int) []string {
+	var powerOffHostsList []string
+	var hostsInCluster []*object.HostSystem
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	for i := 0; i < esxCount; i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[6] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
-	return csi_controller_pod, k8sMasterNodeIP, nil
+	return powerOffHostsList
+}
+
+func powerOnEsxiHostByCluster(hostToPowerOn string) {
+	var esxHostIp string = ""
+	for _, esxInfo := range tbinfo.esxHosts {
+		if hostToPowerOn == esxInfo["vmName"] {
+			esxHostIp = esxInfo["ip"]
+			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
+	}
+	err := waitForHostToBeUp(esxHostIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

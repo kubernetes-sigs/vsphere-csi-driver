@@ -19,16 +19,12 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,7 +36,7 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioning-With-SiteDown-Cases", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Provisioning-With-SiteDown-Cases", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	var (
 		client                  clientset.Interface
@@ -389,6 +385,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		var ssPods *v1.PodList
 		containerName := "csi-provisioner"
 
+		// get cluster details
+		clusterComputeResource, _, err = getClusterName(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		/* Get current leader Csi-Controller-Pod where CSI Provisioner is running and " +
 		find the master node IP where this Csi-Controller-Pod is running */
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
@@ -415,8 +415,6 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 
 		// Bring down ESXi hosts that belongs to zone3
 		ginkgo.By("Bring down ESXi hosts that belongs to zone3")
-		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			(len(hostsInCluster) - 2))
@@ -462,7 +460,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		find new master node IP where this Csi-Controller-Pod is running */
 		ginkgo.By("Get newly Leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
-		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Provisioner is running on newly elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
@@ -506,7 +504,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		containerName = "CSI-Attacher"
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
-		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
@@ -550,7 +548,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		containerName = "csi-provisioner"
-		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx,
+		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
 			client, sshClientConfig, containerName)
 		framework.Logf("CSI-Attacher is running on elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
@@ -586,74 +584,3 @@ var _ = ginkgo.Describe("[csi-topology-vanilla-level5] Topology-Aware-Provisioni
 		}
 	})
 })
-
-func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
-	stss := []*appsv1.StatefulSet{}
-	var statefulset *appsv1.StatefulSet
-	for i := 0; i < no_of_sts; i++ {
-		statefulset = GetStatefulSetFromManifest(namespace)
-		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
-		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
-		statefulset.Spec.Replicas = &replicas
-		stss = append(stss, statefulset)
-	}
-	return stss
-}
-
-func createParallelStatefulSets(client clientset.Interface, namespace string,
-	statefulset *appsv1.StatefulSet, replicas int32, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ginkgo.By("Creating statefulset")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
-	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-}
-
-func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
-	esxCount int) []string {
-	var powerOffHostsList []string
-	var hostsInCluster []*object.HostSystem
-	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	fmt.Println("============= clusterName ============", clusterName)
-	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
-	fmt.Println("============ hostsInCluster ============ ", hostsInCluster)
-	for i := 0; i < esxCount; i++ {
-		for _, esxInfo := range tbinfo.esxHosts {
-			host := hostsInCluster[i].Common.InventoryPath
-			fmt.Println("========== Host============", host)
-			hostIp := strings.Split(host, "/")
-			fmt.Println("========== Host ip ============", hostIp)
-			if hostIp[6] == esxInfo["ip"] {
-				esxHostName := esxInfo["vmName"]
-				powerOffHostsList = append(powerOffHostsList, esxHostName)
-				err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitForHostToBeDown(esxInfo["ip"])
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}
-	}
-	return powerOffHostsList
-}
-
-func powerOnEsxiHostByCluster(hostToPowerOn string) {
-	fmt.Println("=============hostToPowerOn ==============", hostToPowerOn)
-	var esxHostIp string = ""
-	for _, esxInfo := range tbinfo.esxHosts {
-		if hostToPowerOn == esxInfo["vmName"] {
-			esxHostIp = esxInfo["ip"]
-			fmt.Println("================ esxHostIp ===============", esxHostIp)
-			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		}
-	}
-	err := waitForHostToBeUp(esxHostIp)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-}
