@@ -496,7 +496,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				// Feature is disabled on the cluster
 				return nil, csifault.CSIInternalFault,
-					status.Error(codes.InvalidArgument, "File volume not supported.")
+					status.Error(codes.InvalidArgument, "This volume request is requesting a ReadWriteMany volume. vSAN File Service is not enabled for this cluster. Enable this feature before attempting to create ReadWriteMany volumes.")
 			}
 			return controllerPublishForFileVolume(ctx, req, c)
 		}
@@ -845,7 +845,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				return controllerUnpublishForFileVolume(ctx, req, c)
 			}
 			// Feature is disabled on the cluster
-			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "File volume not supported.")
+			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "This volume request is requesting a ReadWriteMany volume. vSAN File Service is not enabled for this cluster. Enable this feature before attempting to create ReadWriteMany volumes.")
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		return controllerUnpublishForBlockVolume(ctx, req, c)
