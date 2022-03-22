@@ -138,6 +138,11 @@ metadata:
   namespace: vmware-system-csi
 spec:
   replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: vsphere-csi-controller
