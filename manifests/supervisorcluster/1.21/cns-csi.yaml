@@ -355,7 +355,7 @@ data:
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
   "async-query-volume": "true"
-  "improved-csi-idempotency": "false"
+  "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
   "cnsmgr-suspend-create-volume": "false"
