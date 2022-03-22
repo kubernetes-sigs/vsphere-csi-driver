@@ -5303,3 +5303,20 @@ func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
 	}
 	return volumesnapshotSpec
 }
+
+// waitForPvcToBeDeleted waits by polling for a particular pvc to be deleted in a namespace
+func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcName string, namespace string) error {
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		_, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return true, nil
+			} else {
+				return false, fmt.Errorf("pvc %s is still not deleted in"+
+					"namespace %s", pvcName, namespace)
+			}
+		}
+		return false, nil
+	})
+	return waitErr
+}

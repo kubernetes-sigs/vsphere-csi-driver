@@ -465,13 +465,17 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// Waiting for some time for PVC to be deleted correctly
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow PVC deletion", oneMinuteWaitTimeInSeconds))
-		time.Sleep(time.Duration(oneMinuteWaitTimeInSeconds) * time.Second)
+		// Waiting for some time for PVC to be deleted
+		err = waitForPvcToBeDeleted(ctx, client, pvc.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		_, err = e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle,
+		pvcLabel, err := e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, namespace)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+		if pvcLabel == nil {
+			framework.Logf("PVC name is successfully removed")
+		} else {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Deleting pv %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))

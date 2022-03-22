@@ -169,6 +169,7 @@ const (
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
+	xfsFSType                                 = "xfs"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"

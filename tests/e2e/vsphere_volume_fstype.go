@@ -91,6 +91,51 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify invalid fstype", func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
+
+	/*
+		Verify mounting of volume for RWO PVC with nfs4 fstype
+
+		    1.Create StorageClass with fsType as "nfs4"
+		    2.Create a PVC with "ReadWriteOnce" using the SC from above
+		    3.Verify for pvc to not come to Bound state as provisioning of pvc fails with nfs4 fstype
+		Cleanup:
+		    1.Delete all the pvcs and storage class and verify the deletion
+	*/
+	ginkgo.It("[csi-block-vanilla] Verify mounting of volume for RWO PVC with nfs4 fstype", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Create Storage class and PVC
+		ginkgo.By("Creating Storage Class and PVC with nfs4 fstype")
+		scParameters := map[string]string{}
+		scParameters[scParamFsType] = nfs4FSType
+		storageClassName := "block-sc"
+
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaim, err := createPVC(client, namespace, nil, "", sc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		framework.Logf("Error from provisioning of pvc is: %v", err)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		// clean up for pvc
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}()
+
+	})
 })
 
 func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
