@@ -117,15 +117,15 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 	ginkgo.It("Verify volume provisioning when storage class created with different tag under a known category", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// nonSharedDataStoreUrl := GetAndExpectStringEnvVar(envInaccessibleZoneDatastoreURL)
-		// scParameters := make(map[string]string)
-		// scParameters[scParamDatastoreURL] = nonSharedDataStoreUrl
+		StoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
+		scParameters := make(map[string]string)
+		scParameters[scParamStoragePolicyName] = StoragePolicyName
 		regionZoneValue = GetAndExpectStringEnvVar(envTopologyWithInvalidTagvalidCat)
 		regionZone := strings.Split(regionZoneValue, ":")
 		topologyInvalidTagValidCat := regionZone[0] + ":" + regionZone[1]
 		regionValues, zoneValues, allowedTopologies := topologyParameterForStorageClass(topologyInvalidTagValidCat)
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
-			namespace, nil, nil, "", allowedTopologies, "", false, "")
+			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		err = verifyPodLocation(pod, nodeList, "", pvRegion)
+		err = verifyPodLocation(pod, nodeList, pvZone, pvRegion)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
