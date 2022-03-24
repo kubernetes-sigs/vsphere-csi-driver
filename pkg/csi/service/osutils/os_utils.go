@@ -82,20 +82,23 @@ func (osUtils *OsUtils) GetDiskID(pubCtx map[string]string, log *zap.SugaredLogg
 
 // EnsureMountVol ensures that VolumeCapability has mount option
 // and returns fstype, mount flags
-func (osUtils *OsUtils) EnsureMountVol(ctx context.Context, log *zap.SugaredLogger,
-	volCap *csi.VolumeCapability) (string, []string, error) {
+func (osUtils *OsUtils) EnsureMountVol(ctx context.Context, volCap *csi.VolumeCapability) (string, []string, error) {
+	log := logger.GetLogger(ctx)
 	mountVol := volCap.GetMount()
 	if mountVol == nil {
 		return "", nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "access type missing")
 	}
-	fs := osUtils.GetVolumeCapabilityFsType(ctx, volCap)
+	fs, err := osUtils.GetVolumeCapabilityFsType(ctx, volCap)
+	if err != nil {
+		log.Errorf("GetVolumeCapabilityFsType failed with err: %v", err)
+		return "", nil, err
+	}
 	mntFlags := mountVol.GetMountFlags()
 
 	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
 	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
-	if fs == "xfs" {
+	if fs == common.XFSType {
 		mntFlags = append(mntFlags, "nouuid")
 	}
-
 	return fs, mntFlags, nil
 }

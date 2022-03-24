@@ -379,7 +379,7 @@ func (osUtils *OsUtils) PublishMountVol(
 	log.Infof("PublishMountVolume called with args: %+v", params)
 
 	// Extract fs details.
-	_, mntFlags, err := osUtils.EnsureMountVol(ctx, log, req.GetVolumeCapability())
+	_, mntFlags, err := osUtils.EnsureMountVol(ctx, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +522,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	log.Infof("PublishFileVolume called with args: %+v", params)
 
 	// Extract mount details.
-	fsType, mntFlags, err := osUtils.EnsureMountVol(ctx, log, req.GetVolumeCapability())
+	fsType, mntFlags, err := osUtils.EnsureMountVol(ctx, req.GetVolumeCapability())
 	if err != nil {
 		return nil, err
 	}
@@ -933,19 +933,32 @@ func (osUtils *OsUtils) IsTargetInMounts(ctx context.Context, path string) (bool
 // Defaults to nfs4 for file volume and ext4 for block volume when empty string
 // is observed. This function also ignores default ext4 fstype supplied by
 // external-provisioner when none is specified in the StorageClass
-func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
+func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context,
+	capability *csi.VolumeCapability) (string, error) {
 	log := logger.GetLogger(ctx)
 	fsType := strings.ToLower(capability.GetMount().GetFsType())
-	log.Debugf("FsType received from Volume Capability: %q", fsType)
+	log.Infof("FsType received from Volume Capability: %q", fsType)
 	isFileVolume := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
-	if isFileVolume && (fsType == "" || fsType == "ext4") {
-		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", common.NfsV4FsType)
-		fsType = common.NfsV4FsType
-	} else if !isFileVolume && fsType == "" {
-		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", common.Ext4FsType)
-		fsType = common.Ext4FsType
+	if isFileVolume {
+		if fsType == "" || fsType == "ext4" {
+			log.Infof("empty string or ext4 fstype observed for "+
+				"file volume. Defaulting to: %s", common.NfsV4FsType)
+			fsType = common.NfsV4FsType
+		} else if !(fsType == common.NfsFsType || fsType == common.NfsV4FsType) {
+			return "", logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"unsupported fsType %q observed for file volume", fsType)
+		}
+	} else {
+		if fsType == "" {
+			log.Infof("empty string fstype observed for "+
+				"block volume. Defaulting to: %s", common.Ext4FsType)
+			fsType = common.Ext4FsType
+		} else if !(fsType == common.Ext4FsType || fsType == common.Ext3FsType || fsType == common.XFSType) {
+			return "", logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"unsupported fsType %q observed for block volume", fsType)
+		}
 	}
-	return fsType
+	return fsType, nil
 }
 
 // ResizeVolume resizes the volume
