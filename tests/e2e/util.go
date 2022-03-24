@@ -79,6 +79,7 @@ import (
 
 	snapc "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -5239,18 +5240,11 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
 func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
 	containerName string) error {
-	grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
-		"awk '{print $1}' |  tr -d '\n'"
-	framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
-		k8sMasterNodeIP)
-	dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterNodeIP,
-		grepCmdForGettingDockerContainerId)
-	fssh.LogResult(dockerContainerInfo)
-	if err != nil || dockerContainerInfo.Code != 0 {
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			grepCmdForGettingDockerContainerId, k8sMasterNodeIP, err)
+	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName)
+	if err != nil {
+		return err
 	}
-	dockerContainerPauseCmd := "docker pause " + dockerContainerInfo.Stdout
+	dockerContainerPauseCmd := "docker pause " + containerID
 	framework.Logf("Invoking command '%v' on host %v", dockerContainerPauseCmd,
 		k8sMasterNodeIP)
 	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
@@ -5262,7 +5256,7 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	}
 	framework.Logf("Waiting for 5 seconds as leader election happens every 5 secs")
 	time.Sleep(5 * time.Second)
-	dockerContainerKillCmd := "docker kill " + dockerContainerInfo.Stdout
+	dockerContainerKillCmd := "docker kill " + containerID
 	framework.Logf("Invoking command '%v' on host %v", dockerContainerKillCmd,
 		k8sMasterNodeIP)
 	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
@@ -5668,4 +5662,85 @@ func waitForStsPodsToBeInReadyRunningState(ctx context.Context, client clientset
 		return true, nil
 	})
 	return waitErr
+}
+
+// enableFullSyncTriggerFss enables full sync fss in internal features configmap in csi namespace
+func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, namespace string, fss string) {
+	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
+	framework.Logf("%s configmap in namespace %s is %s", csiFssCM, namespace, fssCM)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fssFound := false
+	for k, v := range fssCM.Data {
+		if fss == k && v != "true" {
+			framework.Logf("FSS %s found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+			fssFound = true
+			fssCM.Data[fss] = "true"
+			// Enable full sync fss by updating full sync field to true
+			_, err = client.CoreV1().ConfigMaps(namespace).Update(ctx, fssCM, metav1.UpdateOptions{})
+			framework.Logf("%s configmap in namespace %s is %s", csiFssCM, namespace, fssCM)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Collecting and dumping csi pod logs before killing them
+			collectPodLogs(ctx, client, csiSystemNamespace)
+			csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, pod := range csipods.Items {
+				fpod.DeletePodOrFail(client, csiSystemNamespace, pod.Name)
+			}
+			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(csipods.Size()), 0, pollTimeout, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			break
+		} else if fss == k && v == "true" {
+			framework.Logf("FSS %s found and is enabled in the %s configmap", fss, csiFssCM)
+			fssFound = true
+			break
+		}
+	}
+	gomega.Expect(fssFound).To(gomega.BeTrue(),
+		"FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
+}
+
+// triggerFullSync triggers 2 full syncs on demand
+func triggerFullSync(ctx context.Context, client clientset.Interface,
+	cnsOperatorClient client.Client) {
+	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	framework.Logf("INFO: full sync crd details: %v", crd)
+	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	framework.Logf("INFO: full sync crd details: %v", crd)
+	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+}
+
+// waitAndGetContainerID waits and fetches containerID of a given containerName
+func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
+	containerName string) (string, error) {
+	containerId := ""
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
+		grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
+			"awk '{print $1}' |  tr -d '\n'"
+		framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+			k8sMasterIP)
+		dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+			grepCmdForGettingDockerContainerId)
+		fssh.LogResult(dockerContainerInfo)
+		containerId = dockerContainerInfo.Stdout
+		if containerId != "" {
+			return true, nil
+		}
+		if err != nil || dockerContainerInfo.Code != 0 {
+			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				grepCmdForGettingDockerContainerId, k8sMasterIP, err)
+		}
+		return false, nil
+	})
+
+	if containerId == "" {
+		return "", fmt.Errorf("couldn't get the containerId of :%s container", containerName)
+	}
+	return containerId, waitErr
 }

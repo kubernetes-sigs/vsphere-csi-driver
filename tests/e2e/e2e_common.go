@@ -36,6 +36,7 @@ const (
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"
+	crdtriggercsifullsyncsName                 = "csifullsync"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
@@ -95,6 +96,7 @@ const (
 	ext4FSType                                = "ext4"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
+	fullSyncFss                               = "trigger-csi-fullsync"
 	healthGreen                               = "green"
 	healthRed                                 = "red"
 	healthStatusAccessible                    = "accessible"

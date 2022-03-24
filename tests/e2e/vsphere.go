@@ -389,40 +389,12 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
 func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
-		if err != nil {
-			return true, err
+		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace, false)
+		if err == nil {
+			return true, nil
+		} else {
+			return false, nil
 		}
-		if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-			return true, fmt.Errorf("failed to query cns volume %s", volumeID)
-		}
-		gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
-		for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
-			if metadata == nil {
-				continue
-			}
-			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-			k8sEntityName := kubernetesMetadata.EntityName
-			if guestCluster {
-				k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
-			}
-			if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
-				kubernetesMetadata.Namespace == entityNamespace {
-				if matchLabels == nil {
-					return true, nil
-				}
-				labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
-				if guestCluster {
-					labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
-						matchLabels)
-				}
-				if labelsMatch {
-					return true, nil
-				}
-			}
-		}
-		return false, nil
 	})
 	if err != nil {
 		if err == wait.ErrWaitTimeout {
@@ -1048,4 +1020,52 @@ func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant boo
 	} else {
 		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeFalse())
 	}
+}
+
+// verifyLabelsAreUpdated executes cns QueryVolume API on vCenter and verifies if
+// volume labels are updated by metadata-syncer
+func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[string]string,
+	entityType string, entityName string, entityNamespace string, verifyLabels bool) error {
+
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	if err != nil {
+		return err
+	}
+	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+		return fmt.Errorf("failed to query cns volume %s", volumeID)
+	}
+	gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
+	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		if metadata == nil {
+			continue
+		}
+		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+		k8sEntityName := kubernetesMetadata.EntityName
+		if guestCluster {
+			k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
+		}
+		if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
+			kubernetesMetadata.Namespace == entityNamespace {
+			if matchLabels == nil {
+				return nil
+			}
+			labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+			if guestCluster {
+				labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+					matchLabels)
+			}
+			if labelsMatch {
+				return nil
+			} else {
+				if verifyLabels {
+					return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+						matchLabels, entityType, entityName, volumeID)
+				} else {
+					return nil
+				}
+			}
+		}
+	}
+	return nil
 }
