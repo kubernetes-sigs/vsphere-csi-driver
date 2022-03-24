@@ -96,6 +96,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			} else {
 				return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
 			}
+		} else {
+			// This will cover the case when VC is upgraded to 8.0+ but any of the existing pre-8.0 supervisor clusters
+			// are not upgraded along with it. Such supervisor clusters will not have a AZ CR in it.
+			clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, config.Global.ClusterID)
 		}
 	}
 
@@ -400,6 +404,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		// TKGS-HA feature is enabled
 		// Identify the topology keys in Accessibility requirements.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		// TODO: TKGS-HA: This case will only arise when spherelet will add zone and hostname labels to CSINodes.
@@ -425,14 +430,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"failed to find shared datastores for given topology requirement. Error: %v", err)
 			}
 		} else {
+			// zone labels not Present in the topologyRequirement
+			if len(clusterComputeResourceMoIds) > 1 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"stretched supervisor cluster does not support creating volumes "+
+						"without zone keys in the topologyRequirement  . Error: %v", err)
+			}
 			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
-				c.manager.CnsConfig.Global.ClusterID)
+				clusterComputeResourceMoIds[0])
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed finding candidate datastores to place volume. Error: %v", err)
 			}
 		}
 	} else {
+		// TKGS-HA feature is disabled
 		sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
 			c.manager.CnsConfig.Global.ClusterID)
 		if err != nil {
