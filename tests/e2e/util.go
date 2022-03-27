@@ -5321,41 +5321,46 @@ func getK8sMasterNodeIPWhereControllerLeaderIsRunning(ctx context.Context,
 		if strings.Contains(list_of_pods[i].Name, vSphereCSIControllerPodNamePrefix) {
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			for _, k8sMasterIP := range k8sMasterIPs {
-				grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
-					"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
-					" | tail -1 | awk '{print $10}' | tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
-					k8sMasterIP)
-				RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingCurrentLeader)
-				csi_controller_pod = RunningLeaderInfo.Stdout
-				if err != nil || RunningLeaderInfo.Code != 0 {
-					fssh.LogResult(RunningLeaderInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
-				}
-				grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
-					"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $(NF-2)}' | tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
-					k8sMasterIP)
-				K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingMasterNodeName)
-				if err != nil || K8sMasterNodeNameInfo.Code != 0 {
-					fssh.LogResult(K8sMasterNodeNameInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingMasterNodeName, k8sMasterIP, err)
-				}
-				grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
-					"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
-					k8sMasterIP)
-				K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForFindingMasterNodeIP)
-				k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
-				if err != nil || K8sMasterNodeIPInfo.Code != 0 {
-					fssh.LogResult(K8sMasterNodeIPInfo)
-					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+				cmdForFindingMasterNodeIP := "kubectl get nodes"
+				MasterNodeInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					cmdForFindingMasterNodeIP)
+				if err == nil && MasterNodeInfo.Code == 0 {
+					grepCmdForFindingCurrentLeader := "kubectl logs " + list_of_pods[i].Name + " -n " +
+						"vmware-system-csi " + controller_name + " | grep 'new leader detected, current leader:' " +
+						" | tail -1 | awk '{print $10}' | tr -d '\n'"
+					framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+						k8sMasterIP)
+					RunningLeaderInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+						grepCmdForFindingCurrentLeader)
+					csi_controller_pod = RunningLeaderInfo.Stdout
+					if err != nil || RunningLeaderInfo.Code != 0 {
+						fssh.LogResult(RunningLeaderInfo)
+						return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+							grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+					}
+					grepCmdForFindingMasterNodeName := "kubectl get pods -owide -n " +
+						"vmware-system-csi | grep " + RunningLeaderInfo.Stdout + "| awk '{print $(NF-2)}' | tr -d '\n'"
+					framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeName,
+						k8sMasterIP)
+					K8sMasterNodeNameInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+						grepCmdForFindingMasterNodeName)
+					if err != nil || K8sMasterNodeNameInfo.Code != 0 {
+						fssh.LogResult(K8sMasterNodeNameInfo)
+						return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+							grepCmdForFindingMasterNodeName, k8sMasterIP, err)
+					}
+					grepCmdForFindingMasterNodeIP := "kubectl get nodes -owide | " +
+						"grep " + K8sMasterNodeNameInfo.Stdout + " | awk '{print $6}' |  tr -d '\n'"
+					framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingMasterNodeIP,
+						k8sMasterIP)
+					K8sMasterNodeIPInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+						grepCmdForFindingMasterNodeIP)
+					k8sMasterNodeIP = K8sMasterNodeIPInfo.Stdout
+					if err != nil || K8sMasterNodeIPInfo.Code != 0 {
+						fssh.LogResult(K8sMasterNodeIPInfo)
+						return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+							grepCmdForFindingMasterNodeIP, k8sMasterIP, err)
+					}
 				}
 			}
 		}
