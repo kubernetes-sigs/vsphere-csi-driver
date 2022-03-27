@@ -5491,16 +5491,21 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 		if list_of_pods[i].Name == csi_controller_pod {
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			for _, k8sMasterIP := range k8sMasterIPs {
-				grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
-					" -n vmware-system-csi"
-				framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
-					k8sMasterIP)
-				result, err := sshExec(sshClientConfig, k8sMasterIP,
-					grepCmdForDeletingCsiControllerPod)
-				if err != nil || result.Code != 0 {
-					fssh.LogResult(result)
-					return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-						grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+				cmdForFindingMasterNodeIP := "kubectl get nodes"
+				MasterNodeInfo, err := sshExec(sshClientConfig, k8sMasterIP,
+					cmdForFindingMasterNodeIP)
+				if err == nil && MasterNodeInfo.Code == 0 {
+					grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
+						" -n vmware-system-csi"
+					framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
+						k8sMasterIP)
+					result, err := sshExec(sshClientConfig, k8sMasterIP,
+						grepCmdForDeletingCsiControllerPod)
+					if err != nil || result.Code != 0 {
+						fssh.LogResult(result)
+						return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+							grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+					}
 				}
 			}
 		}
