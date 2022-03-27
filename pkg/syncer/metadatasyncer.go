@@ -347,7 +347,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			pvDeleted(obj, metadataSyncer)
 		})
 	metadataSyncer.k8sInformerManager.AddPodListener(
-		nil, // Add.
+		func(obj interface{}) { // Add.
+			podAdded(obj, metadataSyncer)
+		},
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			podUpdated(oldObj, newObj, metadataSyncer)
 		},
@@ -896,6 +898,41 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		pvcsiVolumeDeleted(ctx, string(pv.GetUID()), metadataSyncer)
 	} else {
 		csiPVDeleted(ctx, pv, metadataSyncer)
+	}
+}
+
+// podAdded helps register inline vSphere in-tree volumes
+func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	ctx, log := logger.GetNewContextWithLogger()
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
+		// Get pod object.
+		pod, ok := obj.(*v1.Pod)
+		if pod == nil || !ok {
+			log.Warnf("podAdded: unrecognized new object %+v", obj)
+			return
+		}
+		// In case if feature state switch is enabled after syncer is
+		// deployed, we need to initialize the volumeMigrationService.
+		if err := initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+			log.Errorf("podAdded: failed to get migration service. Err: %v", err)
+			return
+		}
+		for _, volume := range pod.Spec.Volumes {
+			if volume.VsphereVolume != nil {
+				log.Infof("Registering in-tree vSphere inline volume: %q", volume.VsphereVolume.VolumePath)
+				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
+					&migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath}, true)
+				if err != nil {
+					log.Warnf("podAdded: Failed to get VolumeID from "+
+						"volumeMigrationService for volumePath: %q with error %+v", volume.VsphereVolume.VolumePath, err)
+					continue
+				}
+				log.Infof("Successfully registered in-tree vSphere inline volume: %q with "+
+					"volume Id: %q", volume.VsphereVolume.VolumePath, volumeHandle)
+			}
+		}
 	}
 }
 

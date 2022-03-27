@@ -393,6 +393,11 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		log.Debugf("ReconcileCnsVolumeMetadata: Calling UpdateVolumeMetadata for "+
 			"volume %q of instance %q with updateSpec: %+v", volume, instance.Name, spew.Sdump(updateSpec))
 		if err := r.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+			if cnsvsphere.IsNotFoundError(err) && deleteFlag {
+				log.Infof("ReconcileCnsVolumeMetadata: volume ID %q not found in CNS meaning it was "+
+					"already deleted, thus returning success", updateSpec.VolumeId.Id)
+				continue
+			}
 			log.Errorf("ReconcileCnsVolumeMetadata: UpdateVolumeMetadata failed with err %v", err)
 			status.ErrorMessage = err.Error()
 			status.Updated = false
