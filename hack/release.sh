@@ -59,7 +59,7 @@ GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.16
 ARCH=amd64
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 1903, 1909 2004, 20H2, ltsc2022
-OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
+OSVERSION_WIN=(20H2)
 # The output type could either be docker (local), or registry.
 # If it is registry, it will also allow us to push the Windows images.
 WINDOWS_IMAGE_OUTPUT="type=tar,dest=.build/windows-driver.tar"
