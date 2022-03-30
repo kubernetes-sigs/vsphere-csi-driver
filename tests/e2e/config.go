@@ -60,6 +60,8 @@ type e2eTestConfig struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// Topology Category Labels
+		TopologyCategories string `gcfg:"topology-categories"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
