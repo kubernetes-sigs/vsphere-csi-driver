@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -203,11 +205,23 @@ func waitForHostToBeDown(ip string) error {
 }
 
 // waitForAllNodes2BeReady checks whether all registered nodes are ready and all required Pods are running on them.
-func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for all nodes to be ready", timeout)
+func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout ...time.Duration) error {
+	var pollTime time.Duration
+	if len(timeout) > 0 {
+		pollTime = timeout[0]
+	} else {
+		if os.Getenv("K8S_NODE_UP_WAIT_TIME") != "" {
+			k8sNodeWaitTime, err := strconv.Atoi(os.Getenv(envK8sNodesUpWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pollTime = time.Duration(k8sNodeWaitTime) * time.Minute
+		} else {
+			pollTime = time.Duration(defaultK8sNodesUpWaitTime) * time.Minute
+		}
+	}
+	framework.Logf("Waiting up to %v for all nodes to be ready", pollTime)
 
 	var notReady []v1.Node
-	err := wait.PollImmediate(poll, timeout, func() (bool, error) {
+	err := wait.PollImmediate(poll, pollTime, func() (bool, error) {
 		notReady = nil
 		nodes, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		framework.Logf("error is %v", err)
@@ -859,5 +873,43 @@ func scaleStsReplicaInParallel(client clientset.Interface, stsList []*appsv1.Sta
 		if strings.Contains(statefulset.Name, regex) {
 			fss.UpdateReplicas(client, statefulset, replicas)
 		}
+	}
+}
+
+// deletePvInParallel deletes PVs in parallel from k8s cluster
+func deletePvInParallel(client clientset.Interface, persistentVolumes []*v1.PersistentVolume,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, pv := range persistentVolumes {
+		framework.Logf("Deleting pv %s", pv.Name)
+		err := fpv.DeletePersistentVolume(client, pv.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// createStaticPvAndPvcInParallel creates static pv from given fcdId and pvc in a particular namespace
+// in parallel
+func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Context, fcdIDs []string,
+	ch chan *v1.PersistentVolumeClaim, namespace string, wg *sync.WaitGroup,
+	volumeOpsScale int) {
+	defer wg.Done()
+	staticPVLabels := make(map[string]string)
+	for i := 0; i < volumeOpsScale; i++ {
+		// Creating label for PV.
+		// PVC will use this label as Selector to find PV.
+		staticPVLabels["fcd-id"] = fcdIDs[i]
+		framework.Logf("Creating the PV from fcd ID: %s", fcdIDs[i])
+		pv := getPersistentVolumeSpec(fcdIDs[i], v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pv, err := client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Creating the PVC from PV: %s", pv.Name)
+		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ch <- pvc
+
 	}
 }
