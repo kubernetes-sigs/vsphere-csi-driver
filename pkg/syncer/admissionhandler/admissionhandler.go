@@ -58,6 +58,7 @@ var (
 	featureGateCsiMigrationEnabled        bool
 	featureGateBlockVolumeSnapshotEnabled bool
 	featureGateTKGSHaEnabled              bool
+	featureGateVolumeHealthEnabled        bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -138,6 +139,7 @@ func StartWebhookServer(ctx context.Context) error {
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		startCNSCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cfg == nil {
