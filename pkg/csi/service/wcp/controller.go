@@ -1086,8 +1086,17 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 
-		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-		err := validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
+		// WCP and VC version upgrades may not necessarily be linked,
+		// so we need this check in WCP to see if online expansion is supported.
+		// GC will also depend on this check.
+		isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
+			c.manager.VcenterConfig.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if online expansion is supported due to error: %v", err)
+		}
+
+		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionSupported)
 		if err != nil {
 			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
 			return nil, csifault.CSIInvalidArgumentFault, err

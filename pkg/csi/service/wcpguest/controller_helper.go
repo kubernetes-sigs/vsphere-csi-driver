@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -105,11 +106,6 @@ func validateGuestClusterControllerPublishVolumeRequest(ctx context.Context,
 func validateGuestClusterControllerUnpublishVolumeRequest(ctx context.Context,
 	req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
-}
-
-func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context,
-	req *csi.ControllerExpandVolumeRequest) error {
-	return common.ValidateControllerExpandVolumeRequest(ctx, req)
 }
 
 // checkForSupervisorPVCCondition returns nil if the PVC condition is set as
