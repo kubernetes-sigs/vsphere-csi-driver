@@ -116,6 +116,7 @@ const (
 	pollTimeoutSixMin                         = 6 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
 	healthStatusPollInterval                  = 30 * time.Second
+	diskSupportTimeInterval                   = 70 * time.Minute
 	psodTime                                  = "120"
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
