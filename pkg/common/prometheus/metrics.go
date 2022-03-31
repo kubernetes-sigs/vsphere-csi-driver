@@ -29,9 +29,6 @@ const (
 	// PrometheusUnknownVolumeType is used in situation when the volume type could not be found.
 	PrometheusUnknownVolumeType = "unknown"
 
-	// PrometheusUnknownNamespace is used when namespace isn't set by sidecars for a volume operation.
-	PrometheusUnknownNamespace = "unknown"
-
 	// CSI operation types
 
 	// PrometheusCreateVolumeOpType represents the CreateVolume operation.
@@ -118,7 +115,7 @@ var (
 		// Possible voltype - "unknown", "block", "file"
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume"
 		// Possible status - "pass", "fail"
-		[]string{"voltype", "optype", "status", "namespace", "faulttype"})
+		[]string{"voltype", "optype", "status", "faulttype"})
 
 	// CnsControlOpsHistVec is a histogram vector metric to observe various control
 	// operations on CNS. Note that this captures the time taken by CNS into a bucket
