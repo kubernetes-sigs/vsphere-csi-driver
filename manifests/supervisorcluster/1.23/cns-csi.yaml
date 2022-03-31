@@ -107,6 +107,34 @@ subjects:
     kind: Group
     name: system:serviceaccounts:vmware-system-csi
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-admin-csi-role
+rules:
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsregistervolumes"]
+    verbs: ["get", "list", "create", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["update", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wcp:administrators:cluster-edit-csirole
+subjects:
+- kind: Group
+  name: sso:Administrators@<sso_domain>
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: vsphere-admin-csi-role
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
