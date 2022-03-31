@@ -562,7 +562,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-		c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores)
+		c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -790,14 +790,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				"no datastores found to create file volume")
 		}
 		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores)
+			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, false)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
 		}
 	} else {
 		volumeID, faultType, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filterSuspendedDatastores)
+			c.manager, &createVolumeSpec, filterSuspendedDatastores, false)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)

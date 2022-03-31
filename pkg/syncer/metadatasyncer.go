@@ -68,6 +68,7 @@ var (
 
 	// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 	clusterComputeResourceMoIds = make([]string, 0)
+	clusterIDforVolumeMetadata  string
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -173,7 +174,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor
-
+	clusterIDforVolumeMetadata = configInfo.Cfg.Global.ClusterID
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
@@ -182,17 +183,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return err
 			}
 			if len(clusterComputeResourceMoIds) > 0 {
-				if configInfo.Cfg.Global.SupervisorID != "" {
-					// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
-					// config.Global.SupervisorID is not empty string
-					configInfo.Cfg.Global.ClusterID = configInfo.Cfg.Global.SupervisorID
-				} else {
+				if configInfo.Cfg.Global.SupervisorID == "" {
 					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
 				}
 			}
+			clusterIDforVolumeMetadata = configInfo.Cfg.Global.SupervisorID
 		}
 	}
-	metadataSyncer.configInfo = configInfo
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
@@ -615,19 +612,6 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			metadataSyncer.host = newVCConfig.Host
 		}
 		if cfg != nil {
-			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-					if len(clusterComputeResourceMoIds) > 0 {
-						if cfg.Global.SupervisorID != "" {
-							// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
-							// config.Global.SupervisorID is not empty string
-							cfg.Global.ClusterID = cfg.Global.SupervisorID
-						} else {
-							return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
-						}
-					}
-				}
-			}
 			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
 			log.Infof("updated metadataSyncer.configInfo")
 		}
@@ -1049,13 +1033,13 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	// Create updateSpec.
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV),
-		pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
+		pv.Name, "", clusterIDforVolumeMetadata)
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false,
-		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, clusterIDforVolumeMetadata,
 		[]cnstypes.CnsKubernetesEntityReference{entityReference})
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 
@@ -1091,7 +1075,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true,
 		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace,
-		metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
 	var volumeHandle string
@@ -1114,7 +1098,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	} else {
 		volumeHandle = pv.Spec.CSI.VolumeHandle
 	}
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 		metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -1142,11 +1126,11 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	log := logger.GetLogger(ctx)
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false,
-		string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	var volumeHandle string
 	var err error
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && newPv.Spec.VsphereVolume != nil {
@@ -1291,10 +1275,10 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			"delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
 		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true,
-			string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+			string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -1395,16 +1379,16 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					// as an entity reference.
 					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(
 						string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID)
+						clusterIDforVolumeMetadata)
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil,
 						deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID,
+						clusterIDforVolumeMetadata,
 						[]cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
 					// Deleting the pod metadata.
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
 						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+						clusterIDforVolumeMetadata, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 				var err error
@@ -1442,7 +1426,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					// No entity reference is supplied for inline volumes.
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
 						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+						clusterIDforVolumeMetadata, nil)
 					metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 					var err error
 					// In case if feature state switch is enabled after syncer is
@@ -1475,7 +1459,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				continue
 			}
 		}
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{

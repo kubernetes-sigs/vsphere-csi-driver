@@ -163,6 +163,7 @@ type ReconcileCnsRegisterVolume struct {
 func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -225,7 +226,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvName   string
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
-	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host)
+	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
