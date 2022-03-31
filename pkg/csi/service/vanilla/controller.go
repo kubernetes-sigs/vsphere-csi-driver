@@ -825,7 +825,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 		log.Infof("CreateVolume: called with args %+v", *req)
@@ -861,10 +860,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -877,7 +876,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	cnsVolumeType := common.UnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
@@ -977,10 +975,10 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -993,7 +991,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
@@ -1105,10 +1102,10 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1121,7 +1118,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
@@ -1222,10 +1218,10 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1238,7 +1234,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
@@ -1328,10 +1323,10 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	if err != nil {
 		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace, faultType).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1437,7 +1432,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			"VC version does not support snapshot operations")
 	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Validate CreateSnapshotRequest
 		if err := validateVanillaCreateSnapshotRequestRequest(ctx, req); err != nil {
@@ -1542,10 +1536,10 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	resp, err := createSnapshotInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
-			prometheus.PrometheusFailStatus, namespace, "NotComputed").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
-			prometheus.PrometheusPassStatus, namespace, "").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1587,15 +1581,14 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 
 	volumeType := prometheus.PrometheusBlockVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	start := time.Now()
 	resp, err := deleteSnapshotInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
-			prometheus.PrometheusFailStatus, namespace, "NotComputed").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
-			prometheus.PrometheusPassStatus, namespace, "").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 
@@ -1607,7 +1600,6 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
 		c.manager.VcenterConfig.Host)
@@ -1652,10 +1644,10 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	resp, err := listSnapshotsInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
-			prometheus.PrometheusFailStatus, namespace, "NotComputed").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
-			prometheus.PrometheusPassStatus, namespace, "").Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
