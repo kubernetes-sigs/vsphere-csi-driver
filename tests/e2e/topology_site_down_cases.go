@@ -1235,6 +1235,35 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			for i := 0; i < len(powerOffHostsList); i++ {
 				powerOnEsxiHostByCluster(powerOffHostsList[i])
 			}
+			ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			restartKubeletCmd := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
+			framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIPs[0])
+			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], restartKubeletCmd)
+			nodeNames := strings.Split(result.Stdout, "\n")
+			if err != nil && result.Code != 0 {
+				fssh.LogResult(result)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+						k8sMasterIPs[0]))
+			}
+			for _, nodeName := range nodeNames {
+				if nodeName != "" {
+					vmUUID := getNodeUUID(ctx, client, nodeName)
+					gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+					framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
+					vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+					gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
+					vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
+					_, err = vm.PowerOn(ctx)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+					err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
 		}()
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
@@ -1269,6 +1298,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			powerOnEsxiHostByCluster(powerOffHostsList[i])
 		}
 
+		ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		restartKubeletCmd := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
 		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIPs[0])
