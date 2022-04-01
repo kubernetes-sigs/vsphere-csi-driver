@@ -163,6 +163,9 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
@@ -273,6 +276,9 @@ spec:
             - "--default-fstype=ext4"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
@@ -290,6 +296,9 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
