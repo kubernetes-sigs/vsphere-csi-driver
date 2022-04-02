@@ -66,6 +66,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -846,7 +847,25 @@ func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels ma
 	pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
 	ginkgo.By(fmt.Sprintf("Creating PVC using the Storage Class %s with disk size %s and labels: %+v accessMode: %+v",
 		storageclass.Name, ds, pvclaimlabels, accessMode))
-	pvclaim, err := fpv.CreatePVC(client, pvcnamespace, pvcspec)
+
+	var pvclaim *v1.PersistentVolumeClaim
+
+	// add retry on context.DeadlineExceeded error when creating PVC
+	// retry mechanism: exponential backoff with base 2 upto 5 times; the initial backup is 100 ms
+	err := retry.OnError(wait.Backoff{
+		Steps:    5,
+		Duration: 100 * time.Millisecond,
+		Factor:   2.0,
+		Jitter:   0.1,
+	}, func(err error) bool {
+		return apierrors.IsInternalError(err) && errors.Is(err, context.DeadlineExceeded)
+	}, func() error {
+		var createPVCError error
+		pvclaim, createPVCError = fpv.CreatePVC(client, pvcnamespace, pvcspec)
+		ginkgo.By(fmt.Sprintf("CreatePVC returns with createPVCError = %v", createPVCError))
+		return createPVCError
+	})
+
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
 	return pvclaim, err
