@@ -1233,43 +1233,50 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			for i := 0; i < len(powerOffHostsList); i++ {
 				powerOnEsxiHostByCluster(powerOffHostsList[i])
 			}
-			ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
-			restartKubeletCmd := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-			framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIPs[0])
-			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], restartKubeletCmd)
+			checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
+			framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
+			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
 			nodeNames := strings.Split(result.Stdout, "\n")
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", checkNodesStatus,
 						k8sMasterIPs[0]))
 			}
-			for _, nodeName := range nodeNames {
-				if nodeName != "" {
-					vmUUID := getNodeUUID(ctx, client, nodeName)
-					gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
-					framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
-					vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
-					gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
-					vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
-					_, err = vm.PowerOn(ctx)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if len(nodeNames) != 0 {
+				ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
+				for _, nodeName := range nodeNames {
+					if nodeName != "" {
+						vmUUID := getNodeUUID(ctx, client, nodeName)
+						gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+						framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
+						vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+						gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
+						vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
+						_, err = vm.PowerOn(ctx)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-					err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
 				}
 			}
 		}()
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 7
-		ginkgo.By("Scale down statefulset replica and verify the replica count")
+		statefulSetReplicaCount = 6
 		_, scaleupErr := scaleStatefulSetPods(client, statefulSets[1], statefulSetReplicaCount)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+
+		// Scale down statefulSets replica count
+		ginkgo.By("Scaledown any one StatefulSets replica")
+		statefulSetReplicaCount = 1
+		_, scaledownErr := scaleStatefulSetPods(client, statefulSets[2], statefulSetReplicaCount)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
@@ -1279,14 +1286,14 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
-		restartKubeletCmd := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIPs[0])
-		result, err := sshExec(sshClientConfig, k8sMasterIPs[0], restartKubeletCmd)
+		checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
+		framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
+		result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
 		nodeNames := strings.Split(result.Stdout, "\n")
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", checkNodesStatus,
 					k8sMasterIPs[0]))
 		}
 		for _, nodeName := range nodeNames {
@@ -1307,54 +1314,17 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}
 
-		// verify scale up went successful
-		ginkgo.By("Verify Scaling of StatefulSet is successful")
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulSets[1])
-		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
-			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[1].Name))
-		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
-		// After scale up, verify all vSphere volumes are attached to node VMs.
-		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
-		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitForPodsReady(client, statefulSets[1].Namespace, sspod.Name, 0)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			for _, volumespec := range pod.Spec.Volumes {
-				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulSets[1].Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-					var vmUUID string
-					var exists bool
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-					if vanillaCluster {
-						vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
-					} else {
-						annotations := pod.Annotations
-						vmUUID, exists = annotations[vmUUIDLabel]
-						gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					}
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
-					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
-					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}
-			}
-		}
+		// Waiting for sometime to make testbed into stable state after start of zone2
+		ginkgo.By("Waiting for sometime to make testbed into stable state after start of zone2")
+		time.Sleep(pollTimeoutSixMin)
 
-		// Scale down statefulSets replica count
-		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
-		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+		// Verify all the workload Pods are in up and running state
+		ginkgo.By("Verify all the workload Pods are in up and running state")
+		ssPods = fss.GetPodList(client, statefulSets[0])
+		for _, pod := range ssPods.Items {
+			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
