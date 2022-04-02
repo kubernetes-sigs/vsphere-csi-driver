@@ -1272,12 +1272,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		_, scaleupErr := scaleStatefulSetPods(client, statefulSets[1], statefulSetReplicaCount)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
-		// Scale down statefulSets replica count
-		ginkgo.By("Scaledown any one StatefulSets replica")
-		statefulSetReplicaCount = 1
-		_, scaledownErr := scaleStatefulSetPods(client, statefulSets[2], statefulSetReplicaCount)
-		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
@@ -1298,6 +1292,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		}
 		for _, nodeName := range nodeNames {
 			if nodeName != "" {
+				framework.Logf("Node which is disconnected and needs to be powered on: %s", nodeName)
 				vmUUID := getNodeUUID(ctx, client, nodeName)
 				gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 				framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
@@ -1317,6 +1312,14 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Waiting for sometime to make testbed into stable state after start of zone2
 		ginkgo.By("Waiting for sometime to make testbed into stable state after start of zone2")
 		time.Sleep(pollTimeoutSixMin)
+
+		// Scale down statefulSets replica count
+		statefulSetReplicaCount = 2
+		ginkgo.By("Scale down statefulset replica count")
+		scaleDownStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
