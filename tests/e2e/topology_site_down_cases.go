@@ -1164,8 +1164,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
 
-		/* Create SC with Immediate BindingMode with multiple topology labels and datastore
-		shared between those labels. */
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
@@ -1266,31 +1264,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}()
 
-		/* Verify PV nde affinity and that the pods are running on appropriate nodes
-		for each StatefulSet pod */
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		for i := 0; i < len(statefulSets); i++ {
-			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, true)
-		}
-
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
 		statefulSetReplicaCount = 7
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleUpStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true)
-		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[1])
-		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
-
-		// Scale down statefulSets replica count
-		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
-		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleUpStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true)
-		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulSets[1])
-		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
+		_, scaleupErr := scaleStatefulSetPods(client, statefulSets[1], statefulSetReplicaCount)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
@@ -1328,6 +1307,55 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}
 
+		// verify scale up went successful
+		ginkgo.By("Verify Scaling of StatefulSet is successful")
+		ssPodsAfterScaleUp := fss.GetPodList(client, statefulSets[1])
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[1].Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+		// After scale up, verify all vSphere volumes are attached to node VMs.
+		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
+		for _, sspod := range ssPodsAfterScaleUp.Items {
+			err := fpod.WaitForPodsReady(client, statefulSets[1].Namespace, sspod.Name, 0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, volumespec := range pod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, statefulSets[1].Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+					var vmUUID string
+					var exists bool
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					if vanillaCluster {
+						vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
+					} else {
+						annotations := pod.Annotations
+						vmUUID, exists = annotations[vmUUIDLabel]
+						gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}
+
+		// Scale down statefulSets replica count
+		ginkgo.By("Scaleup any one StatefulSets replica")
+		statefulSetReplicaCount = 3
+		ginkgo.By("Scale down statefulset replica and verify the replica count")
+		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -1336,6 +1364,8 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSets[i], namespace, allowedTopologies, true)
 		}
 
+		// verifyVolumeMetadataInCNS
+		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})

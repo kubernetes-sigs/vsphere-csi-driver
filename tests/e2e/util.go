@@ -4578,7 +4578,7 @@ func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.St
 }
 
 // Scale scales ss to count replicas.
-func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
 	StatefulSetPoll := 10 * time.Second
@@ -4618,7 +4618,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
@@ -4672,7 +4672,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaleupErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
