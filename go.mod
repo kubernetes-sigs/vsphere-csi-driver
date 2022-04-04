@@ -9,7 +9,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/elazarl/goproxy v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
-	github.com/go-errors/errors v1.0.1 // indirect
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.2.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
@@ -19,7 +18,7 @@ require (
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.1.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
-	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/rexray/gocsi v1.2.2
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
@@ -37,7 +36,6 @@ require (
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/yaml.v2 v2.4.0
-	honnef.co/go/tools v0.2.0 // indirect
 	k8s.io/api v0.21.1
 	k8s.io/apiextensions-apiserver v0.21.1
 	k8s.io/apimachinery v0.21.1
