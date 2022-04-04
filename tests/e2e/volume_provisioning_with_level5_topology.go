@@ -1316,8 +1316,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle,
 			vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
