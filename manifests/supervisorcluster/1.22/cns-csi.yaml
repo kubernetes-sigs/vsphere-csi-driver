@@ -321,7 +321,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.3.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.6.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
           volumeMounts:
