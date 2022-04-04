@@ -737,8 +737,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
 			isFailureFound, err := getEventsListAndVerifyPvcError(client, namespace, pvclaim, expectedErrMsg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrMsg)
-
+			gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 			ginkgo.By("Bringup SPS service")
 			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
