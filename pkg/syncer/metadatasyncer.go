@@ -158,6 +158,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	log.Infof("Initializing MetadataSyncer")
 	metadataSyncer := newInformer()
 	MetadataSyncer = metadataSyncer
+	metadataSyncer.configInfo = configInfo
 
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
