@@ -42,6 +42,7 @@ const (
 	csiSystemNamespace                         = "vmware-system-csi"
 	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
+	csiDriverContainerName                     = "vsphere-csi-controller"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
 	defaultFullSyncWaitTime                    = 1800
@@ -128,6 +129,7 @@ const (
 	rqLimitScaleTest                          = "900Gi"
 	defaultrqLimit                            = "20Gi"
 	rqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
+	resizerContainerName                      = "csi-resizer"
 	scParamDatastoreURL                       = "DatastoreURL"
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
 	scParamStoragePolicyID                    = "StoragePolicyId"
@@ -136,6 +138,7 @@ const (
 	sleepTimeOut                              = 30
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
+	snapshotterContainerName                  = "csi-snapshotter"
 	sshdPort                                  = "22"
 	svcRunningMessage                         = "Running"
 	startOperation                            = "start"
