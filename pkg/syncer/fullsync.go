@@ -26,11 +26,11 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
@@ -116,6 +116,97 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 		return err
 	}
 
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		// Replace Volume Metadata using old cluster ID and replace with the new SupervisorID
+		if len(queryAllResult.Volumes) > 0 {
+			var updateMetadataSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
+			for _, volume := range queryAllResult.Volumes {
+				var updatedContainerClusterArray []cnstypes.CnsContainerCluster
+				var updatedContainerCluster cnstypes.CnsContainerCluster
+				for _, containercluster := range volume.Metadata.ContainerClusterArray {
+					if containercluster.ClusterId == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+						containercluster.ClusterId = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+						updatedContainerCluster = containercluster
+					}
+					updatedContainerClusterArray = append(updatedContainerClusterArray, containercluster)
+				}
+				updateSpecToDeleteMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
+					VolumeId: cnstypes.CnsVolumeId{
+						Id: volume.VolumeId.Id,
+					},
+					Metadata: cnstypes.CnsVolumeMetadata{
+						ContainerCluster:      volume.Metadata.ContainerCluster,
+						ContainerClusterArray: volume.Metadata.ContainerClusterArray,
+					},
+				}
+				updateSpecToAddMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
+					VolumeId: cnstypes.CnsVolumeId{
+						Id: volume.VolumeId.Id,
+					},
+					Metadata: cnstypes.CnsVolumeMetadata{
+						ContainerCluster:      updatedContainerCluster,
+						ContainerClusterArray: updatedContainerClusterArray,
+					},
+				}
+				for _, entityMetadata := range volume.Metadata.EntityMetadata {
+					if entityMetadata.GetCnsEntityMetadata().ClusterID ==
+						metadataSyncer.configInfo.Cfg.Global.ClusterID {
+						// Delete metadata for associated with old cluster ID
+						oldk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
+						oldk8sEntityMetadata.Delete = true
+						// add metadata for new supervisor id
+						newk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
+						newk8sEntityMetadata.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+						for index, referredEntity := range newk8sEntityMetadata.ReferredEntity {
+							if referredEntity.ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+								referredEntity.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+							}
+							newk8sEntityMetadata.ReferredEntity[index] = referredEntity
+						}
+						updateSpecToDeleteMetadata.Metadata.EntityMetadata =
+							append(updateSpecToDeleteMetadata.Metadata.EntityMetadata, &oldk8sEntityMetadata)
+						updateSpecToAddMetadata.Metadata.EntityMetadata =
+							append(updateSpecToAddMetadata.Metadata.EntityMetadata, &newk8sEntityMetadata)
+					}
+				}
+				if len(updateSpecToDeleteMetadata.Metadata.EntityMetadata) > 0 {
+					updateMetadataSpecArray = append(updateMetadataSpecArray, updateSpecToDeleteMetadata)
+				}
+				// TODO: Remove this check after CNS resolve issue regarding removal of old cluster-id
+				// from ContainerClusterArray. This will allow replacing cluster-id for volume which does not have any
+				// entity metadata.
+				if len(updateSpecToAddMetadata.Metadata.EntityMetadata) > 0 {
+					updateMetadataSpecArray = append(updateMetadataSpecArray, updateSpecToAddMetadata)
+				}
+			}
+			if len(updateMetadataSpecArray) > 0 {
+				log.Infof("FullSync: Replacing ClusterID: %q with new SupervisorID: %q",
+					metadataSyncer.configInfo.Cfg.Global.ClusterID,
+					metadataSyncer.configInfo.Cfg.Global.SupervisorID)
+			}
+			for _, updateSpec := range updateMetadataSpecArray {
+				log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
+					updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+				if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, &updateSpec); err != nil {
+					log.Warnf("FullSync: UpdateVolumeMetadata failed while replacing clusterID with supervisorID. Error: %+v", err)
+				}
+			}
+		}
+		// Call CNS QueryAll to get container volumes by cluster ID.
+		queryFilter = cnstypes.CnsQueryFilter{
+			ContainerClusterIds: []string{
+				metadataSyncer.configInfo.Cfg.Global.SupervisorID,
+			},
+		}
+		// get queryAllResult using new Supervisor ID for rest of full sync operations
+		queryAllResult, err = metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		if err != nil {
+			log.Errorf("FullSync: QueryVolume failed with err=%+v", err.Error())
+			return err
+		}
+	}
+
 	volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, err :=
 		fullSyncConstructVolumeMaps(ctx, k8sPVs, queryAllResult.Volumes, pvToPVCMap,
 			pvcToPodMap, metadataSyncer, migrationFeatureStateForFullSync)
@@ -132,13 +223,12 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) erro
 		log.Errorf("FullSync: failed to get vcenter with error %+v", err)
 		return err
 	}
-	// Get specs for create and update volume calls.
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, vcenter.Client.Version, k8sPVs,
 		volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap,
-		containerCluster, metadataSyncer, migrationFeatureStateForFullSync)
+		containerCluster, migrationFeatureStateForFullSync)
 	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer,
 		migrationFeatureStateForFullSync)
 	if err != nil {
@@ -288,8 +378,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 		for _, volume := range queryResult.Volumes {
 			inUsebyOtherK8SCluster := false
 			for _, metadata := range volume.Metadata.EntityMetadata {
-				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID !=
-					metadataSyncer.configInfo.Cfg.Global.ClusterID {
+				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID != clusterIDforVolumeMetadata {
 					inUsebyOtherK8SCluster = true
 					log.Debugf("FullSync: fullSyncDeleteVolumes: Volume: %q is in use by other cluster.", volume.VolumeId.Id)
 					break
@@ -395,8 +484,7 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 	var err error
 	var queryVolumeIds []cnstypes.CnsVolumeId
 	for _, pv := range pvList {
-		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap,
-			metadataSyncer.configInfo.Cfg.Global.ClusterID)
+		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, clusterIDforVolumeMetadata)
 		var volumeHandle string
 		if pv.Spec.CSI != nil {
 			volumeHandle = pv.Spec.CSI.VolumeHandle
@@ -434,7 +522,7 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 		return volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, nil
 	}
 	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds,
-		metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.volumeManager, metadataSyncer)
+		clusterIDforVolumeMetadata, metadataSyncer.volumeManager, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", err)
 		return nil, nil, nil, err
@@ -446,13 +534,13 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 			allEntityMetadata := volume.Metadata.EntityMetadata
 			for _, metadata := range allEntityMetadata {
 				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID ==
-					metadataSyncer.configInfo.Cfg.Global.ClusterID {
+					clusterIDforVolumeMetadata {
 					cnsMetadata = append(cnsMetadata, metadata)
 				}
 			}
 			volumeToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
 			if len(volume.Metadata.ContainerClusterArray) == 1 &&
-				metadataSyncer.configInfo.Cfg.Global.ClusterID == volume.Metadata.ContainerClusterArray[0].ClusterId &&
+				clusterIDforVolumeMetadata == volume.Metadata.ContainerClusterArray[0].ClusterId &&
 				metadataSyncer.configInfo.Cfg.Global.ClusterDistribution ==
 					volume.Metadata.ContainerClusterArray[0].ClusterDistribution {
 				log.Debugf("Volume %s has cluster distribution set to %s",
@@ -472,7 +560,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 	volumeToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata,
 	volumeToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata,
 	volumeClusterDistributionMap map[string]bool, containerCluster cnstypes.CnsContainerCluster,
-	metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool) (
+	migrationFeatureStateForFullSync bool) (
 	[]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
 	log := logger.GetLogger(ctx)
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec

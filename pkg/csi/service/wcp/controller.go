@@ -89,11 +89,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		if len(clusterComputeResourceMoIds) > 0 {
-			if config.Global.SupervisorID != "" {
-				// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
-				// config.Global.SupervisorID is not empty string
-				config.Global.ClusterID = config.Global.SupervisorID
-			} else {
+			if config.Global.SupervisorID == "" {
 				return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
 			}
 		} else {
@@ -339,17 +335,6 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 	}
 	if cfg != nil {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			if len(clusterComputeResourceMoIds) > 0 {
-				if cfg.Global.SupervisorID != "" {
-					// Use new SupervisorID for Volume Metadata when AvailabilityZone CR is present and
-					// config.Global.SupervisorID is not empty string
-					cfg.Global.ClusterID = cfg.Global.SupervisorID
-				} else {
-					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
-				}
-			}
-		}
 		c.manager.CnsConfig = cfg
 		log.Debugf("Updated manager.CnsConfig")
 	}
@@ -403,7 +388,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	if isTKGSHAEnabled {
 		// TKGS-HA feature is enabled
 		// Identify the topology keys in Accessibility requirements.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
@@ -512,7 +498,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores)
+		c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores, isTKGSHAEnabled)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -641,8 +627,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			"no datastores found to create file volume")
 	}
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores)
+		c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, isTKGSHAEnabled)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)

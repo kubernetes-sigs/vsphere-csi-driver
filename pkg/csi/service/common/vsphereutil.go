@@ -32,7 +32,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
@@ -43,7 +42,7 @@ import (
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
 	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo,
-	filterSuspendedDatastores bool) (*cnsvolume.CnsVolumeInfo, string, error) {
+	filterSuspendedDatastores bool, useSupervisorId bool) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -173,7 +172,11 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -267,7 +270,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo,
-	filterSuspendedDatastores bool) (string, string, error) {
+	filterSuspendedDatastores bool, useSupervisorId bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -327,8 +330,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		})
 	}
 
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -371,7 +378,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 // CreateFileVolumeUtilOld is the helper function to create CNS file volume with
 // datastores from TargetvSANFileShareDatastoreURLs in vsphere conf.
 func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec, filterSuspendedDatastores bool) (string, string, error) {
+	manager *Manager, spec *CreateVolumeSpec,
+	filterSuspendedDatastores bool, useSupervisorId bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -519,9 +527,12 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			AllowRoot:   !netPerm.RootSquash,
 		})
 	}
-
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
