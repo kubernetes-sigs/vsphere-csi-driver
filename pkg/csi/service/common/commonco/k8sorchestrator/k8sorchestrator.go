@@ -18,6 +18,7 @@ package k8sorchestrator
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"reflect"
@@ -1168,30 +1169,35 @@ func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]str
 	return c.nodeIDToNameMap.items
 }
 
-// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
-// to true if volumeID key is fake attached else false
-func (c *K8sOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool {
+// GetVolumeAttachment returns the VA object by using the given volumeId & nodeName
+func (c *K8sOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (
+	*storagev1.VolumeAttachment, error) {
 	log := logger.GetLogger(ctx)
-	volumeIDToFakeAttachedMap := make(map[string]bool)
-	for _, volumeID := range volumeIDs {
-		// Check pvc annotations.
-		pvcAnn, err := c.getPVCAnnotations(ctx, volumeID)
-		if err != nil {
-			if err.Error() == common.ErrNotFound.Error() {
-				// PVC not found, which means PVC could have been deleted. No need to proceed.
-				log.Debugf("PVC not found, which means PVC could have been deleted. No need to proceed.")
-				return volumeIDToFakeAttachedMap
-			}
-			log.Errorf("GetFakeAttachedVolumes: failed to get pvc annotations for volume ID %s "+
-				"while checking if it was fake attached", volumeID)
-			return volumeIDToFakeAttachedMap
-		}
-		val, found := pvcAnn[common.AnnFakeAttached]
-		if found && val == "yes" {
-			volumeIDToFakeAttachedMap[volumeID] = true
-		} else {
-			volumeIDToFakeAttachedMap[volumeID] = false
+	allPVs, err := c.k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to retrieve all PVs from API server")
+		return nil, err
+	}
+	var pv v1.PersistentVolume
+	for _, pv = range allPVs.Items {
+		// Verify if it is vsphere block driver and volumehandle matches the volume ID.
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Spec.CSI.VolumeHandle == volumeId {
+			log.Debugf("Found PV: %+v referring to volume ID: %s", pv, volumeId)
+			break
 		}
 	}
-	return volumeIDToFakeAttachedMap
+	if err != nil {
+		log.Errorf("failed to retrieve all PVs from API server")
+		return nil, err
+	}
+	if pv.Spec.ClaimRef == nil {
+		return nil, err
+	}
+	sha256Res := sha256.Sum256([]byte(fmt.Sprintf("%s%s%s", volumeId, common.VSphereCSIDriverName, nodeName)))
+	sha256VaName := fmt.Sprintf("csi-%x", sha256Res)
+	volumeAttachment, err := c.k8sClient.StorageV1().VolumeAttachments().Get(ctx, sha256VaName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return volumeAttachment, nil
 }
