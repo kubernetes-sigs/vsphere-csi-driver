@@ -135,6 +135,7 @@ const (
 	scParamStoragePolicyID                    = "StoragePolicyId"
 	scParamStoragePolicyName                  = "StoragePolicyName"
 	shortProvisionerTimeout                   = "10"
+	snapshotapigroup                          = "snapshot.storage.k8s.io"
 	sleepTimeOut                              = 30
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
