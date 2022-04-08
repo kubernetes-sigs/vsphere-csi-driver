@@ -107,6 +107,34 @@ subjects:
     kind: Group
     name: system:serviceaccounts:vmware-system-csi
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-admin-csi-role
+rules:
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsregistervolumes"]
+    verbs: ["get", "list", "create", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["update", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wcp:administrators:cluster-edit-csirole
+subjects:
+- kind: Group
+  name: sso:Administrators@<sso_domain>
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: vsphere-admin-csi-role
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -161,7 +189,7 @@ spec:
       hostNetwork: true
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.2.2_vmware.1
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.1.0_vmware.2
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -175,6 +203,9 @@ spec:
             - "--default-fstype=ext4"
             - "--use-service-for-placement-engine=false"
             - "--tkgs-ha=false"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -193,7 +224,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v3.2.1_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v3.4.0_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -201,6 +232,9 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -213,7 +247,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.2.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.4.0_vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
@@ -223,6 +257,9 @@ spec:
             - --leader-election
             - --kube-api-qps=100
             - --kube-api-burst=100
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -284,7 +321,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.3.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.6.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
           volumeMounts:
@@ -351,7 +388,6 @@ apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
-  "online-volume-extend": "true"
   "file-volume": "true"
   "csi-auth-check": "true"
   "vsan-direct-disk-decommission": "false"
@@ -359,7 +395,7 @@ data:
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
   "async-query-volume": "true"
-  "improved-csi-idempotency": "false"
+  "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "false"

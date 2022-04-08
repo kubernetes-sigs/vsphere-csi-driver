@@ -2832,6 +2832,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "cnsregistervolumes-cleanup-intervalinmin":
 			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "topology-categories":
+			config.Global.TopologyCategories = value
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -5126,12 +5128,12 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			// vsphere-csi-controller all the replicas will behave as leaders
 			if containerName == syncerContainerName {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + containerName + " | grep 'successfully acquired lease' " +
-					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
+					"tail -1` 'podName:" + csiPod.Name + "' >> leader.log"
 			} else {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + containerName + " | grep 'new leader detected, current leader:' " +
-					"tail -1` 'podName:" + csiPod.Name + ">> leader.log"
+					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
+					"tail -1` >> leader.log"
 			}
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
@@ -5147,11 +5149,18 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 
 	// Sorting the temporary file according to timestamp to find the latest container leader
 	// from the CSI pod replicas
-	cmd := "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+	var cmd string
+	if containerName == syncerContainerName {
+		cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
+
+	} else {
+		cmd = "sort -k 2n leader.log | tail -1 |awk '{print $10}' | tr -d '\n'"
+	}
+
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err := sshExec(sshClientConfig, k8sMasterIP,
-		grepCmdForFindingCurrentLeader)
+		cmd)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5164,7 +5173,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err = sshExec(sshClientConfig, k8sMasterIP,
-		grepCmdForFindingCurrentLeader)
+		cmd)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5295,4 +5304,150 @@ func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
 		},
 	}
 	return volumesnapshotSpec
+}
+
+func createParallelStatefulSets(client clientset.Interface, namespace string,
+	statefulset *appsv1.StatefulSet, replicas int32, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Creating statefulset")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
+	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
+	stss := []*appsv1.StatefulSet{}
+	var statefulset *appsv1.StatefulSet
+	for i := 0; i < no_of_sts; i++ {
+		statefulset = GetStatefulSetFromManifest(namespace)
+		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+		stss = append(stss, statefulset)
+	}
+	return stss
+}
+
+func createMultiplePVCsInParallel(ctx context.Context, client clientset.Interface, namespace string,
+	storageclass *storagev1.StorageClass, count int) []*v1.PersistentVolumeClaim {
+	var pvclaims []*v1.PersistentVolumeClaim
+	for i := 0; i < count; i++ {
+		pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaims = append(pvclaims, pvclaim)
+	}
+	return pvclaims
+}
+
+// CheckMount checks that the mount at mountPath is valid for all Pods in ss.
+func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPath string) error {
+	for _, cmd := range []string{
+		// Print inode, size etc
+		fmt.Sprintf("ls -idlh %v", mountPath),
+		// Print subdirs
+		fmt.Sprintf("find %v", mountPath),
+		// Try writing
+		fmt.Sprintf("touch %v", filepath.Join(mountPath, fmt.Sprintf("%v", time.Now().UnixNano()))),
+	} {
+		if err := ExecInStsPodsInNs(c, ss, cmd); err != nil {
+			return fmt.Errorf("failed to execute %v, error: %v", cmd, err)
+		}
+	}
+	return nil
+}
+
+/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+cmd is not execute in any subsequent Pods. */
+func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
+	podList := GetListOfPodsInSts(c, ss)
+	StatefulSetPoll := 10 * time.Second
+	StatefulPodTimeout := 5 * time.Minute
+	for _, statefulPod := range podList.Items {
+		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace,
+			statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
+		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+/*
+This method is used to delete the CSI Controller Pod
+*/
+func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	csi_controller_pod string) error {
+	ignoreLabels := make(map[string]string)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	k8sMasterIP := k8sMasterIPs[0]
+	for i := 0; i < len(list_of_pods); i++ {
+		if list_of_pods[i].Name == csi_controller_pod {
+			grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
+				" -n vmware-system-csi"
+			framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
+				k8sMasterIP)
+			result, err := sshExec(sshClientConfig, k8sMasterIP,
+				grepCmdForDeletingCsiControllerPod)
+			if err != nil || result.Code != 0 {
+				fssh.LogResult(result)
+				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
+			}
+		}
+		if list_of_pods[i].Name == csi_controller_pod {
+			break
+		}
+	}
+	return nil
+}
+
+// getPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+// spec with specified storage class.
+func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := diskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
 }

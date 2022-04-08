@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -111,17 +112,18 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-// validateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
-// fails otherwise returns nil.
+// ValidateWCPControllerExpandVolumeRequest is the helper function to validate
+// ExpandVolumeRequest for WCP CSI driver.
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	manager *common.Manager, isOnlineExpansionEnabled bool) error {
+	manager *common.Manager, isOnlineExpansionSupported bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	if !isOnlineExpansionEnabled {
+	// If online expansion is not supported (VC below 7.0U2),
+	// we need to determine if requested operation is online or offline.
+	if !isOnlineExpansionSupported {
 		var nodes []*vsphere.VirtualMachine
 
 		// TODO: Currently we only check if disk is attached to TKG nodes

@@ -53,6 +53,11 @@ type COCommonInterface interface {
 	InitTopologyServiceInNode(ctx context.Context) (types.NodeTopologyService, error)
 	// GetNodesForVolumes returns a map of volumeID to list of node names
 	GetNodesForVolumes(ctx context.Context, volumeIds []string) map[string][]string
+	// GetNodeIDtoNameMap returns a map of node ID  to node names
+	GetNodeIDtoNameMap(ctx context.Context) map[string]string
+	// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
+	// to true if volumeID key is fake attached else false
+	GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

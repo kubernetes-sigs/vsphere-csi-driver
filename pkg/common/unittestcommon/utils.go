@@ -217,3 +217,16 @@ func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID [
 	nodeNames := make(map[string][]string)
 	return nodeNames
 }
+
+// GetNodeIDtoNameMap returns a map containing the nodeID to node name
+func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
+	nodeIDToNamesMap := make(map[string]string)
+	return nodeIDToNamesMap
+}
+
+// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
+// to true if volumeID key is fake attached else false
+func (c *FakeK8SOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeID []string) map[string]bool {
+	fakeAttachedVolumes := make(map[string]bool)
+	return fakeAttachedVolumes
+}

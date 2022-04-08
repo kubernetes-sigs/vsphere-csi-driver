@@ -39,7 +39,7 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	// Call CNS QueryAll to get container volumes by cluster ID.
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{
-			metadataSyncer.configInfo.Cfg.Global.ClusterID,
+			clusterIDforVolumeMetadata,
 		},
 	}
 

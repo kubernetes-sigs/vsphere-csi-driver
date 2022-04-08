@@ -29,9 +29,6 @@ const (
 	// PrometheusUnknownVolumeType is used in situation when the volume type could not be found.
 	PrometheusUnknownVolumeType = "unknown"
 
-	// PrometheusUnknownNamespace is used when namespace isn't set by sidecars for a volume operation.
-	PrometheusUnknownNamespace = "unknown"
-
 	// CSI operation types
 
 	// PrometheusCreateVolumeOpType represents the CreateVolume operation.
@@ -113,12 +110,12 @@ var (
 		// Creating more buckets for operations that takes few seconds and less buckets
 		// for those that are taking a long time. A CSI operation taking a long time is
 		// unexpected and we don't have to be accurate(just approximation is fine).
-		Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 60, 120, 180, 300},
+		Buckets: []float64{2, 5, 10, 15, 20, 25, 30, 60, 120, 180},
 	},
 		// Possible voltype - "unknown", "block", "file"
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume"
 		// Possible status - "pass", "fail"
-		[]string{"voltype", "optype", "status", "namespace"})
+		[]string{"voltype", "optype", "status", "faulttype"})
 
 	// CnsControlOpsHistVec is a histogram vector metric to observe various control
 	// operations on CNS. Note that this captures the time taken by CNS into a bucket
@@ -129,7 +126,7 @@ var (
 		// Creating more buckets for operations that takes few seconds and less buckets
 		// for those that are taking a long time. A CNS operation taking a long time is
 		// unexpected and we don't have to be accurate(just approximation is fine).
-		Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 60, 120, 180, 300},
+		Buckets: []float64{2, 5, 10, 15, 20, 25, 30, 60, 120, 180},
 	},
 		// Possible optype - "create-volume", "delete-volume", "attach-volume", "detach-volume", "expand-volume", etc
 		// Possible status - "pass", "fail"
@@ -150,7 +147,7 @@ var (
 		// Creating more buckets for operations that takes few seconds and less buckets
 		// for those that are taking a long time. A Full Sync operation taking a long time is
 		// unexpected and we don't have to be accurate(just approximation is fine).
-		Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 60, 120, 180, 300},
+		Buckets: []float64{2, 5, 10, 15, 20, 25, 30, 60, 120, 180},
 	},
 		// Possible status - "pass", "fail"
 		[]string{"status"})
