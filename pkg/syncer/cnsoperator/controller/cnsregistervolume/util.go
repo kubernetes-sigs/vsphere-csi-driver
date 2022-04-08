@@ -65,7 +65,8 @@ func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCent
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
 func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
-	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, host string) *cnstypes.CnsVolumeCreateSpec {
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	host string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
@@ -73,7 +74,13 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 		id, _ := uuid.NewUUID()
 		volumeName = staticPvNamePrefix + id.String()
 	}
-	containerCluster := vsphere.GetContainerCluster(r.configInfo.Cfg.Global.ClusterID,
+	var clusterIDForVolumeMetadata string
+	if useSupervisorId {
+		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.SupervisorID
+	} else {
+		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.ClusterID
+	}
+	containerCluster := vsphere.GetContainerCluster(clusterIDForVolumeMetadata,
 		r.configInfo.Cfg.VirtualCenter[host].User,
 		cnstypes.CnsClusterFlavorWorkload, r.configInfo.Cfg.Global.ClusterDistribution)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{

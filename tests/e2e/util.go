@@ -5410,6 +5410,49 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	return nil
 }
 
+// getPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+// spec with specified storage class.
+func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := diskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
+}
+
 // get topology cluster lists
 func ListTopologyClusterNames(topologyCluster string) []string {
 	topologyClusterList := strings.Split(topologyCluster, ",")

@@ -189,7 +189,7 @@ spec:
       hostNetwork: true
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v2.2.2_vmware.1
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.1.0_vmware.2
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -203,6 +203,9 @@ spec:
             - "--default-fstype=ext4"
             - "--use-service-for-placement-engine=false"
             - "--tkgs-ha=false"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -221,7 +224,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v3.2.1_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v3.4.0_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -229,6 +232,9 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -241,7 +247,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.2.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.4.0_vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
@@ -251,6 +257,9 @@ spec:
             - --leader-election
             - --kube-api-qps=100
             - --kube-api-burst=100
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -312,7 +321,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.3.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.6.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
           volumeMounts:
