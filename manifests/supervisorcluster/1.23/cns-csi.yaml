@@ -441,3 +441,208 @@ spec:
   selector:
     app: vsphere-csi-controller
   type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmware-system-csi-webhook-service
+  namespace: vmware-system-csi
+  labels:
+    app: vsphere-csi-webhook
+spec:
+  ports:
+    - port: 443
+      targetPort: 9883
+  selector:
+    app: vsphere-csi-webhook
+---
+apiVersion: cert-manager.io/v1alpha3
+kind: Certificate
+metadata:
+  labels:
+    app: vsphere-csi-webhook
+  name: vmware-system-csi-serving-cert
+  namespace: vmware-system-csi
+spec:
+  dnsNames:
+    - vmware-system-csi-webhook-service.vmware-system-csi.svc
+    - vmware-system-csi-webhook-service.vmware-system-csi.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: vmware-system-csi-selfsigned-issuer
+  secretName: vmware-system-csi-webhook-service-cert
+---
+apiVersion: cert-manager.io/v1alpha3
+kind: Issuer
+metadata:
+  labels:
+    app: vsphere-csi-webhook
+  name: vmware-system-csi-selfsigned-issuer
+  namespace: vmware-system-csi
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: vmware-system-csi-validating-webhook-configuration
+  labels:
+    app: vsphere-csi-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: vmware-system-csi/vmware-system-csi-serving-cert
+webhooks:
+  - name: validation.csi.vsphere.vmware.com
+    clientConfig:
+      service:
+        name: vmware-system-csi-webhook-service
+        namespace: vmware-system-csi
+        path: "/validate"
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1", "v1beta1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["persistentvolumeclaims"]
+        scope: "Namespaced"
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-webhook-cluster-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-webhook-cluster-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: vmware-system-csi
+roleRef:
+  kind: ClusterRole
+  name: vsphere-csi-webhook-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-webhook-role
+  namespace: vmware-system-csi
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-webhook-role-binding
+  namespace: vmware-system-csi
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: vmware-system-csi
+roleRef:
+  kind: Role
+  name: vsphere-csi-webhook-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: vsphere-csi-webhook
+  namespace: vmware-system-csi
+  labels:
+    app: vsphere-csi-webhook
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: vsphere-csi-webhook
+  template:
+    metadata:
+      labels:
+        app: vsphere-csi-webhook
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - vsphere-csi-webhook
+              topologyKey: kubernetes.io/hostname
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      terminationGracePeriodSeconds: 10
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - effect: NoExecute
+          key: node.alpha.kubernetes.io/notReady
+          operator: Exists
+        - effect: NoExecute
+          key: node.alpha.kubernetes.io/unreachable
+          operator: Exists
+        - effect: NoSchedule
+          key: kubeadmNode
+          operator: Equal
+          value: master
+      containers:
+        - name: vsphere-webhook
+          image: localhost:5000/vmware/syncer:<syncer_ver>
+          args:
+            - "--operation-mode=WEBHOOK_SERVER"
+            - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
+            - "--fss-namespace=$(CSI_NAMESPACE)"
+          imagePullPolicy: "IfNotPresent"
+          ports:
+            - containerPort: 9883
+              name: webhook-server
+              protocol: TCP
+          env:
+            - name: CNSCSI_WEBHOOK_SERVICE_CONTAINER_PORT
+              value: "9883"
+            - name: CLUSTER_FLAVOR
+              value: "WORKLOAD"
+            - name: LOGGER_LEVEL
+              value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: INCLUSTER_CLIENT_QPS
+              value: "50"
+            - name: INCLUSTER_CLIENT_BURST
+              value: "50"
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 200m
+              memory: 60Mi
+            requests:
+              cpu: 10m
+              memory: 45Mi
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            defaultMode: 420
+            secretName: vmware-system-csi-webhook-service-cert
