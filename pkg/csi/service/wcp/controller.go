@@ -32,6 +32,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -929,6 +930,29 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, err
 			}
+		}
+		var (
+			timeout                 = 4 * time.Minute
+			pollTime                = time.Duration(2 * time.Second)
+			vmDiskAssociationsFound = false
+		)
+		err = wait.Poll(pollTime, timeout, func() (bool, error) {
+			vmDiskAssociationsFound, err := c.manager.VcenterManager.VmDiskAssociationsExist(ctx, req.VolumeId,
+				c.manager.VcenterConfig.Host)
+			if err != nil {
+				msg := fmt.Sprintf("Failed to verify if vm and disk associations exist in the VC . Error: %v", err)
+				log.Error(msg)
+				return false, err
+			}
+			if !vmDiskAssociationsFound {
+				log.Debugf("Waiting for disk to be detached")
+				return true, nil
+			}
+			return false, nil
+		})
+		if vmDiskAssociationsFound {
+			log.Errorf("Volume %s is still not detached. Returning error.", req.VolumeId)
+			return nil, csifault.CSIInternalFault, err
 		}
 		return &csi.ControllerUnpublishVolumeResponse{}, "", nil
 	}

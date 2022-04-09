@@ -22,6 +22,8 @@ import (
 	"sync"
 
 	"github.com/vmware/govmomi/cns"
+	"github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vslm"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -58,6 +60,7 @@ type VirtualCenterManager interface {
 	// IsCnsSnapshotSupported checks if cns volume snapshot is supported
 	// or not on the vCenter Host.
 	IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error)
+	VmDiskAssociationsExist(ctx context.Context, fcdId string, host string) (bool, error)
 }
 
 var (
@@ -66,6 +69,39 @@ var (
 	// onceForVCManager is used for initializing the VirtualCenterManager singleton.
 	onceForVCManager sync.Once
 )
+
+// VmDiskAssociationsExist helps to determine if the given volumeId is
+// associated with any vm using the RetrieveAssociations API
+func (m *defaultVirtualCenterManager) VmDiskAssociationsExist(ctx context.Context,
+	fcdId string, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	vcenter, err := m.GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("Failed to get vCenter. Err: %v", err)
+		return true, err
+	}
+	vslmClient, err := vslm.NewClient(ctx, vcenter.Client.Client)
+	if err != nil {
+		return false, err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
+	fcdIds := make([]types.ID, 0)
+	fcdIds = append(fcdIds, types.ID{
+		Id: fcdId,
+	})
+
+	vsoObjAssociations, err := globalObjectManager.RetrieveAssociations(ctx, fcdIds)
+	if err != nil {
+		log.Error(err, "failed to get VM associations")
+		return false, err
+	}
+	for _, asso := range vsoObjAssociations {
+		if asso.Fault == nil && len(asso.VmDiskAssociation) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // GetVirtualCenterManager returns the VirtualCenterManager singleton.
 func GetVirtualCenterManager(ctx context.Context) VirtualCenterManager {
