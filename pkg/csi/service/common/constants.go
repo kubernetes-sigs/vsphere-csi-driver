@@ -95,6 +95,9 @@ const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier.
 	AttributeFirstClassDiskUUID = "diskUUID"
 
+	// AttributeVmUUID is the vmUUID to which volume is attached to.
+	AttributeVmUUID = "vmUUID"
+
 	// AttributeFakeAttached is the flag that indicates if a volume is fake
 	// attached.
 	AttributeFakeAttached = "fake-attach"

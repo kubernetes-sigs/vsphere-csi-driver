@@ -18,6 +18,7 @@ package k8sorchestrator
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"reflect"
@@ -1194,4 +1195,18 @@ func (c *K8sOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeIDs 
 		}
 	}
 	return volumeIDToFakeAttachedMap
+}
+
+// GetVolumeAttachment returns the VA object by using the given volumeId & nodeName
+func (c *K8sOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (
+	*storagev1.VolumeAttachment, error) {
+	log := logger.GetLogger(ctx)
+	sha256Res := sha256.Sum256([]byte(fmt.Sprintf("%s%s%s", volumeId, common.VSphereCSIDriverName, nodeName)))
+	sha256VaName := fmt.Sprintf("csi-%x", sha256Res)
+	volumeAttachment, err := c.k8sClient.StorageV1().VolumeAttachments().Get(ctx, sha256VaName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get the volumeattachment %q from API server Err: %v", sha256VaName, err)
+		return nil, err
+	}
+	return volumeAttachment, nil
 }

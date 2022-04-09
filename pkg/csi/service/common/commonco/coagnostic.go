@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	storagev1 "k8s.io/api/storage/v1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
@@ -58,6 +59,8 @@ type COCommonInterface interface {
 	// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
 	// to true if volumeID key is fake attached else false
 	GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool
+	//GetVolumeAttachment is used to fetch the VA object from the cluster.
+	GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (*storagev1.VolumeAttachment, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
