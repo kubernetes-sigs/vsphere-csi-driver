@@ -174,6 +174,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -196,10 +200,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
-		}()
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -397,6 +397,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -419,10 +423,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
-		}()
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -612,6 +612,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -816,6 +820,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -1021,6 +1029,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -1222,6 +1234,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSetReplicaCount, &wg)
 		}
 		wg.Wait()
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
