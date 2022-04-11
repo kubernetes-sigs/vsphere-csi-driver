@@ -28,10 +28,12 @@ import (
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -105,30 +107,28 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		TESTCASE-1
-		Bring down Partial site A (2 esx in cluster1 + 3 esx in cluster2)
+		Bring down partial sites zone1 and zone2 hosts (1 esx in zone1 + 1 esx in zone2)
 		Steps//
 		1. Create SC with waitForFirstConsumer
-		2. Create 6 statefulsets each with replica count 3 - nodeSelectorTerms details
+		2. Create 3 statefulsets each with replica count 7
 		3. Wait for all the workload pods to reach running state
 		4. Verify that all the POD's spread across zones
 		5. Verify that the PV's have node affinity details
-		6. In cluster1 bring down 2 ESX's  that belongs to siteA and in cluster 2 bring down 3 ESX's hosts
-		7. wait for some time and verify that all the node VM's are bought up on the ESX which was
+		6. In zone1 bring down 1 ESX host and in zone2 bring down 1 ESX
+		7. Wait for some time and verify that all the node VM's are bought up on the ESX which was
 		in ON state in the respective clusters
 		8. Verify that All the workload POD's are up and running
 		9. Verify that the Node affinity details on the PV holds the zone and region  details
 		10. scale up any one stateful set to 10 replica's
 		11. Wait for some time and make sure all 10 replica's are in running state
 		12. Scale down the stateful set to 5 replicas
-		13. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
+		13. wait for some time and verify that stateful set used in step 12 has 5 replicas running
 		14. Bring up all the ESX hosts
 		15. Wait for testbed to be back to normal
 		16. Verify that all the POD's and sts are up and running
-		17. Verify All the PV's has proper node affinity details and also make sure POD's are
-		running on the same node where respective PVC is created
-		18. Verify there were no issue with replica scale up/down and verify pod entry
-		in CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
-		19. Make sure K8s cluster  is healthy
+		17. Verify All the PV's has proper node affinity details.
+		18. Verify pod and  pvc volume metadata in CNS.
+		19. Make sure K8s cluster is healthy
 		20. Delete above created STS, PVC's and SC
 	*/
 
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 5
+		statefulSetReplicaCount = 7
 		noOfHostToBringDown = 1
 		var ssPods *v1.PodList
 
@@ -177,7 +177,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the 3 statefulset pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -206,20 +209,22 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				statefulSets[i], namespace, allowedTopologies, true)
 		}
 
-		// Bring down 1 ESXi's that belongs to Cluster1 and Bring down 1 ESXi's that belongs to Cluster2
-		ginkgo.By("Bring down 1 ESXi host that belongs to Cluster1 and Bring down 1 ESXi " +
-			"host that belongs to Cluster2")
+		// Bring down 1 ESXi's that belongs to zone1 and Bring down 1 ESXi's that belongs to zone2
+		ginkgo.By("Bring down 1 ESXi host that belongs to zone1 and Bring down 1 ESXi " +
+			"host that belongs to zone2")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
 			noOfHostToBringDown)
+		defer func() {
+			ginkgo.By("Bring up ESXi host which were powered off in zone1")
+			powerOnEsxiHostByCluster(powerOffHostsList[0])
+		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
-		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 		defer func() {
-			ginkgo.By("Bring up all ESXi host which were powered off")
-			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
-			}
+			ginkgo.By("Bring up  ESXi host which were powered off in zone2")
+			powerOnEsxiHostByCluster(powerOffHostsList1[0])
 		}()
+		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 
 		// Wait for k8s cluster to be healthy
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -229,6 +234,8 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
+		/* here passing any one statefulset name created in a namespace, GetPodList method
+		will fetch all the sts pods running in a given namespace */
 		ssPods = fss.GetPodList(client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(client, &pod)
@@ -245,7 +252,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -253,7 +260,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
 			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
@@ -323,29 +330,27 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		TESTCASE-2
-		Bring down Partial site B (2 esx in cluster1 + 3 esx in cluster3)
+		Volume provisioning when partial sites zone2 and zone3 hosts are down
 		Steps//
 		1. Create SC with waitForFirstConsumer
-		2. Create 6 statefulsets each with replica count 3 - nodeSelectorTerms details
+		2. Create 3 statefulsets each with replica count 7
 		3. Wait for all the workload pods to reach running state
 		4. Verify that all the POD's spread across zones
 		5. Verify that the PV's have proper node affinity details
-		6. In cluster1 bring down 2 ESX's that belongs to site B and in cluster 3 bring down 3 ESX's hosts
-		7. wait for some time and verify that all the node VM's are bought up on the
+		6. In zone2 bring down 1 ESX and in zone3 bring down 1 ESX host
+		7. Wait for some time and verify that all the node VM's are bought up on the
 		ESX which was in ON state in the respective clusters
 		8. Verify that All the workload POD's are up and running
 		9. Verify the Node affinity details on the PV
 		10. scale up any one stateful set to 10 replica's
 		11. Wait for some time and make sure all 10 replica's are in running state
 		12. Scale down the stateful set to 5 replicas
-		13. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
+		13. wait for some time and verify that stateful set used in step 12 has 5 replicas running
 		14. Bring up all the ESX hosts
 		15. Wait for testbed to be back to normal
 		16. Verify that all the POD's and sts are up and running
-		17. Verify All the PV's has proper node affinity details and also make
-		sure POD's are running on the same node where respective PVC is created
-		18. Verify there were no issue with replica scale up/down and verify pod
-		entry in CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated.
+		17. Verify All the PV's has proper node affinity details.
+		18. Verify pod and  pvc volume metadata in CNS.
 		19. Make sure K8s cluster  is healthy
 		20. Delete above created STS, PVC's and SC
 	*/
@@ -354,7 +359,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 5
+		statefulSetReplicaCount = 7
 		noOfHostToBringDown = 1
 		var ssPods *v1.PodList
 
@@ -395,7 +400,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the sts pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -411,6 +419,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -425,15 +437,17 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"host that belongs to Cluster3")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
+		defer func() {
+			ginkgo.By("Bring up ESXi host which were powered off in zone2")
+			powerOnEsxiHostByCluster(powerOffHostsList[0])
+		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
-		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 		defer func() {
-			ginkgo.By("Bring up all ESXi host which were powered off")
-			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
-			}
+			ginkgo.By("Bring up ESXi host which were powered off in zone3")
+			powerOnEsxiHostByCluster(powerOffHostsList1[0])
 		}()
+		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
@@ -442,11 +456,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		/* here passing any one statefulset name created in a namespace, GetPodList
+		will fetch all the pods running in a given namespace */
+		ssPods = fss.GetPodList(client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
@@ -459,7 +474,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -467,7 +482,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
 			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
@@ -530,29 +545,28 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		TESTCASE-3
-		Bring down full site A (3 esx in cluster1 + 4 esx in cluster2)
+		Volume provisioning when partial sites zone1 zone2 and zone3 hosts are down
 		Steps//
 		1. Create SC with waitForFirstConsumer
-		2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
+		2. Create 3 statefulsets each with replica count 7
 		3. Wait for all the workload pods to reach running state
 		4. Verify that all the POD's spread across zones
-		5. Verify that the PV's have zone and Region details
-		6. In cluster1 bring down 3 ESX's  that belongs to siteA and in cluster 2 bring down all 4 ESX's hosts
-		7. wait for some time and verify that all the node VM's that are in site A
-		bought up on the ESX which was  on same  respective clusters.
-		8. The POD's that were created on nodes of zone 2 may reach terminating state
-		9. Verify that the Node affinity details on the PV holds the zone and region  details
-		10. scale up any one stateful set to 10 replica's
+		5. Verify that the PV's have proper node affinity details
+		6. In cluster1 bring down 1 ESX's that belongs to zone1, in cluster2 bring down 1 ESX hosts
+		that belongs to zone2 and in cluster3 bring down 1 ESX hosts that belongs to zone3
+		7. Wait for some time and verify that all the node VM's are bought up on the
+		ESX which was in ON state in the respective clusters
+		8. Verify that All the workload POD's are up and running
+		9. Verify the Node affinity details on the PV
+		10. Scale up any one stateful set to 10 replica's
 		11. Wait for some time and make sure all 10 replica's are in running state
 		12. Scale down the stateful set to 5 replicas
-		13. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
+		13. wait for some time and verify that stateful set used in step 12 has 5 replicas running
 		14. Bring up all the ESX hosts
 		15. Wait for testbed to be back to normal
 		16. Verify that all the POD's and sts are up and running
-		17. Verify All the PV's has proper zone/region details and also make sure POD's are
-		running on the same node where respective PVC is created
-		18. Verify there were no issue with replica scale up/down and verify pod entry
-		in CNS volume-metadata for the volumes associated with the PVC used by stateful-sets are updated
+		17. Verify All the PV's has proper node affinity details.
+		18. Verify pod and  pvc volume metadata in CNS.
 		19. Make sure K8s cluster  is healthy
 		20. Delete above created STS, PVC's and SC
 	*/
@@ -561,7 +575,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
 
 		// Get allowed topologies for Storage Class
@@ -601,7 +615,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the sts pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -630,18 +647,23 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down ESXi host that belongs to zone1, zone2 and zone3")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
 			noOfHostToBringDown)
+		defer func() {
+			ginkgo.By("Bring up ESXi host which were powered off in zone1")
+			powerOnEsxiHostByCluster(powerOffHostsList[0])
+		}()
 		powerOffHostsList2 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
+		defer func() {
+			ginkgo.By("Bring up ESXi host which were powered off in zone2")
+			powerOnEsxiHostByCluster(powerOffHostsList2[0])
+		}()
 		powerOffHostsList3 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
-		powerOffHostsList = append(powerOffHostsList, powerOffHostsList2...)
-		powerOffHostsList = append(powerOffHostsList, powerOffHostsList3...)
 		defer func() {
-			ginkgo.By("Bring up all ESXi host which were powered off")
-			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
-			}
+			ginkgo.By("Bring up ESXi host which were powered off in zone3")
+			powerOnEsxiHostByCluster(powerOffHostsList3[0])
 		}()
+		powerOffHostsList = append(append(powerOffHostsList, powerOffHostsList2...), powerOffHostsList3...)
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -659,7 +681,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -667,7 +689,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
 			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
@@ -724,41 +746,41 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		TESTCASE-4
-		Bring down full site B (3 esx in cluster1 + 4 esx in cluster2)
+		Volume provisioning when zone2 hosts are down
 		Steps//
 		1. Create SC with waitForFirstConsumer
-		2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
+		2. Create 3 statefulsets each with replica count 7
 		3. Wait for all the workload pods to reach running state
 		4. Verify that all the POD's spread across zones
-		5. Verify that the PV's has node affinity details
-		6. In cluster1 bring down 3 ESX's that belongs to site B and in cluster 3 bring down all 4  ESX's hosts
-		7. wait for some time and verify that all the node VM's that are in site B  in
-		cluster1 bought up on the ESX which was  on same  respective clusters.
-		8. The POD's that were created on nodes of zone 3 may reach terminating state
-		9. Verify that the Node affinity details on the PV holds the zone and region  details
-		10. Verify that All the workload POD's are up and running
-		11. Verify that the Node affinity details on the PV holds proper node affinity details
-		12. scale up any one stateful set to 10 replica's
-		13. Wait for some time and make sure all 10 replica's are in running state
-		14. Scale down the stateful set to 5 replicas
-		15. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
-		16. Bring up all the ESX hosts
-		17. Wait for testbed to be back to normal
-		18. Verify that all the POD's and sts are up and running
-		19. Verify All the PV's has proper node affinity details and also make sure
-		POD's are running on the same node where respective PVC is created
-		20. Verify there were no issue with replica scale up/down and verify pod entry in
-		CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
-		21. Make sure K8s cluster  is healthy
-		22. Delete above created STS, PVC's and SC
+		5. Verify that the PV's have proper node affinity details
+		6. Bring down few esxi hosts which belongs to zone2
+		7. Wait for some time and verify that all the node VM's are bought up on the
+		ESX which was in ON state in the respective clusters
+		8. Verify that All the workload POD's are up and running
+		9. Verify the Node affinity details on the PV
+		10. Scale up any one stateful set to 10 replica's
+		11. Wait for some time and make sure all 10 replica's are in running state
+		12. Scale down the stateful set to 5 replicas
+		13. wait for some time and verify that stateful set used in step 12 has 5 replicas running
+		14. Bring up all the ESX hosts
+		15. Wait for testbed to be back to normal
+		16. Verify that all the POD's and sts are up and running
+		17. Verify All the PV's has proper node affinity details.
+		18. Verify pod and  pvc volume metadata in CNS.
+		19. Make sure K8s cluster  is healthy
+		20. Delete above created STS, PVC's and SC
 	*/
 
 	ginkgo.It("Volume provisioning when zone2 hosts are down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 5
+		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
+
+		// Get Cluster details
+		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -797,7 +819,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the sts pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -824,13 +849,11 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Bring down ESXi hosts that belongs to zone2
 		ginkgo.By("Bring down ESXi hosts that belongs to zone2")
-		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			(len(hostsInCluster) - 2))
 		defer func() {
-			ginkgo.By("Bring up all ESXi host which were powered off")
+			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
 				powerOnEsxiHostByCluster(powerOffHostsList[i])
 			}
@@ -838,6 +861,8 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
+		/* here passing any one statefulset name created in a namespace, GetPodList
+		will fetch all the sts pods running in a given namespace */
 		ssPods = fss.GetPodList(client, statefulSets[1])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(client, &pod)
@@ -855,7 +880,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -863,7 +888,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
 			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
@@ -926,37 +951,41 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		Testcase-5
-			Bring  zone3 completely down
+			Volume provisioning when zone3 hosts are down
 			Steps//
-			1. Create SC with  waitForFirstConsumer
-			2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
+			1. Create SC with waitForFirstConsumer
+			2. Create 3 statefulsets each with replica count 7
 			3. Wait for all the workload pods to reach running state
 			4. Verify that all the POD's spread across zones
-			5. Verify that the PV's has proper node affinity details
-			6. In cluster2 bring down all  ESX's
-			7. The POD's that were created on nodes of zone 2 may reach terminating state
-			8. Verify that the Node affinity details on the PV should have proper node affinity details
-			9. scale up any one stateful set to 10 replica's
-			10. Wait for some time and make sure all 10 replica's are in running state
-			11. Scale down the stateful set to 5 replicas
-			12. wait for some time and verify that stateful set used in step 12 has 5 replicas  running
-			13. Bring up all the ESX hosts
-			14. Wait for testbed to be back to normal
-			15. Verify that all the POD's and sts are up and running
-			16. Verify All the PV's has proper node affinity details and also make sure
-			POD's are running on the same node where respective PVC is created
-			17. Verify there were no issue with replica scale up/down and verify pod entry in
-			CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
-			18. Make sure K8s cluster  is healthy
-			19. Delete above created STS, PVC's and SC
+			5. Verify that the PV's have proper node affinity details
+			6. Bring down few esxi hosts which belongs to zone3
+			7. Wait for some time and verify that all the node VM's are bought up on the
+			ESX which was in ON state in the respective clusters
+			8. Verify that All the workload POD's are up and running
+			9. Verify the Node affinity details on the PV
+			10. Scale up any one stateful set to 10 replica's
+			11. Wait for some time and make sure all 10 replica's are in running state
+			12. Scale down the stateful set to 5 replicas
+			13. wait for some time and verify that stateful set used in step 12 has 5 replicas running
+			14. Bring up all the ESX hosts
+			15. Wait for testbed to be back to normal
+			16. Verify that all the POD's and sts are up and running
+			17. Verify All the PV's has proper node affinity details.
+			18. Verify pod and  pvc volume metadata in CNS.
+			19. Make sure K8s cluster  is healthy
+			20. Delete above created STS, PVC's and SC
 	*/
 
 	ginkgo.It("Volume provisioning when zone3 hosts are down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 5
+		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
+
+		// Get cluster details
+		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -995,7 +1024,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the sts pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -1022,8 +1054,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Bring down ESXi hosts that belongs to zone3
 		ginkgo.By("Bring down ESXi hosts that belongs to zone3")
-		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			(len(hostsInCluster) - 2))
@@ -1053,7 +1083,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -1061,7 +1091,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
 			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
@@ -1124,36 +1154,33 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 	/*
 		TESTCASE-6
-		Bring Zone2 completely down
+		Volume provisioning when zone2 is completely down
 		Steps//
 		1. Create SC with waitForFirstConsumer
-		2. Create 6 stateful sets each with replica count 3 - nodeSelectorTerms details
+		2. Create 3 stateful sets each with replica count 7
 		3. Wait for all the workload pods to reach running state
 		4. Verify that all the POD's spread across zones
 		5. Verify that the PV's have proper node affinity details
-		6. In cluster3 bring down all  ESX's
+		6. In zone2 bring down all  ESX's hosts
 		7. The POD's that were created on nodes of zone 3 may reach terminating state
 		8. Verify that the Node affinity details on the PV holds proper node affinity details of all 5 levels
-		9. scale up any one stateful set to 10 replica's
-		10. Wait for some time and make sure all 10 replica's are in running state
-		11. Scale down the stateful set to 5 replicas
-		12. wait for some time and verify that stateful used in step 9 has 5 replicas  running
-		13. Bring up all the ESX hosts
-		14. Wait for testbed to be back to normal
-		15. Verify that all the POD's and sts are up and running
-		16. Verify All the PV's has proper node affinity details and also make
-		sure POD's are running on the same node where respective PVC is created
-		17. Verify there were no issue with replica scale up/down and verify pod entry
-		in CNS volume-metadata for the volumes associated with the PVC used by stateful sets are updated
-		18. Make sure K8s cluster  is healthy
-		19. Delete above created STS, PVC's and SC
+		9. Scale up statefulSets replicas count to 10
+		10. Bring up all the ESX hosts
+		11. Wait for testbed to be back to normal
+		12. Scale down the stateful set to 5 replicas
+		13. wait for some time and verify that stateful has 5 replicas running
+		14. Verify that all the POD's and sts are up and running
+		15. Verify All the PV's has proper node affinity details
+		16. Verify pod and  pvc volume metadata in CNS.
+		17. Make sure K8s cluster  is healthy
+		18. Delete above created STS, PVC's and SC
 	*/
 
 	ginkgo.It("Volume provisioning when zone2 is completely down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
-		statefulSetReplicaCount = 3
+		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
 
 		// get cluster resource details
@@ -1198,7 +1225,10 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		time.Sleep(pollTimeoutSixMin)
+		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
+		will fetch all the sts pods running in a given namespace */
+		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -1229,7 +1259,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			len(hostsInCluster))
 		defer func() {
-			ginkgo.By("Bring up all ESXi host which were powered off")
+			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
 				powerOnEsxiHostByCluster(powerOffHostsList[i])
 			}
@@ -1268,7 +1298,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
-		statefulSetReplicaCount = 6
+		statefulSetReplicaCount = 10
 		_, scaleupErr := scaleStatefulSetPods(client, statefulSets[1], statefulSetReplicaCount)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
@@ -1309,12 +1339,11 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}
 
-		// Waiting for sometime to make testbed into stable state after start of zone2
-		ginkgo.By("Waiting for sometime to make testbed into stable state after start of zone2")
-		time.Sleep(pollTimeoutSixMin)
+		// Wait for testbed to be back to normal
+		time.Sleep(pollTimeoutShort)
 
 		// Scale down statefulSets replica count
-		statefulSetReplicaCount = 2
+		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica count")
 		scaleDownStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
@@ -1369,3 +1398,19 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		}
 	})
 })
+
+func waitForPodsToBeInRunningState(ctx context.Context, client clientset.Interface, namespace string,
+	statefulset *appsv1.StatefulSet) error {
+	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
+		pods := fss.GetPodList(client, statefulset)
+		for _, sspod := range pods.Items {
+			err := fpod.WaitForPodNameRunningInNamespace(client, sspod.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				return false, nil
+			}
+		}
+		return true, nil
+	})
+	return waitErr
+}
