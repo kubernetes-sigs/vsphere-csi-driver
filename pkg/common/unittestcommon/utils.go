@@ -23,9 +23,9 @@ import (
 	"sync"
 
 	"google.golang.org/grpc/codes"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -229,4 +229,10 @@ func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string
 func (c *FakeK8SOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeID []string) map[string]bool {
 	fakeAttachedVolumes := make(map[string]bool)
 	return fakeAttachedVolumes
+}
+
+// GetVolumeAttachment returns the VA object by using the given volumeId & nodeName
+func (c *FakeK8SOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (
+	*storagev1.VolumeAttachment, error) {
+	return nil, nil
 }
