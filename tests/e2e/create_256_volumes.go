@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -31,6 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("[csi-256-disk-support-vanilla] vsphere-Aware-Provisioni
 			so - 253 * 3 = 753 volume attachment we need to create and attach it to Pods.
 
 			Steps//
-			1. Create Storage Class
+			1. Create Storage Class with Immediate Binding mode
 			2. Trigger 3 parallel StatefulSets using parallel pod management policy with replica count of 60.
 			3. Note - Each StatefulSet Pod is connected to 4 PVC's (180 Pods * 4 PVC's = 720 PVC attachment)
 			4. Verify PVC's are in Bound state and Pod's are in up and running state.
@@ -110,7 +110,7 @@ var _ = ginkgo.Describe("[csi-256-disk-support-vanilla] vsphere-Aware-Provisioni
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			sts_count = 3
-			statefulSetReplicaCount = 62
+			statefulSetReplicaCount = 3
 			numberOfPVC := 9
 
 			// Create SC
@@ -143,7 +143,7 @@ var _ = ginkgo.Describe("[csi-256-disk-support-vanilla] vsphere-Aware-Provisioni
 
 			// Waiting for StatefulSets Pods to be in Ready State
 			ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-			time.Sleep(diskSupportTimeInterval)
+			waitForPodToBeInRunningState(ctx, client, namespace, statefulSets[1])
 
 			// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
 			ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
@@ -738,17 +738,6 @@ var _ = ginkgo.Describe("[csi-256-disk-support-vanilla] vsphere-Aware-Provisioni
 
 	})
 
-func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
-	stss := []*appsv1.StatefulSet{}
-	var statefulset *appsv1.StatefulSet
-	for i := 0; i < no_of_sts; i++ {
-		statefulset = GetStatefulSetFromManifestFor265Disks(namespace)
-		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
-		stss = append(stss, statefulset)
-	}
-	return stss
-}
-
 func GetStatefulSetFromManifestFor265Disks(ns string) *appsv1.StatefulSet {
 	ssManifestFilePath := filepath.Join(manifestPathFor256Disks, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
@@ -757,14 +746,17 @@ func GetStatefulSetFromManifestFor265Disks(ns string) *appsv1.StatefulSet {
 	return ss
 }
 
-func createParallelStatefulSets(client clientset.Interface, namespace string,
-	statefulset *appsv1.StatefulSet, replicas int32, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ginkgo.By("Creating statefulset")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
-	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+func waitForPodToBeInRunningState(ctx context.Context, client clientset.Interface, namespace string,
+	statefulset *appsv1.StatefulSet) error {
+	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", healthStatusPollInterval)
+		pods := fss.GetPodList(client, statefulset)
+		for _, sspod := range pods.Items {
+			err := fpod.WaitForPodNameRunningInNamespace(client, sspod.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
 }
