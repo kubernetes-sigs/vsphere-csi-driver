@@ -4578,7 +4578,7 @@ func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.St
 }
 
 // Scale scales ss to count replicas.
-func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
 	StatefulSetPoll := 10 * time.Second
@@ -4618,7 +4618,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
@@ -4672,7 +4672,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaleupErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -5313,12 +5313,12 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
+func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
 	for i := 0; i < no_of_sts; i++ {
@@ -5327,6 +5327,7 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.St
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
 	return stss
@@ -5450,4 +5451,70 @@ func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 	}
 
 	return claim
+}
+
+// get topology cluster lists
+func ListTopologyClusterNames(topologyCluster string) []string {
+	topologyClusterList := strings.Split(topologyCluster, ",")
+	return topologyClusterList
+}
+
+// getHosts returns list of hosts and it takes clusterComputeResource as input.
+func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource,
+	clusterName string) []*object.HostSystem {
+	var err error
+	computeCluster := clusterName
+	if computeCluster == "" {
+		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
+		return nil
+	}
+	for _, cluster := range clusterComputeResource {
+		framework.Logf("clusterComputeResource %v", clusterComputeResource)
+		if strings.Contains(cluster.Name(), computeCluster) {
+			hosts, err = cluster.Hosts(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	return hosts
+}
+
+// This util method powers on esxi hosts which were powered off cluster wise
+func powerOnEsxiHostByCluster(hostToPowerOn string) {
+	var esxHostIp string = ""
+	for _, esxInfo := range tbinfo.esxHosts {
+		if hostToPowerOn == esxInfo["vmName"] {
+			esxHostIp = esxInfo["ip"]
+			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
+	}
+	err := waitForHostToBeUp(esxHostIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// This util method takes cluster name as input parameter and powers off esxi host of that cluster
+func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
+	esxCount int) []string {
+	var powerOffHostsList []string
+	var hostsInCluster []*object.HostSystem
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	for i := 0; i < esxCount; i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[6] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	return powerOffHostsList
 }

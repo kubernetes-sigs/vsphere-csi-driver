@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create multiple StatefulSets Specs in parallel
 			ginkgo.By("Creating multiple StatefulSets specs in parallel")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel.
 			During StatefulSets creation, kill CSI Provisioner container in between */
@@ -427,7 +427,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create Multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Attacher is running */
@@ -607,7 +607,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Attacher is running */
@@ -1340,7 +1340,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create Multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating Multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Provisioner is running */
