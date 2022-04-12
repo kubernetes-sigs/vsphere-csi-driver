@@ -95,6 +95,9 @@ const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier.
 	AttributeFirstClassDiskUUID = "diskUUID"
 
+	// AttributeVmUUID is the vmUUID to which volume is attached to.
+	AttributeVmUUID = "vmUUID"
+
 	// AttributeFakeAttached is the flag that indicates if a volume is fake
 	// attached.
 	AttributeFakeAttached = "fake-attach"
@@ -302,8 +305,6 @@ const (
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion.
 	VolumeExtend = "volume-extend"
-	// OnlineVolumeExtend guards the feature for online volume expansion.
-	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check.

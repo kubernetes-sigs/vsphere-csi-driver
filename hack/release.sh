@@ -22,6 +22,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-true}
+
 # BASE_REPO is the root path of the image repository
 readonly BASE_IMAGE_REPO=gcr.io/cloud-provider-vsphere
 
@@ -200,8 +202,10 @@ function build_images() {
   build_driver_images_linux
   build_syncer_image_linux
 
-  # build images for windows platform
-  build_driver_images_windows
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    # build images for windows platform
+    build_driver_images_windows
+  fi
 }
 
 function push_manifest_driver() {
@@ -344,18 +348,23 @@ if [ "${PUSH}" ]; then
   if [ "${REGISTRY}" ]; then
     CSI_IMAGE_NAME="${REGISTRY}driver"
   fi
-  # build windows images and push them to registry as currently windows images are build only when push is enabled
-  WINDOWS_IMAGE_OUTPUT="type=registry"
-  for osversion in "${OSVERSION_WIN[@]}"
-  do 
-    OSVERSION="$osversion"
-    build_driver_images_windows 
-  done
+
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    # build windows images and push them to registry as currently windows images are build only when push is enabled
+    WINDOWS_IMAGE_OUTPUT="type=registry"
+    for osversion in "${OSVERSION_WIN[@]}"
+    do
+      OSVERSION="$osversion"
+      build_driver_images_windows
+    done
+  fi
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
   build_driver_images_linux
-  #create and push manifest for driver
-  push_manifest_driver
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    #create and push manifest for driver
+    push_manifest_driver
+  fi
   #push syncer images
   push_syncer_images
 fi
