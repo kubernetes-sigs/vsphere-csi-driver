@@ -41,7 +41,7 @@ Example command:
 
 ./deploy-csi-snapshot-components.sh
 EOF
-    exit 1
+    exit 0
 fi
 
 if ! command -v kubectl > /dev/null; then
@@ -284,7 +284,7 @@ check_snapshotter_sidecar(){
 			then
 				echo -e "✅ vSphere CSI Driver already running the qualified version of csi-snapshotter."
 				echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature! \n"
-				exit 1
+				exit 0
 			else
 				echo -e "The running csi-snapshotter is not running the qualified version ${qualified_version}, patching deployment"
 				patch_vsphere_csi_driver
