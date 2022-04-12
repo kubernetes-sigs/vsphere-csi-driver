@@ -65,19 +65,32 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 	}
 	// Get create params
 	var supervisorStorageClass string
+	var storageTopologyTypeValue string
 	params := req.GetParameters()
-	for param := range params {
-		paramName := strings.ToLower(param)
-		if paramName != common.AttributeSupervisorStorageClass {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid GC CSI parameter", param)
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		for param := range params {
+			paramName := strings.ToLower(param)
+			if !(paramName == common.AttributeSupervisorStorageClass ||
+				paramName == common.AttributeStorageTopologyType) {
+				msg := fmt.Sprintf("Volume parameter %s is not a valid GC CSI parameter", param)
+				return status.Error(codes.InvalidArgument, msg)
+			}
+			if paramName == common.AttributeSupervisorStorageClass {
+				supervisorStorageClass = req.Parameters[param]
+			} else if paramName == common.AttributeStorageTopologyType {
+				storageTopologyTypeValue = req.Parameters[param]
+			}
+		}
+		// Validate if the req contains non-empty common.AttributeSupervisorStorageClass
+		if supervisorStorageClass == "" {
+			msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
 			return status.Error(codes.InvalidArgument, msg)
 		}
-		supervisorStorageClass = req.Parameters[param]
-	}
-	// Validate if the req contains non-empty common.AttributeSupervisorStorageClass
-	if supervisorStorageClass == "" {
-		msg := fmt.Sprintf("Volume parameter %s is not set in the req", common.AttributeSupervisorStorageClass)
-		return status.Error(codes.InvalidArgument, msg)
+		if !(storageTopologyTypeValue == "" || storageTopologyTypeValue == "Zonal") {
+			msg := fmt.Sprintf("parameter value: %q is not supported for parameter: %q",
+				storageTopologyTypeValue, common.AttributeStorageTopologyType)
+			return status.Error(codes.InvalidArgument, msg)
+		}
 	}
 	// Fail file volume creation if file volume feature gate is disabled
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) &&
