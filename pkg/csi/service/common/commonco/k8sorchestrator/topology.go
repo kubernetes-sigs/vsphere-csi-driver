@@ -288,17 +288,18 @@ func azCRAdded(obj interface{}) {
 		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
 		return
 	}
-	// Retrieve clusterMoref from instance spec.
-	// TODO: TKGS-HA - convert to slice when appropriate
-	clusterComputeResourceMoId, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object,
-		"spec", "clusterComputeResourceMoId")
-	if !found || err != nil {
-		log.Errorf("failed to get `clusterComputeResourceMoId` from AvailabilityZone instance: %+v, Error: %+v",
-			obj, err)
+	// Retrieve clusterMorefs from instance spec.
+	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
+			"Error: %+v", obj, err)
 		return
 	}
 	// Add to cache.
-	addToAZClusterMap(ctx, azName, clusterComputeResourceMoId)
+	// TODO: For VC 8.0 release, zone to CCR is a 1:1 mapping.
+	// Update this when one vSphere zone can span across multiple CCRs.
+	addToAZClusterMap(ctx, azName, clusterComputeResourceMoIds[0])
 }
 
 // azCRUpdated handles deleting AZ name in the cache.
