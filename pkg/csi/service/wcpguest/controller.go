@@ -242,8 +242,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// Later we may need to define different csi faults.
 		err := validateGuestClusterCreateVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-			log.Error(msg)
+			log.Errorf("validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
