@@ -1548,11 +1548,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var vmUUID string
 		var exists bool
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
-
-		annotations := pod.Annotations
-		vmUUID, exists = annotations[vmUUIDLabel]
-		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-
+		if supervisorCluster {
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		} else {
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		}
 		framework.Logf("VMUUID : %s", vmUUID)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
