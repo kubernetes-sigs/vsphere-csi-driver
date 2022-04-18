@@ -37,7 +37,11 @@ import (
 )
 
 const (
-	maxAllowedBlockVolumesPerNode = 59
+	// vCenter 8.0 supports attaching max 255 volumes to Node
+	// Previous vSphere releases supports attaching a max of 59 volumes to Node VM.
+	// Deployment YAML file for Node DaemonSet has ENV MAX_VOLUMES_PER_NODE set to 59 for vsphere-csi-node container
+	// If Customer is using vSphere 8.0, they are allowed to set MAX_VOLUMES_PER_NODE to 255
+	maxAllowedBlockVolumesPerNode = 255
 )
 
 var topologyService commoncotypes.NodeTopologyService
