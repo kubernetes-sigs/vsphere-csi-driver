@@ -1355,6 +1355,27 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
+/*
+	Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
+	will not work if sps-service is down.
+	Keeping this code for reference. Disabling isFssEnabled util method as we won't be using
+	this util method in testcases.
+	isFssEnabled invokes the given command to check if vCenter has a particular FSS enabled or not
+*/
+// func isFssEnabled(host, fss string) bool {
+// 	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
+// 	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
+// 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+// 	fssh.LogResult(result)
+// 	if err == nil && result.Code == 0 {
+// 		return strings.TrimSpace(result.Stdout) == "enabled"
+// 	} else {
+// 		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	}
+// 	return false
+// }
+
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
 // via service-control on the given vCenter host over SSH.
 func waitVCenterServiceToBeInState(serviceName string, host string, state string) error {

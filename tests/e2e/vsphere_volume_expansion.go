@@ -663,6 +663,13 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var expectedErrMsg string
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
+		/*
+			Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
+			will not work if sps-service is down.
+			Keeping the below disabled line of code for reference. Here, cnsNewSyncFSS = "CNS_NEW_SYNC"
+		*/
+		//featureEnabled := isFssEnabled(vcAddress, cnsNewSyncFSS)
+
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
 		defer func() {
