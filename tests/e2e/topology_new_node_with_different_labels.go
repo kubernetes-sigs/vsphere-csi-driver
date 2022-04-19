@@ -62,6 +62,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 
 		Steps
 		1. Create SC with the tag that is newly added on the existing node
+		(Note: adding new node will be handled in jenkins job)
 		2. Create PVC using the above created SC
 		3. Volume provisioning should fail since NodeVM does not belong to a label
 		from all the categories mentioned under `topology-categories`
@@ -71,11 +72,17 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// Read invalid tag and invalid category label from env. variable
 		regionZoneValue = GetAndExpectStringEnvVar(envTopologyWithInvalidTagInvalidCat)
 		_, _, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
 		regionZone := strings.Split(regionZoneValue, ":")
 		topologyNonExistingRegionZone := regionZone[0] + ":" + regionZone[1]
+
+		// Create allowed topology required for creating Storage Class
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyNonExistingRegionZone)
+
+		// Create Storage Class and PVC
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -86,9 +93,11 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		// Expect claim to fail provisioning volume within the topology
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout))
+
 		// Get the event list and verify if it contains expected error message
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
@@ -105,6 +114,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 
 		Steps
 		1. To an existing set create a new node and add a new tag to a known category
+		(Note: adding new node will be handled in jenkins job)
 		2. Create SC which allows provisioning of volume on the specific node
 		3. Create PVC using the above SC
 		4. Wait for PVC and PV to bound
@@ -120,10 +130,16 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		StoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = StoragePolicyName
-		regionZoneValue = GetAndExpectStringEnvVar(envTopologyWithInvalidTagvalidCat)
+
+		// Read invalid tag under a known valid category from env. variable
+		regionZoneValue = GetAndExpectStringEnvVar(envTopologyWithInvalidTagValidCat)
 		regionZone := strings.Split(regionZoneValue, ":")
 		topologyInvalidTagValidCat := regionZone[0] + ":" + regionZone[1]
+
+		// Get allowed topologies required for creating storage class
 		regionValues, zoneValues, allowedTopologies := topologyParameterForStorageClass(topologyInvalidTagValidCat)
+
+		// Create Storage Class and PVC
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

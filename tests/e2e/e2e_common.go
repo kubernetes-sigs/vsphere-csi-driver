@@ -75,7 +75,7 @@ const (
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
 	envTopologyWithInvalidTagInvalidCat        = "TOPOLOGY_WITH_INVALID_TAG_INVALID_CAT"
-	envTopologyWithInvalidTagvalidCat          = "TOPOLOGY_WITH_INVALID_TAG_VALID_CAT"
+	envTopologyWithInvalidTagValidCat          = "TOPOLOGY_WITH_INVALID_TAG_VALID_CAT"
 	envNumberOfGoRoutines                      = "NUMBER_OF_GO_ROUTINES"
 	envWorkerPerRoutine                        = "WORKER_PER_ROUTINE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
