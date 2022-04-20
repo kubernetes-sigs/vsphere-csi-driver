@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
@@ -85,12 +84,11 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 	log.Debugf("CNS-CSI validation webhook handler called with request: %+v", req)
 
 	resp = admission.Allowed("")
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+	if featureGateTKGSHaEnabled {
 		if req.Kind.Kind == "PersistentVolumeClaim" {
 			resp = validatePVCAnnotation(ctx, req)
 		}
 	}
-
 	log.Debugf("CNS-CSI validation webhook handler completed for the request: %+v", req)
 	return
 }
