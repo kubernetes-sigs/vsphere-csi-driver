@@ -50,7 +50,7 @@ const (
 
 // validateStorageClass helps validate AdmissionReview requests for StroageClass.
 func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
-	if containerOrchestratorUtility != nil && !containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+	if !featureGateCsiMigrationEnabled {
 		// If CSI migration is disabled and webhook is running,
 		// skip validation for StorageClass.
 		return &admissionv1.AdmissionResponse{
