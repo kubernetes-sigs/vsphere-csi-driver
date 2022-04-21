@@ -54,8 +54,10 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                 *interface{}
-	containerOrchestratorUtility commonco.COCommonInterface
+	COInitParams                          *interface{}
+	featureGateCsiMigrationEnabled        bool
+	featureGateBlockVolumeSnapshotEnabled bool
+	featureGateTKGSHaEnabled              bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -121,22 +123,21 @@ func StartWebhookServer(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err error
 	var clusterFlavor cnstypes.CnsClusterFlavor
-
-	if containerOrchestratorUtility == nil {
-		clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
-		if err != nil {
-			log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-			return err
-		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
-			common.Kubernetes, clusterFlavor, *COInitParams)
-		if err != nil {
-			log.Errorf("failed to get k8s interface. err: %v", err)
-			return err
-		}
+	var containerOrchestratorUtility commonco.COCommonInterface
+	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
+	}
+	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
+		common.Kubernetes, clusterFlavor, *COInitParams)
+	if err != nil {
+		log.Errorf("failed to get k8s interface. err: %v", err)
+		return err
 	}
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		startCNSCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cfg == nil {
@@ -147,9 +148,10 @@ func StartWebhookServer(ctx context.Context) error {
 			}
 			log.Debugf("webhook config: %v", cfg)
 		}
+		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 
-		if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) ||
-			containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 			if err != nil {
 				log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
