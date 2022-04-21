@@ -724,6 +724,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isSPSServiceStopped = false
+				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -748,6 +750,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isSPSServiceStopped = false
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1480,6 +1484,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isSPSServiceStopped = false
+				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -1504,6 +1510,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isSPSServiceStopped = false
+		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
