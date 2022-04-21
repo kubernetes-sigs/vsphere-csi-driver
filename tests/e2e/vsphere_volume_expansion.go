@@ -723,9 +723,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 				framework.Logf("Bringing sps up before terminating the test")
 				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isSPSServiceStopped = false
 				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				isSPSServiceStopped = false
 			}
 		}()
 
@@ -749,9 +749,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Bringup SPS service")
 		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSServiceStopped = false
 		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isSPSServiceStopped = false
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1483,9 +1483,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 				framework.Logf("Bringing sps up before terminating the test")
 				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isSPSServiceStopped = false
 				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				isSPSServiceStopped = false
 			}
 		}()
 
@@ -1509,9 +1509,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Bringup SPS service")
 		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSServiceStopped = false
 		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isSPSServiceStopped = false
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
