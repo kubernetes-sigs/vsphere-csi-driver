@@ -564,7 +564,6 @@ spec:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-            - "--health-port=9809"
           env:
             - name: ADDRESS
               value: 'unix://C:\\csi\\csi.sock'
@@ -576,7 +575,6 @@ spec:
             - name: registration-dir
               mountPath: /registration
           livenessProbe:
-            livenessProbe:
             exec:
               command:
               - /csi-node-driver-registrar.exe
