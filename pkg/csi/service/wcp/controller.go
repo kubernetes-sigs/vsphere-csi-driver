@@ -41,6 +41,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
@@ -519,10 +520,34 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+	if isTKGSHAEnabled {
 		if zoneLabelPresent && !hostnameLabelPresent {
-			// Calculate accessible topology for the provisioned volume.
 			selectedDatastore := volumeInfo.DatastoreURL
+			// CreateBlockVolumeUtil with idempotency enabled does not return datastore
+			// information when it uses the cached information from CR. In such cases,
+			// querying the volume to retrieve the datastore URL.
+			if selectedDatastore == "" {
+				queryFilter := cnstypes.CnsQueryFilter{
+					VolumeIds: []cnstypes.CnsVolumeId{
+						{
+							Id: volumeInfo.VolumeID.Id,
+						},
+					},
+				}
+				querySelection := cnstypes.CnsQuerySelection{
+					Names: []string{utils.CnsQuerySelectionName_DATASTORE_URL},
+				}
+				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
+					true)
+				if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find the datastore on which volume %q is provisioned. Error: %+v",
+						volumeInfo.VolumeID.Id, err)
+				}
+				selectedDatastore = queryResult.Volumes[0].DatastoreUrl
+			}
+
+			// Calculate accessible topology for the provisioned volume.
 			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
 				commoncotypes.WCPRetrieveTopologyInfoParams{
 					DatastoreURL:        selectedDatastore,
