@@ -591,6 +591,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		var lables = make(map[string]string)
 		lables["app"] = "nginx"
 		replica := 1
+		var pvclaims []*v1.PersistentVolumeClaim
 
 		/* Get allowed topologies for Storage Class
 		(region1 > zone1 > building1 > level1 > rack > rack3) */
