@@ -29,10 +29,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
-// TODO: The constant QuerySnapshotLimit is already present in pkg/csi/service/common/constants.go
-// However, using that constant creates a import cycle. Refactor to move all the constants into a
-// top level directory.
-const DefaultQuerySnapshotLimit = int64(128)
+const (
+	// DefaultQuerySnapshotLimit constant is already present in pkg/csi/service/common/constants.go
+	// However, using that constant creates an import cycle.
+	// TODO: Refactor to move all the constants into a top level directory.
+	DefaultQuerySnapshotLimit = int64(128)
+	// CnsQuerySelectionName_DATASTORE_URL is the name used to
+	// retrieve datastore URL during a QueryVolumeAsync call.
+	// TODO: Add this constant to govmomi along with the rest of the strings.
+	CnsQuerySelectionName_DATASTORE_URL = "DATASTORE_URL"
+)
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
 // state set for using query async volume. If useQueryVolumeAsync is set to
