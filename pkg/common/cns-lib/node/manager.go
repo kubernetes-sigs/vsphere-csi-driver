@@ -195,7 +195,7 @@ func (m *defaultManager) GetNode(ctx context.Context,
 		var vm *vsphere.VirtualMachine
 		var err error
 		if dc != nil {
-			vm, err = dc.GetVirtualMachineByUUID(context.TODO(), nodeUUID, false)
+			vm, err = dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 			if err != nil {
 				log.Errorf("failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
 				return nil, err
