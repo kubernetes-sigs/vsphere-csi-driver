@@ -1914,8 +1914,39 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}
 
 	// Get the taskInfo and more!
-	createSnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, createSnapshotsTask)
-	if err != nil || createSnapshotsTaskInfo == nil {
+	createSnapshotsTaskInfo, err := createSnapshotsTask.WaitForResult(ctx, nil)
+	if err != nil {
+		if cnsvsphere.IsManagedObjectNotFound(err, createSnapshotsTask.Reference()) {
+			log.Infof("CreateSnapshot task %s not found in vCenter. Querying CNS "+
+				"to determine if the snapshot %s was successfully created.",
+				createSnapshotsTask.Reference().Value, instanceName)
+			queriedCnsSnapshot, ok := queryCreatedSnapshotByName(ctx, m, volumeID, instanceName)
+			if ok {
+				// Create the volumeOperationDetails object for persistence
+				volumeOperationDetails = createRequestDetails(
+					instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id, 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+					createSnapshotsTask.Reference().Value,
+					"", taskInvocationStatusSuccess, "")
+
+				log.Infof("CreateSnapshot: Snapshot with name %s on volume %q is confirmed to be created "+
+					"successfully with SnapshotID %q", instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id)
+
+				return &CnsSnapshotInfo{
+					SnapshotID:                queriedCnsSnapshot.SnapshotId.Id,
+					SourceVolumeID:            volumeID,
+					SnapshotDescription:       snapshotName,
+					SnapshotCreationTimestamp: queriedCnsSnapshot.CreateTime,
+				}, nil
+			} else {
+				errMsg := fmt.Sprintf("Snapshot with name %s on volume %q is not present in CNS. "+
+					"Marking task %s as failed.", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
+				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
+					"", taskInvocationStatusError, errMsg)
+				return nil, logger.LogNewError(log, errMsg)
+			}
+		}
 		return nil, logger.LogNewErrorf(log, "Failed to get taskInfo for CreateSnapshots task "+
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 	}
