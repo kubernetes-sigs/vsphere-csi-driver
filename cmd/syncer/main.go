@@ -127,7 +127,7 @@ func main() {
 		run = initSyncerComponents(ctx, clusterFlavor, &syncer.COInitParams)
 
 		if !*enableLeaderElection {
-			run(context.TODO())
+			run(ctx)
 		} else {
 			k8sClient, err := k8s.NewClient(ctx)
 			if err != nil {
