@@ -572,6 +572,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			if err == nil || time.Now().After(timeout) {
 				break
 			}
+			virtualMachine = &vmoperatortypes.VirtualMachine{}
 			if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 				msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 				log.Error(msg)
@@ -900,6 +901,7 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		if err == nil || time.Now().After(timeout) {
 			break
 		}
+		virtualMachine = &vmoperatortypes.VirtualMachine{}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 			if errors.IsNotFound(err) {
 				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
