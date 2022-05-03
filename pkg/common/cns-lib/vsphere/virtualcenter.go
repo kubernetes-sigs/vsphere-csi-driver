@@ -261,6 +261,9 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	if vc.Client == nil {
 		if vc.Client, err = vc.newClient(ctx); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
+			if !vc.Config.Insecure {
+				log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
+			}
 			return err
 		}
 		return nil
@@ -282,6 +285,9 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	log.Warnf("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Client, err = vc.newClient(ctx); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
+		if !vc.Config.Insecure {
+			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
+		}
 		return err
 	}
 	// Recreate PbmClient if created using timed out VC Client.
