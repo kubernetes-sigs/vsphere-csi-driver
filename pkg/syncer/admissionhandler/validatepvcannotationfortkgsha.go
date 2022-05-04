@@ -7,6 +7,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -18,9 +19,9 @@ const (
 	RemovePVCAnnotation            = "Remove the PVC Annotation"
 )
 
-func validatePVCAnnotation(ctx context.Context, request admission.Request) admission.Response {
+func validatePVCAnnotationForTKGSHA(ctx context.Context, request admission.Request) admission.Response {
 	log := logger.GetLogger(ctx)
-	log.Debugf("validatePVCAnnotation called with the request %v", request)
+	log.Debugf("validatePVCAnnotationForTKGSHA called with the request %v", request)
 
 	newPVC := corev1.PersistentVolumeClaim{}
 	if err := json.Unmarshal(request.Object.Raw, &newPVC); err != nil {
@@ -81,6 +82,6 @@ func validatePVCAnnotation(ctx context.Context, request admission.Request) admis
 		}
 	}
 
-	log.Debugf("validatePVCAnnotation completed for the request %v", request)
+	log.Debugf("validatePVCAnnotationForTKGSHA completed for the request %v", request)
 	return admission.Allowed("")
 }
