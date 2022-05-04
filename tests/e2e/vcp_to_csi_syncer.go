@@ -548,6 +548,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPostMig)
+
+		time.Sleep(10 * time.Minute)
 	})
 
 	// Verify Pod Name updates on CNS.
@@ -1440,12 +1442,11 @@ func waitForCnsVSphereVolumeMigrationCrd(
 //createDir create a directory on the test esx host
 func createDir(path string, host string) error {
 	sshCmd := fmt.Sprintf("mkdir -p %s", path)
+
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(sshCmd, host+":22", framework.TestContext.Provider)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
-	}
+	result, err := runCommandOnESX("root", host, sshCmd)
+	framework.Logf(result)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nil
 }
 
@@ -1468,11 +1469,9 @@ func createVmdk(host string, size string, objType string, diskFormat string) (st
 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(sshCmd, host+":22", framework.TestContext.Provider)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
-	}
+	result, err := runCommandOnESX("root", host, sshCmd)
+	framework.Logf(result)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return vmdkPath, nil
 }
 
