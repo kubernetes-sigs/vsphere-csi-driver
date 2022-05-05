@@ -862,6 +862,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume created successfully. Volume Handle: %q, PV Name: %q", resp.Volume.VolumeId, req.Name)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -977,6 +978,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q deleted successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1104,6 +1106,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q attached successfully to node %q.", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1220,6 +1223,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q detached successfully from node %q.", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1325,6 +1329,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q expanded successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1538,6 +1543,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Snapshot for volume %q created successfully.", req.GetSourceVolumeId())
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
@@ -1587,6 +1593,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Snapshot %q deleted successfully.", req.SnapshotId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
