@@ -5570,3 +5570,27 @@ func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcN
 	framework.Logf("Status of pvc is: %v", pvc.Status.Phase)
 	return waitErr
 }
+
+/* This util method fetches events list of the given object name and checkes for
+specified error reason and returns true if expected error Reason found */
+func waitForEventWithReason(client clientset.Interface, namespace string,
+	name string, expectedErrMsg string) (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	isFailureFound := false
+	ginkgo.By("Checking for error in events related to pvc " + name)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+		for _, item := range eventList.Items {
+			if strings.Contains(item.Reason, expectedErrMsg) {
+				framework.Logf("Expected Error msg found. EventList Reason: "+
+					"%q"+" EventList item: %q", item.Reason, item.Message)
+				isFailureFound = true
+				break
+			}
+		}
+		return isFailureFound, nil
+	})
+	return isFailureFound, waitErr
+}

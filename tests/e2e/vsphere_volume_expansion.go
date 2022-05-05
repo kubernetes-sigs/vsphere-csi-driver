@@ -741,8 +741,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("File system resize should not succeed since SPS service is down. " +
 			"Expecting an error")
 		expectedErrMsg = "VolumeResizeFailed"
-		framework.Logf("Expected failure message: %+q", expectedErrMsg)
-		isFailureFound, err := getEventsListAndVerifyPvcError(client, namespace, pvclaim, expectedErrMsg)
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
@@ -1501,8 +1500,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("File system resize should not succeed since SPS service is down. " +
 			"Expecting an error")
 		expectedErrMsg := "VolumeResizeFailed"
-		framework.Logf("Expected failure message: %+q", expectedErrMsg)
-		isFailureFound, err := getEventsListAndVerifyPvcError(client, namespace, pvclaim, expectedErrMsg)
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
@@ -3829,28 +3827,4 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	framework.Logf("Offline volume expansion on PVC is successful")
 	return pvclaim, pod, vmUUID
 
-}
-
-/* This util method fetches pvc events list and matches the events list with the
-specified error message and returns true if expected error found */
-func getEventsListAndVerifyPvcError(client clientset.Interface, namespace string,
-	pvclaim *v1.PersistentVolumeClaim, expectedErrMsg string) (bool, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	isFailureFound := false
-	ginkgo.By("Checking for error in events related to pvc " + pvclaim.Name)
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
-			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)})
-		for _, item := range eventList.Items {
-			if strings.Contains(item.Reason, expectedErrMsg) {
-				framework.Logf("Expected Error msg found. EventList Reason: "+
-					"%q"+" EventList item: %q", item.Reason, item.Message)
-				isFailureFound = true
-				break
-			}
-		}
-		return isFailureFound, nil
-	})
-	return isFailureFound, waitErr
 }
