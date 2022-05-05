@@ -212,6 +212,16 @@ func (f *fakeVolumeOperationRequestInterface) StoreRequestDetails(
 	return nil
 }
 
+// DeleteRequestDetails deletes the VolumeOperationRequestDetails for the given
+// name, if any, stored by the fake VolumeOperationRequest interface.
+func (f *fakeVolumeOperationRequestInterface) DeleteRequestDetails(
+	ctx context.Context,
+	name string,
+) error {
+	delete(f.volumeOperationRequestMap, name)
+	return nil
+}
+
 // GetNodesForVolumes returns nodeNames to which the given volumeIDs are attached
 func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID []string) map[string][]string {
 	nodeNames := make(map[string][]string)

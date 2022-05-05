@@ -111,11 +111,11 @@ var (
 	// define any vCenters.
 	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
 
-	// ErrClusterIdCharLimit is returned when the provided cluster id is more
+	// ErrClusterIDCharLimit is returned when the provided cluster id is more
 	// than 64 characters.
 	ErrClusterIDCharLimit = errors.New("cluster id must not exceed 64 characters")
 
-	// ErrSupervisorIdCharLimit is returned when the provided supervisor id is more
+	// ErrSupervisorIDCharLimit is returned when the provided supervisor id is more
 	// than 64 characters.
 	ErrSupervisorIDCharLimit = errors.New("supervisor id must not exceed 64 characters")
 
