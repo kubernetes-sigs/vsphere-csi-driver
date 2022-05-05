@@ -30,6 +30,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
+// InvalidTopologyProvisioningError is raised when volume provisioning
+// fails on a topology aware setup due to an invalid setting.
+type InvalidTopologyProvisioningError struct {
+	ErrMsg string
+}
+
+func (e *InvalidTopologyProvisioningError) Error() string {
+	return e.ErrMsg
+}
+
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for all block controllers.
 // Function returns error if validation fails otherwise returns nil.

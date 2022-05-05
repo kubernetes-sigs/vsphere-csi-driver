@@ -56,6 +56,9 @@ const (
 )
 
 var (
+	// operationStore represents the client by which we can
+	// interact with VolumeOperationRequest interface.
+	operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 	// controllerCaps represents the capability of controller service.
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
@@ -115,7 +118,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
-	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
@@ -314,7 +317,6 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			}
 			vcenter.Config = newVCConfig
 		}
-		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.CSIVolumeManagerIdempotency)
 		if idempotencyHandlingEnabled {
@@ -376,8 +378,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		case common.AttributeStoragePool:
 			storagePool = req.Parameters[paramName]
 		case common.AttributeStorageTopologyType:
-			// TODO: TKGS-HA : Add validation
+			// TKGS-HA: validate storageTopologyType.
 			storageTopologyType = req.Parameters[paramName]
+			val := strings.ToLower(storageTopologyType)
+			if val != "zonal" {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"invalid value found for StorageClass parameter `storagetopologytype`: %q.",
+					storageTopologyType)
+			}
 		}
 	}
 
@@ -403,7 +411,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"support for topology requirement with both zone and hostname labels is not yet implemented.")
 		} else if zoneLabelPresent {
-			// topologyMgr can be nil if the AZ CR was not been registered
+			// topologyMgr can be nil if the AZ CR was not registered
 			// at the time of controller init. Handling that case in CreateVolume calls.
 			if c.topologyMgr == nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
@@ -555,9 +563,36 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					TopologyRequirement: topologyRequirement,
 					Vc:                  vc})
 			if err != nil {
+				// If the error is of InvalidTopologyProvisioningError type, it means we cannot
+				// recover from this error with a retry, so cleanup the volume created above.
+				if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
+					log.Errorf("Encountered error after creating volume. Cleaning up...")
+					// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
+					deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+					if deleteOpReqError != nil {
+						log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+							"out. Error received: %+v", deleteOpReqError)
+					} else {
+						// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
+						// successfully, we can go ahead and delete the volume created above.
+						_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+							volumeInfo.VolumeID.Id, true)
+						if deleteVolumeError != nil {
+							// This is a best effort deletion. We do not propagate the delete volume error to K8s.
+							// NOTE: This might leave behind an orphan volume.
+							log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+								"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+						}
+					}
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+						volumeInfo.VolumeID.Id, err)
+				}
+				// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
+				// feature will ensure we retry with the same volume.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find accessible topologies for the selected datastore %q. Error: %+v",
-					selectedDatastore, err)
+					"failed to find accessible topologies for volume %q. Error: %+v",
+					volumeInfo.VolumeID.Id, err)
 			}
 			// Add topology segments to the CreateVolumeResponse.
 			for _, topoSegments := range datastoreAccessibleTopology {
@@ -581,7 +616,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	} else {
 		// Configure the volumeTopology in the response so that the external
-		// provisioner will properly sets up the nodeAffinity for this volume.
+		// provisioner will properly set up the nodeAffinity for this volume.
 		if isValidAccessibilityRequirement(topologyRequirement) {
 			for _, hostName := range accessibleNodes {
 				volumeTopology := &csi.Topology{
