@@ -2791,6 +2791,8 @@ func trimQuotes(str string) string {
 //    password = "qd?\\/\"K=O_<ZQw~s4g(S"
 //    datacenters = "datacenter-1033"
 //    port = "443"
+//    [Snapshot]
+//    global-max-snapshots-per-block-volume = 3
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
@@ -2803,6 +2805,10 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		}
 		words := strings.Split(line, " = ")
 		if len(words) == 1 {
+			// Case Snapshot
+			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
 			// Case VirtualCenter.
 			words = strings.Split(line, " ")
 			if strings.Contains(words[0], "VirtualCenter") {
@@ -2841,6 +2847,9 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
 			config.Global.TopologyCategories = value
+		case "global-max-snapshots-per-block-volume":
+			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -2851,10 +2860,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // writeConfigToSecretString takes in a structured config data and serializes
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
-	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
-		cfg.Global.InsecureFlag, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort)
+	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d",
+		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+		cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
 	return result, nil
 }
 
