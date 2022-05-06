@@ -630,6 +630,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 200m
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 60Mi
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-certs
