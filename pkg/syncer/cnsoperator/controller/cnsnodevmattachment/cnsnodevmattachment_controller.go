@@ -189,7 +189,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		err := r.client.Get(ctx, request.NamespacedName, instance)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				log.Error("CnsNodeVmAttachment resource not found. Ignoring since object must be deleted.")
+				log.Info("CnsNodeVmAttachment resource not found. Ignoring since object must be deleted.")
 				return reconcile.Result{}, nil
 			}
 			log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
@@ -212,6 +212,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// If the CnsNodeVMAttachment instance is already attached and
 		// not deleted by the user, remove the instance from the queue.
 		if instance.Status.Attached && instance.DeletionTimestamp == nil {
+			log.Infof("CnsNodeVmAttachment instance %q status is already attached. Removing from the queue.", instance.Name)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
 			delete(backOffDuration, instance.Name)
@@ -346,6 +347,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			if !cnsFinalizerExists {
 				// Read the CnsNodeVMAttachment instance again because the instance
 				// is already modified.
+				instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
 				err = r.client.Get(ctx, request.NamespacedName, instance)
 				if err != nil {
 					msg := fmt.Sprintf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
@@ -597,8 +599,38 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client,
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {
-		log.Errorf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
-			instance.Name, instance.Namespace, err)
+		if apierrors.IsConflict(err) {
+			log.Infof("Observed conflict while updating CnsNodeVmAttachment instance %q in namespace %q."+
+				"Reapplying changes to the latest instance.", instance.Name, instance.Namespace)
+
+			// Fetch the latest instance version from the API server and apply changes on top of it.
+			latestInstance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+			err = client.Get(ctx, k8stypes.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latestInstance)
+			if err != nil {
+				log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
+					instance.Name, instance.Namespace, err)
+				// Error reading the object - return error
+				return err
+			}
+
+			// The callers of updateCnsNodeVMAttachment are either updating the instance finalizers or
+			// one of the fields in instance status.
+			// Hence we copy only finalizers and Status from the instance passed for update
+			// on the latest instance from API server.
+			latestInstance.Finalizers = instance.Finalizers
+			latestInstance.Status = *instance.Status.DeepCopy()
+
+			err := client.Update(ctx, latestInstance)
+			if err != nil {
+				log.Errorf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+					instance.Name, instance.Namespace, err)
+				return err
+			}
+			return nil
+		} else {
+			log.Errorf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
+				instance.Name, instance.Namespace, err)
+		}
 	}
 	return err
 }
