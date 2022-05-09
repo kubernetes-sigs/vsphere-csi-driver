@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -789,13 +790,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			volHandle = getVolumeIDFromSupervisorCluster(svcPVCName)
 		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
 
+		ginkgo.By(fmt.Sprintf("Waiting for %v minutes to allow volume health check to be triggered",
+			pollTimeout))
 		ginkgo.By("Expect health status of the pvc to be accessible")
-		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+		pvc, err := waitForVolumeHealthCheckEventToTriggerForPvc(ctx, client, volumeHealthAnnotation, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Changing health status of the pvc to be inaccessible")
@@ -810,13 +809,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
-
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		ginkgo.By(fmt.Sprintf("Waiting for %v minutes to allow volume health check to be triggered",
+			pollTimeout))
+		pvc, err = waitForVolumeHealthCheckEventToTriggerForPvc(ctx, client, volumeHealthAnnotation, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		ginkgo.By("Changing health status of the pvc to be random value")
 		setAnnotation[volumeHealthAnnotation] = "vmware"
@@ -829,13 +825,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo("vmware"))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
+		ginkgo.By(fmt.Sprintf("Waiting for %v minutes to allow volume health check to be triggered",
+			pollTimeout))
 		ginkgo.By("Verify if health status of the pvc is changed to accessible")
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		_, err = waitForVolumeHealthCheckEventToTriggerForPvc(ctx, client, volumeHealthAnnotation, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -1076,13 +1070,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
-
+		ginkgo.By(fmt.Sprintf("Waiting for %v minutes to allow volume health check to be triggered",
+			pollTimeout))
 		ginkgo.By("Expect health status of the pvc to be accessible")
-		pvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
+		pvc, err := waitForVolumeHealthCheckEventToTriggerForPvc(ctx, client, volumeHealthAnnotation, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Removing health status from the pvc")
@@ -1101,14 +1092,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			gomega.Expect(describe).ShouldNot(gomega.BeEquivalentTo(volumeHealthAnnotation))
 		}
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
-
+		ginkgo.By(fmt.Sprintf("Waiting for %v minutes to allow volume health check to be triggered",
+			pollTimeout))
 		ginkgo.By("Expect health status of the pvc to be accessible")
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+		_, err = waitForVolumeHealthCheckEventToTriggerForPvc(ctx, client, volumeHealthAnnotation, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -3078,3 +3066,21 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 	})
 })
+
+func waitForVolumeHealthCheckEventToTriggerForPvc(ctx context.Context, client clientset.Interface,
+	volumeHealthAnnotation string, pvclaim *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+	var pvc *v1.PersistentVolumeClaim
+	var err error
+	waitErr := wait.PollImmediate(pollTimeout, pollTimeoutSixMin, func() (bool, error) {
+		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return false, err
+		}
+		if pvc.Annotations[volumeHealthAnnotation] == healthStatusAccessible {
+			return true, nil
+		}
+		return false, nil
+	})
+	return pvc, waitErr
+}
