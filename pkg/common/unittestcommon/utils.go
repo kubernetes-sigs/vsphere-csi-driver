@@ -246,3 +246,9 @@ func (c *FakeK8SOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId 
 	*storagev1.VolumeAttachment, error) {
 	return nil, nil
 }
+
+// GetAllVolumes returns list of volumes in a bound state
+func (c *FakeK8SOrchestrator) GetAllVolumes() []string {
+	// TODO - This can be implemented if we add WCP controller tests for list volume
+	return nil
+}

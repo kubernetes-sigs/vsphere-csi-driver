@@ -47,6 +47,8 @@ const (
 	PrometheusDeleteSnapshotOpType = "delete-snapshot"
 	// PrometheusListSnapshotsOpType represents the ListSnapshots operation.
 	PrometheusListSnapshotsOpType = "list-snapshot"
+	// PrometheusListVolumeOpType represents the ListVolumes operation.
+	PrometheusListVolumeOpType = "list-volume"
 
 	// CNS operation types
 
