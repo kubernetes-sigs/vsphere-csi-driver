@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,8 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES,
 	}
 )
 
@@ -71,6 +74,9 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
+
+var expectedStartingIndex = 0
+var cnsVolumeIDs = make([]string, 0)
 
 type controller struct {
 	manager     *common.Manager
@@ -1104,12 +1110,116 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	}, nil
 }
 
+// ListVolumes returns the mapping of the volumes and corresponding published nodes.
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
+	start := time.Now()
+	volumeType := prometheus.PrometheusBlockVolumeType
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	var err error
+	// ListVolumes FSS is disabled so, return nil and an unimplemented error
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		return nil, status.Error(codes.Unimplemented, "")
+	}
+	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
+		log.Infof("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
+		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
+
+		startingIdx := 0
+		if req.StartingToken != "" {
+			startingIdx, err = strconv.Atoi(req.StartingToken)
+			if err != nil {
+				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
+				return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
+					"startingToken not a valid integer")
+			}
+		}
+
+		// If the startingIdx is zero or not equal to the expectedStartingIndex, then
+		// it means the listVolume request is a new one and not part of a previous
+		// request, so fetch the volumes from CNS again
+		if startingIdx == 0 || startingIdx != expectedStartingIndex {
+			queryFilter := cnstypes.CnsQueryFilter{
+				ContainerClusterIds: []string{
+					c.manager.CnsConfig.Global.ClusterID,
+				},
+			}
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			}
+
+			cnsQueryVolumes, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			if err != nil {
+				log.Errorf("Error while querying volumes from CNS %v", err)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while querying volumes from CNS")
+			}
+
+			cnsVolumeIDs = nil
+			for _, cnsVolume := range cnsQueryVolumes.Volumes {
+				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
+			}
+		}
+
+		// If the difference between the volumes reported by Kubernetes and CNS
+		// is greater than the listVolumeThreshold, it might mean that the CNS
+		// cache is stale. So, fail the request and return an error
+		listVolumeThreshold := c.manager.VcenterConfig.ListVolumeThreshold
+		if len(k8sVolumeIDs)-len(cnsVolumeIDs) > listVolumeThreshold {
+			log.Errorf("Kubernetes and CNS volumes completely out of sync and exceeds the threshold: %d-%d=%d",
+				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
+			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition,
+				"Kubernetes and CNS volumes completely out of sync")
+		}
+
+		queryLimit := c.manager.VcenterConfig.QueryLimit
+		if req.MaxEntries != 0 {
+			queryLimit = int(req.MaxEntries)
+		}
+
+		if queryLimit > len(cnsVolumeIDs) {
+			queryLimit = len(cnsVolumeIDs)
+		}
+
+		endingIdx := queryLimit + startingIdx
+		if endingIdx > len(cnsVolumeIDs) {
+			endingIdx = len(cnsVolumeIDs)
+		}
+		log.Debugf("ListVolumes: cnsVolumeIDs %+v, startingIdx %v, queryLimit %v", cnsVolumeIDs, startingIdx, queryLimit)
+		volumeIDs := make([]string, 0)
+		for i := startingIdx; i < endingIdx; i++ {
+			volumeIDs = append(volumeIDs, cnsVolumeIDs[i])
+		}
+
+		response, err := getVolumeIDToVMMap(ctx, c, volumeIDs)
+		if err != nil {
+			log.Errorf("Error while generating ListVolume response, err:%v", err)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
+		}
+
+		// Correctly set response nextToken value for the paginated response
+		if len(cnsVolumeIDs) > endingIdx {
+			expectedStartingIndex = endingIdx
+			response.NextToken = strconv.Itoa(endingIdx)
+		} else {
+			// All entries have been returned, so reset expectedStartingIndex and the nextToken
+			expectedStartingIndex = 0
+			response.NextToken = ""
+		}
+		log.Debugf("ListVolumes: Response entries %+v", response)
+		return response, "", nil
+	}
+	resp, faultType, err := controllerListVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
+	}
+	return resp, nil
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (

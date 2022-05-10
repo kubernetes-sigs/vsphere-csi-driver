@@ -61,6 +61,8 @@ type COCommonInterface interface {
 	GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool
 	//GetVolumeAttachment is used to fetch the VA object from the cluster.
 	GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (*storagev1.VolumeAttachment, error)
+	// GetAllVolumes returns list of volumes in a bound state
+	GetAllVolumes() []string
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
