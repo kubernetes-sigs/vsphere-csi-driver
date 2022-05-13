@@ -114,10 +114,10 @@ rules:
     verbs: ["get", "list", "create", "delete", "watch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["get", "update", "delete"]
+    verbs: ["get", "list", "update", "delete"]
   - apiGroups: [""]
     resources: ["persistentvolumes"]
-    verbs: ["update", "get"]
+    verbs: ["get", "list", "update", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
