@@ -417,6 +417,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"support for topology requirement with both zone and hostname labels is not yet implemented.")
 		} else if zoneLabelPresent {
+			// StorageTopologyType should be set if topology label is present
+			if storageTopologyType == "" {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"StorageTopologyType is unset while topology label is present")
+			}
 			// topologyMgr can be nil if the AZ CR was not registered
 			// at the time of controller init. Handling that case in CreateVolume calls.
 			if c.topologyMgr == nil {
