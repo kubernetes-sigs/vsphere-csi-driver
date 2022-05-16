@@ -419,15 +419,15 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 
 	var (
 		clusterComputeResourceMoIds []string
-		found                       bool
 	)
 	for _, az := range azList.Items {
-		clusterComputeResourceMoIds, found, err = unstructured.NestedStringSlice(az.Object, "spec",
+		clusterComputeResourceMoIdSlice, found, err := unstructured.NestedStringSlice(az.Object, "spec",
 			"clusterComputeResourceMoIDs")
 		if !found || err != nil {
 			return nil, fmt.Errorf("failed to get ClusterComputeResourceMoIDs "+
 				"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
 		}
+		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoIdSlice...)
 	}
 	return clusterComputeResourceMoIds, nil
 }

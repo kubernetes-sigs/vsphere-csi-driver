@@ -5578,15 +5578,10 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	isFailureFound := false
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		framework.Logf("Checking for error in events related to pvc " + name)
-		eventList, err := client.CoreV1().Events(namespace).List(ctx,
+	ginkgo.By("Checking for error in events related to pvc " + name)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
-		framework.Logf("Eventlist is :%v", eventList)
-		if err != nil {
-			framework.Logf("Error is: %v", err)
-			return false, err
-		}
 		for _, item := range eventList.Items {
 			if strings.Contains(item.Reason, expectedErrMsg) {
 				framework.Logf("Expected Error msg found. EventList Reason: "+
