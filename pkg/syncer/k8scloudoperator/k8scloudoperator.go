@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -159,7 +160,16 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 		if pod == nil {
 			pod, err = k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
 			if err != nil {
-				vmUuidNotFoundError = false
+				if apierrors.IsNotFound(err) {
+					// When the pod itself is not found in the api server, we still mark the error as
+					// vmUuidNotFoundError because from GetPodVMUUIDAnnotation's perspective the final error is that
+					// it could not find the annotation. Also, there are no distinct notFound error codes
+					// in grpc error codes. Refer - go/pkg/mod/google.golang.org/grpc@v1.27.1/codes/codes.go
+					vmUuidNotFoundError = true
+				} else {
+					// Set vmUuidNotFoundError as false to indicate other errors
+					vmUuidNotFoundError = false
+				}
 				return false, logger.LogNewErrorf(log,
 					"Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
 					podName, podNamespace, err)

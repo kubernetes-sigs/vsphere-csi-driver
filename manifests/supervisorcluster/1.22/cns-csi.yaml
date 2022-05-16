@@ -117,10 +117,10 @@ rules:
     verbs: ["get", "list", "create", "delete", "watch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["get", "update", "delete"]
+    verbs: ["get", "list", "update", "delete"]
   - apiGroups: [""]
     resources: ["persistentvolumes"]
-    verbs: ["update", "get"]
+    verbs: ["get", "list", "update", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -405,7 +405,7 @@ data:
   "volume-health": "true"
   "file-volume": "true"
   "csi-auth-check": "true"
-  "vsan-direct-disk-decommission": "false"
+  "vsan-direct-disk-decommission": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
@@ -630,13 +630,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-          resources:
-            limits:
-              cpu: 200m
-              memory: 60Mi
-            requests:
-              cpu: 10m
-              memory: 45Mi
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-certs

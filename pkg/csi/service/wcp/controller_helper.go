@@ -26,6 +26,8 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
@@ -472,4 +475,145 @@ func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyReq
 		}
 	}
 	return hostnameLabelPresent, zoneLabelPresent
+}
+
+// GetVolumeToHostMapping returns a map containing VM MoID to host MoID and VolumeID
+// and VM MoID. This map is constructed by fetching all virtual machines belonging to each host.
+func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]string, map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	vmMoIDToHostMoID := make(map[string]string)
+	volumeIDVMMap := make(map[string]string)
+
+	// Get VirtualCenter object
+	vc, err := common.GetVCenter(ctx, c.manager)
+	if err != nil {
+		log.Errorf("GetVcenter error %v", err)
+		return nil, nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
+	}
+
+	// Get all the hosts belonging to the cluster
+	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
+	if err != nil {
+		log.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
+		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
+	}
+
+	// Get all the virtual machines belonging to all the hosts
+	vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
+	if err != nil {
+		log.Errorf("failed to get VM MoID err: %v", err)
+		return nil, nil, fmt.Errorf("failed to get VM MoID err: %v", err)
+	}
+
+	var vmRefs []vimtypes.ManagedObjectReference
+	var vmMoList []mo.VirtualMachine
+
+	for _, vm := range vms {
+		vmRefs = append(vmRefs, vm.Reference())
+	}
+	properties := []string{"runtime.host", "config.hardware"}
+	pc := property.DefaultCollector(vc.Client.Client)
+	// Obtain host MoID and virtual disk ID
+	err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
+	if err != nil {
+		log.Errorf("Error while retrieving host properties, err: %v", err)
+		return vmMoIDToHostMoID, volumeIDVMMap, err
+	}
+
+	// Iterate through all the VMs and build the vmMoIDToHostMoID map
+	// and the volumeID to VMMoiD map
+	for _, info := range vmMoList {
+		vmMoID := info.Reference().Value
+
+		host := info.Runtime.Host
+		vmMoIDToHostMoID[vmMoID] = host.Reference().Value
+
+		devices := info.Config.Hardware.Device
+		vmDevices := object.VirtualDeviceList(devices)
+		for _, device := range vmDevices {
+			if vmDevices.TypeName(device) == "VirtualDisk" {
+				if virtualDisk, ok := device.(*vimtypes.VirtualDisk); ok {
+					if virtualDisk.VDiskId != nil {
+						volumeIDVMMap[virtualDisk.VDiskId.Id] = vmMoID
+					}
+				}
+			}
+		}
+	}
+	return vmMoIDToHostMoID, volumeIDVMMap, nil
+}
+
+// getVolumeIDToVMMap returns the csi list volume response by computing the volumeID to nodeNames map for
+// fake attached volumes and non-fake attached volumes.
+func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) (*csi.ListVolumesResponse, error) {
+	log := logger.GetLogger(ctx)
+	response := &csi.ListVolumesResponse{}
+
+	fakeAttachMarkedVolumes := commonco.ContainerOrchestratorUtility.GetFakeAttachedVolumes(ctx, volumeIDs)
+	fakeAttachedVolumes := make([]string, 0)
+	for volumeID, isfakeAttached := range fakeAttachMarkedVolumes {
+		if isfakeAttached {
+			fakeAttachedVolumes = append(fakeAttachedVolumes, volumeID)
+		}
+	}
+	// Process fake attached volumes
+	log.Debugf("Fake attached volumes %v", fakeAttachedVolumes)
+	volumeIDToNodesMap := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, fakeAttachedVolumes)
+	for volumeID, publishedNodeIDs := range volumeIDToNodesMap {
+		volume := &csi.Volume{
+			VolumeId: volumeID,
+		}
+		volumeStatus := &csi.ListVolumesResponse_VolumeStatus{
+			PublishedNodeIds: publishedNodeIDs,
+		}
+		entry := &csi.ListVolumesResponse_Entry{
+			Volume: volume,
+			Status: volumeStatus,
+		}
+		response.Entries = append(response.Entries, entry)
+	}
+
+	// Process remaining volumes
+	vmMoidToHostMoid, volumeIDToVMMap, err := c.GetVolumeToHostMapping(ctx)
+	if err != nil {
+		log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
+		return nil, fmt.Errorf("failed to get VM MoID to Host MoID map, err: %v", err)
+	}
+
+	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	for volumeID, VMMoID := range volumeIDToVMMap {
+		isFakeAttached, exists := fakeAttachMarkedVolumes[volumeID]
+		// If we do not find this entry in the input list obtained from CNS
+		//, then we do not bother adding it to the result since, CNS is not aware
+		// of this volume. Also, if it is fake attached volume we have handled it
+		// above so we will not add it to the response here.
+		if !exists || isFakeAttached {
+			continue
+		}
+
+		hostMoID, ok := vmMoidToHostMoid[VMMoID]
+		if !ok {
+			continue
+		}
+
+		hostName, ok := hostNames[hostMoID]
+		if !ok {
+			continue
+		}
+		publishedNodeIDs := make([]string, 0)
+		publishedNodeIDs = append(publishedNodeIDs, hostName)
+		volume := &csi.Volume{
+			VolumeId: volumeID,
+		}
+		volumeStatus := &csi.ListVolumesResponse_VolumeStatus{
+			PublishedNodeIds: publishedNodeIDs,
+		}
+		entry := &csi.ListVolumesResponse_Entry{
+			Volume: volume,
+			Status: volumeStatus,
+		}
+		response.Entries = append(response.Entries, entry)
+	}
+
+	return response, nil
 }

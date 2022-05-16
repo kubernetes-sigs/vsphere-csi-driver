@@ -382,11 +382,10 @@ func Contains(list []string, item string) bool {
 }
 
 // GetClusterComputeResourceMoIds helps find ClusterComputeResourceMoIds from
-// AvailabilityZone CRs on the supervisor cluster
+// AvailabilityZone CRs on the supervisor cluster.
 func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 	log := logger.GetLogger(ctx)
 	// Get a config to talk to the apiserver.
-	clusterComputeResourceMoIds := make([]string, 0)
 	cfg, err := config.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
@@ -399,14 +398,14 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 	}
 	azResource := schema.GroupVersionResource{
 		Group: "topology.tanzu.vmware.com", Version: "v1alpha1", Resource: "availabilityzones"}
-	// Get AvailabilityZone list
+	// Get AvailabilityZone list.
 	azList, err := azClient.Resource(azResource).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		// If the AvailabilityZone CR is not registered in the
 		// supervisor cluster, we receive NoKindMatchError. In such cases
-		// return nil array for ClusterComputeResourceMoIds with no error
-		// AvailabilityZone CR is not registered when supervisor cluster was installed prior to vSphere 8.0
-		// Upgrading vSphere to 8.0 does not create zone CRs on existing supervisor clusters
+		// return nil array for ClusterComputeResourceMoIds with no error.
+		// AvailabilityZone CR is not registered when supervisor cluster was installed prior to vSphere 8.0.
+		// Upgrading vSphere to 8.0 does not create zone CRs on existing supervisor clusters.
 		_, ok := err.(*apiMeta.NoKindMatchError)
 		if ok {
 			log.Infof("AvailabilityZone CR is not registered on the cluster")
@@ -418,14 +417,17 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("could not find any AvailabilityZone")
 	}
 
+	var (
+		clusterComputeResourceMoIds []string
+	)
 	for _, az := range azList.Items {
-		// TODO: TKGS-HA - convert to slice when appropriate
-		clusterComputeResourceMoId, found, err := unstructured.NestedString(az.Object, "spec", "clusterComputeResourceMoId")
+		clusterComputeResourceMoIdSlice, found, err := unstructured.NestedStringSlice(az.Object, "spec",
+			"clusterComputeResourceMoIDs")
 		if !found || err != nil {
-			return nil, fmt.Errorf("failed to get clusterComputeResourceMoId "+
+			return nil, fmt.Errorf("failed to get ClusterComputeResourceMoIDs "+
 				"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
 		}
-		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoId)
+		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoIdSlice...)
 	}
 	return clusterComputeResourceMoIds, nil
 }

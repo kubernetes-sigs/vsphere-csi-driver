@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create multiple StatefulSets Specs in parallel
 			ginkgo.By("Creating multiple StatefulSets specs in parallel")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel.
 			During StatefulSets creation, kill CSI Provisioner container in between */
@@ -427,7 +427,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create Multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Attacher is running */
@@ -607,7 +607,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Attacher is running */
@@ -869,6 +869,8 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Starting vsan-health service on vcenter host
 			ginkgo.By("Bringup vsanhealth service")
 			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isVsanhealthServiceStopped = false
 
@@ -1327,6 +1329,8 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					framework.Logf("Bringing sps up before terminating the test")
 					err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					isSPSServiceStopped = false
 				}
 			}()
@@ -1340,7 +1344,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create Multiple StatefulSets Specs for creation of StatefulSets
 			ginkgo.By("Creating Multiple StatefulSets Specs")
-			statefulSets := createParallelStatefulSetSpec(namespace, sts_count)
+			statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
 
 			/* Trigger multiple StatefulSets creation in parallel. During StatefulSets
 			creation, in between delete elected leader Csi-Controller-Pod where CSI-Provisioner is running */
@@ -1377,6 +1381,8 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			if isSPSServiceStopped {
 				framework.Logf("Bringing SPS service")
 				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1665,6 +1671,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			scParameters := make(map[string]string)
 			var pvclaimsList []*v1.PersistentVolumeClaim
 			var podList []*v1.Pod
+			var pvclaims []*v1.PersistentVolumeClaim
 
 			// Get allowed topologies for Storage Class
 			allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -2085,11 +2092,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 			defer func() {
 				ginkgo.By("Deleting the Pod")
-				framework.ExpectNoError(fpod.DeletePodWithWait(client, StaticPod), "Failed to delete pod",
-					StaticPod.Name)
-				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", StaticPod.Spec.NodeName))
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, newstaticPod), "Failed to delete pod",
+					newstaticPod.Name)
+				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", newstaticPod.Spec.NodeName))
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-					staticPv.Spec.CSI.VolumeHandle, StaticPod.Spec.NodeName)
+					staticPv.Spec.CSI.VolumeHandle, newstaticPod.Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 			}()
@@ -2106,11 +2113,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 			defer func() {
 				ginkgo.By("Deleting the Pod")
-				framework.ExpectNoError(fpod.DeletePodWithWait(client, StaticPod), "Failed to delete pod",
-					StaticPod.Name)
-				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", StaticPod.Spec.NodeName))
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, newDynamicPod), "Failed to delete pod",
+					newDynamicPod.Name)
+				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", newDynamicPod.Spec.NodeName))
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-					staticPv.Spec.CSI.VolumeHandle, StaticPod.Spec.NodeName)
+					staticPv.Spec.CSI.VolumeHandle, newDynamicPod.Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 			}()

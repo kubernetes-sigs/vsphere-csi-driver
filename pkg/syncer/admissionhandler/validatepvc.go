@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
@@ -23,7 +22,7 @@ const (
 
 // validatePVC helps validate AdmissionReview requests for PersistentVolumeClaim.
 func validatePVC(ctx context.Context, ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
-	if containerOrchestratorUtility != nil && !containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+	if !featureGateBlockVolumeSnapshotEnabled {
 		// If CSI block volume snapshot is disabled and webhook is running,
 		// skip validation for PersistentVolumeClaim.
 		return &admissionv1.AdmissionResponse{

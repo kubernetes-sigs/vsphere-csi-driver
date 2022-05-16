@@ -90,6 +90,9 @@ const (
 	// DefaultListVolumeThreshold specifies the default maximum number of differences in volumes between CNS
 	// and kubernetes
 	DefaultListVolumeThreshold = 50
+	// supervisorIDPrefix is added before the SupervisorID
+	// Using this CNS UI can form an appropriate URL to navigate from CNS UI to WCP UI
+	supervisorIDPrefix = "vSphereSupervisorID-"
 )
 
 // Errors
@@ -108,11 +111,11 @@ var (
 	// define any vCenters.
 	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
 
-	// ErrClusterIdCharLimit is returned when the provided cluster id is more
+	// ErrClusterIDCharLimit is returned when the provided cluster id is more
 	// than 64 characters.
 	ErrClusterIDCharLimit = errors.New("cluster id must not exceed 64 characters")
 
-	// ErrSupervisorIdCharLimit is returned when the provided supervisor id is more
+	// ErrSupervisorIDCharLimit is returned when the provided supervisor id is more
 	// than 64 characters.
 	ErrSupervisorIDCharLimit = errors.New("supervisor id must not exceed 64 characters")
 
@@ -475,6 +478,9 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		if err != nil {
 			log.Errorf("failed to parse config. Err: %v", err)
 			return cfg, err
+		}
+		if cfg.Global.SupervisorID != "" {
+			cfg.Global.SupervisorID = supervisorIDPrefix + cfg.Global.SupervisorID
 		}
 	}
 	return cfg, nil

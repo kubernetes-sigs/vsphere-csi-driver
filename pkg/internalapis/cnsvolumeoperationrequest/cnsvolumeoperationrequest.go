@@ -50,6 +50,9 @@ type VolumeOperationRequest interface {
 	// Returns an error if any error is encountered. Clients must assume
 	// that the attempt to persist the information failed if an error is returned.
 	StoreRequestDetails(ctx context.Context, instance *VolumeOperationRequestDetails) error
+	// DeleteRequestDetails deletes the details of the operation on the volume
+	// that was persisted by the VolumeOperationRequest interface.
+	DeleteRequestDetails(ctx context.Context, name string) error
 }
 
 // operationRequestStore implements the VolumeOperationsRequest interface.
@@ -278,11 +281,12 @@ func (or *operationRequestStore) StoreRequestDetails(
 	return nil
 }
 
-// deleteRequestDetails deletes the input CnsVolumeOperationRequest instance
+// DeleteRequestDetails deletes the input CnsVolumeOperationRequest instance
 // from the operationRequestStore.
-func (or *operationRequestStore) deleteRequestDetails(ctx context.Context, name string) error {
+func (or *operationRequestStore) DeleteRequestDetails(ctx context.Context, name string) error {
 	log := logger.GetLogger(ctx)
-	log.Debugf("Deleting CnsVolumeOperationRequest instance with name %s/%s", csiconfig.DefaultCSINamespace, name)
+	log.Debugf("Deleting CnsVolumeOperationRequest instance with name %s/%s",
+		csiconfig.DefaultCSINamespace, name)
 	err := or.k8sclient.Delete(ctx, &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -397,7 +401,7 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int, isBl
 				trimmedName = strings.TrimPrefix(instance.Name, "deletesnapshot-")
 			}
 			if _, ok := instanceMap[trimmedName]; !ok {
-				err = or.deleteRequestDetails(ctx, instance.Name)
+				err = or.DeleteRequestDetails(ctx, instance.Name)
 				if err != nil {
 					log.Errorf("failed to delete CnsVolumeOperationRequest instance %s with error %v",
 						instance.Name, err)

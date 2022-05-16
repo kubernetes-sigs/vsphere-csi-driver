@@ -212,6 +212,16 @@ func (f *fakeVolumeOperationRequestInterface) StoreRequestDetails(
 	return nil
 }
 
+// DeleteRequestDetails deletes the VolumeOperationRequestDetails for the given
+// name, if any, stored by the fake VolumeOperationRequest interface.
+func (f *fakeVolumeOperationRequestInterface) DeleteRequestDetails(
+	ctx context.Context,
+	name string,
+) error {
+	delete(f.volumeOperationRequestMap, name)
+	return nil
+}
+
 // GetNodesForVolumes returns nodeNames to which the given volumeIDs are attached
 func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID []string) map[string][]string {
 	nodeNames := make(map[string][]string)
@@ -235,4 +245,10 @@ func (c *FakeK8SOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volume
 func (c *FakeK8SOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (
 	*storagev1.VolumeAttachment, error) {
 	return nil, nil
+}
+
+// GetAllVolumes returns list of volumes in a bound state
+func (c *FakeK8SOrchestrator) GetAllVolumes() []string {
+	// TODO - This can be implemented if we add WCP controller tests for list volume
+	return nil
 }

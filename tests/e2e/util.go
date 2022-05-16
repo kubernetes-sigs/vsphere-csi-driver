@@ -1355,21 +1355,26 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	return nil
 }
 
-// isFssEnabled invokes the given command to check if vCenter
-// has a particular FSS enabled or not
-func isFssEnabled(host, fss string) bool {
-	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
-	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
-	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
-	fssh.LogResult(result)
-	if err == nil && result.Code == 0 {
-		return strings.TrimSpace(result.Stdout) == "enabled"
-	} else {
-		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-	return false
-}
+/*
+	Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
+	will not work if sps-service is down.
+	Keeping this code for reference. Disabling isFssEnabled util method as we won't be using
+	this util method in testcases.
+	isFssEnabled invokes the given command to check if vCenter has a particular FSS enabled or not
+*/
+// func isFssEnabled(host, fss string) bool {
+// 	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
+// 	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
+// 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+// 	fssh.LogResult(result)
+// 	if err == nil && result.Code == 0 {
+// 		return strings.TrimSpace(result.Stdout) == "enabled"
+// 	} else {
+// 		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	}
+// 	return false
+// }
 
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
 // via service-control on the given vCenter host over SSH.
@@ -3743,6 +3748,15 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
 		}
+		restartKubeletCmd := "systemctl restart kubelet"
+		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIP)
+		result, err = sshExec(sshClientConfig, k8sMasterIP, restartKubeletCmd)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+					k8sMasterIP))
+		}
 	}
 	// Sleeping for two seconds so that the change made to manifest file is
 	// recognised.
@@ -4578,7 +4592,7 @@ func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.St
 }
 
 // Scale scales ss to count replicas.
-func ScaleDownSts(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
 	StatefulSetPoll := 10 * time.Second
@@ -4618,7 +4632,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaledownErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
@@ -4672,7 +4686,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	if parallelStatefulSetCreation {
-		_, scaleupErr := ScaleDownSts(client, statefulset, replicas)
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -5313,12 +5327,12 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, *(statefulset.Spec.Replicas), statefulset.Spec.Selector))
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.StatefulSet {
+func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
 	for i := 0; i < no_of_sts; i++ {
@@ -5327,6 +5341,7 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int) []*appsv1.St
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
 	return stss
@@ -5450,4 +5465,132 @@ func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 	}
 
 	return claim
+}
+
+// get topology cluster lists
+func ListTopologyClusterNames(topologyCluster string) []string {
+	topologyClusterList := strings.Split(topologyCluster, ",")
+	return topologyClusterList
+}
+
+// getHosts returns list of hosts and it takes clusterComputeResource as input.
+func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource,
+	clusterName string) []*object.HostSystem {
+	var err error
+	computeCluster := clusterName
+	if computeCluster == "" {
+		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
+		return nil
+	}
+	for _, cluster := range clusterComputeResource {
+		framework.Logf("clusterComputeResource %v", clusterComputeResource)
+		if strings.Contains(cluster.Name(), computeCluster) {
+			hosts, err = cluster.Hosts(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	return hosts
+}
+
+// This util method powers on esxi hosts which were powered off cluster wise
+func powerOnEsxiHostByCluster(hostToPowerOn string) {
+	var esxHostIp string = ""
+	for _, esxInfo := range tbinfo.esxHosts {
+		if hostToPowerOn == esxInfo["vmName"] {
+			esxHostIp = esxInfo["ip"]
+			err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostToPowerOn, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
+	}
+	err := waitForHostToBeUp(esxHostIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// This util method takes cluster name as input parameter and powers off esxi host of that cluster
+func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
+	esxCount int) []string {
+	var powerOffHostsList []string
+	var hostsInCluster []*object.HostSystem
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	for i := 0; i < esxCount; i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[6] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err = vMPowerMgmt(tbinfo.user, tbinfo.location, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	return powerOffHostsList
+}
+
+// getVolumeSnapshotSpecWithoutSC returns a spec for the volume snapshot
+func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapc.VolumeSnapshot {
+	var volumesnapshotSpec = &snapc.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshot-",
+			Namespace:    namespace,
+		},
+		Spec: snapc.VolumeSnapshotSpec{
+			Source: snapc.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+// waitForPvcToBeDeleted waits by polling for a particular pvc to be deleted in a namespace
+func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcName string, namespace string) error {
+	var pvc *v1.PersistentVolumeClaim
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return true, nil
+			} else {
+				return false, fmt.Errorf("pvc %s is still not deleted in"+
+					"namespace %s with err: %v", pvc.Name, namespace, err)
+			}
+		}
+		return false, nil
+	})
+	framework.Logf("Status of pvc is: %v", pvc.Status.Phase)
+	return waitErr
+}
+
+/* This util method fetches events list of the given object name and checkes for
+specified error reason and returns true if expected error Reason found */
+func waitForEventWithReason(client clientset.Interface, namespace string,
+	name string, expectedErrMsg string) (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	isFailureFound := false
+	ginkgo.By("Checking for error in events related to pvc " + name)
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+		for _, item := range eventList.Items {
+			if strings.Contains(item.Reason, expectedErrMsg) {
+				framework.Logf("Expected Error msg found. EventList Reason: "+
+					"%q"+" EventList item: %q", item.Reason, item.Message)
+				isFailureFound = true
+				break
+			}
+		}
+		return isFailureFound, nil
+	})
+	return isFailureFound, waitErr
 }

@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"reflect"
 	"strconv"
@@ -288,17 +287,18 @@ func azCRAdded(obj interface{}) {
 		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
 		return
 	}
-	// Retrieve clusterMoref from instance spec.
-	// TODO: TKGS-HA - convert to slice when appropriate
-	clusterComputeResourceMoId, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object,
-		"spec", "clusterComputeResourceMoId")
-	if !found || err != nil {
-		log.Errorf("failed to get `clusterComputeResourceMoId` from AvailabilityZone instance: %+v, Error: %+v",
-			obj, err)
+	// Retrieve clusterMorefs from instance spec.
+	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
+			"Error: %+v", obj, err)
 		return
 	}
 	// Add to cache.
-	addToAZClusterMap(ctx, azName, clusterComputeResourceMoId)
+	// TODO: For VC 8.0 release, zone to CCR is a 1:1 mapping.
+	// Update this when one vSphere zone can span across multiple CCRs.
+	addToAZClusterMap(ctx, azName, clusterComputeResourceMoIds[0])
 }
 
 // azCRUpdated handles deleting AZ name in the cache.
@@ -1106,7 +1106,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 					datastores, err := params.Vc.GetDatastoresByCluster(ctx, clusterMoref)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log,
-							"Failed to fetch datastores associated with cluster %q", clusterMoref)
+							"failed to fetch datastores associated with cluster %q", clusterMoref)
 					}
 					for _, ds := range datastores {
 						if ds.Info.Url == params.DatastoreURL {
@@ -1124,23 +1124,19 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 					"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
 			case numSelectedSegments > 1:
 				// This situation will arise when datastore belongs to multiple zones but the
-				// storageTopologyType is `zonal`. In such cases, we will choose a random zone among
-				// the retrieved zones and use it as node affinity for the PV.
-				rand.Seed(time.Now().Unix())
-				topologySegments = append(topologySegments, selectedSegments[rand.Intn(len(selectedSegments))])
-				log.Infof("Selected topology %+v from possible selections %+v", topologySegments,
-					selectedSegments)
+				// storageTopologyType is `zonal`. This seems like a configuration error.
+				return nil, &common.InvalidTopologyProvisioningError{ErrMsg: fmt.Sprintf(
+					"zonal volume is provisioned on %q datastore which is accessible from multiple zones: %+v. "+
+						"Kindly check the configuration of the storage policy used in the StorageClass.",
+					params.DatastoreURL, selectedSegments)}
 			default:
 				topologySegments = selectedSegments
 			}
 		}
-	case "crosszonal":
-		// TODO: TKGS-HA : Implement the node affinity logic for crossZonal
-		return nil, logger.LogNewErrorf(log,
-			"Node Affinity logic for crossZonal storageTopologyType not implemented yet.")
 	default:
-		return nil, logger.LogNewErrorf(log, "Unrecognised storageTopologyType found: %q",
-			params.StorageTopologyType)
+		// This is considered a configuration error.
+		return nil, &common.InvalidTopologyProvisioningError{ErrMsg: fmt.Sprintf("unrecognised "+
+			"storageTopologyType found: %q", params.StorageTopologyType)}
 	}
 	log.Infof("Topology of the provisioned volume detected as %+v", topologySegments)
 	return topologySegments, nil

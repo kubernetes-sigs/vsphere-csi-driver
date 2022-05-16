@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -144,7 +145,7 @@ func getPVCAnnotationAdmissionTest(t *testing.T) *pvcAnnotationAdmissionTest {
 	return pvcAnnotationAdmissionTestInstance
 }
 
-func TestValidatePVCAnnotation(t *testing.T) {
+func TestValidatePVCAnnotationForTKGSHA(t *testing.T) {
 	testValidatePVCAnnotationInstance := getPVCAnnotationAdmissionTest(t)
 
 	tests := []struct {
@@ -329,8 +330,9 @@ func TestValidatePVCAnnotation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := validatePVCAnnotation(context.TODO(), tt.admissionReview); !reflect.DeepEqual(got, tt.expectedResponse) {
-				t.Errorf("validatePVCAnnotation() = %v, want %v", got, tt.expectedResponse)
+			got := validatePVCAnnotationForTKGSHA(context.TODO(), tt.admissionReview)
+			if !reflect.DeepEqual(got, tt.expectedResponse) {
+				t.Errorf("validatePVCAnnotationForTKGSHA() = %v, want %v", got, tt.expectedResponse)
 			}
 		})
 	}

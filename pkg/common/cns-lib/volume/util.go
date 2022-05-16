@@ -474,8 +474,8 @@ func validateSnapshotDeleted(ctx context.Context, m *defaultManager, volumeID st
 
 	querySnapshotResult, querySnapshotErr := m.QuerySnapshots(ctx, snapshotQueryFilter)
 	if querySnapshotErr != nil {
-		log.Infof("failed to validate for snapshot %s on volume %s with error: %v. "+
-			"Cannot determine whether the snapshot is deleted or not", snapshotID, volumeID)
+		log.Errorf("failed to validate for snapshot %s on volume %s with error: %v. "+
+			"Cannot determine whether the snapshot is deleted or not", snapshotID, volumeID, querySnapshotErr)
 		return false
 	}
 
@@ -496,4 +496,42 @@ func validateSnapshotDeleted(ctx context.Context, m *defaultManager, volumeID st
 		snapshotID, volumeID, spew.Sdump(querySnapshotResult.Entries[0].Error.Fault))
 
 	return cnsvsphere.IsCnsSnapshotNotFoundError(soap.WrapVimFault(faultInQuerySnapshotResult))
+}
+
+func queryCreatedSnapshotByName(ctx context.Context, m *defaultManager, volumeID string,
+	snapshotName string) (*cnstypes.CnsSnapshot, bool) {
+	log := logger.GetLogger(ctx)
+
+	snapshotQuerySpec := cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volumeID,
+		},
+	}
+	snapshotQueryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: []cnstypes.CnsSnapshotQuerySpec{snapshotQuerySpec},
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  int64(128),
+		},
+	}
+
+	snapshotQueryResult, err := m.QuerySnapshots(ctx, snapshotQueryFilter)
+	if err != nil {
+		log.Errorf("querySnapshots failed for snapshotQueryFilter: %v. Err=%+v", snapshotQueryFilter, err)
+		return nil, false
+	}
+	if snapshotQueryResult == nil {
+		log.Info("Observed empty SnapshotQueryResult")
+		return nil, false
+	}
+	if len(snapshotQueryResult.Entries) == 0 {
+		log.Infof("QuerySnapshots retrieved no results for the spec: %+v", snapshotQuerySpec)
+		return nil, false
+	}
+	for _, snapshotInfo := range snapshotQueryResult.Entries {
+		if snapshotInfo.Snapshot.Description == snapshotName {
+			return &snapshotInfo.Snapshot, true
+		}
+	}
+	return nil, false
 }

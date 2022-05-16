@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
@@ -55,11 +57,16 @@ const (
 )
 
 var (
+	// operationStore represents the client by which we can
+	// interact with VolumeOperationRequest interface.
+	operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 	// controllerCaps represents the capability of controller service.
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES,
 	}
 )
 
@@ -67,6 +74,9 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
+
+var expectedStartingIndex = 0
+var cnsVolumeIDs = make([]string, 0)
 
 type controller struct {
 	manager     *common.Manager
@@ -114,7 +124,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
 		return err
 	}
-	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
@@ -313,7 +323,6 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			}
 			vcenter.Config = newVCConfig
 		}
-		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.CSIVolumeManagerIdempotency)
 		if idempotencyHandlingEnabled {
@@ -375,8 +384,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		case common.AttributeStoragePool:
 			storagePool = req.Parameters[paramName]
 		case common.AttributeStorageTopologyType:
-			// TODO: TKGS-HA : Add validation
+			// TKGS-HA: validate storageTopologyType.
 			storageTopologyType = req.Parameters[paramName]
+			val := strings.ToLower(storageTopologyType)
+			if val != "zonal" {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"invalid value found for StorageClass parameter `storagetopologytype`: %q.",
+					storageTopologyType)
+			}
 		}
 	}
 
@@ -402,7 +417,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"support for topology requirement with both zone and hostname labels is not yet implemented.")
 		} else if zoneLabelPresent {
-			// topologyMgr can be nil if the AZ CR was not been registered
+			// StorageTopologyType should be set if topology label is present
+			if storageTopologyType == "" {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"StorageTopologyType is unset while topology label is present")
+			}
+			// topologyMgr can be nil if the AZ CR was not registered
 			// at the time of controller init. Handling that case in CreateVolume calls.
 			if c.topologyMgr == nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
@@ -519,10 +539,34 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+	if isTKGSHAEnabled {
 		if zoneLabelPresent && !hostnameLabelPresent {
-			// Calculate accessible topology for the provisioned volume.
 			selectedDatastore := volumeInfo.DatastoreURL
+			// CreateBlockVolumeUtil with idempotency enabled does not return datastore
+			// information when it uses the cached information from CR. In such cases,
+			// querying the volume to retrieve the datastore URL.
+			if selectedDatastore == "" {
+				queryFilter := cnstypes.CnsQueryFilter{
+					VolumeIds: []cnstypes.CnsVolumeId{
+						{
+							Id: volumeInfo.VolumeID.Id,
+						},
+					},
+				}
+				querySelection := cnstypes.CnsQuerySelection{
+					Names: []string{utils.CnsQuerySelectionName_DATASTORE_URL},
+				}
+				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
+					true)
+				if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find the datastore on which volume %q is provisioned. Error: %+v",
+						volumeInfo.VolumeID.Id, err)
+				}
+				selectedDatastore = queryResult.Volumes[0].DatastoreUrl
+			}
+
+			// Calculate accessible topology for the provisioned volume.
 			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
 				commoncotypes.WCPRetrieveTopologyInfoParams{
 					DatastoreURL:        selectedDatastore,
@@ -530,9 +574,36 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					TopologyRequirement: topologyRequirement,
 					Vc:                  vc})
 			if err != nil {
+				// If the error is of InvalidTopologyProvisioningError type, it means we cannot
+				// recover from this error with a retry, so cleanup the volume created above.
+				if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
+					log.Errorf("Encountered error after creating volume. Cleaning up...")
+					// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
+					deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+					if deleteOpReqError != nil {
+						log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+							"out. Error received: %+v", deleteOpReqError)
+					} else {
+						// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
+						// successfully, we can go ahead and delete the volume created above.
+						_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+							volumeInfo.VolumeID.Id, true)
+						if deleteVolumeError != nil {
+							// This is a best effort deletion. We do not propagate the delete volume error to K8s.
+							// NOTE: This might leave behind an orphan volume.
+							log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+								"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+						}
+					}
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+						volumeInfo.VolumeID.Id, err)
+				}
+				// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
+				// feature will ensure we retry with the same volume.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find accessible topologies for the selected datastore %q. Error: %+v",
-					selectedDatastore, err)
+					"failed to find accessible topologies for volume %q. Error: %+v",
+					volumeInfo.VolumeID.Id, err)
 			}
 			// Add topology segments to the CreateVolumeResponse.
 			for _, topoSegments := range datastoreAccessibleTopology {
@@ -556,7 +627,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	} else {
 		// Configure the volumeTopology in the response so that the external
-		// provisioner will properly sets up the nodeAffinity for this volume.
+		// provisioner will properly set up the nodeAffinity for this volume.
 		if isValidAccessibilityRequirement(topologyRequirement) {
 			for _, hostName := range accessibleNodes {
 				volumeTopology := &csi.Topology{
@@ -707,6 +778,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume created successfully. Volume Handle: %q, PV Name: %q", resp.Volume.VolumeId, req.Name)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -754,6 +826,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q deleted successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -894,6 +967,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q attached successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1018,6 +1092,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q detached successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
@@ -1040,12 +1115,116 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	}, nil
 }
 
+// ListVolumes returns the mapping of the volumes and corresponding published nodes.
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
+	start := time.Now()
+	volumeType := prometheus.PrometheusBlockVolumeType
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	var err error
+	// ListVolumes FSS is disabled so, return nil and an unimplemented error
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		return nil, status.Error(codes.Unimplemented, "")
+	}
+	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
+		log.Infof("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
+		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
+
+		startingIdx := 0
+		if req.StartingToken != "" {
+			startingIdx, err = strconv.Atoi(req.StartingToken)
+			if err != nil {
+				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
+				return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
+					"startingToken not a valid integer")
+			}
+		}
+
+		// If the startingIdx is zero or not equal to the expectedStartingIndex, then
+		// it means the listVolume request is a new one and not part of a previous
+		// request, so fetch the volumes from CNS again
+		if startingIdx == 0 || startingIdx != expectedStartingIndex {
+			queryFilter := cnstypes.CnsQueryFilter{
+				ContainerClusterIds: []string{
+					c.manager.CnsConfig.Global.ClusterID,
+				},
+			}
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			}
+
+			cnsQueryVolumes, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			if err != nil {
+				log.Errorf("Error while querying volumes from CNS %v", err)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while querying volumes from CNS")
+			}
+
+			cnsVolumeIDs = nil
+			for _, cnsVolume := range cnsQueryVolumes.Volumes {
+				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
+			}
+		}
+
+		// If the difference between the volumes reported by Kubernetes and CNS
+		// is greater than the listVolumeThreshold, it might mean that the CNS
+		// cache is stale. So, fail the request and return an error
+		listVolumeThreshold := c.manager.VcenterConfig.ListVolumeThreshold
+		if len(k8sVolumeIDs)-len(cnsVolumeIDs) > listVolumeThreshold {
+			log.Errorf("Kubernetes and CNS volumes completely out of sync and exceeds the threshold: %d-%d=%d",
+				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
+			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition,
+				"Kubernetes and CNS volumes completely out of sync")
+		}
+
+		queryLimit := c.manager.VcenterConfig.QueryLimit
+		if req.MaxEntries != 0 {
+			queryLimit = int(req.MaxEntries)
+		}
+
+		if queryLimit > len(cnsVolumeIDs) {
+			queryLimit = len(cnsVolumeIDs)
+		}
+
+		endingIdx := queryLimit + startingIdx
+		if endingIdx > len(cnsVolumeIDs) {
+			endingIdx = len(cnsVolumeIDs)
+		}
+		log.Debugf("ListVolumes: cnsVolumeIDs %+v, startingIdx %v, queryLimit %v", cnsVolumeIDs, startingIdx, queryLimit)
+		volumeIDs := make([]string, 0)
+		for i := startingIdx; i < endingIdx; i++ {
+			volumeIDs = append(volumeIDs, cnsVolumeIDs[i])
+		}
+
+		response, err := getVolumeIDToVMMap(ctx, c, volumeIDs)
+		if err != nil {
+			log.Errorf("Error while generating ListVolume response, err:%v", err)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
+		}
+
+		// Correctly set response nextToken value for the paginated response
+		if len(cnsVolumeIDs) > endingIdx {
+			expectedStartingIndex = endingIdx
+			response.NextToken = strconv.Itoa(endingIdx)
+		} else {
+			// All entries have been returned, so reset expectedStartingIndex and the nextToken
+			expectedStartingIndex = 0
+			response.NextToken = ""
+		}
+		log.Debugf("ListVolumes: Response entries %+v", response)
+		return response, "", nil
+	}
+	resp, faultType, err := controllerListVolumeInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
+	}
+	return resp, nil
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1175,6 +1354,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q expanded successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}

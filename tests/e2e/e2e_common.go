@@ -32,7 +32,6 @@ const (
 	attacherContainerName                      = "csi-attacher"
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
-	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
@@ -47,6 +46,7 @@ const (
 	defaultProvisionerTimeInSec                = "300"
 	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
+	defaultK8sNodesUpWaitTime                  = 25
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
@@ -62,6 +62,7 @@ const (
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
 	envNonSharedStorageClassDatastoreURL       = "NONSHARED_VSPHERE_DATASTORE_URL"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
+	envK8sNodesUpWaitTime                      = "K8S_NODES_UP_WAIT_TIME"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
@@ -76,6 +77,8 @@ const (
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
+	envTopologyWithInvalidTagInvalidCat        = "TOPOLOGY_WITH_INVALID_TAG_INVALID_CAT"
+	envTopologyWithInvalidTagValidCat          = "TOPOLOGY_WITH_INVALID_TAG_VALID_CAT"
 	envNumberOfGoRoutines                      = "NUMBER_OF_GO_ROUTINES"
 	envWorkerPerRoutine                        = "WORKER_PER_ROUTINE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
@@ -182,6 +185,7 @@ const (
 	datstoreSharedBetweenClusters              = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
 	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
 	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
+	topologyCluster                            = "TOPOLOGY_CLUSTERS"
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"

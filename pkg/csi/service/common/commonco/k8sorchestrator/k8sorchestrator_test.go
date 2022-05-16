@@ -237,22 +237,32 @@ func TestIsFSSEnabledWithWrongClusterFlavor(t *testing.T) {
 }
 
 func TestGetNodesForVolumes(t *testing.T) {
-	volumeIDToNodesMap := &volumeIDToNodesMap{
+	volumeNameToNodesMap := &volumeNameToNodesMap{
 		RWMutex: &sync.RWMutex{},
 		items:   make(map[string][]string),
 	}
-	for i := 1; i <= 5; i += 1 {
-		volumeIDToNodesMap.items["volume-"+strconv.Itoa(i)] = []string{"node" + strconv.Itoa(i), "node" + strconv.Itoa(i+5)}
+	volumeIDToNameMap := &volumeIDToNameMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
 	}
+	volumeIDs := []string{"ec5c1a4f-0c54-4681-b350-cbb79b08b4d7", "1994e110-7f86-4d77-aaba-d615d8e182ae",
+		"364908d2-82a1-4095-a8c9-0bcd9d62bddf", "ec5c1a4f-0c54-4681-b350-d615d8e182ae"}
+	for i := 1; i <= 5; i += 1 {
+		volumeNameToNodesMap.items["volume-"+strconv.Itoa(i)] = []string{"node" + strconv.Itoa(i), "node" + strconv.Itoa(i+5)}
+	}
+	for i := 1; i <= 3; i += 1 {
+		volumeIDToNameMap.items[volumeIDs[i-1]] = "volume-" + strconv.Itoa(i)
+	}
+	volumeIDToNameMap.items["ec5c1a4f-0c54-4681-b350-d615d8e182ae"] = "volume-6"
 	k8sOrchestrator := K8sOrchestrator{
-		volumeIDToNodesMap: volumeIDToNodesMap,
+		volumeIDToNameMap:    volumeIDToNameMap,
+		volumeNameToNodesMap: volumeNameToNodesMap,
 	}
 
-	volumeIDs := []string{"volume-1", "volume-3"}
 	nodeNames := k8sOrchestrator.GetNodesForVolumes(ctx, volumeIDs)
 	expectedNodeNames := make(map[string][]string)
-	expectedNodeNames["volume1"] = []string{"node-1", "node-6"}
-	expectedNodeNames["volume3"] = []string{"node-3", "node-8"}
+	expectedNodeNames["ec5c1a4f-0c54-4681-b350-cbb79b08b4d7"] = []string{"node-1", "node-6"}
+	expectedNodeNames["364908d2-82a1-4095-a8c9-0bcd9d62bddf"] = []string{"node-3", "node-8"}
 	if reflect.DeepEqual(nodeNames, expectedNodeNames) {
 		t.Errorf("Expected node names %v but got %v", expectedNodeNames, nodeNames)
 	}
