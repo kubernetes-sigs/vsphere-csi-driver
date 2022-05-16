@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -64,8 +63,6 @@ var (
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
-	// virtualMachineLock is used for handling race conditions during concurrent Attach/Detach calls
-	virtualMachineLock = &sync.Mutex{}
 )
 
 type controller struct {
@@ -560,10 +557,8 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 				},
 			},
 		}
-		virtualMachineLock.Lock()
 		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 		err = c.vmOperatorClient.Update(ctx, virtualMachine)
-		virtualMachineLock.Unlock()
 		if err == nil {
 			break
 		} else {
@@ -862,46 +857,16 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // controllerUnpublishForBlockVolume is helper method to handle ControllerPublishVolume for Block volumes
 func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
-
 	log := logger.GetLogger(ctx)
-
-	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
-	// 	If yes, implement some locking mechanism
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
 	}
 	var err error
-	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		if errors.IsNotFound(err) {
-			log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
-				c.supervisorNamespace, req.NodeId, req.VolumeId)
-			return &csi.ControllerUnpublishVolumeResponse{}, "", nil
-		}
-		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-	}
-	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		for index, volume := range virtualMachine.Spec.Volumes {
-			if volume.Name == req.VolumeId {
-				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
-				virtualMachineLock.Lock()
-				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
-					virtualMachine.Spec.Volumes[index+1:]...)
-				err = c.vmOperatorClient.Update(ctx, virtualMachine)
-				virtualMachineLock.Unlock()
-				break
-			}
-		}
-		if err == nil || time.Now().After(timeout) {
-			break
-		}
-		virtualMachine = &vmoperatortypes.VirtualMachine{}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 			if errors.IsNotFound(err) {
 				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
@@ -913,11 +878,27 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
-	}
-	if err != nil {
-		msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+		for index, volume := range virtualMachine.Spec.Volumes {
+			if volume.Name == req.VolumeId {
+				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+					virtualMachine.Spec.Volumes[index+1:]...)
+				err = c.vmOperatorClient.Update(ctx, virtualMachine)
+				break
+			}
+		}
+		if err == nil {
+			break
+		} else {
+			log.Errorf("failed to update virtualmachine. Err: %v", err)
+		}
+		if time.Now().After(timeout) {
+			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+		}
+		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
