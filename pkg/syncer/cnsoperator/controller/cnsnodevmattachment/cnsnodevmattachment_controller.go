@@ -413,7 +413,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
 				// This check is needed in scenarios where VC inventory is stale due
 				// to upgrade or back-up and restore.
-				isPresent, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+				isPresent, vmInstance, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
 					request.Namespace)
 				if err != nil {
 					msg = fmt.Sprintf("failed to verify is VM CR is present with UUID: %s "+
@@ -427,10 +427,18 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						"returning success since the deletion timestamp is set.",
 						nodeUUID, request.Namespace, request.Name)
 				} else {
-					msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
-						"is still present in namespace: %s. Returning success since "+
-						"the deletion timestamp is set.", nodeUUID, request.Namespace)
-					recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+					if vmInstance.DeletionTimestamp != nil {
+						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
+							"is still present in namespace: %s. Returning success since "+
+							"the deletion timestamp is set on VM CR.", nodeUUID, request.Namespace)
+						recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+					} else {
+						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
+							"is still present in namespace: %s. Returning failure since "+
+							"the deletion timestamp is not set on VM CR.", nodeUUID, request.Namespace)
+						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
+					}
 				}
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -527,29 +535,30 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 }
 
 // isVmCrPresent checks whether VM CR is present in SV namespace
-// with given vmuuid.
+// with given vmuuid and returns true or false along with the
+// VirtualMachine CR object if it is found
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
-	vmuuid string, namespace string) (bool, error) {
+	vmuuid string, namespace string) (bool, *vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmList := &vmoperatortypes.VirtualMachineList{}
 	err := vmOperatorClient.List(ctx, vmList, client.InNamespace(namespace))
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
-		return false, err
+		return false, nil, err
 	}
 	for _, vmInstance := range vmList.Items {
 		if vmInstance.Status.BiosUUID == vmuuid {
 			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
 				vmuuid, namespace)
 			log.Infof(msg)
-			return true, nil
+			return true, &vmInstance, nil
 		}
 	}
 	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
 		vmuuid, namespace)
 	log.Error(msg)
-	return false, nil
+	return false, nil, nil
 }
 
 // getVCDatacenterFromConfig returns datacenter registered for each vCenter
