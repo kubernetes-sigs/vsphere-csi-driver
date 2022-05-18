@@ -23,8 +23,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 // getPVCAnnotations fetches annotations from PVC bound to passed volumeID and
@@ -105,6 +107,22 @@ func isFileVolume(pv *v1.PersistentVolume) bool {
 	}
 	for _, accessMode := range pv.Spec.AccessModes {
 		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidvSphereVolume returns true if the given PV metadata of a vSphere
+// Volume (in-tree volume) and has migrated-to annotation on the PV
+func isValidMigratedvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) bool {
+	log := logger.GetLogger(ctx)
+	// Checking if the migrated-to annotation is found in the PV metadata.
+	if annotation, annMigratedToFound := pvMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
+		if annotation == csitypes.Name &&
+			pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
+			log.Debugf("%v annotation found with value %q for PV: %q",
+				common.AnnMigratedTo, csitypes.Name, pvMetadata.Name)
 			return true
 		}
 	}
