@@ -18,8 +18,10 @@ package vanilla
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +74,10 @@ type controller struct {
 
 // volumeMigrationService holds the pointer to VolumeMigration instance.
 var volumeMigrationService migration.VolumeMigrationService
+
+// variables for list volumes
+var volIDsInK8s = make([]string, 0)
+var cnsQueryResult *cnstypes.CnsQueryResult = nil
 
 // New creates a CNS controller.
 func New() csitypes.CnsController {
@@ -1354,10 +1360,199 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
+	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listVolumes")
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "List Volumes")
+	}
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
+	}
+
+	// Get the global query limit
+	maxEntries := cfg.Global.QueryLimit
+	if req.MaxEntries != 0 {
+		maxEntries = int(req.MaxEntries)
+	}
+
+	listVolumesInternal := func() (*csi.ListVolumesResponse, string, error) {
+		log.Debugf("ListVolumes: called with args %+v", *req)
+
+		startingToken := 0
+		if req.StartingToken != "" {
+			startingToken, err = strconv.Atoi(req.StartingToken)
+			if err != nil {
+				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"startingToken not a valid integer")
+			}
+		}
+
+		// Step 1: Get all the volume IDs of PVs, from K8s cluster
+		// If startingToken is 0, then listVolume request is a new one and not part of a previous request.
+		// Therefore, fetch all the volumes from K8s and CNS.
+		if startingToken == 0 || cnsQueryResult == nil {
+			volIDsInK8s = commonco.ContainerOrchestratorUtility.GetAllK8sVolumes()
+			log.Debugf("Number of Volume IDs of PVs from K8s cluster %v, list of volumes %v", len(volIDsInK8s),
+				volIDsInK8s)
+
+			// Step 2: Get all Volume IDs from CNS QueryAll API
+			queryFilter := cnstypes.CnsQueryFilter{
+				ContainerClusterIds: []string{cfg.Global.ClusterID},
+			}
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			}
+			// Select only the volume type.
+			cnsQueryResult, err = c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"queryVolume failed on Cluster ID %q with err = %+v ", cfg.Global.ClusterID, err)
+			}
+		}
+
+		// Step 3: If the difference between number of K8s volumes and CNS volumes is greater than threshold,
+		// fail the operation, as it can result in too many attach calls.
+		if len(volIDsInK8s)-len(cnsQueryResult.Volumes) > cfg.Global.ListVolumeThreshold {
+			log.Errorf("difference between number of K8s volumes: %d, and CNS volumes: %d, is greater than "+
+				"threshold: %d, and completely out of sync.", len(volIDsInK8s), len(cnsQueryResult.Volumes),
+				cfg.Global.ListVolumeThreshold)
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"difference between number of K8s volumes and CNS volumes is greater than threshold.")
+		}
+
+		if maxEntries > len(cnsQueryResult.Volumes) {
+			maxEntries = len(cnsQueryResult.Volumes)
+		}
+		// Step 4: process queryLimit number of items starting from ListVolumeRequest.start_token
+		var allNodeVMs []*cnsvsphere.VirtualMachine
+		var entries []*csi.ListVolumesResponse_Entry
+
+		// Get all nodes from the vanilla K8s cluster from the node manager
+		allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get nodes(node vms) in the vanilla cluster. Error: %v", err)
+		}
+
+		nextToken := ""
+		endIndex := maxEntries + startingToken
+		if endIndex > len(cnsQueryResult.Volumes) {
+			endIndex = len(cnsQueryResult.Volumes)
+		}
+		log.Debugf("Starting token: %d, End index: %d, Length of Query volume result: %d, Max entries: %d ",
+			startingToken, endIndex, len(cnsQueryResult.Volumes), maxEntries)
+		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, endIndex,
+			cnsQueryResult, allNodeVMs)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
+				" volumes, err: %v", err)
+		}
+		resp := &csi.ListVolumesResponse{
+			Entries:   entries,
+			NextToken: nextToken,
+		}
+
+		log.Debugf("ListVolumes served %d results, token for next set: %s", len(entries), nextToken)
+		return resp, "", nil
+	}
+	listVolResponse, faultType, err := listVolumesInternal()
+	log.Debugf("List volume response: %+v", listVolResponse)
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
+	}
+	return listVolResponse, err
+}
+
+func (c *controller) processQueryResultsListVolumes(ctx context.Context, startingToken int, endIndex int,
+	queryResult *cnstypes.CnsQueryResult, allNodeVMs []*cnsvsphere.VirtualMachine) ([]*csi.ListVolumesResponse_Entry,
+	string, string, error) {
+
+	volumeType := ""
+	nextToken := ""
+	log := logger.GetLogger(ctx)
+	var entries []*csi.ListVolumesResponse_Entry
+
+	volumeIDToNodeUUIDMap, err := getBlockVolumeToHostMap(ctx, c.manager, allNodeVMs)
+	if err != nil {
+		return entries, nextToken, volumeType, err
+	}
+
+	for i := startingToken; i < endIndex; i++ {
+		if queryResult.Volumes[i].VolumeType == common.FileVolumeType {
+			volumeType = prometheus.PrometheusFileVolumeType
+			fileVolID := queryResult.Volumes[i].VolumeId.Id
+
+			// Populate csi.Volume info for the given volume
+			fileVolumeInfo := &csi.Volume{
+				VolumeId: fileVolID,
+			}
+			// Getting published nodes
+			publishedNodeIds := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, []string{fileVolID})
+			for volID, nodeName := range publishedNodeIds {
+				if volID == fileVolID && len(nodeName) != 0 {
+					nodeVMObj, err := c.nodeMgr.GetNodeByName(ctx, publishedNodeIds[fileVolID][0])
+					if err != nil {
+						log.Errorf("Failed to get node vm object from the node name, err:%v", err)
+						return entries, nextToken, volumeType, err
+					}
+					nodeVMUUID := nodeVMObj.UUID
+
+					// Populate published node
+					volStatus := &csi.ListVolumesResponse_VolumeStatus{
+						PublishedNodeIds: []string{nodeVMUUID},
+					}
+
+					// Populate List Volumes Entry Response
+					entry := &csi.ListVolumesResponse_Entry{
+						Volume: fileVolumeInfo,
+						Status: volStatus,
+					}
+
+					entries = append(entries, entry)
+				}
+			}
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
+			blockVolID := queryResult.Volumes[i].VolumeId.Id
+			for volID, nodeVMUUID := range volumeIDToNodeUUIDMap {
+				if blockVolID == volID {
+					//Populate csi.Volume info for the given volume
+					blockVolumeInfo := &csi.Volume{
+						VolumeId: blockVolID,
+					}
+					// Getting published nodes
+					volStatus := &csi.ListVolumesResponse_VolumeStatus{
+						PublishedNodeIds: []string{nodeVMUUID},
+					}
+					entry := &csi.ListVolumesResponse_Entry{
+						Volume: blockVolumeInfo,
+						Status: volStatus,
+					}
+					// Populate List Volumes Entry Response
+					entries = append(entries, entry)
+				}
+			}
+		}
+	}
+
+	// if length of queryAll entries > queryLimit, set nextToken to
+	// start_token + queryLimit
+	if len(queryResult.Volumes) > endIndex {
+		nextTokenInt := endIndex
+		nextToken = strconv.Itoa(nextTokenInt)
+	}
+	return entries, nextToken, volumeType, nil
+
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1400,6 +1595,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES,
 	}
 
 	var caps []*csi.ControllerServiceCapability

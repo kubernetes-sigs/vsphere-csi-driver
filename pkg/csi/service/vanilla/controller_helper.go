@@ -23,10 +23,15 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -138,4 +143,53 @@ func convertCnsVolumeType(ctx context.Context, cnsVolumeType string) string {
 		volumeType = prometheus.PrometheusFileVolumeType
 	}
 	return volumeType
+}
+
+func getBlockVolumeToHostMap(ctx context.Context, cMgr *common.Manager,
+	allnodeVMs []*vsphere.VirtualMachine) (map[string]string, error) {
+
+	log := logger.GetLogger(ctx)
+	vmRefToUUID := make(map[string]string)
+	volumeIDNodeUUIDMap := make(map[string]string)
+	// Get VirtualCenter object
+	vc, err := common.GetVCenter(ctx, cMgr)
+	if err != nil {
+		log.Errorf("GetVcenter error %v", err)
+		return nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
+	}
+
+	var vmRefs []types.ManagedObjectReference
+	var vmMoList []mo.VirtualMachine
+	properties := []string{"runtime.host", "config.hardware"}
+
+	for _, nodeVM := range allnodeVMs {
+		vmRef := nodeVM.Reference().Value
+		vmRefs = append(vmRefs, nodeVM.Reference())
+		vmRefToUUID[vmRef] = nodeVM.UUID
+	}
+	pc := property.DefaultCollector(vc.Client.Client)
+	// Obtain host MoID and virtual disk ID
+	err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
+	if err != nil {
+		log.Errorf("failed to get VM managed objects from VM objects, err: %v", err)
+		return volumeIDNodeUUIDMap, err
+	}
+	// Iterate through all the VMs and build the vmMoIDToHostUUID map
+	// and the volumeID to VMMoiD map
+	for _, info := range vmMoList {
+		vmMoID := info.Reference().Value
+
+		devices := info.Config.Hardware.Device
+		vmDevices := object.VirtualDeviceList(devices)
+		for _, device := range vmDevices {
+			if vmDevices.TypeName(device) == "VirtualDisk" {
+				if virtualDisk, ok := device.(*types.VirtualDisk); ok {
+					if virtualDisk.VDiskId != nil {
+						volumeIDNodeUUIDMap[virtualDisk.VDiskId.Id] = vmRefToUUID[vmMoID]
+					}
+				}
+			}
+		}
+	}
+	return volumeIDNodeUUIDMap, nil
 }
