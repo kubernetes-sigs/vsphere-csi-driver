@@ -413,7 +413,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
 				// This check is needed in scenarios where VC inventory is stale due
 				// to upgrade or back-up and restore.
-				isPresent, vmInstance, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+				vmInstance, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
 					request.Namespace)
 				if err != nil {
 					msg = fmt.Sprintf("failed to verify is VM CR is present with UUID: %s "+
@@ -421,21 +421,28 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, "NotComputed", nil
 				}
-				if !isPresent {
+				if vmInstance == nil {
+					// This is a case where VirtualMachine is not present on the VC and VM CR
+					// is also not found in the API server. The detach will be marked as
+					// successful in CnsNodeVmAttachment
 					msg = fmt.Sprintf("VM CR is not present with UUID: %s in namespace: %s. "+
-						"Removing finalizer on CnsNodeVMAttachment: %s instance and "+
-						"returning success since the deletion timestamp is set.",
+						"Removing finalizer on CnsNodeVMAttachment: %s instance.",
 						nodeUUID, request.Namespace, request.Name)
 				} else {
+					// This is a case where VirtualMachine is not present on the VC and VM CR
+					// has the deletionTimestamp set. The CnsNodeVmAttachment
+					// can be marked as a success since the VM CR has deletionTimestamp set
 					if vmInstance.DeletionTimestamp != nil {
 						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
-							"is still present in namespace: %s. Returning success since "+
-							"the deletion timestamp is set on VM CR.", nodeUUID, request.Namespace)
-						recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+							"is still present in namespace: %s and is being deleted. "+
+							"Hence returning success.", nodeUUID, request.Namespace)
 					} else {
+						// This is a case where VirtualMachine is not present on the VC and VM CR
+						// does not have the deletionTimestamp set. We will record this as a
+						// non-storage problem and detach operation will be retried.
 						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
-							"is still present in namespace: %s. Returning failure since "+
-							"the deletion timestamp is not set on VM CR.", nodeUUID, request.Namespace)
+							"is still present in namespace: %s. Retrying the operation since "+
+							"VM CR is not being deleted.", nodeUUID, request.Namespace)
 						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 					}
@@ -535,30 +542,29 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 }
 
 // isVmCrPresent checks whether VM CR is present in SV namespace
-// with given vmuuid and returns true or false along with the
-// VirtualMachine CR object if it is found
+// with given vmuuid and returns the VirtualMachine CR object if it is found
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
-	vmuuid string, namespace string) (bool, *vmoperatortypes.VirtualMachine, error) {
+	vmuuid string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmList := &vmoperatortypes.VirtualMachineList{}
 	err := vmOperatorClient.List(ctx, vmList, client.InNamespace(namespace))
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
-		return false, nil, err
+		return nil, err
 	}
 	for _, vmInstance := range vmList.Items {
 		if vmInstance.Status.BiosUUID == vmuuid {
 			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
 				vmuuid, namespace)
 			log.Infof(msg)
-			return true, &vmInstance, nil
+			return &vmInstance, nil
 		}
 	}
 	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
 		vmuuid, namespace)
 	log.Error(msg)
-	return false, nil, nil
+	return nil, nil
 }
 
 // getVCDatacenterFromConfig returns datacenter registered for each vCenter
