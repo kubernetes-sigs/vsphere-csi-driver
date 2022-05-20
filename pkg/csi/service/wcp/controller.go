@@ -1040,7 +1040,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					}
 					podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
 					if err != nil {
-						if strings.Contains(err.Error(), cnsvsphere.ErrVMNotFound.Error()) {
+						if err == cnsvsphere.ErrVMNotFound {
 							log.Infof("virtual machine not found for vmUUID %q. "+
 								"Thus, assuming the volume is detached.", v)
 							break
