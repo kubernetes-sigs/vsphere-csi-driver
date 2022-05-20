@@ -455,6 +455,16 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 					}
 				}
+				pvc := &v1.PersistentVolumeClaim{}
+				err = r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
+					Namespace: instance.Namespace}, pvc)
+				if err != nil {
+					msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+						instance.Spec.VolumeName, instance.Namespace, err)
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, "NotComputed", nil
+				}
+				removeFinalizerFromPVC(ctx, r.client, pvc)
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 				if err != nil {
@@ -590,7 +600,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client, pvc *v1.P
 	for i, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoperatortypes.CNSPvcFinalizer {
 			log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
-				pvc.Name, pvc.Namespace)
+				cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 			pvc.Finalizers = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
 		}
 	}
