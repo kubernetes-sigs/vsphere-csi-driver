@@ -289,6 +289,10 @@ const (
 	// PVtoBackingDiskObjectIdSupportedVCenterPatch is the minimum patch version of vCenter
 	// on which PV to BackingDiskObjectId mapping feature is supported.
 	PVtoBackingDiskObjectIdSupportedVCenterPatch int = 2
+
+	// PreferredDatastoresCategory points to the vSphere Category
+	// created to tag preferred datastores in a topology-aware environment.
+	PreferredDatastoresCategory = "cns.vmware.topology-preferred-datastores"
 )
 
 // Supported container orchestrators.
@@ -352,4 +356,7 @@ const (
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
 	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
+	// TopologyPreferentialDatastores is the feature gate for preferential
+	// datastore deployment in topology aware environments.
+	TopologyPreferentialDatastores = "topology-preferential-datastores"
 )

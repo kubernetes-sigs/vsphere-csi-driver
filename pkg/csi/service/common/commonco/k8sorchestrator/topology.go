@@ -29,6 +29,8 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -95,6 +97,12 @@ var (
 	azClusterMap = make(map[string]string)
 	// azClusterMapInstanceLock guards the azClusterMap instance from concurrent writes.
 	azClusterMapInstanceLock = &sync.RWMutex{}
+	// preferredDatastoresMap is a map of topology domain to list of
+	// datastore URLs preferred in that domain.
+	// Ex: {zone1: [DSURL1, DSURL2], zone2: [DSURL3]}
+	preferredDatastoresMap = make(map[string][]string)
+	// preferredDatastoresMapInstanceLock guards the preferredDatastoresMap from read-write overlaps.
+	preferredDatastoresMapInstanceLock = &sync.RWMutex{}
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -130,6 +138,9 @@ type controllerVolumeTopology struct {
 	// isCSINodeIdFeatureEnabled indicates whether the
 	// use-csinode-id feature is enabled or not.
 	isCSINodeIdFeatureEnabled bool
+	// isAcceptPreferredDatatsoresFSSEnabled indicates whether the
+	// accept-preferred-datatsores feature is enabled or not.
+	isTopologyPreferentialDatastoresFSSEnabled bool
 }
 
 // wcpControllerVolumeTopology implements the commoncotypes.ControllerTopologyService
@@ -186,6 +197,31 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					csiNodeTopologyInformer:   *crInformer,
 					clusterFlavor:             clusterFlavor,
 					isCSINodeIdFeatureEnabled: c.IsFSSEnabled(ctx, common.UseCSINodeId),
+					isTopologyPreferentialDatastoresFSSEnabled: c.IsFSSEnabled(ctx,
+						common.TopologyPreferentialDatastores),
+				}
+
+				if controllerVolumeTopologyInstance.isTopologyPreferentialDatastoresFSSEnabled {
+					// Get CNS config.
+					cnsCfg, err := common.GetConfig(ctx)
+					if err != nil {
+						return nil, logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
+					}
+					// Fetch preferred datastores and store in cache at regular intervals.
+					go func() {
+						// Read tags under PreferredDatastoresCategory in 5min interval and store in cache.
+						ticker := time.NewTicker(time.Duration(cnsCfg.Global.CSIFetchPreferredDatastoresIntervalInMin) *
+							time.Minute)
+						for ; true; <-ticker.C {
+							ctx, log := logger.GetNewContextWithLogger()
+							log.Infof("Refreshing preferred datastores information...")
+							err = refreshPreferentialDatastores(ctx)
+							if err != nil {
+								log.Errorf("failed to refresh preferential datastores in cluster. Error: %v", err)
+								os.Exit(1)
+							}
+						}
+					}()
 				}
 				log.Info("Topology service initiated successfully")
 			}
@@ -230,6 +266,80 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 	}
 	return nil, logger.LogNewErrorf(log, "InitTopologyServiceInController not implemented for "+
 		"cluster flavor: %q", c.clusterFlavor)
+}
+
+// refreshPreferentialDatastores refreshes the preferredDatastoresMap variable
+// with latest information on the preferential datastores for each topology domain.
+func refreshPreferentialDatastores(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	cnsCfg, err := common.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
+	}
+	// Get VC instance.
+	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cnsCfg},
+		false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get virtual center instance with error: %v", err)
+	}
+	// Get tag manager instance.
+	tagMgr, err := cnsvsphere.GetTagManager(ctx, vc)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create tag manager. Error: %+v", err)
+	}
+	defer func() {
+		err := tagMgr.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. Error: %v", err)
+		}
+	}()
+	// Get tags for category reserved for preferred datastore tagging.
+	tagIds, err := tagMgr.ListTagsForCategory(ctx, common.PreferredDatastoresCategory)
+	if err != nil {
+		log.Infof("failed to retrieve tags for category %q. Reason: %+v", common.PreferredDatastoresCategory,
+			err)
+		return nil
+	}
+	if len(tagIds) == 0 {
+		log.Info("No preferred datastores found in environment.")
+		return nil
+	}
+	// Fetch vSphere entities on which the tags have been applied.
+	attachedObjs, err := tagMgr.GetAttachedObjectsOnTags(ctx, tagIds)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to retrieve objects with tags %v. Error: %+v", tagIds, err)
+	}
+	prefDatastoresMap := make(map[string][]string)
+	for _, attachedObj := range attachedObjs {
+		for _, obj := range attachedObj.ObjectIDs {
+			// Preferred datastore tag should only be applied to datastores.
+			if obj.Reference().Type != "Datastore" {
+				log.Warnf("Preferred datastore tag applied on a non-datastore entity: %+v",
+					obj.Reference())
+				continue
+			}
+			// Fetch Datastore URL.
+			var dsMo mo.Datastore
+			dsObj := object.NewDatastore(vc.Client.Client, obj.Reference())
+			err = dsObj.Properties(ctx, obj.Reference(), []string{"summary"}, &dsMo)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to retrieve summary from datastore: %+v. Error: %v",
+					obj.Reference(), err)
+			}
+
+			log.Infof("Datastore %q with URL %q is preferred in %q", dsMo.Summary.Name, dsMo.Summary.Url,
+				attachedObj.Tag.Name)
+			// For each topology domain, store the datastore URLs preferred in that domain.
+			prefDatastoresMap[attachedObj.Tag.Name] = append(prefDatastoresMap[attachedObj.Tag.Name], dsMo.Summary.Url)
+		}
+	}
+	// Finally, write to cache.
+	if len(prefDatastoresMap) != 0 {
+		preferredDatastoresMapInstanceLock.Lock()
+		defer preferredDatastoresMapInstanceLock.Unlock()
+		preferredDatastoresMap = prefDatastoresMap
+	}
+	return nil
 }
 
 // startAvailabilityZoneInformer listens on changes to AvailabilityZone instances and updates the azClusterMap cache.
@@ -802,11 +912,25 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 	for _, topology := range topologyArr {
 		segments := topology.GetSegments()
 		// Fetch nodes with topology labels matching the topology segments.
+		var (
+			err                      error
+			matchingNodeVMs          []*cnsvsphere.VirtualMachine
+			completeTopologySegments []map[string]string
+		)
 		log.Debugf("Getting list of nodeVMs for topology segments %+v", segments)
-		matchingNodeVMs, err := volTopology.getNodesMatchingTopologySegment(ctx, segments)
-		if err != nil {
-			log.Errorf("Failed to find nodes in topology segment %+v. Error: %+v", segments, err)
-			return nil, err
+		if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
+			matchingNodeVMs, completeTopologySegments, err = volTopology.getTopologySegmentsWithMatchingNodes(ctx,
+				segments)
+			if err != nil {
+				log.Errorf("failed to find nodes in topology segment %+v. Error: %+v", segments, err)
+				return nil, err
+			}
+		} else {
+			matchingNodeVMs, err = volTopology.getNodesMatchingTopologySegment(ctx, segments)
+			if err != nil {
+				log.Errorf("Failed to find nodes in topology segment %+v. Error: %+v", segments, err)
+				return nil, err
+			}
 		}
 		if len(matchingNodeVMs) == 0 {
 			log.Warnf("No nodes in the cluster matched the topology requirement provided: %+v",
@@ -823,11 +947,143 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 			return nil, err
 		}
 
+		// If applicable, replace the shared datastores with the preferred datastores for that segment.
+		if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
+			// Fetch all preferred datastore URLs for the matching topology segments.
+			allPreferredDSURLs := make(map[string]struct{})
+			for _, topoSegs := range completeTopologySegments {
+				prefDS := getPreferredDatastoresInSegments(ctx, topoSegs)
+				for key, val := range prefDS {
+					allPreferredDSURLs[key] = val
+				}
+			}
+			if len(allPreferredDSURLs) != 0 {
+				var preferredDS []*cnsvsphere.DatastoreInfo
+				for _, dsInfo := range sharedDatastoresInTopology {
+					if _, ok := allPreferredDSURLs[dsInfo.Info.Url]; ok {
+						preferredDS = append(preferredDS, dsInfo)
+					}
+				}
+				// Send out an error when the intersection of shared DS and preferred DS is an empty list.
+				if len(preferredDS) == 0 {
+					var sharedDS []string
+					for _, dsInfo := range sharedDatastoresInTopology {
+						sharedDS = append(sharedDS, dsInfo.Info.Url)
+					}
+					return nil, logger.LogNewErrorf(log, "mismatch between preferred datastores %+v "+
+						"and shared datastores %+v for given topology requirement.", preferredDS, sharedDS)
+				}
+				sharedDatastoresInTopology = preferredDS
+			}
+		}
+
 		// Update sharedDatastores with the list of datastores received.
 		sharedDatastores = append(sharedDatastores, sharedDatastoresInTopology...)
 	}
 	log.Infof("Obtained shared datastores: %+v", sharedDatastores)
 	return sharedDatastores, nil
+}
+
+// getPreferredDatastoresInSegments fetches preferred datastores in
+// given topology segments as a map for faster retrieval.
+func getPreferredDatastoresInSegments(ctx context.Context, segments map[string]string) map[string]struct{} {
+	log := logger.GetLogger(ctx)
+	allPreferredDSURLs := make(map[string]struct{})
+
+	preferredDatastoresMapInstanceLock.Lock()
+	defer preferredDatastoresMapInstanceLock.Unlock()
+	if len(preferredDatastoresMap) == 0 {
+		return allPreferredDSURLs
+	}
+	// Arrange applicable preferred datastores as a map.
+	for _, tag := range segments {
+		preferredDS, ok := preferredDatastoresMap[tag]
+		if ok {
+			log.Infof("Found preferred datastores %+v for topology domain %q", preferredDS, tag)
+			for _, val := range preferredDS {
+				allPreferredDSURLs[val] = struct{}{}
+			}
+		}
+	}
+	return allPreferredDSURLs
+}
+
+// getTopologySegmentsWithMatchingNodes takes in topology segments as parameter and returns list
+// of node VMs which belong to all the segments and a list of the complete hierarchy
+// of topology segments which match the topology requirement.
+// For example if topology requirement given is `zone1`.
+// The complete hierarchy may look like this: [{zone: zone1, city: city1}, {zone: zone1, city: city2}].
+func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNodes(ctx context.Context,
+	segments map[string]string) ([]*cnsvsphere.VirtualMachine, []map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	var (
+		matchingNodeVMs          []*cnsvsphere.VirtualMachine
+		completeTopologySegments []map[string]string
+	)
+	// Fetch node topology information from informer cache.
+	nodeTopologyStore := volTopology.csiNodeTopologyInformer.GetStore()
+	for _, val := range nodeTopologyStore.List() {
+		var nodeTopologyInstance csinodetopologyv1alpha1.CSINodeTopology
+		// Validate the object received.
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(val.(*unstructured.Unstructured).Object,
+			&nodeTopologyInstance)
+		if err != nil {
+			return nil, nil, logger.LogNewErrorf(log, "failed to convert unstructured object %+v to "+
+				"CSINodeTopology instance. Error: %+v", val, err)
+		}
+
+		// Check CSINodeTopology instance `Status` field for success.
+		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
+			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
+				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
+			return nil, nil, err
+		}
+		// Convert array of labels to map.
+		topoLabelsMap := make(map[string]string)
+		for _, topoLabel := range nodeTopologyInstance.Status.TopologyLabels {
+			topoLabelsMap[topoLabel.Key] = topoLabel.Value
+		}
+		// Check for a match of labels in every segment.
+		isMatch := true
+		for key, value := range segments {
+			if topoLabelsMap[key] != value {
+				log.Debugf("Node %q with topology %+v did not match the topology requirement - %q: %q ",
+					nodeTopologyInstance.Name, topoLabelsMap, key, value)
+				isMatch = false
+				break
+			}
+		}
+		// If there is a match, fetch the nodeVM object and add it to matchingNodeVMs.
+		if isMatch {
+			var nodeVM *cnsvsphere.VirtualMachine
+			if volTopology.isCSINodeIdFeatureEnabled &&
+				volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+				nodeVM, err = volTopology.nodeMgr.GetNode(ctx,
+					nodeTopologyInstance.Spec.NodeUUID, nil)
+			} else {
+				nodeVM, err = volTopology.nodeMgr.GetNodeByName(ctx,
+					nodeTopologyInstance.Spec.NodeID)
+			}
+			if err != nil {
+				log.Errorf("failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
+				return nil, nil, err
+			}
+			matchingNodeVMs = append(matchingNodeVMs, nodeVM)
+			// Store the complete hierarchy of topology segments for future use.
+			var exists bool
+			for _, segs := range completeTopologySegments {
+				if reflect.DeepEqual(segs, topoLabelsMap) {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				completeTopologySegments = append(completeTopologySegments, topoLabelsMap)
+			}
+		}
+	}
+	return matchingNodeVMs, completeTopologySegments, nil
 }
 
 // getNodesMatchingTopologySegment takes in topology segments as parameter and returns list
@@ -929,8 +1185,8 @@ func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx contex
 		}
 		// Check if topology labels received are empty.
 		if len(topoLabels) == 0 {
-			log.Infof("Node %q does not belong to any topology domain. Skipping it for node " +
-				"affinity calculation")
+			log.Infof("Node %q does not belong to any topology domain. Skipping it for node "+
+				"affinity calculation", nodeName)
 			continue
 		}
 
@@ -948,6 +1204,46 @@ func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx contex
 	}
 	log.Infof("Topology segments retrieved from nodes accessible to datastore %q are: %+v",
 		params.DatastoreURL, topologySegments)
+
+	// If the datastore is accessible from only one segment, return with it.
+	if len(topologySegments) == 1 {
+		return topologySegments, nil
+	}
+
+	// If the selected datastore is preferred in a zone which matches the topology requirement
+	// given by customer, set this zone as the node affinity terms.
+	if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
+		// Get the intersection between topology requirements and accessible topology domains for given datastore URL.
+		var combinedAccessibleTopology []map[string]string
+		for _, topology := range params.TopologyRequirement.GetPreferred() {
+			reqSegments := topology.GetSegments()
+			for _, segments := range topologySegments {
+				isMatchingTopoReq := true
+				for reqCategory, reqTag := range reqSegments {
+					if tag, ok := segments[reqCategory]; ok && tag != reqTag {
+						isMatchingTopoReq = false
+						break
+					}
+				}
+				if isMatchingTopoReq {
+					combinedAccessibleTopology = append(combinedAccessibleTopology, segments)
+				}
+			}
+		}
+		// Finally, filter the accessible topologies with topology domains where datastore is preferred.
+		var preferredAccessibleTopology []map[string]string
+		for _, segments := range combinedAccessibleTopology {
+			PreferredDSURLs := getPreferredDatastoresInSegments(ctx, segments)
+			if len(PreferredDSURLs) != 0 {
+				if _, ok := PreferredDSURLs[params.DatastoreURL]; ok {
+					preferredAccessibleTopology = append(preferredAccessibleTopology, segments)
+				}
+			}
+		}
+		if len(preferredAccessibleTopology) != 0 {
+			return preferredAccessibleTopology, nil
+		}
+	}
 
 	// Check for each calculated topology segment if all nodes in that segment have access to this datastore.
 	// This check will filter out topology segments in which all nodes do not have access to the chosen datastore.
