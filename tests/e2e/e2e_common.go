@@ -186,6 +186,12 @@ const (
 	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
 	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
+	configSecertTestUser1Password              = "VMware!23"
+	configSecertTestUser2Password              = "Admin!23"
+	configSecretTestUser1                      = "testuser1"
+	configSecretTestUser2                      = "testuser2"
+	vCenterUIUser                              = "administrator@vsphere.local"
+	vCenterUIPassword                          = "Admin!23"
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
