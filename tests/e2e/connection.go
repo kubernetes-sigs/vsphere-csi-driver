@@ -68,7 +68,7 @@ func connect(ctx context.Context, vs *vSphere) {
 	}
 	framework.Logf("Creating new client session since the existing session is not valid or not authenticated")
 	err = vs.Client.Logout(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Error from logging out from session is: %v", err)
 	vs.Client = newClient(ctx, vs)
 }
 
