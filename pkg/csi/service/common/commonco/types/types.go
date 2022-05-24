@@ -62,6 +62,9 @@ type VanillaRetrieveTopologyInfoParams struct {
 	// DatastoreURL is the selected datastore for which the topology
 	// information needs to be retrieved.
 	DatastoreURL string
+	// TopologyRequirement represents the topology conditions
+	// which need to be satisfied during volume provisioning.
+	TopologyRequirement *csi.TopologyRequirement
 }
 
 // WCPRetrieveTopologyInfoParams represents the params required to call
