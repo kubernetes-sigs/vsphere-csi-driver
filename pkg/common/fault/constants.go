@@ -24,6 +24,16 @@ const (
 	// CSIVmNotFoundFault is the fault type when VM object is not found in the VC
 	CSIVmNotFoundFault = "csi.fault.nonstorage.VmNotFound"
 
+	// CSIDatacenterNotFoundFault is the fault type when Datacenter are not found in the VC
+	CSIDatacenterNotFoundFault = "csi.fault.DatacenterNotFound"
+	// CSIVCenterNotFoundFault is the fault type when VC instance is not found
+	CSIVCenterNotFoundFault = "csi.fault.VCenterNotFound"
+	// CSIFindVmByUUIDFault is the fault type when FindByUUID method fails to find the VM
+	CSIFindVmByUUIDFault = "csi.fault.FindVmByUUIDFault"
+
+	// CSIApiServerOperationFault is the fault type when Get(), List() and others fail on the API Server
+	CSIApiServerOperationFault = "csi.fault.ApiServerOperation"
+
 	// CSITaskResultEmptyFault is the fault type when taskResult is empty.
 	CSITaskResultEmptyFault = "csi.fault.TaskResultEmpty"
 
