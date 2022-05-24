@@ -73,6 +73,9 @@ const (
 	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh
 	// DatastoreMap.
 	DefaultCSIAuthCheckIntervalInMin = 5
+	// DefaultCSIFetchPreferredDatastoresIntervalInMin is the default time interval
+	// after which the preferred datastores list is refreshed in the driver.
+	DefaultCSIFetchPreferredDatastoresIntervalInMin = 5
 	// DefaultCnsVolumeOperationRequestCleanupIntervalInMin is the default time
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 24 hours.
@@ -386,6 +389,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	}
 	if cfg.Global.CSIAuthCheckIntervalInMin == 0 {
 		cfg.Global.CSIAuthCheckIntervalInMin = DefaultCSIAuthCheckIntervalInMin
+	}
+	if cfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin = DefaultCSIFetchPreferredDatastoresIntervalInMin
 	}
 	if cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin == 0 {
 		cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin =
