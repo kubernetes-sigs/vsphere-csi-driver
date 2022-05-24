@@ -212,9 +212,9 @@ spec:
               topologyKey: "kubernetes.io/hostname"
       serviceAccountName: vsphere-csi-controller
       nodeSelector:
-        node-role.kubernetes.io/master: ""
+        node-role.kubernetes.io/control-plane: ""
       tolerations:
-        - key: node-role.kubernetes.io/master
+        - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
         # uncomment below toleration if you need an aggressive pod eviction in case when
