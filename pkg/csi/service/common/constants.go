@@ -359,4 +359,6 @@ const (
 	// TopologyPreferentialDatastores is the feature gate for preferential
 	// datastore deployment in topology aware environments.
 	TopologyPreferentialDatastores = "topology-preferential-datastores"
+	// MaxPVSCSITargetsPerVM enables support for 255 volumes per node vm
+	MaxPVSCSITargetsPerVM = "max-pvscsi-targets-per-vm"
 )
