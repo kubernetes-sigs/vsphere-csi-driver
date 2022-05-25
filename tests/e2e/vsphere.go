@@ -1036,3 +1036,16 @@ func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
 
 	return snapshotId, err
 }
+
+//verifyVolumeCompliance verifies the volume policy compliance status
+func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant bool) {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Volume id: %v compliance status: %v", volumeID, queryResult.Volumes[0].ComplianceStatus)
+	if shouldBeCompliant {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeTrue())
+	} else {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeFalse())
+	}
+}

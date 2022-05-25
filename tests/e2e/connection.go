@@ -24,7 +24,10 @@ import (
 
 	gomega "github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/session"
+	vapic "github.com/vmware/govmomi/vapi/rest"
+	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -108,4 +111,25 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &VsanClient{c, sc}, nil
+}
+
+//newPbmClient returns new pbm client
+func newPbmClient(ctx context.Context, c *govmomi.Client) *pbm.Client {
+	pbmClient, err := pbm.NewClient(ctx, c.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return pbmClient
+}
+
+//newVapiRestClient returns vapi rest client
+func newVapiRestClient(ctx context.Context, c *govmomi.Client) *vapic.Client {
+	vapiC := vapic.NewClient(c.Client)
+	usr := neturl.UserPassword(e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
+	err := vapiC.Login(ctx, usr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vapiC
+}
+
+//newTagMgr returns tag manager
+func newTagMgr(ctx context.Context, c *govmomi.Client) *tags.Manager {
+	return tags.NewManager(newVapiRestClient(ctx, c))
 }
