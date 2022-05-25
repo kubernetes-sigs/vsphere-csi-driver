@@ -277,7 +277,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 				instance.Spec.VolumeName, instance.Namespace, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-			return reconcile.Result{RequeueAfter: timeout}, "NotComputed", nil
+			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 		}
 		if !instance.Status.Attached && instance.DeletionTimestamp == nil {
 			nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
@@ -366,6 +366,28 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 
+			cnsPvcFinalizerExists := false
+			// Check if cnsPvcFinalizerExists already exists.
+			for _, finalizer := range pvc.Finalizers {
+				if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+					cnsPvcFinalizerExists = true
+					break
+				}
+			}
+			if !cnsPvcFinalizerExists {
+				err = addFinalizerToPVC(ctx, r.client, pvc)
+				if err != nil {
+					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
+						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
+					instance.Status.Error = err.Error()
+					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+					if err != nil {
+						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+					}
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
+			}
 			if attachErr != nil {
 				// Update CnsNodeVMAttachment instance with attach error message.
 				instance.Status.Error = attachErr.Error()
@@ -392,13 +414,6 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
-			err = addFinalizerToPVC(ctx, r.client, pvc)
-			if err != nil {
-				msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
-					cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
-			}
 			msg := fmt.Sprintf("ReconcileCnsNodeVMAttachment: Successfully updated entry in CNS for instance "+
 				"with name %q and namespace %q.", request.Name, request.Namespace)
 			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
