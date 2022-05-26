@@ -177,6 +177,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.clusterFlavor = clusterFlavor
 	clusterIDforVolumeMetadata = configInfo.Cfg.Global.ClusterID
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if !configInfo.Cfg.Global.InsecureFlag && configInfo.Cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+				"Setting correct CA file: %q", configInfo.Cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+			configInfo.Cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
+		}
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
 			if err != nil {
@@ -554,6 +559,14 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if !cfg.Global.InsecureFlag && cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+				"Setting correct CA file: %q", cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+			cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
+		}
+	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
 		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
