@@ -94,7 +94,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCP CSI controller")
 	var err error
-
+	if !config.Global.InsecureFlag && config.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+		log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+			"Setting correct CA file: %q", config.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+		config.Global.CAFile = cnsconfig.SupervisorCAFilePath
+	}
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
@@ -287,6 +291,12 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return err
+	}
+
+	if !cfg.Global.InsecureFlag && cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+		log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+			"Setting correct CA file: %q", cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+		cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
 	}
 	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
 	if err != nil {
