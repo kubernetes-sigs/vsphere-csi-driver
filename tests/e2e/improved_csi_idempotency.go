@@ -419,7 +419,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
 	var fullSyncWaitTime int
-	ignoreLabels := make(map[string]string)
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	// Decide which test setup is available to run
@@ -495,41 +494,19 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		// TODO: Stop printing csi logs on the console
-		collectPodLogs(ctx, client, csiSystemNamespace)
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
-			csiSystemNamespace)
+		isServiceStopped, err = stopCSIPods(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isServiceStopped = true
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				err = updateDeploymentReplicawithWait(client, csiReplicaCount, vSphereCSIControllerPodNamePrefix,
-					csiSystemNamespace)
+				isServiceStopped, err = startCSIPods(ctx, client, csiReplicaCount)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				// Wait for the CSI Pods to be up and Running
-				list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				num_csi_pods := len(list_of_pods)
-				err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-					pollTimeout, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isServiceStopped = false
 			}
 		}()
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, csiReplicaCount, vSphereCSIControllerPodNamePrefix,
-			csiSystemNamespace)
+		isServiceStopped, err = startCSIPods(ctx, client, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// Wait for the CSI Pods to be up and Running
-		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-			pollTimeout, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isServiceStopped = false
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -638,7 +615,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
 	var fullSyncWaitTime int
-	ignoreLabels := make(map[string]string)
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	// Decide which test setup is available to run
@@ -764,43 +740,20 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		// TODO: Stop printing csi logs on the console
-		collectPodLogs(ctx, client, csiSystemNamespace)
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
-			csiSystemNamespace)
+		isServiceStopped, err = stopCSIPods(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isServiceStopped = true
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				err = updateDeploymentReplicawithWait(client, csiReplicaCount, vSphereCSIControllerPodNamePrefix,
-					csiSystemNamespace)
+				isServiceStopped, err = startCSIPods(ctx, client, csiReplicaCount)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				// Wait for the CSI Pods to be up and Running
-				list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				num_csi_pods := len(list_of_pods)
-				err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-					pollTimeout, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isServiceStopped = false
 			}
 		}()
 
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, csiReplicaCount, vSphereCSIControllerPodNamePrefix,
-			csiSystemNamespace)
+		isServiceStopped, err = startCSIPods(ctx, client, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Wait for the CSI Pods to be up and Running
-		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-			pollTimeout, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isServiceStopped = false
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
