@@ -15,6 +15,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -32,7 +33,7 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 )
 
-var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot Negative Test", func() {
+var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Test", func() {
 	f := framework.NewDefaultFramework("file-snapshot")
 	var (
 		client       clientset.Interface
@@ -68,7 +69,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot Negative Test",
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Volume snapshot creation on a file-share volume", func() {
+	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -78,56 +79,65 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot Negative Test",
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
-			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		ginkgo.By(fmt.Sprintf("Block or file setup %v", rwxAccessMode))
+
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
-		ginkgo.By("Expect claim to provision volume successfully")
-		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Create a volume snapshot")
-		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
-			getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
-		snapshotCreated := true
-
-		defer func() {
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
+			}()
 
-		ginkgo.By("Verify volume snapshot is created")
-		volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+			ginkgo.By("Expect claim to provision volume successfully")
+			pvclaims = append(pvclaims, pvclaim)
+			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+			defer func() {
+				err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Create volume snapshot class")
+			volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+				getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Create a volume snapshot")
+			volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+				getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+			snapshotCreated := true
+
+			defer func() {
+				if snapshotCreated {
+					framework.Logf("Deleting volume snapshot")
+					err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}()
+
+			ginkgo.By("Verify volume snapshot is created")
+			volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		} else {
+			ginkgo.Skip("Block volume setup, so skip file volume provision")
+		}
+
 	})
 })
