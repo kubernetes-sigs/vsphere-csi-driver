@@ -105,7 +105,7 @@ func powerOffHostParallel(hostsToPowerOff []string) {
 		fds.hostsDown = append(fds.hostsDown, host)
 	}
 
-	err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostlist, false)
+	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, false)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, host := range hostsToPowerOff {
@@ -135,7 +135,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 		}
 		fds.hostsDown = append(fds.hostsDown, host)
 	}
-	err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostlist, true)
+	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
 		err = waitForHostToBeUp(host)

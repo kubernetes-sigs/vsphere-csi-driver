@@ -577,6 +577,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		sts_count = 3
 		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
