@@ -271,6 +271,14 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			VirtualCenterHost: host,
 		}
 		nodeUUID := instance.Spec.NodeUUID
+		pvc := &v1.PersistentVolumeClaim{}
+		err = r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName, Namespace: instance.Namespace}, pvc)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+				instance.Spec.VolumeName, instance.Namespace, err)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
+		}
 		if !instance.Status.Attached && instance.DeletionTimestamp == nil {
 			nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 			if err != nil {
@@ -358,6 +366,28 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 
+			cnsPvcFinalizerExists := false
+			// Check if cnsPvcFinalizerExists already exists.
+			for _, finalizer := range pvc.Finalizers {
+				if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+					cnsPvcFinalizerExists = true
+					break
+				}
+			}
+			if !cnsPvcFinalizerExists {
+				err = addFinalizerToPVC(ctx, r.client, pvc)
+				if err != nil {
+					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
+						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
+					instance.Status.Error = err.Error()
+					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+					if err != nil {
+						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+					}
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
+			}
 			if attachErr != nil {
 				// Update CnsNodeVMAttachment instance with attach error message.
 				instance.Status.Error = attachErr.Error()
@@ -446,6 +476,13 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 					}
 				}
+				err = removeFinalizerFromPVC(ctx, r.client, pvc)
+				if err != nil {
+					msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
+						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 				if err != nil {
@@ -470,6 +507,13 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			if detachErr != nil {
 				if cnsvsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 					msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
+					err = removeFinalizerFromPVC(ctx, r.client, pvc)
+					if err != nil {
+						msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
+							cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
+						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+					}
 					removeFinalizerFromCRDInstance(ctx, instance, request)
 					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 					if err != nil {
@@ -488,6 +532,13 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					cnsVolumeID, nodeVM, request.Name, request.Namespace, detachErr)
 				instance.Status.Error = detachErr.Error()
 			} else {
+				err = removeFinalizerFromPVC(ctx, r.client, pvc)
+				if err != nil {
+					msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
+						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
 				removeFinalizerFromCRDInstance(ctx, instance, request)
 			}
 			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
@@ -538,6 +589,40 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 		}
 	}
+}
+
+// addFinalizerToPVC will add the CNS Finalizer, cns.vmware.com/pvc-protection,
+// from a given PersistentVolumeClaim.
+func addFinalizerToPVC(ctx context.Context, client client.Client, pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+	pvc.Finalizers = append(pvc.Finalizers, cnsoperatortypes.CNSPvcFinalizer)
+	log.Debugf("Adding %q finalizer on PersistentVolumeClaim: %q on namespace: %q",
+		cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+	err := client.Update(ctx, pvc)
+	if err != nil {
+		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
+			pvc.Name, pvc.Namespace, err)
+	}
+	return err
+}
+
+// removeFinalizerFromPVC will remove the CNS Finalizer, cns.vmware.com/pvc-protection,
+// from a given PersistentVolumeClaim.
+func removeFinalizerFromPVC(ctx context.Context, client client.Client, pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+	for i, finalizer := range pvc.Finalizers {
+		if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+			log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
+				cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+			pvc.Finalizers = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
+		}
+	}
+	err := client.Update(ctx, pvc)
+	if err != nil {
+		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
+			pvc.Name, pvc.Namespace, err)
+	}
+	return err
 }
 
 // isVmCrPresent checks whether VM CR is present in SV namespace
