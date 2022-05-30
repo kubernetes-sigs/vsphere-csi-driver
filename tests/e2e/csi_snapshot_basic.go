@@ -3808,8 +3808,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Done with reboot")
 			essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-			err = checkVcenterServicesRunning(vcAddress, essentialServices)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 			// After reboot.
 			bootstrap()
@@ -3831,8 +3830,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		// After reboot.
 		bootstrap()
@@ -3882,8 +3880,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		// After reboot.
 		bootstrap()

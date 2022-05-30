@@ -63,7 +63,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 	})
 
 	ginkgo.AfterEach(func() {
-		setVpxdTaskTimeout(0) // reset vpxd timeout to default
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
 	})
 
 	/*
@@ -345,9 +347,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			deleteStoragePolicy(ctx, pc, policyID)
 		}()
 
-		setVpxdTaskTimeout(vpxdReducedTaskTimeoutSecsInt)
+		setVpxdTaskTimeout(ctx, vpxdReducedTaskTimeoutSecsInt)
 		defer func() {
-			setVpxdTaskTimeout(0)
+			setVpxdTaskTimeout(ctx, 0)
 		}()
 
 		ginkgo.By("Create SC using policy created in step 1")
@@ -419,7 +421,7 @@ func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 //  4. timeout is not set/set to a number, and that is what we want
 // default task timeout is 40 mins
 // if taskTimeout param is 0 we will remove the timeout entry in cfg file and default timeout will kick-in
-func setVpxdTaskTimeout(taskTimeout int) {
+func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 	timeoutMatches := false
 	diffTimeoutExists := false
@@ -481,5 +483,5 @@ func setVpxdTaskTimeout(taskTimeout int) {
 	err = waitVCenterServiceToBeInState(vpxdServiceName, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	bootstrap()
+	connect(ctx, &e2eVSphere)
 }

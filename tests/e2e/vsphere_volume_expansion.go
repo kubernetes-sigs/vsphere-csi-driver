@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		profileID                  string
 		pandoraSyncWaitTime        int
 		defaultDatastore           *object.Datastore
-		isVsanhealthServiceStopped bool
+		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 	)
 	ginkgo.BeforeEach(func() {
@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		isVsanhealthServiceStopped = false
+		isVsanHealthServiceStopped = false
 		isSPSServiceStopped = false
 
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -105,20 +105,19 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
-			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 		}
 
-		if isVsanhealthServiceStopped {
+		if isVsanHealthServiceStopped {
 			framework.Logf("Bringing vsanhealth up before terminating the test")
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
 		if supervisorCluster {
@@ -582,17 +581,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Bring down Vsan-health service")
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if isVsanhealthServiceStopped {
+			if isVsanHealthServiceStopped {
 				framework.Logf("Bringing vsanhealth up before terminating the test")
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isVsanhealthServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -616,9 +613,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringup vsanhealth service")
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -725,11 +720,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer func() {
 			if isSPSServiceStopped {
 				framework.Logf("Bringing sps up before terminating the test")
-				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isSPSServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			}
 		}()
 
@@ -750,11 +741,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
 		ginkgo.By("Bringup SPS service")
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1463,6 +1450,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var fsSize int64
 		var err error
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		_ = e2eVSphere.areAllVPsUp(ctx)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)
@@ -1483,12 +1471,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if isSPSServiceStopped {
-				framework.Logf("Bringing sps up before terminating the test")
-				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isSPSServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			}
 		}()
 
@@ -1506,14 +1489,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectedErrMsg := "VolumeResizeFailed"
 		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
+		gomega.Expect(isFailureFound).To(
+			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
 		ginkgo.By("Bringup SPS service")
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
@@ -1637,17 +1617,15 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Bring down Vsan-health service")
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if isVsanhealthServiceStopped {
+			if isVsanHealthServiceStopped {
 				framework.Logf("Bringing vsanhealth up before terminating the test")
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isVsanhealthServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -1667,9 +1645,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringup vsanhealth service")
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {

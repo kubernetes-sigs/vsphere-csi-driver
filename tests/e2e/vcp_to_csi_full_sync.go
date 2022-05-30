@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvsPostMig              []*v1.PersistentVolume
 		err                        error
 		kcmMigEnabled              bool
-		isSPSserviceStopped        bool
+		isSPSServiceStopped        bool
 		isVsanHealthServiceStopped bool
 		labelKey                   string
 		labelValue                 string
@@ -108,19 +108,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-				vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
-		if isSPSserviceStopped {
-			ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, "sps", vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		if isSPSServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 		}
 
 		crds := []*v1alpha1.CnsVSphereVolumeMigration{}
@@ -540,11 +532,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvsPostMig[7] = updatePvLabel(ctx, client, namespace, vcpPvsPostMig[7], labelsNew)
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to be ready", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanHealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -650,7 +638,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
-		isSPSserviceStopped = true
+		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
@@ -668,11 +656,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to start", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isSPSserviceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)

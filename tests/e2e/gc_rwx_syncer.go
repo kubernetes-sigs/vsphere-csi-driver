@@ -36,19 +36,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 	f := framework.NewDefaultFramework("rwx-tkg-sync")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client               clientset.Interface
-		namespace            string
-		scParameters         map[string]string
-		storagePolicyName    string
-		volHealthCheck       bool
-		isVsanServiceStopped bool
+		client                     clientset.Interface
+		namespace                  string
+		scParameters               map[string]string
+		storagePolicyName          string
+		volHealthCheck             bool
+		isVsanHealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
 		volHealthCheck = false
-		isVsanServiceStopped = false
+		isVsanHealthServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
@@ -64,14 +64,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
-		if isVsanServiceStopped {
+		if isVsanHealthServiceStopped {
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 

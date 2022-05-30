@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"reflect"
@@ -20,6 +21,8 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	smsmethods "github.com/vmware/govmomi/sms/methods"
+	smstypes "github.com/vmware/govmomi/sms/types"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -1076,4 +1079,60 @@ func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrl string) bool {
 
 	framework.Logf("dsUrl from QueryCNSVolumeWithResult: %s, expected: %s", queryResult.Volumes[0].DatastoreUrl, dsUrl)
 	return queryResult.Volumes[0].DatastoreUrl == dsUrl
+}
+
+//areAllVPsUp verifies if all VASA providers are up or not
+func (vs *vSphere) areAllVPsUp(ctx context.Context) bool {
+	req := smstypes.QueryProvider{
+		This: vim25types.ManagedObjectReference{
+			Type:  "SmsStorageManager",
+			Value: "storageManager",
+		},
+	}
+	smsSc := newSmsClient(vs.Client.Client)
+
+	queryProviderResponse, err := smsmethods.QueryProvider(ctx, smsSc, &req)
+	if err != nil {
+		if strings.Contains(err.Error(), "ProviderLoader initialization is ongoing.") {
+			return false
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	framework.Logf("List of VPs: %v", queryProviderResponse)
+	allUp := true
+	for _, vp := range queryProviderResponse.Returnval {
+		framework.Logf("Querying status of VP: %v", vp.Value)
+		reqInfo := smstypes.QueryProviderInfo{
+			This: vim25types.ManagedObjectReference{
+				Type:  "VasaProvider",
+				Value: vp.Value,
+			},
+		}
+		resp, err := smsmethods.QueryProviderInfo(ctx, smsSc, &reqInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		b, err := xml.Marshal(resp.Returnval)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var vpInfo smstypes.VasaProviderInfo
+		err = xml.Unmarshal(b, &vpInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("VP '%v' status: %v", vp.Value, vpInfo.Status)
+		if vpInfo.Status != "online" {
+			allUp = false
+		}
+	}
+	return allUp
+}
+
+//wait4allVPs2ComeUp waits for all VASA providers to come up
+func (vs *vSphere) wait4allVPs2ComeUp(ctx context.Context) error {
+	framework.Logf("Waiting for all VASA providers to be online")
+	waitErr := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		allVpsUp := vs.areAllVPsUp(ctx)
+		if allVpsUp {
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
 }
