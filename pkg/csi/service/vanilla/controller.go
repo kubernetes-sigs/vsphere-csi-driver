@@ -1072,6 +1072,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				}
+				err = volumeMigrationService.ProtectVolumeFromVMDeletion(ctx, req.VolumeId)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to set keepAfterDeleteVm control flag for VolumeID %q", req.VolumeId)
+				}
 			}
 			var node *cnsvsphere.VirtualMachine
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
