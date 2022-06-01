@@ -5750,3 +5750,92 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*isSvcStopped = false
 }
+
+// assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
+func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
+	namespace string, policyNames []string) {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	sessionId := createVcSession4RestApis()
+
+	curlStr := ""
+	policyNamesArrLength := len(policyNames)
+	defRqLimit := strings.Split(defaultrqLimit, "Gi")[0]
+	limit, err := strconv.Atoi(defRqLimit)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	limit *= 953 //to convert gb to mebibytes
+	if policyNamesArrLength >= 1 {
+		curlStr += fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, e2eVSphere.GetSpbmPolicyID(policyNames[0]))
+	}
+	if policyNamesArrLength >= 2 {
+		for i := 1; i < policyNamesArrLength; i++ {
+			profileID := e2eVSphere.GetSpbmPolicyID(policyNames[i])
+			curlStr += "," + fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, profileID)
+		}
+	}
+
+	httpCodeStr := `%{http_code}`
+	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
+		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
+		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
+		`'{ "access_list": [ { "domain": "", "role": "OWNER", "subject": "", "subject_type": "USER" } ], `+
+		`"description": "", "resource_spec": { }, "storage_specs": [ %s ], `+
+		`"vm_service_spec": { } }'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+	gomega.Expect(result.Stdout).To(gomega.Equal("204"))
+
+	// wait for sc to get created in SVC
+	for _, policyName := range policyNames {
+		err = waitForScToGetCreated(client, ctx, policyName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+}
+
+// createVcSession4RestApis generates session ID for VC to use in rest API calls
+func createVcSession4RestApis() string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
+		" -u 'Administrator@vsphere.local:%s'", vcIp, adminPassword)
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	fssh.LogResult(result)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+
+	var session map[string]interface{}
+	res := []byte(result.Stdout)
+	err = json.Unmarshal(res, &session)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sessionId := session["value"].(string)
+	framework.Logf("sessionID is: %v", sessionId)
+	return sessionId
+}
+
+// waitForScToGetCreated waits for a particular storageclass to get created
+func waitForScToGetCreated(client clientset.Interface, ctx context.Context, policyName string) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort*5, func() (bool, error) {
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("couldn't find storageclass: %s due to error: %v", policyName, err)
+		}
+		if storageclass != nil {
+			return true, nil
+		}
+		return false, nil
+	})
+	if waitErr == wait.ErrWaitTimeout {
+		return fmt.Errorf("couldn't find storageclass: %s in SVC", policyName)
+	}
+	return nil
+
+}
