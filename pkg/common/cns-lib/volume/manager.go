@@ -33,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vslm"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
@@ -76,6 +77,8 @@ type Manager interface {
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
+	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
+	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS
@@ -952,4 +955,29 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// ProtectVolumeFromVMDeletion helps set keepAfterDeleteVm control flag for given volumeID
+func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
+		string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
+	if err != nil {
+		log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+		return err
+	}
+	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
+	return nil
 }

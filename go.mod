@@ -29,7 +29,7 @@ require (
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vmware-tanzu/vm-operator-api v0.1.3
-	github.com/vmware/govmomi v0.24.1
+	github.com/vmware/govmomi v0.27.5
 	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect

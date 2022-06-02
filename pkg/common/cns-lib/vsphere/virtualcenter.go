@@ -30,6 +30,7 @@ import (
 	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vsan"
+	"github.com/vmware/govmomi/vslm"
 
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/logger"
@@ -65,6 +66,8 @@ type VirtualCenter struct {
 	CnsClient *cns.Client
 	// VsanClient represents the VSAN client instance.
 	VsanClient *vsan.Client
+	// VslmClient represents the Vslm client instance.
+	VslmClient *vslm.Client
 }
 
 var (

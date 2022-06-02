@@ -813,6 +813,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					log.Error(msg)
 					return nil, status.Errorf(codes.Internal, msg)
 				}
+				err = volumeMigrationService.ProtectVolumeFromVMDeletion(ctx, req.VolumeId)
+				if err != nil {
+					msg := fmt.Sprintf("failed to set keepAfterDeleteVm control flag for VolumeID %q", req.VolumeId)
+					return nil, status.Errorf(codes.Internal, msg)
+				}
 			}
 			node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 			if err != nil {
