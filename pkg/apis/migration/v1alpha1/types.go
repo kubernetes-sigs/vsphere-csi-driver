@@ -37,6 +37,8 @@ type CnsVSphereVolumeMigrationSpec struct {
 	VolumePath string `json:"volumepath"`
 	// VolumeID is the FCD ID obtained after register volume with CNS.
 	VolumeID string `json:"volumeid"`
+	// ProtectVolumeFromVMDelete true means migrated volumes is protected from Node VM deletion
+	ProtectVolumeFromVMDelete bool `json:"protectvolumefromvmdelete"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
