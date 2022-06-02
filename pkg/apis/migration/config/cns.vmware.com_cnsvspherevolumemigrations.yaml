@@ -45,6 +45,9 @@ spec:
               volumepath:
                 description: VolumePath is the vmdk path of the vSphere Volume
                 type: string
+              protectvolumefromvmdelete:
+                description: protect volume from vm deletion after vmdk is migrated to CSI
+                type: boolean
             required:
             - volumeid
             - volumepath
