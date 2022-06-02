@@ -73,6 +73,10 @@ type VolumeMigrationService interface {
 
 	// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for specified volumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
+
+	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on the migrated volume
+	// Returns an error if not able to set keepAfterDeleteVm control flag on the volume
+	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 }
 
 // volumeMigration holds migrated volume information and provides functionality around it.
@@ -227,7 +231,40 @@ func (volumeMigration *volumeMigration) GetVolumeID(ctx context.Context, volumeS
 	return "", ErrVolumeIDNotFound
 }
 
-// GetVolumePath returns VolumePath for given VolumeID
+// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on the migrated volume
+// Returns an error if not able to set keepAfterDeleteVm control flag on the volume
+func (volumeMigration *volumeMigration) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	volumeMigrationResource := &migrationv1alpha1.CnsVSphereVolumeMigration{}
+	var err error
+	err = volumeMigration.k8sClient.Get(ctx, client.ObjectKey{Name: volumeID}, volumeMigrationResource)
+	if err != nil {
+		log.Errorf("error while getting CnsVSphereVolumeMigration CR for VolumeID: %q, err: %v", volumeID, err)
+		return err
+	}
+	if !volumeMigrationResource.Spec.ProtectVolumeFromVMDelete {
+		log.Info("Set keepAfterDeleteVm control flag using Vslm APIs")
+		err = (*volumeMigration.volumeManager).ProtectVolumeFromVMDeletion(ctx, volumeID)
+		if err != nil {
+			log.Errorf("failed to protect migrated volume from vm deletion. Volume ID: %q, err: %v", volumeID, err)
+			return err
+		}
+		log.Infof("Migrated Volume with ID: %q is protected from VM deletion", volumeID)
+	} else {
+		log.Infof("Migrated volume with ID: %q is already protected from vm deletion", volumeID)
+		return nil
+	}
+	volumeMigrationResource.Spec.ProtectVolumeFromVMDelete = true
+	err = volumeMigration.k8sClient.Update(ctx, volumeMigrationResource)
+	if err != nil {
+		log.Errorf("error happened while updating volumeMigration CR to set ProtectVolumeFromVMDelete true "+
+			"for VolumeID: %q, err: %v", volumeID, err)
+		return err
+	}
+	return nil
+}
+
+// GetVolumePath returns VolumePath for given VolumeID.
 // Returns an error if not able to retrieve VolumePath.
 func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -247,7 +284,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	err := volumeMigration.k8sClient.Get(ctx, client.ObjectKey{Name: volumeID}, volumeMigrationResource)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			log.Errorf("error happened while getting CR for volumeMigration for VolumeID: %q, err: %v", volumeID, err)
+			log.Errorf("error while getting CnsVSphereVolumeMigration CR for VolumeID: %q, err: %v", volumeID, err)
 			return "", err
 		}
 	} else {
