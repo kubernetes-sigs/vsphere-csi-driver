@@ -96,6 +96,8 @@ type Manager interface {
 	RegisterDisk(ctx context.Context, path string, name string) (string, error)
 	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id.
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
+	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
+	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1458,7 +1460,7 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	}
 
 	// Call the CNS QueryVolumeAsync.
-	queryVolumeAsyncTask, err := m.virtualCenter.CnsClient.QueryVolumeAsync(ctx, queryFilter, querySelection)
+	queryVolumeAsyncTask, err := m.virtualCenter.CnsClient.QueryVolumeAsync(ctx, queryFilter, &querySelection)
 	if err != nil {
 		log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
@@ -1489,4 +1491,29 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
 	log.Debugf("QueryVolumeAsync returned CnsQueryResult: %+v", spew.Sdump(queryVolumeAsyncResult.QueryResult))
 	return &queryVolumeAsyncResult.QueryResult, nil
+}
+
+// ProtectVolumeFromVMDeletion helps set keepAfterDeleteVm control flag for given volumeID
+func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
+		string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
+	if err != nil {
+		log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+		return err
+	}
+	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
+	return nil
 }
