@@ -31,7 +31,7 @@ trap cleanup EXIT
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go get golang.org/x/lint/golint
+go install golang.org/x/lint/golint
 
 CMD=$(go list -f \{\{\.Target\}\} golang.org/x/lint/golint)
 

@@ -22,7 +22,7 @@ set -o pipefail
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go get honnef.co/go/tools/cmd/staticcheck
+go install honnef.co/go/tools/cmd/staticcheck@2022.1.1
 CMD=$(go list -f \{\{\.Target\}\} honnef.co/go/tools/cmd/staticcheck)
 
 CHECKS="all,-ST1*"
