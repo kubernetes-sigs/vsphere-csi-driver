@@ -404,6 +404,7 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "file-volume": "true"
+  "online-volume-extend": "true"
   "csi-auth-check": "true"
   "vsan-direct-disk-decommission": "true"
   "trigger-csi-fullsync": "false"
