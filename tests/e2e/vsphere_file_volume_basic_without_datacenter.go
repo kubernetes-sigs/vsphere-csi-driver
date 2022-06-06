@@ -43,10 +43,14 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
+
+		bootstrap()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		if vanillaCluster {
 			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		}
-		bootstrap(true)
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -54,11 +58,10 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		}
 
 		// Get CSI Controller's replica count from the setup
-		deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := client.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount = *deployment.Spec.Replicas
-
 	})
 
 	ginkgo.AfterEach(func() {
@@ -66,7 +69,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		currentSecret, err := client.CoreV1().Secrets(csiControllerNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		currentSecret.Data[vsphereCloudProviderConfiguration] = []byte(originalConf)
+		currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
 		_, err = client.CoreV1().Secrets(csiControllerNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -102,10 +105,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 
 		ctx, cancel = context.WithCancel(context.Background())
 
+		ginkgo.By("Fetching the original secret content")
 		secret, err := client.CoreV1().Secrets(csiControllerNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		originalConf := string(secret.Data[vsphereCloudProviderConfiguration])
+		originalConf = string(secret.Data[vSphereCSIConf])
 		vsphereCfg, err := readConfigFromSecretString(originalConf)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -116,7 +120,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Updating the secret to reflect the change")
-		secret.Data[vsphereCloudProviderConfiguration] = []byte(modifiedConf)
+		secret.Data[vSphereCSIConf] = []byte(modifiedConf)
 		_, err = client.CoreV1().Secrets(csiControllerNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
