@@ -639,7 +639,7 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoperatortypes.CNSFinalizer {
-			log.Debugf("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
+			log.Infof("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
 				cnsoperatortypes.CNSFinalizer, request.Name, request.Namespace)
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 		}
