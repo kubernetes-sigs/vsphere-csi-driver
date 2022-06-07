@@ -43,7 +43,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -1084,7 +1083,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 
-		err := common.ValidateControllerExpandVolumeRequest(ctx, req)
+		err := validateGuestClusterControllerExpandVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -1093,6 +1092,27 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
+			vmList := &vmoperatortypes.VirtualMachineList{}
+			err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
+			if err != nil {
+				msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
+
+			for _, vmInstance := range vmList.Items {
+				for _, vmVolume := range vmInstance.Status.Volumes {
+					if vmVolume.Name == volumeID && vmVolume.Attached {
+						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
+							"Only offline volume expansion is supported", volumeID)
+						log.Error(msg)
+						return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.FailedPrecondition, msg)
+					}
+				}
+			}
+		}
 
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(

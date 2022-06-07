@@ -144,6 +144,7 @@ apiVersion: v1
 data:
   "csi-migration": "false"
   "csi-auth-check": "true"
+  "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"

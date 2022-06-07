@@ -1263,11 +1263,12 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to check if online expansion is supported due to error: %v", err)
 		}
-
-		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionSupported)
+		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
 		if err != nil {
-			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 
