@@ -4067,14 +4067,26 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 	// Check if the cluster-distribution value is as required or reset.
 	if cfg.Global.ClusterDistribution != clusterDistribution {
 		// Modify csi-vsphere.conf file.
-		modifiedConf := fmt.Sprintf(
-			"[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n\n"+
-				"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n",
-			cfg.Global.InsecureFlag, cfg.Global.ClusterID, clusterDistribution,
-			cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password, cfg.Global.Datacenters,
-			cfg.Global.VCenterPort)
+		configContent := `[Global]
+insecure-flag = "%t"
+cluster-id = "%s"
+cluster-distribution = "%s"
+
+[VirtualCenter "%s"]
+user = "%s"
+password = "%s"
+datacenters = "%s"
+port = "%s"
+
+[Snapshot]
+global-max-snapshots-per-block-volume = %d`
+
+		modifiedConf := fmt.Sprintf(configContent, cfg.Global.InsecureFlag, cfg.Global.ClusterID,
+			clusterDistribution, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
 
 		// Set modified csi-vsphere.conf file and update.
+		framework.Logf("Updating the secret")
 		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
 		_, err := client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
