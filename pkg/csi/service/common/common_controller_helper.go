@@ -110,12 +110,14 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 }
 
 // CheckAPI checks if specified version against the specified minimum support version.
-func CheckAPI(versionToCheck string,
+func CheckAPI(ctx context.Context,
+	versionToCheck string,
 	minSupportedVCenterMajor int,
 	minSupportedVCenterMinor int,
 	minSupportedVCenterPatch int) error {
+	log := logger.GetLogger(ctx)
 	items := strings.Split(versionToCheck, ".")
-	if len(items) < 2 || len(items) > 4 {
+	if len(items) < 2 {
 		return fmt.Errorf("invalid API Version format")
 	}
 	major, err := strconv.Atoi(items[0])
@@ -135,11 +137,17 @@ func CheckAPI(versionToCheck string,
 	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
 		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
-			if err != nil || patch < minSupportedVCenterPatch {
+			if err != nil {
 				return fmt.Errorf("invalid patch version value")
+			}
+			if patch < minSupportedVCenterPatch {
+				return fmt.Errorf("the minimum supported vCenter is %d.%d.%d",
+					minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 			}
 		}
 	}
+	log.Infof("VC version detected as %q satisfies minimum supported vcenter version %d.%d.%d.",
+		versionToCheck, minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	return nil
 }
 
@@ -279,7 +287,7 @@ func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bo
 func CheckPVtoBackingDiskObjectIdSupport(ctx context.Context, vc *cnsvsphere.VirtualCenter) bool {
 	log := logger.GetLogger(ctx)
 	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
-	err := CheckAPI(currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor,
+	err := CheckAPI(ctx, currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor,
 		PVtoBackingDiskObjectIdSupportedVCenterMinor, PVtoBackingDiskObjectIdSupportedVCenterPatch)
 	if err != nil {
 		log.Errorf("checkAPI failed for PV to BackingDiskObjectId mapping support on vCenter API version: %s, err=%v",
