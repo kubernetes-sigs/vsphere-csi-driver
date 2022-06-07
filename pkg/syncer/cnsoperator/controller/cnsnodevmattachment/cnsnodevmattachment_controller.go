@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -788,15 +789,32 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 // getVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
 func getVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
 	log := logger.GetLogger(ctx)
-	// Get PVC by pvcName from namespace.
+	pvNameExistInPVCSpec := false
+	timeout := 4 * time.Minute
+	pollTime := time.Duration(5) * time.Second
 	pvc := &v1.PersistentVolumeClaim{}
-	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	err := wait.Poll(pollTime, timeout, func() (bool, error) {
+		// Get PVC by pvcName from namespace.
+		err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+		if err != nil {
+			log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+				pvcName, namespace, err)
+			return false, err
+		}
+		if pvc.Spec.VolumeName != "" {
+			pvNameExistInPVCSpec = true
+			return true, nil
+		}
+		log.Infof("pvc.Spec.VolumeName is empty in PVC: %q on namespace: %q. Retrying in 5 seconds.", pvcName, namespace)
+		return false, nil
+	})
 	if err != nil {
-		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
-			pvcName, namespace, err)
+		if !pvNameExistInPVCSpec {
+			return "", logger.LogNewErrorf(log, "pvc.Spec.VolumeName is empty in PVC: %q on namespace: %q "+
+				"even after waiting for 4 minutes.", pvcName, namespace)
+		}
 		return "", err
 	}
-
 	// Get PV by name.
 	pv := &v1.PersistentVolume{}
 	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
