@@ -230,7 +230,9 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 		framework.Logf("error is %v", err)
 
 		if err != nil && !strings.Contains(err.Error(), "has prevented the request") &&
-			!strings.Contains(err.Error(), "TLS handshake timeout") {
+			!strings.Contains(err.Error(), "TLS handshake timeout") &&
+			!strings.Contains(err.Error(), "dial tcp") &&
+			!strings.Contains(err.Error(), ": EOF") {
 			return false, err
 		}
 		for _, node := range nodes.Items {
@@ -453,27 +455,35 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	framework.Logf("Site esx map : %v", siteEsxMap)
-	// Assuming atleast one master is on that site
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
-	for _, masterIp := range allMasterIps {
-		cmd := "export GOVC_INSECURE=1;"
-		cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
-		cmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
-		result, err := sshExec(sshClientConfig, masterIp, cmd)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		hostIp := strings.Split(result.Stdout, "Host:")
-		host := strings.TrimSpace(hostIp[1])
-		if siteEsxMap[host] {
-			masterIpOnSite = masterIp
-			break
+	// Assuming atleast one master is on that site
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeout*2, func() (bool, error) {
+		for _, masterIp := range allMasterIps {
+			cmd := "export GOVC_INSECURE=1;"
+			cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
+			cmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
+			result, err := sshExec(sshClientConfig, masterIp, cmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			hostIp := strings.Split(result.Stdout, "Host:")
+			host := strings.TrimSpace(hostIp[1])
+			if siteEsxMap[host] {
+				masterIpOnSite = masterIp
+				break
+			}
 		}
-	}
+		if masterIpOnSite != "" {
+			return true, nil
+		}
+		return false, nil
+	})
 	framework.Logf("Master IP on site : %s", masterIpOnSite)
-	if masterIpOnSite != "" {
-		return masterIpOnSite, nil
-	} else {
-		return "", fmt.Errorf("couldn't find a master running on site")
+	if waitErr != nil {
+		if waitErr == wait.ErrWaitTimeout {
+			return "", fmt.Errorf("couldn't find a master running on site")
+		}
+		return "", waitErr
 	}
+	return masterIpOnSite, nil
 }
 
 // changeLeaderOfContainerToComeUpOnMaster ensures that the leader of a container comes up on
@@ -573,9 +583,8 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 	cmd := "export GOVC_INSECURE=1;"
 	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
-	result, err := sshExec(sshClientConfig, masterIp[0], cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return !strings.Contains(result.Stdout, "object references is empty")
+	_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	return strings.Contains(err.Error(), "object references is empty")
 }
 
 // createStsDeployment creates statfulset and deployment in a namespace and returns
@@ -683,8 +692,7 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 
 	err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	checkIfPvDeleteFailWithSpecificMsg(client, pvs[0])
 }
 
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
@@ -905,8 +913,6 @@ func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Cont
 		pv := getPersistentVolumeSpec(fcdIDs[i], v1.PersistentVolumeReclaimRetain, staticPVLabels)
 		pv, err := client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Creating the PVC from PV: %s", pv.Name)
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
@@ -927,17 +933,28 @@ func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
-
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("couldn't get full sync crd in given time, ignoring this error: %v", err)
+	}
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	if err != nil {
+		framework.Logf("couldn't update full sync crd in given time, ignoring this error: %v", err)
+	}
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd, err = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("couldn't get full sync crd in given time, ignoring this error: %v", err)
+	}
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	if err != nil {
+		framework.Logf("couldn't update full sync crd in given time, ignoring this error: %v", err)
+	}
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
@@ -946,27 +963,30 @@ func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
 
 // getTriggerFullSyncCrd fetches full sync crd from the list of crds in k8s cluster
 func getTriggerFullSyncCrd(ctx context.Context, client clientset.Interface,
-	cnsOperatorClient client.Client) *triggercsifullsyncv1alpha1.TriggerCsiFullSync {
+	cnsOperatorClient client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
 	fullSyncCrd := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	err := cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: crdtriggercsifullsyncsName}, fullSyncCrd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(fullSyncCrd).NotTo(gomega.BeNil(), "couldn't find full sync crd: %s", crdtriggercsifullsyncsName)
-	return fullSyncCrd
+	if err != nil {
+		return nil, err
+	}
+	return fullSyncCrd, nil
 }
 
 // updateTriggerFullSyncCrd triggers full sync by updating TriggerSyncID
 // value to  LastTriggerSyncID +1 in full sync crd
 func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Client,
-	crd triggercsifullsyncv1alpha1.TriggerCsiFullSync) {
+	crd triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
 	framework.Logf("instance is %v before update", crd)
 	lastSyncId := crd.Status.LastTriggerSyncID
 	triggerSyncID := lastSyncId + 1
 	crd.Spec.TriggerSyncID = triggerSyncID
 	err := cnsOperatorClient.Update(ctx, &crd)
-	framework.Logf("Error is %v", err)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return err
+	}
 	framework.Logf("instance is %v after update", crd)
+	return nil
 }
 
 // waitForFullSyncToFinish waits for a given full sync to finish by checking
@@ -974,7 +994,10 @@ func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Clie
 func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
 	cnsOperatorClient client.Client) error {
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		if err != nil {
+			return false, err
+		}
 		framework.Logf("crd is: %v", crd)
 		if !crd.Status.InProgress {
 			return true, nil
@@ -985,4 +1008,50 @@ func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
 		return false, nil
 	})
 	return waitErr
+}
+
+// checkForEventWithMessage fetches events list of the given object name and checkes for
+// specified message and returns true if expected error message found
+func checkForEventWithMessage(client clientset.Interface, namespace string,
+	name string, expectedMsg string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventFound := false
+	framework.Logf("Checking for error in events related to " + name)
+	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+	for _, item := range eventList.Items {
+		framework.Logf("message: %v", item.Message)
+		if strings.Contains(item.Message, expectedMsg) {
+			framework.Logf("Expected event found. EventList Reason: "+
+				"%q"+" EventList item: %q", item.Reason, item.Message)
+			eventFound = true
+			break
+		}
+	}
+	return eventFound
+}
+
+// checkIfPvDeleteFailWithSpecificMsg checks if a PV delete fails
+func checkIfPvDeleteFailWithSpecificMsg(client clientset.Interface, pv *v1.PersistentVolume) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	volumeHandle := pv.Spec.CSI.VolumeHandle
+	err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+		pollTimeout)
+	framework.Logf("Error: %v", err)
+	errMsg := "The object or item referred to could not be found"
+	if err != nil && checkForEventWithMessage(client, "", pv.Name, errMsg) {
+		framework.Logf("Persistent Volume %v still not deleted with err %v, ignoring it", pv.Name, errMsg)
+		// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
+		_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+		framework.Logf("Volume %v still not deleted from CNS with err %v, ignoring it", pv.Name, errMsg)
+	} else {
+		eventList, _ := client.CoreV1().Events("").List(ctx,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pv.Name)})
+		framework.Logf("Events related to pv: %v", eventList)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }

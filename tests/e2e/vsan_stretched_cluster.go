@@ -165,21 +165,31 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err := waitForAllNodes2BeReady(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+		err = client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		err = client.StorageV1().StorageClasses().Delete(ctx, storageClassName, *metav1.NewDeleteOptions(0))
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		scs, err := client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		if isVsanHealthServiceStopped {
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
+		for _, sc := range scs.Items {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -191,6 +201,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			toggleNetworkFailureParallel(fds.hostsPartitioned, false)
 			fds.hostsPartitioned = nil
 		}
+
 		fds.primarySiteHosts = nil
 		fds.secondarySiteHosts = nil
 	})
@@ -512,14 +523,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			for _, pv := range persistentvolumes {
-				err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-						"kubernetes", volumeHandle))
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -758,12 +762,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -786,7 +785,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Check if csi pods are running fine after network failure
-		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
+		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout*2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking if volumes and pods post network failure are healthy")
@@ -824,14 +823,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-				pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			volumeHandle := pv.Spec.CSI.VolumeHandle
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeHandle))
+			checkIfPvDeleteFailWithSpecificMsg(client, pv)
+
 		}
 	})
 
@@ -908,18 +901,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-				pollTimeout)
-			if !apierrors.IsNotFound(err) {
-				framework.Logf("Persistent Volume %v still not deleted with err %v", pv.Name, err)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, err)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
+			checkIfPvDeleteFailWithSpecificMsg(client, pv)
 		}
 		ginkgo.By("Bring up the primary site")
 		if len(fds.hostsDown) > 0 && fds.hostsDown != nil {
@@ -1039,7 +1021,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Check if csi pods are running fine after site failure
-		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
+		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout*2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking whether pods are in Running or ExitCode:0 state")
@@ -1396,19 +1378,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-				pollTimeout)
-			if !apierrors.IsNotFound(err) {
-				framework.Logf("Persistent Volume %v still not deleted with err %v", pv.Name, err)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, err)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				// TODO: List orphan volumes
-			}
-
+			checkIfPvDeleteFailWithSpecificMsg(client, pv)
 		}
 		ginkgo.By("Bring up the secondary site")
 		if len(fds.hostsDown) > 0 {
@@ -1492,12 +1462,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			for _, pv := range persistentvolumes {
-				err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
-					framework.PodDeleteTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -1753,12 +1718,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -2396,6 +2356,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}
 		// Delete csi controller pods on other masters which is not present on that site
 		deleteCsiControllerPodOnOtherMasters(client, csiPodOnSite)
+		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		masterIpOnSecSite, err := getMasterIpOnSite(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		allCsiContainerNames := []string{syncerContainerName, provisionerContainerName, attacherContainerName,
@@ -2444,10 +2408,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						"kubernetes", volumeHandle))
 			}
 		}()
-
-		// Get the list of csi pods running in CSI namespace
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		replicas1 += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulset %v to number of Replica: %v", statefulset1.Name, replicas1))
@@ -2752,14 +2712,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-						"kubernetes", volumeHandle))
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -2777,23 +2730,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			volHandle := persistentvolumes[i].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		}
-		defer func() {
-			for _, claim := range pvclaims {
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			for _, pv := range persistentvolumes {
-				err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-						"kubernetes", volumeHandle))
-			}
-		}()
 
 		// Get the list of csi pods running in CSI namespace
 		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
@@ -2959,14 +2895,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-					pollTimeout)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-						"kubernetes", volumeHandle))
+				checkIfPvDeleteFailWithSpecificMsg(client, pv)
 			}
 		}()
 
@@ -2985,13 +2914,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}()
 
-		// Check if csi pods are running fine after site failure
-		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Check if csi pods are running fine after site failure
+		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying volume lifecycle actions works fine")
@@ -3132,11 +3061,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Verify all PVCs are deleted from namespace")
-		for _, pvc := range pvclaims {
-			err = waitForPvcToBeDeleted(ctx, client, pvc.Name, namespace)
-		}
 
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range pvs {
@@ -3279,7 +3203,9 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+			err := fpv.DeletePersistentVolume(client, pv.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 				pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeHandle := pv.Spec.CSI.VolumeHandle

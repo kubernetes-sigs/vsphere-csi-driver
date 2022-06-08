@@ -947,9 +947,12 @@ func updateDeploymentReplicawithWait(client clientset.Interface, count int32, na
 	var err error
 	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if err != nil {
-			return false, nil
+			if count == 0 && apierrors.IsNotFound(err) {
+				return true, nil
+			} else {
+				return false, err
+			}
 		}
 		*deployment.Spec.Replicas = count
 		ginkgo.By("Waiting for update operation on deployment to take effect")
@@ -5174,7 +5177,6 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
 				csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
 				"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
-
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
@@ -5190,7 +5192,6 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	// Sorting the temporary file according to timestamp to find the latest container leader
 	// from the CSI pod replicas
 	var cmd string
-
 	cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
 
 	framework.Logf("Invoking command '%v' on host %v", cmd,
@@ -5220,7 +5221,6 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 		return "", "", fmt.Errorf("couldn't find CSI pod where %s leader is running",
 			containerName)
 	}
-
 	framework.Logf("CSI pod %s where %s leader is running", csiControllerPodName, containerName)
 	// Fetching master node name where container leader is running
 	podData, err := client.CoreV1().Pods(csiSystemNamespace).Get(ctx, csiControllerPodName, metav1.GetOptions{})
@@ -5564,30 +5564,8 @@ func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapc.Vol
 	return volumesnapshotSpec
 }
 
-// waitForPvcToBeDeleted waits by polling for a particular pvc to be deleted in a namespace
-func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcName string, namespace string) error {
-	var pvc *v1.PersistentVolumeClaim
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				return true, nil
-			} else {
-				return false, fmt.Errorf("pvc %s is still not deleted in"+
-					"namespace %s with err: %v", pvc.Name, namespace, err)
-			}
-		}
-		return false, nil
-	})
-	framework.Logf("Status of pvc is: %v", pvc.Status.Phase)
-	return waitErr
-}
-
-/*
-	This util method fetches events list of the given object name and checkes for
-
-specified error reason and returns true if expected error Reason found
-*/
+/* This util method fetches events list of the given object name and checkes for
+specified error reason and returns true if expected error Reason found */
 func waitForEventWithReason(client clientset.Interface, namespace string,
 	name string, expectedErrMsg string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -5700,24 +5678,26 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 func triggerFullSync(ctx context.Context, client clientset.Interface,
 	cnsOperatorClient client.Client) {
 	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	crd, err = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
 func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
 	containerName string) (string, error) {
 	containerId := ""
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
 		grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
 			"awk '{print $1}' |  tr -d '\n'"
 		framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
