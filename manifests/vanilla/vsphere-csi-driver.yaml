@@ -316,7 +316,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.6.0
+          image: k8s.gcr.io/sig-storage/livenessprobe:v2.7.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -373,7 +373,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: k8s.gcr.io/sig-storage/csi-snapshotter:v5.0.1
+          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.0.1
           args:
             - "--v=4"
             - "--kube-api-qps=100"
@@ -420,7 +420,7 @@ spec:
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
         - name: node-driver-registrar
-          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.0
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.1
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -504,7 +504,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.6.0
+          image: k8s.gcr.io/sig-storage/livenessprobe:v2.7.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
