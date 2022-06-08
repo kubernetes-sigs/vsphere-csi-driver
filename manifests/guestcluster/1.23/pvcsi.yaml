@@ -476,7 +476,7 @@ data:
   "file-volume": "true"
   "csi-sv-feature-states-replication": "false"
   "block-volume-snapshot": "false"
-  "tkgs-ha": "true"
+  "tkgs-ha": "false"
   "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
 metadata:
