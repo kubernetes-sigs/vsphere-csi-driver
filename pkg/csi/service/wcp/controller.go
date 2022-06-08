@@ -65,8 +65,6 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES,
 	}
 )
 
@@ -1252,6 +1250,11 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	var caps []*csi.ControllerServiceCapability
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
+	}
+
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
 			Type: &csi.ControllerServiceCapability_Rpc{
