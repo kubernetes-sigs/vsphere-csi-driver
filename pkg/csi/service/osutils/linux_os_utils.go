@@ -142,7 +142,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		log.Debugf("nodeStageBlockVolume: Device already mounted. Checking mount flags %v for correctness.",
 			params.MntFlags)
 		for _, m := range mnts {
-			if m.Path == params.StagingTarget {
+			if unescape(ctx, m.Path) == params.StagingTarget {
 				rwo := "rw"
 				if params.Ro {
 					rwo = "ro"
@@ -410,7 +410,7 @@ func (osUtils *OsUtils) PublishMountVol(
 	if len(devMnts) > 1 {
 		// check if publish is already there.
 		for _, m := range devMnts {
-			if m.Path == params.Target {
+			if unescape(ctx, m.Path) == params.Target {
 				// volume already published to target.
 				// If mount options look good, do nothing.
 				rwo := "rw"
@@ -497,7 +497,7 @@ func (osUtils *OsUtils) PublishBlockVol(
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.Target)
 	} else if len(devMnts) == 1 {
 		// Already mounted, make sure it's what we want.
-		if devMnts[0].Path != params.Target {
+		if unescape(ctx, devMnts[0].Path) != params.Target {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
@@ -543,7 +543,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	}
 	log.Debugf("PublishFileVolume: Mounts - %+v", mnts)
 	for _, m := range mnts {
-		if m.Path == params.Target {
+		if unescape(ctx, m.Path) == params.Target {
 			// Volume already published to target.
 			// If mount options look good, do nothing.
 			rwo := "rw"
@@ -884,7 +884,7 @@ func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*De
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			// Something is mounted to target, get underlying disk.
 			d := m.Device
 			if m.Device == "udev" || m.Device == "devtmpfs" {
@@ -992,7 +992,7 @@ func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
 func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			if m.Type == common.NfsFsType || m.Type == common.NfsV4FsType {
 				log.Debug("IsFileVolumeMount: Found file volume")
 				return true, nil
@@ -1010,7 +1010,7 @@ func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info)
 func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			log.Debugf("Found target %q in list of mounts", target)
 			return true
 		}
@@ -1022,4 +1022,24 @@ func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) 
 // decides if node should continue
 func (osUtils *OsUtils) ShouldContinue(ctx context.Context) {
 	// no op for linux
+}
+
+// un-escapes "\nnn" sequences in /proc/self/mounts. For example, replaces "\040" with space " ".
+func unescape(ctx context.Context, in string) string {
+	log := logger.GetLogger(ctx)
+	out := make([]rune, 0, len(in))
+	s := in
+	for len(s) > 0 {
+		// Un-escape single character.
+		// UnquoteChar will un-escape also \r, \n, \Unnnn and other sequences, but they should not be used in /proc/mounts.
+		rune, _, tail, err := strconv.UnquoteChar(s, '"')
+		if err != nil {
+			log.Infof("Error parsing mount %q: %s", in, err)
+			// Use escaped string as a fallback
+			return in
+		}
+		out = append(out, rune)
+		s = tail
+	}
+	return string(out)
 }
