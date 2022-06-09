@@ -217,7 +217,7 @@ spec:
             - "--kube-api-burst=100"
             - "--default-fstype=ext4"
             - "--use-service-for-placement-engine=false"
-            - "--tkgs-ha=false"
+            - "--tkgs-ha=true"
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
@@ -414,7 +414,7 @@ data:
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
-  "tkgs-ha": "false"
+  "tkgs-ha": "true"
   "list-volumes": "false"
   "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
