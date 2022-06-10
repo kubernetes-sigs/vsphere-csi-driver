@@ -321,7 +321,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 			}
-			volumeID, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
+			volumeID, faulttype, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Error: %+v",
@@ -332,7 +332,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
+				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 			cnsFinalizerExists := false
 			// Check if finalizer already exists.
@@ -786,7 +786,8 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 }
 
 // getVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
-func getVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
+func getVolumeID(ctx context.Context, client client.Client, pvcName string,
+	namespace string) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	// Get PVC by pvcName from namespace.
 	pvc := &v1.PersistentVolumeClaim{}
@@ -794,7 +795,7 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	if err != nil {
 		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 			pvcName, namespace, err)
-		return "", err
+		return "", csifault.CSIApiServerOperationFault, err
 	}
 
 	// Get PV by name.
@@ -803,9 +804,9 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	if err != nil {
 		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
 			pvc.Spec.VolumeName, pvcName, err)
-		return "", err
+		return "", csifault.CSIPvNotFoundInPvcSpecFault, err
 	}
-	return pv.Spec.CSI.VolumeHandle, nil
+	return pv.Spec.CSI.VolumeHandle, "", nil
 }
 
 func updateCnsNodeVMAttachment(ctx context.Context, client client.Client,
