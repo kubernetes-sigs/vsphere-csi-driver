@@ -258,12 +258,13 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 				k8sOrchestratorInstance.IsFSSEnabled(ctx, common.FakeAttach)) ||
-				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla) {
-				initVolumeHandleToPvcMap(ctx)
+				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
+					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes)) {
+				initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
 			}
 
 			if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
-				initVolumeNameToNodesMap(ctx)
+				initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
 				if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					initNodeIDToNameMap(ctx)
 				}
@@ -747,7 +748,7 @@ func fssCRDeleted(obj interface{}) {
 // initVolumeHandleToPvcMap performs all the operations required to initialize
 // the volume id to PVC name map. It also watches for PV update & delete
 // operations, and updates the map accordingly.
-func initVolumeHandleToPvcMap(ctx context.Context) {
+func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing volume ID to PVC name map")
 	k8sOrchestratorInstance.volumeIDToPvcMap = &volumeIDToPvcMap{
@@ -764,24 +765,28 @@ func initVolumeHandleToPvcMap(ctx context.Context) {
 
 	// Set up kubernetes resource listener to listen events on PersistentVolumes
 	// and PersistentVolumeClaims.
-	k8sOrchestratorInstance.informerManager.AddPVListener(
-		func(obj interface{}) { // Add.
-			pvAdded(obj)
-		},
-		func(oldObj interface{}, newObj interface{}) { // Update.
-			pvUpdated(oldObj, newObj)
-		},
-		func(obj interface{}) { // Delete.
-			pvDeleted(obj)
-		})
+	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla && serviceMode != "node") ||
+		(controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) {
 
-	k8sOrchestratorInstance.informerManager.AddPVCListener(
-		func(obj interface{}) { // Add.
-			pvcAdded(obj)
-		},
-		nil, // Update.
-		nil, // Delete.
-	)
+		k8sOrchestratorInstance.informerManager.AddPVListener(
+			func(obj interface{}) { // Add.
+				pvAdded(obj)
+			},
+			func(oldObj interface{}, newObj interface{}) { // Update.
+				pvUpdated(oldObj, newObj)
+			},
+			func(obj interface{}) { // Delete.
+				pvDeleted(obj)
+			})
+
+		k8sOrchestratorInstance.informerManager.AddPVCListener(
+			func(obj interface{}) { // Add.
+				pvcAdded(obj)
+			},
+			nil, // Update.
+			nil, // Delete.
+		)
+	}
 }
 
 // Since informerManager's sharedInformerFactory is started with no resync
@@ -1106,7 +1111,7 @@ func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string
 // initVolumeNameToNodesMap performs all the operations required to initialize
 // the PVName to node names map. It also watches for volume attachment add,
 // update & delete operations, and updates the map accordingly.
-func initVolumeNameToNodesMap(ctx context.Context) {
+func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing volumeName/pvName to node name map")
 	k8sOrchestratorInstance.volumeNameToNodesMap = &volumeNameToNodesMap{
@@ -1115,16 +1120,20 @@ func initVolumeNameToNodesMap(ctx context.Context) {
 	}
 
 	// Set up kubernetes resource listener to listen events on volume attachments
-	k8sOrchestratorInstance.informerManager.AddVolumeAttachmentListener(
-		func(obj interface{}) { // Add.
-			volumeAttachmentAdded(obj)
-		},
-		func(oldObj interface{}, newObj interface{}) { //Update
-			volumeAttachmentUpdated(oldObj, newObj)
-		},
-		func(obj interface{}) { // Delete.
-			volumeAttachmentDeleted(obj)
-		})
+	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla && serviceMode != "node") ||
+		(controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) {
+
+		k8sOrchestratorInstance.informerManager.AddVolumeAttachmentListener(
+			func(obj interface{}) { // Add.
+				volumeAttachmentAdded(obj)
+			},
+			func(oldObj interface{}, newObj interface{}) { //Update
+				volumeAttachmentUpdated(oldObj, newObj)
+			},
+			func(obj interface{}) { // Delete.
+				volumeAttachmentDeleted(obj)
+			})
+	}
 }
 
 // volumeAttachmentAdded adds a new entry or updates an existing entry
