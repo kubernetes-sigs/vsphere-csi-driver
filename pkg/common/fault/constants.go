@@ -34,6 +34,13 @@ const (
 	// CSIApiServerOperationFault is the fault type when Get(), List() and others fail on the API Server
 	CSIApiServerOperationFault = "csi.fault.ApiServerOperation"
 
+	// CSIPvNotFoundInPvcSpecFault is the fault type when PV name is not found in PVC Spec.
+	// This can happen at the time of guest cluster creation when user specifies volumes to be created
+	// in the guest cluster spec. Volume creation in such cases are typically initiated by
+	// vmoperator and an error is observed because the volume name is updated in the VM spec, even
+	// before the volume is provisioned in supervisor cluster.
+	CSIPvNotFoundInPvcSpecFault = "csi.fault.nonstorage.PvNotFoundInPvcSpec"
+
 	// CSITaskResultEmptyFault is the fault type when taskResult is empty.
 	CSITaskResultEmptyFault = "csi.fault.TaskResultEmpty"
 
