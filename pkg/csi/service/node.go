@@ -940,7 +940,7 @@ func publishMountVol(
 	if len(devMnts) > 1 {
 		// check if publish is already there
 		for _, m := range devMnts {
-			if unescape(ctx, m.Path) == params.target {
+			if common.Unescape(ctx, m.Path) == params.target {
 				// volume already published to target
 				// if mount options look good, do nothing
 				rwo := "rw"
@@ -1025,7 +1025,7 @@ func publishBlockVol(
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.target)
 	} else if len(devMnts) == 1 {
 		// already mounted, make sure it's what we want
-		if unescape(ctx, devMnts[0].Path) != params.target {
+		if common.Unescape(ctx, devMnts[0].Path) != params.target {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
@@ -1069,7 +1069,7 @@ func publishFileVol(
 	}
 	log.Debugf("PublishFileVolume: Mounts - %+v", mnts)
 	for _, m := range mnts {
-		if unescape(ctx, m.Path) == params.target {
+		if common.Unescape(ctx, m.Path) == params.target {
 			// volume already published to target
 			// if mount options look good, do nothing
 			rwo := "rw"
@@ -1436,7 +1436,7 @@ func getDevFromMount(ctx context.Context, target string) (*Device, error) {
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
-		if unescape(ctx, m.Path) == target {
+		if common.Unescape(ctx, m.Path) == target {
 			// something is mounted to target, get underlying disk
 			d := m.Device
 			if m.Device == "udev" || m.Device == "devtmpfs" {
@@ -1452,24 +1452,4 @@ func getDevFromMount(ctx context.Context, target string) (*Device, error) {
 
 	// Did not identify a device mounted to target
 	return nil, nil
-}
-
-// un-escapes "\nnn" sequences in /proc/self/mounts. For example, replaces "\040" with space " ".
-func unescape(ctx context.Context, in string) string {
-	log := logger.GetLogger(ctx)
-	out := make([]rune, 0, len(in))
-	s := in
-	for len(s) > 0 {
-		// Un-escape single character.
-		// UnquoteChar will un-escape also \r, \n, \Unnnn and other sequences, but they should not be used in /proc/mounts.
-		rune, _, tail, err := strconv.UnquoteChar(s, '"')
-		if err != nil {
-			log.Infof("Error parsing mount %q: %s", in, err)
-			// Use escaped string as a fallback
-			return in
-		}
-		out = append(out, rune)
-		s = tail
-	}
-	return string(out)
 }
