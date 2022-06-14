@@ -96,6 +96,10 @@ const (
 	// supervisorIDPrefix is added before the SupervisorID
 	// Using this CNS UI can form an appropriate URL to navigate from CNS UI to WCP UI
 	supervisorIDPrefix = "vSphereSupervisorID-"
+	// TKCKind refers to the kind of TKC cluster being used.
+	TKCKind = "TanzuKubernetesCluster"
+	// TKCAPIVersion refers to the version of TanzuKubernetesCluster object currently being used.
+	TKCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
 )
 
 // Errors
@@ -585,6 +589,15 @@ func validateGCConfig(ctx context.Context, cfg *Config) error {
 	if cfg.GC.TanzuKubernetesClusterUID == "" {
 		log.Error(ErrMissingTanzuKubernetesClusterUID)
 		return ErrMissingTanzuKubernetesClusterUID
+	}
+	// ClusterAPIVersion and ClusterKind parameters have been introduced for the uTKGS effort.
+	// To maintain backward compatibility with GCs created with TKC objects,
+	// we will default to the old configuration if these values are not present.
+	if cfg.GC.ClusterAPIVersion == "" {
+		cfg.GC.ClusterAPIVersion = TKCAPIVersion
+	}
+	if cfg.GC.ClusterKind == "" {
+		cfg.GC.ClusterKind = TKCKind
 	}
 	return nil
 }
