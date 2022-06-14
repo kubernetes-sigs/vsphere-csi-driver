@@ -1021,6 +1021,15 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 		if !isVADeleted {
 			log.Debugf("controllerUnpublishVolumeInternal: VA : %v", spew.Sdump(volumeAttachment))
+			// Check if the NodeName in the VA is same as the NodeName from the ControllerUnPublishVolume.
+			// This is needed to return a successful ControllerUnPublishVolume response when a pod is
+			// rescheduled onto another worker node(ESX host). This is a no-op for CNS-CSI in Supervisor.
+			if volumeAttachment.Spec.NodeName != req.NodeId {
+				log.Infof("controllerUnpublishVolumeInternal: Node name in the volumeAttachment : %q is not same as "+
+					"node name in the ControllerUnPublishVolume request : %q. Thus, assuming the volume is detached.",
+					volumeAttachment.Spec.NodeName, req.NodeId)
+				return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+			}
 			for k, v := range volumeAttachment.Status.AttachmentMetadata {
 				if k == common.AttributeVmUUID {
 					log.Debugf("controllerUnpublishVolumeInternal: vmuuid value: %q", v)
@@ -1067,7 +1076,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 							return false, nil
 						}
 						if diskUUID != "" {
-							log.Infof("diskUUID: %q is still attached. Retrying in 5 seconds.", diskUUID)
+							log.Infof("diskUUID: %q is still attached to podVM %q with moId %q. Retrying in 5 seconds.",
+								diskUUID, podVM.Reference().String(), podVM.Reference().Value)
 							isStillAttached = true
 							return false, nil
 						}
@@ -1075,7 +1085,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					})
 					if err != nil {
 						if isStillAttached {
-							log.Errorf("volume %q is still attached to node %q", req.VolumeId, req.NodeId)
+							log.Errorf("volume %q is still attached to node %q and podVM %q with moId %q", req.VolumeId,
+								req.NodeId, podVM.Reference().String(), podVM.Reference().Value)
 						}
 						return nil, csifault.CSIInternalFault, err
 					}
