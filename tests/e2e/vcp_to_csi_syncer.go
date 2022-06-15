@@ -1496,6 +1496,7 @@ func getCanonicalPath(vmdkPath string) string {
 	gomega.Expect(isSuccess).To(gomega.BeTrue())
 	newParts := strings.Split(datastorePathObj.Path, "/")
 	framework.Logf("vmdkpath: %v\ndatastorePathObj: %v\nreturn:%v", vmdkPath, datastorePathObj.Path, strings.Replace(vmDiskPath, parts[len(parts)-2], newParts[len(newParts)-2], 1))
+	framework.Logf("replacing 'e2e' with '5acea962-1026-09a6-c0d9-02004bd7da75'")
 	return strings.Replace(vmDiskPath, parts[len(parts)-2], "5acea962-1026-09a6-c0d9-02004bd7da75", 1)
 }
 
