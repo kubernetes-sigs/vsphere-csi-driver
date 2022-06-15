@@ -188,7 +188,7 @@ func IsFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info)
 func IsTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
-		if m.Path == target {
+		if Unescape(ctx, m.Path) == target {
 			log.Debugf("Found target %q in list of mounts", target)
 			return true
 		}
@@ -356,4 +356,24 @@ func ConvertVolumeHealthStatus(volHealthStatus string) (string, error) {
 		// the caller can make appropriate reactions based on this status
 		return VolHealthStatusInaccessible, nil
 	}
+}
+
+// Unescape "\nnn" sequences in /proc/self/mounts. For example, replaces "\040" with space " ".
+func Unescape(ctx context.Context, in string) string {
+	log := logger.GetLogger(ctx)
+	out := make([]rune, 0, len(in))
+	s := in
+	for len(s) > 0 {
+		// Un-escape single character.
+		// UnquoteChar will un-escape also \r, \n, \Unnnn and other sequences, but they should not be used in /proc/mounts.
+		rune, _, tail, err := strconv.UnquoteChar(s, '"')
+		if err != nil {
+			log.Infof("Error parsing mount %q: %s", in, err)
+			// Use escaped string as a fallback
+			return in
+		}
+		out = append(out, rune)
+		s = tail
+	}
+	return string(out)
 }
