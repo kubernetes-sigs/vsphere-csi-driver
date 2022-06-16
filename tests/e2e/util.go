@@ -4670,7 +4670,6 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 
 	// After scale down, verify vSphere volumes are detached from deleted pods
 	ginkgo.By("Verify Volumes are detached from Nodes after Statefulsets is scaled down")
-	//ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 	for _, sspod := range ssPodsAfterScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		if err != nil {
@@ -5646,4 +5645,27 @@ func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas i
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped := false
 	return isServiceStopped, err
+}
+
+// waitForStsPodsToBeInRunningState function waits till all the pods comes up
+func waitForStsPodsToBeInReadyRunningState(ctx context.Context, client clientset.Interface, namespace string,
+	statefulSets []*appsv1.StatefulSet) error {
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeoutShort*20, func() (bool, error) {
+		for i := 0; i < len(statefulSets); i++ {
+			fss.WaitForStatusReadyReplicas(client, statefulSets[i], *statefulSets[i].Spec.Replicas)
+			pods := GetListOfPodsInSts(client, statefulSets[i])
+			err := CheckMountForStsPods(client, statefulSets[i], mountPath)
+			if err != nil {
+				return false, err
+			}
+			if len(pods.Items) == 0 {
+				return false, fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name)
+			}
+			if len(pods.Items) != int(*statefulSets[i].Spec.Replicas) {
+				return false, fmt.Errorf("number of Pods in the statefulset should match with number of replicas")
+			}
+		}
+		return true, nil
+	})
+	return waitErr
 }
