@@ -725,6 +725,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
 
+		c := client
+		controllerClusterConfig := os.Getenv(contollerClusterKubeConfig)
+		if controllerClusterConfig != "" {
+			framework.Logf("Creating client for remote kubeconfig")
+			remoteC, err := createKubernetesClientFromConfig(controllerClusterConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			c = remoteC
+		}
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 
@@ -745,14 +753,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By("Get controller replica count before scaling down")
-		deployment, err := client.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
+		deployment, err := c.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		replica_before_scale_down := *deployment.Spec.Replicas
 		framework.Logf("Replica before scale down %d", replica_before_scale_down)
 
 		ginkgo.By("Scaling down the csi driver to zero replica")
-		deployment = updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
+		deployment = updateDeploymentReplica(c, 0, vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
@@ -762,10 +770,10 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, replica_before_scale_down,
+		ginkgo.By("Scaling up the csi driver")
+		deployment = updateDeploymentReplica(c, replica_before_scale_down,
 			vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
+		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
