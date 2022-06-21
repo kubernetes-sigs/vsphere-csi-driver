@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
@@ -199,6 +201,7 @@ type K8sOrchestrator struct {
 	volumeNameToNodesMap *volumeNameToNodesMap // used when ListVolume FSS is enabled
 	volumeIDToNameMap    *volumeIDToNameMap    // used when ListVolume FSS is enabled
 	k8sClient            clientset.Interface
+	snapshotterClient    snapshotterClientSet.Interface
 }
 
 // K8sGuestInitParams lists the set of parameters required to run the init for
@@ -229,8 +232,9 @@ type K8sVanillaInitParams struct {
 func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor,
 	params interface{}) (*K8sOrchestrator, error) {
 	var (
-		coInstanceErr error
-		k8sClient     clientset.Interface
+		coInstanceErr     error
+		k8sClient         clientset.Interface
+		snapshotterClient snapshotterClientSet.Interface
 	)
 	if atomic.LoadUint32(&k8sOrchestratorInstanceInitialized) == 0 {
 		k8sOrchestratorInitMutex.Lock()
@@ -246,9 +250,16 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				return nil, coInstanceErr
 			}
 
+			snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
+			if coInstanceErr != nil {
+				log.Errorf("Creating Snapshotter client failed. Err: %v", coInstanceErr)
+				return nil, coInstanceErr
+			}
+
 			k8sOrchestratorInstance = &K8sOrchestrator{}
 			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
 			k8sOrchestratorInstance.k8sClient = k8sClient
+			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
 			k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
@@ -1371,4 +1382,10 @@ func (c *K8sOrchestrator) GetAllVolumes() []string {
 		volumeIDs = append(volumeIDs, volumeID)
 	}
 	return volumeIDs
+}
+
+// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster
+func (c *K8sOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
+	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
+	return c.updateVolumeSnapshotAnnotations(ctx, volumeSnapshotName, volumeSnapshotNamespace, annotations)
 }

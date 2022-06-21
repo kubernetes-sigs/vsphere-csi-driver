@@ -179,6 +179,52 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
+// validateWCPCreateSnapshotRequestRequest is the helper function to
+// validate CreateSnapshotRequest for CSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateWCPCreateSnapshotRequestRequest(ctx context.Context, req *csi.CreateSnapshotRequest) error {
+	log := logger.GetLogger(ctx)
+	volumeID := req.GetSourceVolumeId()
+	if len(volumeID) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"CreateSnapshot Source Volume ID must be provided")
+	}
+
+	if len(req.Name) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"Snapshot name must be provided")
+	}
+	return nil
+}
+
+func validateWCPListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsRequest) error {
+	log := logger.GetLogger(ctx)
+	maxEntries := req.MaxEntries
+	if maxEntries < 0 {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"ListSnapshots MaxEntries: %d cannot be negative", maxEntries)
+	}
+	// validate the starting token by verifying that it can be converted to a int
+	if req.StartingToken != "" {
+		_, err := strconv.Atoi(req.StartingToken)
+		if err != nil {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots StartingToken: %s cannot be parsed", req.StartingToken)
+		}
+	}
+	// validate snapshot-id conforms to vSphere CSI driver format if specified.
+	if req.SnapshotId != "" {
+		// check for the delimiter "+" in the snapshot-id.
+		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
+		if !check {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
+				req.StartingToken)
+		}
+	}
+	return nil
+}
+
 // getK8sCloudOperatorClientConnection is a helper function that creates a
 // clientConnection to k8sCloudOperator GRPC service running on syncer container.
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {

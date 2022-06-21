@@ -80,7 +80,10 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list" ]
+    verbs: [ "get", "list", "patch", "update", "watch"]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshots/status" ]
+    verbs: [ "get", "update", "patch", "watch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -250,6 +253,22 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
+        - name: csi-snapshotter
+          image: localhost:5000/vmware.io/csi-snapshotter:v5.0.1_vmware.1
+          args:
+            - '--v=4'
+            - '--kube-api-qps=100'
+            - '--kube-api-burst=100'
+            - '--timeout=300s'
+            - '--csi-address=$(ADDRESS)'
+            - '--extra-create-metadata'
+            - '--leader-election'
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
         - name: csi-attacher
           image: localhost:5000/vmware.io/csi-attacher:v3.4.0_vmware.1
           args:
@@ -422,7 +441,7 @@ data:
   "fake-attach": "true"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
-  "block-volume-snapshot": "false"
+  "block-volume-snapshot": "true"
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "false"

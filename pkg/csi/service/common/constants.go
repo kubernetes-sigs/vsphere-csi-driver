@@ -55,6 +55,9 @@ const (
 	// For example: StorageClassName: "silver".
 	AttributeSupervisorStorageClass = "svstorageclass"
 
+	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
+	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
+
 	// AttributeStorageTopologyType is a storageClass parameter.
 	// It represents a zonal or a crossZonal volume provisioning.
 	// For example: StorageTopologyType: "zonal"
@@ -293,6 +296,18 @@ const (
 	// PreferredDatastoresCategory points to the vSphere Category
 	// created to tag preferred datastores in a topology-aware environment.
 	PreferredDatastoresCategory = "cns.vmware.topology-preferred-datastores"
+
+	// VolumeSnapshotNameKey represents the volumesnapshot CR name within
+	// the request parameters
+	VolumeSnapshotNameKey = "csi.storage.k8s.io/volumesnapshot/name"
+
+	// VolumeSnapshotNamespaceKey represents the volumesnapshot CR namespace within
+	// the request parameters
+	VolumeSnapshotNamespaceKey = "csi.storage.k8s.io/volumesnapshot/namespace"
+
+	// VolumeSnapshotInfoKey represents the annotation key of the fcd-id + snapshot-id
+	// on the VolumeSnapshot CR
+	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
 )
 
 // Supported container orchestrators.

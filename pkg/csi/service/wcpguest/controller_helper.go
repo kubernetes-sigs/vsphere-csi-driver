@@ -25,6 +25,9 @@ import (
 	"strings"
 	"time"
 
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
@@ -192,9 +195,8 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
-	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode,
-	annotations map[string]string) *v1.PersistentVolumeClaim {
-
+	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode, annotations map[string]string,
+	volumeSnapshotName string) *v1.PersistentVolumeClaim {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvcName,
@@ -213,7 +215,80 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 			StorageClassName: &storageClassName,
 		},
 	}
+	snapshotApiGroup := "snapshot.storage.k8s.io"
+	volumeSnapshotKind := "VolumeSnapshot"
+	if volumeSnapshotName != "" {
+		localObjectReference := &v1.TypedLocalObjectReference{
+			APIGroup: &snapshotApiGroup,
+			Kind:     volumeSnapshotKind,
+			Name:     volumeSnapshotName,
+		}
+		claim.Spec.DataSource = localObjectReference
+	}
 	return claim
+}
+
+func getVolumeSnapshotWithVolumeSnapshotClass(volumeSnapshotName string, namespace string,
+	volumeSnapshotClassName string, pvcName string) *snap.VolumeSnapshot {
+	volumeSnapshot := &snap.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      volumeSnapshotName,
+			Namespace: namespace,
+		},
+		Spec: snap.VolumeSnapshotSpec{
+			Source: snap.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+			VolumeSnapshotClassName: &volumeSnapshotClassName,
+		},
+		Status: nil,
+	}
+	return volumeSnapshot
+}
+
+// isVolumeSnapshotInSupervisorClusterReady return true if the VolumeSnapshot is ReadyToUse
+func isVolumeSnapshotInSupervisorClusterReady(ctx context.Context, client snapshotterClientSet.Interface,
+	supervisorVolumeSnapshotName string, namespace string, timeout time.Duration) (bool, error) {
+	log := logger.GetLogger(ctx)
+	timeoutSeconds := int64(timeout.Seconds())
+
+	log.Infof("Waiting up to %d seconds for VolumeSnapshot %v in namespace %s to be ReadyToUse",
+		timeoutSeconds, supervisorVolumeSnapshotName, namespace)
+	startTime := time.Now()
+	isReadyToUse := false
+
+	waitErr := wait.PollImmediate(5*time.Second, timeout, func() (done bool, err error) {
+		svs, err := client.SnapshotV1().VolumeSnapshots(namespace).
+			Get(ctx, supervisorVolumeSnapshotName, metav1.GetOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("unable to fetch volumesnapshot %q/%q "+
+				"from supervisor cluster with err: %+v",
+				namespace, supervisorVolumeSnapshotName, err)
+			log.Warnf(msg)
+			return false, logger.LogNewErrorf(log, msg)
+		}
+		isSnapshotReadyToUse := *svs.Status.ReadyToUse
+		if isSnapshotReadyToUse {
+			log.Infof("VolumeSnapshot %s/%s is in ReadyToUse state", namespace, supervisorVolumeSnapshotName)
+			isReadyToUse = true
+			return true, nil
+		} else {
+			log.Warnf("Waiting for VolumeSnapshot %s/%s to be ready since %+vs", namespace,
+				supervisorVolumeSnapshotName, time.Since(startTime).Seconds())
+		}
+		return false, nil
+	})
+
+	if !isReadyToUse {
+		msg := fmt.Sprintf("volumesnapshot %s in namespace %s not in ReadyToUse "+
+			"within %d seconds", supervisorVolumeSnapshotName, namespace, timeoutSeconds)
+		if waitErr != nil {
+			msg += fmt.Sprintf(": message: %v", waitErr.Error())
+		}
+		return false, fmt.Errorf(msg)
+	}
+
+	return true, nil
 }
 
 // generateGuestClusterRequestedTopologyJSON translates the topology into a json string to be set on the supervisor

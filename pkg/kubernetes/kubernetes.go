@@ -158,6 +158,21 @@ func NewSupervisorClient(ctx context.Context, config *restclient.Config) (client
 
 }
 
+// NewSupervisorSnapshotClient creates a new supervisor client for handling snapshot related objects
+func NewSupervisorSnapshotClient(ctx context.Context, config *restclient.Config) (
+	snapshotterClientSet.Interface, error) {
+	log := logger.GetLogger(ctx)
+	log.Info("Connecting to supervisor cluster using the certs/token in Guest Cluster " +
+		"config to retrieve the snapshotter client")
+	client, err := snapshotterClientSet.NewForConfig(config)
+	if err != nil {
+		log.Error("failed to connect to the supervisor cluster with err: %+v", err)
+		return nil, err
+	}
+	return client, nil
+
+}
+
 // NewClientForGroup creates a new controller-runtime client for a new scheme.
 // The input Group is added to this scheme.
 func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName string) (client.Client, error) {

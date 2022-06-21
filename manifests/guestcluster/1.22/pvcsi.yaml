@@ -62,7 +62,10 @@ rules:
     verbs: ["get", "update", "watch", "list"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list" ]
+    verbs: [ "get", "list", "watch", "update", "patch", "delete" ]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshots/status" ]
+    verbs: [ "get", "update", "patch", "watch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -175,6 +178,23 @@ spec:
             - "--leader-election"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+          imagePullPolicy: "IfNotPresent"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+        - name: csi-snapshotter
+          image: vmware.io/csi-snapshotter:<image_tag>
+          args:
+            - "--v=4"
+            - "--timeout=300s"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
+            - "--extra-create-metadata"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
@@ -476,7 +496,7 @@ data:
   "online-volume-extend": "true"
   "file-volume": "true"
   "csi-sv-feature-states-replication": "false"
-  "block-volume-snapshot": "false"
+  "block-volume-snapshot": "true"
   "tkgs-ha": "true"
   "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
