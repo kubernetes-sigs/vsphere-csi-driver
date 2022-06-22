@@ -24,6 +24,7 @@ import (
 	pbmmethods "github.com/vmware/govmomi/pbm/methods"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
@@ -100,6 +101,14 @@ func (vc *VirtualCenter) GetStoragePolicyIDByName(ctx context.Context, storagePo
 // with the given datastores.
 func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context,
 	datastores []vimtypes.ManagedObjectReference, profileID string) (pbm.PlacementCompatibilityResult, error) {
+
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return nil, err
+	}
+
 	hubs := make([]pbmtypes.PbmPlacementHub, 0)
 	for _, ds := range datastores {
 		hubs = append(hubs, pbmtypes.PbmPlacementHub{
@@ -125,6 +134,13 @@ func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context,
 
 // PbmRetrieveContent fetches the policy content of all given policies from SPBM.
 func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []string) ([]SpbmPolicyContent, error) {
+
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return nil, err
+	}
 	pbmPolicyIds := make([]pbmtypes.PbmProfileId, 0)
 	for _, policyID := range policyIds {
 		pbmPolicyIds = append(pbmPolicyIds, pbmtypes.PbmProfileId{
