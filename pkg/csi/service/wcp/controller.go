@@ -1030,15 +1030,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 		if !isVADeleted {
 			log.Debugf("controllerUnpublishVolumeInternal: VA : %v", spew.Sdump(volumeAttachment))
-			// Check if the NodeName in the VA is same as the NodeName from the ControllerUnPublishVolume.
-			// This is needed to return a successful ControllerUnPublishVolume response when a pod is
-			// rescheduled onto another worker node(ESX host). This is a no-op for CNS-CSI in Supervisor.
-			if volumeAttachment.Spec.NodeName != req.NodeId {
-				log.Infof("controllerUnpublishVolumeInternal: Node name in the volumeAttachment : %q is not same as "+
-					"node name in the ControllerUnPublishVolume request : %q. Thus, assuming the volume is detached.",
-					volumeAttachment.Spec.NodeName, req.NodeId)
-				return &csi.ControllerUnpublishVolumeResponse{}, "", nil
-			}
 			for k, v := range volumeAttachment.Status.AttachmentMetadata {
 				if k == common.AttributeVmUUID {
 					log.Debugf("controllerUnpublishVolumeInternal: vmuuid value: %q", v)
@@ -1094,8 +1085,27 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					})
 					if err != nil {
 						if isStillAttached {
-							log.Errorf("volume %q is still attached to node %q and podVM %q with moId %q", req.VolumeId,
-								req.NodeId, podVM.Reference().String(), podVM.Reference().Value)
+							// Since the disk is still attached, we need to check if the volumeId in contention is attached
+							// to the Pod on a different node. We can get the node name information for the volumeID
+							// from GetNodesForVolumes method. If the nodeName is same, it signifies that the Pod is in the
+							// process of getting deleted. If the nodeName is different, it signifies that the Pod got
+							// rescheduled onto another node and hence we can break out of the isDiskAttached loop
+							volumeId := []string{req.VolumeId}
+							nodesForVolume := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, volumeId)
+							if len(nodesForVolume) == 0 {
+								log.Errorf("error while fetching the node names for volumeId %q", req.VolumeId)
+								return nil, csifault.CSIInternalFault, err
+							}
+							nodeNames := nodesForVolume[req.VolumeId]
+							if len(nodeNames) == 1 && nodeNames[0] == req.NodeId {
+								log.Errorf("volume %q is still attached to node %q and podVM %q with moId %q", req.VolumeId,
+									req.NodeId, podVM.Reference().String(), podVM.Reference().Value)
+								return nil, csifault.CSIDiskNotDetachedFault, err
+							}
+							log.Infof("Found another VolumeAttachment for volumeId %q. Assuming that the pod using the "+
+								"volume is scheduled on different node. Returning success for ControllerUnPublishVolume for "+
+								"volumeId: %q and VA: %q", req.VolumeId, req.VolumeId, volumeAttachment.Name)
+							break
 						}
 						return nil, csifault.CSIInternalFault, err
 					}

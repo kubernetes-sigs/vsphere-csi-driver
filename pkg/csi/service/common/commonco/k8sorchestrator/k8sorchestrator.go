@@ -263,10 +263,14 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
 			}
 
-			if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
+			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
 				initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
-				if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-					initNodeIDToNameMap(ctx)
+				initNodeIDToNameMap(ctx)
+			} else {
+				// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
+				if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
+					initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
 				}
 			}
 
