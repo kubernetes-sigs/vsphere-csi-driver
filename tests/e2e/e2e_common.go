@@ -33,6 +33,7 @@ const (
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	configSecret                               = "vsphere-config-secret"
+	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"

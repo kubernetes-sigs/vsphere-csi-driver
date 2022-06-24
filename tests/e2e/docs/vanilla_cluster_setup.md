@@ -81,6 +81,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # To run common e2e tests (block & file), need to set the following env variable to identify the file volume setup
     export ACCESS_MODE="RWX"
 
+    # If CSI controller is running on a different k8s cluster, we need to pass the kubeconfig for that cluster using
+    export CONTROLLER_CLUSTER_KUBECONFIG="/path/to/remote/kubeconfig"
+
 ### To run full sync test, need do extra following steps
 
 #### Setting SSH keys for VC with your local machine to run full sync test
