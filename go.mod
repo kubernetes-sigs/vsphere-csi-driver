@@ -16,7 +16,6 @@ require (
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/prometheus/client_golang v1.11.0
-	github.com/rexray/gocsi v1.2.2
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.7.0
@@ -49,12 +48,10 @@ require (
 	github.com/Microsoft/go-winio v0.4.16 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
-	github.com/akutz/gosync v0.1.0 // indirect
 	github.com/aws/aws-sdk-go v1.35.24 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/coreos/etcd v3.3.13+incompatible // indirect
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/elazarl/goproxy v0.0.0-20200710112657-153946a5f232 // indirect
 	github.com/evanphx/json-patch v4.11.0+incompatible // indirect
@@ -73,8 +70,6 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/googleapis/gnostic v0.5.5 // indirect
 	github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7 // indirect
-	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
-	github.com/grpc-ecosystem/grpc-gateway v1.14.5 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect

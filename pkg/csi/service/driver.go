@@ -18,12 +18,10 @@ package service
 
 import (
 	"context"
-	"net"
 	"os"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/rexray/gocsi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -57,7 +55,7 @@ type Driver interface {
 	csi.IdentityServer
 	csi.NodeServer
 	GetController() csi.ControllerServer
-	BeforeServe(context.Context, *gocsi.StoragePlugin, net.Listener) error
+	BeforeServe(context.Context) error
 	Run(ctx context.Context, endpoint string)
 }
 
@@ -69,8 +67,6 @@ type vsphereCSIDriver struct {
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left
 // behind. This method will clean up the sock file during initialization.
-// We cannot do this in BeforeServe, because gocsi will already try to
-// bind and fail if the sock file already exists.
 func init() {
 	sockPath := os.Getenv(csitypes.EnvVarEndpoint)
 	sockPath = strings.TrimPrefix(sockPath, UnixSocketPrefix)
@@ -100,8 +96,7 @@ func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 }
 
 //BeforeServe defines the tasks needed before starting the driver.
-func (driver *vsphereCSIDriver) BeforeServe(
-	ctx context.Context, sp *gocsi.StoragePlugin, lis net.Listener) error {
+func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 	logger.SetLoggerLevel(logger.LogLevel(os.Getenv(logger.EnvLoggerLevel)))
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
@@ -153,7 +148,7 @@ func (driver *vsphereCSIDriver) Run(ctx context.Context, endpoint string) {
 	controllerServer := driver.GetController()
 
 	// Invoke BeforeServe function to perform any local initialization routines.
-	if err := driver.BeforeServe(ctx, nil, nil); err != nil {
+	if err := driver.BeforeServe(ctx); err != nil {
 		log.Errorf("failed to run the driver. Err: +%v", err)
 		os.Exit(1)
 	}

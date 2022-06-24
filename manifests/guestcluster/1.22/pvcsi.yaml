@@ -189,7 +189,6 @@ spec:
             - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
-            - "--use-gocsi=false"
           imagePullPolicy: "IfNotPresent"
           ports:
             - containerPort: 2112
@@ -382,7 +381,6 @@ spec:
           - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
           - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
           - "--fss-namespace=$(CSI_NAMESPACE)"
-          - "--use-gocsi=false"
         imagePullPolicy: "IfNotPresent"
         env:
         - name: NODE_NAME

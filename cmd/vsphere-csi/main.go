@@ -17,14 +17,11 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
 
-	"github.com/rexray/gocsi"
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/provider"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -40,7 +37,6 @@ var (
 		"Namespace of the feature state switch configmap in supervisor cluster")
 	internalFSSName      = flag.String("fss-name", "", "Name of the feature state switch configmap")
 	internalFSSNamespace = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
-	useGocsi             = flag.Bool("use-gocsi", true, "Flag to specify to use gocsi or not")
 )
 
 // main is ignored when this package is built as a go plug-in.
@@ -64,29 +60,13 @@ func main() {
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
 		*internalFSSName, *internalFSSNamespace, serviceMode)
 
-	if *useGocsi {
-		const usage = `VSPHERE_CSI_CONFIG
-        Specifies the path to the csi-vsphere.conf file
-        The default value is "/etc/cloud/csi-vsphere.conf"
-		`
-		gocsi.Run(
-			context.Background(),
-			csitypes.Name,
-			"A CSI plugin for vSphere Cloud Native Storage",
-			usage,
-			provider.New(),
-		)
-		log.Debug("Running CSI driver using gocsi.")
-	} else {
-		// If no endpoint is set then exit the program.
-		CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)
-		if CSIEndpoint == "" {
-			log.Error("CSI endpoint cannot be empty. Please set the env variable.")
-			os.Exit(1)
-		}
-
-		vSphereCSIDriver := service.NewDriver()
-		vSphereCSIDriver.Run(ctx, CSIEndpoint)
-		log.Debug("Running CSI driver without gocsi.")
+	// If no endpoint is set then exit the program.
+	CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)
+	if CSIEndpoint == "" {
+		log.Error("CSI endpoint cannot be empty. Please set the env variable.")
+		os.Exit(1)
 	}
+
+	vSphereCSIDriver := service.NewDriver()
+	vSphereCSIDriver.Run(ctx, CSIEndpoint)
 }
