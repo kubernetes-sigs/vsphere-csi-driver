@@ -48,6 +48,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 	f := framework.NewDefaultFramework("volume-snapshot")
 	var (
 		client              clientset.Interface
+		c                   clientset.Interface
 		namespace           string
 		scParameters        map[string]string
 		datastoreURL        string
@@ -79,6 +80,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
+		controllerClusterConfig := os.Getenv(contollerClusterKubeConfig)
+		c = client
+		if controllerClusterConfig != "" {
+			framework.Logf("Creating client for remote kubeconfig")
+			remoteC, err := createKubernetesClientFromConfig(controllerClusterConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			c = remoteC
 		}
 	})
 
@@ -3986,7 +3995,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Fetching the username and password of the current vcenter session from secret")
-		secret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		secret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalConf := string(secret.Data[vSphereCSIConf])
@@ -3998,14 +4007,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		username := vsphereCfg.Global.User
 		originalPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
-		err = invokeVCenterChangePassword(username, adminPassword, newPassword, vcAddress)
+		err = invokeVCenterChangePassword(username, originalPassword, newPassword, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged := true
 
 		defer func() {
 			if originalVCPasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(username, adminPassword, originalPassword, vcAddress)
+				err = invokeVCenterChangePassword(username, newPassword, originalPassword, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -4035,16 +4044,16 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		ginkgo.By("Updating the secret to reflect the new password")
 		secret.Data[vSphereCSIConf] = []byte(modifiedConf)
-		_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
+		_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By("Reverting the secret change back to reflect the original password")
-			currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+			currentSecret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
-			_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -4084,16 +4093,16 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Reverting the password change")
-		err = invokeVCenterChangePassword(username, adminPassword, originalPassword, vcAddress)
+		err = invokeVCenterChangePassword(username, newPassword, originalPassword, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged = false
 
 		ginkgo.By("Reverting the secret change back to reflect the original password")
-		currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		currentSecret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
-		_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+		_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC from snapshot")
@@ -4192,11 +4201,11 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		/* Get current leader Csi-Controller-Pod where CSI Provisioner is running and " +
 		find the master node IP where this Csi-Controller-Pod is running */
-		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
+		ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, container_name)
-		framework.Logf("csi-provisioner is running on Leader Pod %s "+
+			c, sshClientConfig, container_name)
+		framework.Logf("csi-snapshotter leader is in Pod %s "+
 			"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -4215,10 +4224,15 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			}
 		}()
 
-		/* Delete elected leader CSi-Controller-Pod where CSI-Attacher is running */
+		/* Delete elected leader CSI-Controller-Pod where csi-snapshotter is running */
+		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
-		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig,
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, c, sshClientConfig,
 			csi_controller_pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodsRunningReady(c, csiSystemNamespace, int32(csipods.Size()),
+			0, pollTimeoutShort*2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume snapshot is Ready to use")
@@ -4248,9 +4262,12 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		/* Delete elected leader CSi-Controller-Pod where CSI-Attacher is running */
+		csi_controller_pod, _, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+			c, sshClientConfig, container_name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		/* Delete elected leader CSI-Controller-Pod where csi-snapshotter is running */
 		ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
-		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, sshClientConfig,
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, c, sshClientConfig,
 			csi_controller_pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -4331,7 +4348,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		}()
 
 		ginkgo.By("Fetching the default global-max-snapshots-per-block-volume value from secret")
-		secret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		secret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalConf := string(secret.Data[vSphereCSIConf])
@@ -4339,6 +4356,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalMaxSnapshots := vsphereCfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+		gomega.Expect(originalMaxSnapshots).To(gomega.BeNumerically(">", 0))
 
 		for i := 1; i <= originalMaxSnapshots; i++ {
 			ginkgo.By(fmt.Sprintf("Create a volume snapshot - %d", i))
@@ -4407,17 +4425,17 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		ginkgo.By("Updating the secret to reflect the new max snapshots per volume")
 		secret.Data[vSphereCSIConf] = []byte(modifiedConf)
-		_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
+		_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By("Reverting the secret change back to reflect the original max snapshots per volume")
-			currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx,
+			currentSecret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx,
 				configSecret, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
-			_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 

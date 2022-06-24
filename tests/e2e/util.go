@@ -1980,7 +1980,7 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v, err: %v", sshCmd, host, err)
 	}
 	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
 		framework.Logf("failed to change the password for user %s: %s", user, result.Stdout)
@@ -3826,6 +3826,11 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 	result.Stdout = bytesStdout.String()
 	result.Stderr = bytesStderr.String()
 	result.Code = code
+	if bytesStderr.String() != "" {
+		err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, bytesStderr.String())
+	}
+	framework.Logf("host: %v, command: %v, return code: %v, stdout: %v, stderr: %v",
+		host, cmd, code, bytesStdout.String(), bytesStderr.String())
 	return result, err
 }
 
@@ -4344,8 +4349,7 @@ func collectPodLogs(ctx context.Context, client clientset.Interface, namespace s
 
 		//Collect Pod logs
 		for _, cont := range pod.Spec.Containers {
-			cmd := []string{"logs", "--namespace=" + namespace, pod.Name, "-c", cont.Name}
-			output, err := framework.RunKubectl(namespace, cmd...)
+			output, err := fpod.GetPodLogs(client, pod.Namespace, pod.Name, cont.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Writing the logs into the file %v", "logs/"+pod.Name+cont.Name+filename)
 			err = writeToFile("logs/"+pod.Name+cont.Name+filename, output)
@@ -5167,11 +5171,11 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			if containerName == syncerContainerName {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
 					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
-					"tail -1` 'podName:" + csiPod.Name + "' >> leader.log"
+					"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
 			} else {
 				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
 					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
-					"tail -1` >> leader.log"
+					"tail -1` | tee -a leader.log"
 			}
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
