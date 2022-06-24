@@ -313,8 +313,6 @@ spec:
             timeoutSeconds: 3
             periodSeconds: 5
             failureThreshold: 3
-          args:
-            - "--use-gocsi=false"
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
