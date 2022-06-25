@@ -35,7 +35,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 /*
@@ -54,10 +54,11 @@ import (
 		10. Delete storage class.
 */
 
-var _ = utils.SIGDescribe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Volume Operations Storm", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Volume Operations Storm", func() {
 
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	const defaultVolumeOpsScale = 30
 	const defaultVolumeOpsScaleWCP = 29
 	var (

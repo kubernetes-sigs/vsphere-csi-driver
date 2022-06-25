@@ -34,12 +34,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
@@ -405,7 +404,7 @@ func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDurat
 	jitter := 0.3
 	backoffResetDuration := maxBackoffDuration * 3
 	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration,
-		backoffResetDuration, multiplier, jitter, clock.RealClock{})
+		backoffResetDuration, multiplier, jitter, &clock.RealClock{})
 
 	var timer clock.Timer
 	for i := 0; i < retries; i++ {

@@ -38,10 +38,12 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provisioning-With-SiteDown-Cases", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
 		namespace               string

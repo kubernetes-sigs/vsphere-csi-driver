@@ -29,10 +29,12 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		namespace         string

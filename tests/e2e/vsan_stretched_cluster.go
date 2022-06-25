@@ -44,12 +44,14 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", func() {
 	f := framework.NewDefaultFramework("vsan-stretch")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	const defaultVolumeOpsScale = 30
 	const operationStormScale = 50
 	var (

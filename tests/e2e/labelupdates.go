@@ -34,6 +34,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -61,6 +62,7 @@ import (
 var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] label-updates", func() {
 
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client              clientset.Interface
 		namespace           string

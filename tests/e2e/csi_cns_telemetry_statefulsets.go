@@ -27,6 +27,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 // Test performs following operations.
@@ -44,6 +45,7 @@ import (
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
 	"[csi-block-vanilla-parallelized] CNS-CSI Cluster Distribution for StatefulSets", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		namespace         string
 		client            clientset.Interface
