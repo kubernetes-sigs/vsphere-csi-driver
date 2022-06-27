@@ -45,7 +45,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
@@ -60,6 +59,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc                        *v1.PersistentVolumeClaim
 		defaultDatacenter          *object.Datacenter
 		defaultDatastore           *object.Datastore
+		mgmtDatastore              *object.Datastore
 		nonsharedDatastore         *object.Datastore
 		deleteFCDRequired          bool
 		pandoraSyncWaitTime        int
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-		vmUUID := getNodeUUID(client, pod.Spec.NodeName)
+		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
@@ -558,7 +558,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		// Create supvervisor cluster client.
 		var svcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
@@ -1518,6 +1518,68 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 1. Create FCD with valid storage policy on gc-svc.
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created FCD on SVC.
+	// 4. verify CNS register volume creation fails
+
+	ginkgo.It("[vmc] Create CNS register volume on management datastore", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mgmtDatastoreURL := os.Getenv("MANAGEMENT_DATASTORE_URL")
+		if mgmtDatastoreURL == "" {
+			ginkgo.Skip("Env MANAGEMENT_DATASTORE_URL is missing")
+		}
+
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		svpvcName := "cns-pvc-" + curtimestring + val
+		framework.Logf("pvc name :%s", svpvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		_, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		// Get supvervisor cluster client.
+		_, svNamespace := getSvcClientAndNamespace()
+
+		// Get restConfig.
+		var restConfig *restclient.Config
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		mgmtDatastore, err = getDatastoreByURL(ctx, mgmtDatastoreURL, defaultDatacenter)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimestring, profileID, diskSizeInMb, mgmtDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = true
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+			pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, fcdID, "", svpvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+	})
+
+	// This test verifies the static provisioning workflow in guest cluster.
+	//
+	// Test Steps:
+	// 1. Create FCD with valid storage policy on gc-svc.
+	// 2. Create Resource quota.
+	// 3. Create CNS register volume with above created FCD on SVC.
 	// 4. verify PV, PVC got created , check the bidirectional reference on svc.
 	// 5. On GC create a PV by pointing volume handle got created by static
 	//    provisioning on gc-svc (in step 4).
@@ -1799,7 +1861,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pv := getPvFromClaim(client, namespace, pvcName)
-			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+			pvName := pvc.Spec.VolumeName
+			//pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
+			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
+			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, volumeID)
 
 			// TODO: need to add code to delete VMDK hard disk and to create POD.
 

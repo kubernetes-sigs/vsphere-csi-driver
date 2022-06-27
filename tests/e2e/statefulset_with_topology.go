@@ -123,10 +123,59 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 			}
 		}
-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 		fss.DeleteAllStatefulSets(client, namespace)
 	})
 
+	/*
+		Storage policy with single zone and region details in the allowed topology
+		Verify POD is running on the same node as mentioned in node affinity details.
+		Steps
+		1. Create SC with only zone and region details specified in the SC
+		2. Create statefulset with replica 3 with the above SC
+		3. Wait for all the stateful set to be up and running
+		4. Wait for pvc to be in bound state and statefulset pod in running state
+		5. Describe pv and verify node affinity details should contain both zone and region details
+		6. Verify POD is running on the same node as mentioned in node affinity details
+		7. Delete statefulset
+		8. Delete PVC and SC
+	*/
+	ginkgo.It("Storage policy with single zone and region details in the allowed topology", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Creating StorageClass with topology details
+		ginkgo.By("Creating StorageClass for Statefulset")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Creating statefulset with 3 replicas
+		ginkgo.By("Creating statefulset with 3 replica")
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+		defer func() {
+			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
+
+		// Waiting for pods status to be Ready.
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset, namespace, zoneValues, regionValues)
+	})
 })

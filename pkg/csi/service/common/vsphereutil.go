@@ -32,7 +32,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
@@ -42,7 +41,8 @@ import (
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo) (*cnsvolume.CnsVolumeInfo, string, error) {
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo,
+	filterSuspendedDatastores bool, useSupervisorId bool) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -62,6 +62,11 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			return nil, csifault.CSIInternalFault, err
 		}
 	}
+
+	if filterSuspendedDatastores {
+		sharedDatastores = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
+	}
+
 	var datastores []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
 		// Check if datastore URL is specified by the storage pool parameter.
@@ -83,12 +88,17 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			// Search the datastore from the URL in the datacenter list.
 			var datastoreObj *vsphere.Datastore
 			for _, datacenter := range dcList {
-				datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.VsanDirectDatastoreURL)
+				datastoreInfoObj, err := datacenter.GetDatastoreInfoByURL(ctx, spec.VsanDirectDatastoreURL)
 				if err != nil {
 					log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
 						spec.VsanDirectDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 					continue
 				}
+
+				if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+					continue
+				}
+				datastoreObj = datastoreInfoObj.Datastore
 				log.Debugf("Successfully fetched the datastore %v from the URL: %v",
 					datastoreObj.Reference(), spec.VsanDirectDatastoreURL)
 				datastores = append(datastores, datastoreObj.Reference())
@@ -122,12 +132,17 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
 		var datastoreObj *vsphere.Datastore
 		for _, datacenter := range datacenters {
-			datastoreObj, err = datacenter.GetDatastoreByURL(ctx, spec.ScParams.DatastoreURL)
+			datastoreInfoObj, err := datacenter.GetDatastoreInfoByURL(ctx, spec.ScParams.DatastoreURL)
 			if err != nil {
 				log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
 					spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 				continue
 			}
+
+			if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+				continue
+			}
+			datastoreObj = datastoreInfoObj.Datastore
 			break
 		}
 		if datastoreObj == nil {
@@ -157,7 +172,11 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -250,7 +269,8 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 // CreateFileVolumeUtil is the helper function to create CNS file volume with
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo) (string, string, error) {
+	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo,
+	filterSuspendedDatastores bool, useSupervisorId bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -270,6 +290,11 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			return "", csifault.CSIInternalFault, err
 		}
 	}
+
+	if filterSuspendedDatastores {
+		datastores = vsphere.FilterSuspendedDatastores(ctx, datastores)
+	}
+
 	var datastoreMorefs []vim25types.ManagedObjectReference
 	if spec.ScParams.DatastoreURL == "" {
 		datastoreMorefs = getDatastoreMoRefs(datastores)
@@ -305,8 +330,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		})
 	}
 
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -349,7 +378,8 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 // CreateFileVolumeUtilOld is the helper function to create CNS file volume with
 // datastores from TargetvSANFileShareDatastoreURLs in vsphere conf.
 func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec) (string, string, error) {
+	manager *Manager, spec *CreateVolumeSpec,
+	filterSuspendedDatastores bool, useSupervisorId bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -399,6 +429,11 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 				return "", csifault.CSIInternalFault, err
 			}
 			for dsURL, dsInfo := range vsanDsURLToInfoMap {
+
+				if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, dsInfo) {
+					continue
+				}
+
 				if val, ok := fsEnabledMap[dsURL]; ok {
 					if val {
 						datastores = append(datastores, dsInfo.Reference())
@@ -415,14 +450,21 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			// If DatastoreURL is not specified in StorageClass, get all datastores
 			// from TargetvSANFileShareDatastoreURLs in vcenter configuration.
 			for _, TargetvSANFileShareDatastoreURL := range manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-				datastoreMoref, err := getDatastore(ctx, vc, TargetvSANFileShareDatastoreURL)
+				datastoreInfoObj, err := getDatastoreInfoObj(ctx, vc, TargetvSANFileShareDatastoreURL)
 				if err != nil {
 					log.Errorf("failed to get datastore %s. Error: %+v", TargetvSANFileShareDatastoreURL, err)
 					// TODO: Need to figure out the fault extracted from getDatastore.
 					// Currently, just return csi.fault.Internal.
 					return "", csifault.CSIInternalFault, err
 				}
-				datastores = append(datastores, datastoreMoref)
+				if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+					continue
+				}
+				datastores = append(datastores, datastoreInfoObj.Datastore.Reference())
+			}
+			if len(datastores) == 0 {
+				return "", csifault.CSIInternalFault,
+					logger.LogNewError(log, "no compatible datastore found")
 			}
 		}
 
@@ -431,14 +473,18 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 		// is empty. If true, create the file volume on the datastoreUrl set in
 		// storage class.
 		if len(manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) == 0 {
-			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
+			datastoreInfoObj, err := getDatastoreInfoObj(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
 				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				// TODO: Need to figure out the fault extracted from getDatastore.
 				// Currently, just return csi.fault.Internal.
 				return "", csifault.CSIInternalFault, err
 			}
-			datastores = append(datastores, datastoreMoref)
+			if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+				return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"volume creation is suspended on Datastore URL %q", spec.ScParams.DatastoreURL)
+			}
+			datastores = append(datastores, datastoreInfoObj.Datastore.Reference())
 		} else {
 			// If datastoreUrl is set in storage class, then check if this is in
 			// the allowed list.
@@ -456,14 +502,18 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 					"Datastore URL %q specified in storage class is not in the allowed list %+v",
 					spec.ScParams.DatastoreURL, manager.VcenterConfig.TargetvSANFileShareDatastoreURLs)
 			}
-			datastoreMoref, err := getDatastore(ctx, vc, spec.ScParams.DatastoreURL)
+			datastoreInfoObj, err := getDatastoreInfoObj(ctx, vc, spec.ScParams.DatastoreURL)
 			if err != nil {
 				log.Errorf("failed to get datastore %q. Error: %+v", spec.ScParams.DatastoreURL, err)
 				// TODO: Need to figure out the fault extracted from getDatastore.
 				// Currently, just return csi.fault.Internal.
 				return "", csifault.CSIInternalFault, err
 			}
-			datastores = append(datastores, datastoreMoref)
+			if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+				return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"volume creation is suspended on Datastore URL %q", spec.ScParams.DatastoreURL)
+			}
+			datastores = append(datastores, datastoreInfoObj.Datastore.Reference())
 		}
 	}
 
@@ -477,9 +527,12 @@ func CreateFileVolumeUtilOld(ctx context.Context, clusterFlavor cnstypes.CnsClus
 			AllowRoot:   !netPerm.RootSquash,
 		})
 	}
-
+	clusterID := manager.CnsConfig.Global.ClusterID
+	if useSupervisorId {
+		clusterID = manager.CnsConfig.Global.SupervisorID
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerCluster := vsphere.GetContainerCluster(manager.CnsConfig.Global.ClusterID,
+	containerCluster := vsphere.GetContainerCluster(clusterID,
 		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
@@ -589,37 +642,47 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
 // volumeId.
-func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64, useAsyncQueryVolume,
-	isIdempotencyHandlingEnabled bool) (string, error) {
+func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64,
+	useAsyncQueryVolume bool) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
 	var faultType string
-	if isIdempotencyHandlingEnabled {
-		// Avoid querying volume when idempotency handling is enabled.
+	var isvSphere8AndAbove, expansionRequired bool
+
+	// Checking if vsphere version is 8 and above.
+	vc, err := GetVCenter(ctx, manager)
+	if err != nil {
+		log.Errorf("failed to get vcenter. err=%v", err)
+		return csifault.CSIInternalFault, err
+	}
+	isvSphere8AndAbove, err = IsvSphere8AndAbove(ctx, vc.Client.ServiceContent.About)
+	if err != nil {
+		return "", logger.LogNewErrorf(log,
+			"Error while determining whether vSphere version is 8 and above %q. Error= %+v",
+			vc.Client.ServiceContent.About.ApiVersion, err)
+	}
+
+	if !isvSphere8AndAbove {
+		// Query Volume to check Volume Size for vSphere version below 8.0
+		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
+		if err != nil {
+			return csifault.CSIInternalFault, err
+		}
+	} else {
+		// Skip Query Volume to check Volume Size if vSphere version is 8.0 and above
+		expansionRequired = true
+	}
+	if expansionRequired {
 		faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 			return faultType, err
 		}
-		log.Infof("Successfully expanded volume for volumeid %q to new size %d Mb.", volumeID, capacityInMb)
-		return "", nil
-	} else {
-		expansionRequired, err := isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
-		if err != nil {
-			return csifault.CSIInternalFault, err
-		}
-		if expansionRequired {
-			faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
-			if err != nil {
-				log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
-				return faultType, err
-			}
-			log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
+		log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
 
-		} else {
-			log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
-		}
+	} else {
+		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
 	}
 	return "", nil
 }
@@ -899,39 +962,28 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 	return datastoreMoRefs
 }
 
-// Helper function to get Datastore object for given datastoreURL in the given
+// Helper function to get DatastoreInfo object for given datastoreURL in the given
 // virtual center.
-func getDatastoreObj(ctx context.Context, vc *vsphere.VirtualCenter,
-	datastoreURL string) (*vsphere.Datastore, error) {
+func getDatastoreInfoObj(ctx context.Context, vc *vsphere.VirtualCenter,
+	datastoreURL string) (*vsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var datastoreObj *vsphere.Datastore
+	var datastoreInfoObj *vsphere.DatastoreInfo
 	for _, datacenter := range datacenters {
-		datastoreObj, err = datacenter.GetDatastoreByURL(ctx, datastoreURL)
+		datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, datastoreURL)
 		if err != nil {
 			log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q. Error: %+v",
 				datastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
-			return datastoreObj, nil
+			return datastoreInfoObj, nil
 		}
 	}
 
 	return nil, logger.LogNewErrorf(log,
 		"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
-}
-
-// Helper function to get DatastoreMoRef for given datastoreURL in the given
-// virtual center.
-func getDatastore(ctx context.Context, vc *vsphere.VirtualCenter,
-	datastoreURL string) (vim25types.ManagedObjectReference, error) {
-	dsObj, err := getDatastoreObj(ctx, vc, datastoreURL)
-	if err != nil {
-		return vim25types.ManagedObjectReference{}, err
-	}
-	return dsObj.Reference(), nil
 }
 
 // isExpansionRequired verifies if the requested size to expand a volume is
@@ -1016,6 +1068,34 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 	return nil
 }
 
+// GetCnsVolumeType is the helper function that determines the volume type based on the volume-id
+func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (string, error) {
+	log := logger.GetLogger(ctx)
+	var volumeType string
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeId}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+		},
+	}
+	// Select only the volume type.
+	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		return "", logger.LogNewErrorCodef(log, codes.Internal,
+			"queryVolume failed for volumeID: %q with err=%+v", volumeId, err)
+	}
+
+	if len(queryResult.Volumes) == 0 {
+		log.Infof("volume: %s not found during query while determining CNS volume type", volumeId)
+		return "", ErrNotFound
+	}
+	volumeType = queryResult.Volumes[0].VolumeType
+	log.Infof("volume: %s is of type: %s", volumeId, volumeType)
+	return volumeType, nil
+}
+
 // GetNodeVMsWithAccessToDatastore finds out NodeVMs which have access to the given
 // datastore URL by using the moref approach.
 func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCenter, dsURL string,
@@ -1032,11 +1112,12 @@ func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCen
 	}
 
 	// Get datastore object.
-	dsObj, err := getDatastoreObj(ctx, vc, dsURL)
+	dsInfoObj, err := getDatastoreInfoObj(ctx, vc, dsURL)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to retrieve datastore object using datastore "+
 			"URL %q. Error: %+v", dsURL, err)
 	}
+	dsObj := dsInfoObj.Datastore
 	// Get datastore host mounts.
 	var ds mo.Datastore
 	err = dsObj.Properties(ctx, dsObj.Reference(), []string{"host"}, &ds)

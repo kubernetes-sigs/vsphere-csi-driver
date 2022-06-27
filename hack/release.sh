@@ -22,6 +22,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-true}
+
 # BASE_REPO is the root path of the image repository
 readonly BASE_IMAGE_REPO=gcr.io/cloud-provider-vsphere
 
@@ -41,10 +43,20 @@ PUSH=
 LATEST=
 CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
-VERSION=$(git log -1 --format=%h)
+if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
+  VERSION="$(git log -1 --format=%h)"
+else
+  VERSION="$(git describe --always 2>/dev/null)"
+fi
+GIT_COMMIT="$(git log -1 --format=%H)"
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
+
+# CUSTOM_REPO_FOR_GOLANG can be used to pass custom repository for golang builder image.
+# Please ensure it ends with a '/'.
+# Example: CUSTOM_REPO_FOR_GOLANG=harbor-repo.vmware.com/dockerhub-proxy-cache/library/
+GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.17
 
 ARCH=amd64
 OSVERSION=1809
@@ -126,7 +138,8 @@ function build_driver_images_windows() {
    --build-arg "VERSION=${VERSION}" \
    --build-arg "OSVERSION=${OSVERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
-   --build-arg "GIT_COMMIT=${VERSION}" \
+   --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
+   --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
    .
    docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
 }
@@ -143,7 +156,8 @@ function build_driver_images_linux() {
    --build-arg ARCH=amd64 \
    --build-arg "VERSION=${VERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
-   --build-arg "GIT_COMMIT=${VERSION}" \
+   --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
+   --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
    .
 }
 
@@ -154,7 +168,8 @@ function build_syncer_image_linux() {
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
       --build-arg "GOPROXY=${GOPROXY}" \
-      --build-arg "GIT_COMMIT=${VERSION}" \
+      --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
+      --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
   .
 
   if [ "${LATEST}" ]; then
@@ -187,8 +202,10 @@ function build_images() {
   build_driver_images_linux
   build_syncer_image_linux
 
-  # build images for windows platform
-  build_driver_images_windows
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    # build images for windows platform
+    build_driver_images_windows
+  fi
 }
 
 function push_manifest_driver() {
@@ -331,18 +348,23 @@ if [ "${PUSH}" ]; then
   if [ "${REGISTRY}" ]; then
     CSI_IMAGE_NAME="${REGISTRY}driver"
   fi
-  # build windows images and push them to registry as currently windows images are build only when push is enabled
-  WINDOWS_IMAGE_OUTPUT="type=registry"
-  for osversion in "${OSVERSION_WIN[@]}"
-  do 
-    OSVERSION="$osversion"
-    build_driver_images_windows 
-  done
+
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    # build windows images and push them to registry as currently windows images are build only when push is enabled
+    WINDOWS_IMAGE_OUTPUT="type=registry"
+    for osversion in "${OSVERSION_WIN[@]}"
+    do
+      OSVERSION="$osversion"
+      build_driver_images_windows
+    done
+  fi
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
   build_driver_images_linux
-  #create and push manifest for driver
-  push_manifest_driver
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    #create and push manifest for driver
+    push_manifest_driver
+  fi
   #push syncer images
   push_syncer_images
 fi

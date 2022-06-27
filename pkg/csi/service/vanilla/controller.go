@@ -21,10 +21,9 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
@@ -34,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
@@ -73,6 +73,10 @@ type controller struct {
 
 // volumeMigrationService holds the pointer to VolumeMigration instance.
 var volumeMigrationService migration.VolumeMigrationService
+
+// variables for list volumes
+var volIDsInK8s = make([]string, 0)
+var cnsQueryResult *cnstypes.CnsQueryResult = nil
 
 // New creates a CNS controller.
 func New() csitypes.CnsController {
@@ -150,10 +154,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 
 	// Check vCenter API Version against 6.7.3.
-	err = common.CheckAPI(vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
+	err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
 		common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
 	if err != nil {
-		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
+		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v",
+			vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
 
@@ -379,12 +384,28 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 
-	// Check if the feature state of block-volume-snapshot is enabled
+	// Check if the feature states are enabled.
 	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+	isImprovedVolumeTopologyEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.ImprovedVolumeTopology)
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.CnsMgrSuspendCreateVolume)
+	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+
 	// Check if requested volume size and source snapshot size matches
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID string
 	if isBlockVolumeSnapshotEnabled && volumeSource != nil {
+		isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+			c.manager.VcenterConfig.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if cns snapshot operations are supported on VC due to error: %v", err)
+		}
+		if !isCnsSnapshotSupported {
+			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
+				"VC version does not support snapshot operations")
+		}
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
 			return nil, csifault.CSIInvalidArgumentFault,
@@ -394,7 +415,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 		cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
 		if err != nil {
-			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
+			return nil, csifault.CSIInvalidArgumentFault,
+				logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
 		}
 		// Query capacity in MB and datastore url for block volume snapshot
 		volumeIds := []cnstypes.CnsVolumeId{{Id: cnsVolumeID}}
@@ -418,7 +440,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	// Fetching the feature state for csi-migration before parsing storage class
 	// params.
-	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	// TODO: Need to figure out the fault returned by ParseStorageClassParams.
 	// Currently, just return "csi.fault.Internal".
@@ -426,7 +447,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 			"parsing storage class parameters failed with error: %+v", err)
 	}
-
 	if csiMigrationFeatureState && scParams.CSIMigration == "true" {
 		if len(scParams.Datastore) != 0 {
 			log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
@@ -472,6 +492,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 		}
 	}
+
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:              volSizeMB,
 		Name:                    req.Name,
@@ -480,13 +501,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 	}
 
-	var sharedDatastores []*cnsvsphere.DatastoreInfo
-	var datastoreTopologyMap map[string][]map[string]string
-
+	var (
+		sharedDatastores     []*cnsvsphere.DatastoreInfo
+		datastoreTopologyMap map[string][]map[string]string
+	)
 	// Get accessibility.
 	topologyRequirement := req.GetAccessibilityRequirements()
 	if topologyRequirement != nil {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+		if isImprovedVolumeTopologyEnabled {
 			// Check if topology domains have been provided in the vSphere CSI config secret.
 			// NOTE: We do not support kubernetes.io/hostname as a topology label.
 			if c.manager.CnsConfig.Labels.TopologyCategories == "" && c.manager.CnsConfig.Labels.Zone == "" &&
@@ -496,7 +518,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 
 			// Get shared accessible datastores for matching topology requirement.
-			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx, topologyRequirement)
+			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+				commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
 			if err != nil || len(sharedDatastores) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
@@ -548,8 +571,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// Filter datastores which in datastoreMap from sharedDatastores.
 		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
 	}
+
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-		c.manager, &createVolumeSpec, sharedDatastores)
+		c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -590,25 +614,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			allNodeVMs                  []*cnsvsphere.VirtualMachine
 		)
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-			// Get VC instance
-			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vCenter. Err: %v", err)
-			}
-			// Get all nodeVMs in cluster.
-			allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find VirtualMachines for the registered nodes in the cluster. Error: %v", err)
-			}
-		}
 		// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
 		// API does not return datastoreURL, retrieve this by calling QueryVolume.
 		// Otherwise, retrieve this from PlacementResults in the response of
 		// CreateVolume API.
-		if volumeInfo.DatastoreURL == "" {
+		datastoreURL := volumeInfo.DatastoreURL
+		if datastoreURL == "" {
 			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: volumeIds,
@@ -626,39 +637,37 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"queryVolume could not retrieve volume information for volume ID: %q",
 					volumeInfo.VolumeID.Id)
 			}
-			datastoreURL := queryResult.Volumes[0].DatastoreUrl
+			datastoreURL = queryResult.Volumes[0].DatastoreUrl
+		}
 
+		// If improved topology FSS is enabled, retrieve datastore topology information
+		// from CSINodeTopology CRs.
+		if isImprovedVolumeTopologyEnabled {
+			// Get VC instance
+			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Err: %v", err)
+			}
+			// Get all nodeVMs in cluster.
+			allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find VirtualMachines for the registered nodes in the cluster. Error: %v", err)
+			}
 			// Find datastore topology from the retrieved datastoreURL.
-			// If improved topology FSS is enabled, retrieve datastore topology information
-			// from CSINodeTopology CRs.
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-				datastoreAccessibleTopology, err = c.getAccessibleTopologiesForDatastore(ctx, vcenter, allNodeVMs,
-					datastoreURL)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to calculate accessible topologies for the datastore %q", datastoreURL)
-				}
-			} else {
-				datastoreAccessibleTopology = datastoreTopologyMap[datastoreURL]
-				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id,
-					datastoreURL)
+			datastoreAccessibleTopology, err = c.getAccessibleTopologiesForDatastore(ctx, vcenter, topologyRequirement,
+				allNodeVMs, datastoreURL)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to calculate accessible topologies for the datastore %q", datastoreURL)
 			}
 		} else {
-			// Retrieve datastoreURL from placementResults.
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-				datastoreAccessibleTopology, err = c.getAccessibleTopologiesForDatastore(ctx, vcenter, allNodeVMs,
-					volumeInfo.DatastoreURL)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to calculate accessible topologies for the datastore %q",
-						volumeInfo.DatastoreURL)
-				}
-			} else {
-				datastoreAccessibleTopology = datastoreTopologyMap[volumeInfo.DatastoreURL]
-				log.Debugf("Volume: %s is provisioned on the datastore: %s ", volumeInfo.VolumeID.Id,
-					volumeInfo.DatastoreURL)
-			}
+			datastoreAccessibleTopology = datastoreTopologyMap[datastoreURL]
+			log.Debugf("Volume: %q is provisioned on the datastore: %q ", volumeInfo.VolumeID.Id,
+				datastoreURL)
 		}
+
 		// Add topology segments to the CreateVolumeResponse.
 		for _, topoSegments := range datastoreAccessibleTopology {
 			volumeTopology := &csi.Topology{
@@ -684,7 +693,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 // getAccessibleTopologiesForDatastore figures out the list of topologies from
 // which the given datastore is accessible.
 func (c *controller) getAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-	allNodeVMs []*cnsvsphere.VirtualMachine, datastoreURL string) ([]map[string]string, error) {
+	topologyRequirement *csi.TopologyRequirement, allNodeVMs []*cnsvsphere.VirtualMachine, datastoreURL string) (
+	[]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	var datastoreAccessibleTopology []map[string]string
 
@@ -713,7 +723,12 @@ func (c *controller) getAccessibleTopologiesForDatastore(ctx context.Context, vc
 		accessibleNodeNames = append(accessibleNodeNames, nodeName)
 	}
 
-	datastoreAccessibleTopology, err = c.topologyMgr.GetTopologyInfoFromNodes(ctx, accessibleNodeNames, datastoreURL)
+	datastoreAccessibleTopology, err = c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+		commoncotypes.VanillaRetrieveTopologyInfoParams{
+			NodeNames:           accessibleNodeNames,
+			DatastoreURL:        datastoreURL,
+			TopologyRequirement: topologyRequirement,
+		})
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to find accessible topologies for the remaining nodes %v. Error: %+v",
@@ -759,6 +774,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	var volumeID string
 	var faultType string
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 		fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
 
@@ -772,14 +788,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				"no datastores found to create file volume")
 		}
 		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filteredDatastores)
+			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, false)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
 		}
 	} else {
 		volumeID, faultType, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec)
+			c.manager, &createVolumeSpec, filterSuspendedDatastores, false)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
@@ -804,13 +820,11 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("CreateVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -841,14 +855,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		return c.createBlockVolume(ctx, req)
 	}
 	resp, faultType, err := createVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume created successfully. Volume Handle: %q, PV Name: %q", resp.Volume.VolumeId, req.Name)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -857,13 +871,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
+	cnsVolumeType := common.UnknownVolumeType
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("DeleteVolume: called with args: %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -880,6 +894,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		var volumePath string
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			volumeType = prometheus.PrometheusBlockVolumeType
+			cnsVolumeType = common.BlockVolumeType
 			// In-tree volume support.
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 				// Migration feature switch is disabled.
@@ -900,25 +915,45 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
-		// Check if the volume contains CNS snapshots.
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
-				common.QuerySnapshotLimit)
+		if cnsVolumeType == common.UnknownVolumeType {
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			if err != nil {
+				if err.Error() == common.ErrNotFound.Error() {
+					// The volume couldn't be found during query, assuming the delete operation as success
+					return &csi.DeleteVolumeResponse{}, "", nil
+				} else {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
+				}
+			}
+			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
+		}
+		// Check if the volume contains CNS snapshots only for block volumes.
+		if cnsVolumeType == common.BlockVolumeType &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+				c.manager.VcenterConfig.Host)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
+					"failed to check if cns snapshot operations are supported on VC due to error: %v", err)
 			}
-			if len(snapshots) == 0 {
-				log.Infof("no CNS snapshots found for volume: %s, the volume can be safely deleted",
-					req.VolumeId)
-			} else {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"volume: %s with existing snapshots %v cannot be deleted, "+
-						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+			if isCnsSnapshotSupported {
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
+					common.QuerySnapshotLimit)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to retrieve snapshots for volume: %s. Error: %+v", req.VolumeId, err)
+				}
+				if len(snapshots) == 0 {
+					log.Infof("no CNS snapshots found for volume: %s, the volume can be safely deleted",
+						req.VolumeId)
+				} else {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"volume: %s with existing snapshots %v cannot be deleted, "+
+							"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+				}
 			}
 		}
-		// TODO: Add code to determine the volume type and set volumeType for
-		// Prometheus metric accordingly.
 		faultType, err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
@@ -936,14 +971,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := deleteVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q deleted successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -953,14 +988,12 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -1039,6 +1072,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 				}
+				err = volumeMigrationService.ProtectVolumeFromVMDeletion(ctx, req.VolumeId)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to set keepAfterDeleteVm control flag for VolumeID %q", req.VolumeId)
+				}
 			}
 			var node *cnsvsphere.VirtualMachine
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
@@ -1066,14 +1104,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}, "", nil
 	}
 	resp, faultType, err := controllerPublishVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q attached successfully to node %q.", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1083,13 +1121,12 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		var faultType string
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
@@ -1184,14 +1221,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		return &csi.ControllerUnpublishVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q detached successfully from node %q.", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1201,14 +1238,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
-
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
-
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -1242,28 +1276,34 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
-
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
-				common.QuerySnapshotLimit)
+			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+				c.manager.VcenterConfig.Host)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+					"failed to check if cns snapshot is supported on VC due to error: %v", err)
 			}
-			if len(snapshots) == 0 {
-				log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
-					req.VolumeId)
-			} else {
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"volume: %s with existing snapshots %v cannot be expanded. "+
-						"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+			if isCnsSnapshotSupported {
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+					common.QuerySnapshotLimit)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to retrieve snapshots for volume: %s. Error: %+v", volumeID, err)
+				}
+				if len(snapshots) == 0 {
+					log.Infof("The volume %s can be safely expanded as no CNS snapshots were found.",
+						req.VolumeId)
+				} else {
+					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"volume: %s with existing snapshots %v cannot be expanded. "+
+							"Please delete snapshots before expanding the volume", req.VolumeId, snapshots)
+				}
 			}
 		}
 
 		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
@@ -1288,14 +1328,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	}
 
 	resp, faultType, err := controllerExpandVolumeInternal()
-	log := logger.GetLogger(ctx)
 	if err != nil {
 		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q expanded successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1318,10 +1358,199 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
+	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listVolumes")
+	volumeType := prometheus.PrometheusUnknownVolumeType
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "List Volumes")
+	}
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
+	}
+
+	// Get the global query limit
+	maxEntries := cfg.Global.QueryLimit
+	if req.MaxEntries != 0 {
+		maxEntries = int(req.MaxEntries)
+	}
+
+	listVolumesInternal := func() (*csi.ListVolumesResponse, string, error) {
+		log.Debugf("ListVolumes: called with args %+v", *req)
+
+		startingToken := 0
+		if req.StartingToken != "" {
+			startingToken, err = strconv.Atoi(req.StartingToken)
+			if err != nil {
+				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"startingToken not a valid integer")
+			}
+		}
+
+		// Step 1: Get all the volume IDs of PVs, from K8s cluster
+		// If startingToken is 0, then listVolume request is a new one and not part of a previous request.
+		// Therefore, fetch all the volumes from K8s and CNS.
+		if startingToken == 0 || cnsQueryResult == nil {
+			volIDsInK8s = commonco.ContainerOrchestratorUtility.GetAllK8sVolumes()
+			log.Debugf("Number of Volume IDs of PVs from K8s cluster %v, list of volumes %v", len(volIDsInK8s),
+				volIDsInK8s)
+
+			// Step 2: Get all Volume IDs from CNS QueryAll API
+			queryFilter := cnstypes.CnsQueryFilter{
+				ContainerClusterIds: []string{cfg.Global.ClusterID},
+			}
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeVolumeType),
+				},
+			}
+			// Select only the volume type.
+			cnsQueryResult, err = c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"queryVolume failed on Cluster ID %q with err = %+v ", cfg.Global.ClusterID, err)
+			}
+		}
+
+		// Step 3: If the difference between number of K8s volumes and CNS volumes is greater than threshold,
+		// fail the operation, as it can result in too many attach calls.
+		if len(volIDsInK8s)-len(cnsQueryResult.Volumes) > cfg.Global.ListVolumeThreshold {
+			log.Errorf("difference between number of K8s volumes: %d, and CNS volumes: %d, is greater than "+
+				"threshold: %d, and completely out of sync.", len(volIDsInK8s), len(cnsQueryResult.Volumes),
+				cfg.Global.ListVolumeThreshold)
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"difference between number of K8s volumes and CNS volumes is greater than threshold.")
+		}
+
+		if maxEntries > len(cnsQueryResult.Volumes) {
+			maxEntries = len(cnsQueryResult.Volumes)
+		}
+		// Step 4: process queryLimit number of items starting from ListVolumeRequest.start_token
+		var allNodeVMs []*cnsvsphere.VirtualMachine
+		var entries []*csi.ListVolumesResponse_Entry
+
+		// Get all nodes from the vanilla K8s cluster from the node manager
+		allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get nodes(node vms) in the vanilla cluster. Error: %v", err)
+		}
+
+		nextToken := ""
+		endIndex := maxEntries + startingToken
+		if endIndex > len(cnsQueryResult.Volumes) {
+			endIndex = len(cnsQueryResult.Volumes)
+		}
+		log.Debugf("Starting token: %d, End index: %d, Length of Query volume result: %d, Max entries: %d ",
+			startingToken, endIndex, len(cnsQueryResult.Volumes), maxEntries)
+		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, endIndex,
+			cnsQueryResult, allNodeVMs)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
+				" volumes, err: %v", err)
+		}
+		resp := &csi.ListVolumesResponse{
+			Entries:   entries,
+			NextToken: nextToken,
+		}
+
+		log.Debugf("ListVolumes served %d results, token for next set: %s", len(entries), nextToken)
+		return resp, "", nil
+	}
+	listVolResponse, faultType, err := listVolumesInternal()
+	log.Debugf("List volume response: %+v", listVolResponse)
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
+	}
+	return listVolResponse, err
+}
+
+func (c *controller) processQueryResultsListVolumes(ctx context.Context, startingToken int, endIndex int,
+	queryResult *cnstypes.CnsQueryResult, allNodeVMs []*cnsvsphere.VirtualMachine) ([]*csi.ListVolumesResponse_Entry,
+	string, string, error) {
+
+	volumeType := ""
+	nextToken := ""
+	log := logger.GetLogger(ctx)
+	var entries []*csi.ListVolumesResponse_Entry
+
+	volumeIDToNodeUUIDMap, err := getBlockVolumeToHostMap(ctx, c.manager, allNodeVMs)
+	if err != nil {
+		return entries, nextToken, volumeType, err
+	}
+
+	for i := startingToken; i < endIndex; i++ {
+		if queryResult.Volumes[i].VolumeType == common.FileVolumeType {
+			volumeType = prometheus.PrometheusFileVolumeType
+			fileVolID := queryResult.Volumes[i].VolumeId.Id
+
+			// Populate csi.Volume info for the given volume
+			fileVolumeInfo := &csi.Volume{
+				VolumeId: fileVolID,
+			}
+			// Getting published nodes
+			publishedNodeIds := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, []string{fileVolID})
+			for volID, nodeName := range publishedNodeIds {
+				if volID == fileVolID && len(nodeName) != 0 {
+					nodeVMObj, err := c.nodeMgr.GetNodeByName(ctx, publishedNodeIds[fileVolID][0])
+					if err != nil {
+						log.Errorf("Failed to get node vm object from the node name, err:%v", err)
+						return entries, nextToken, volumeType, err
+					}
+					nodeVMUUID := nodeVMObj.UUID
+
+					// Populate published node
+					volStatus := &csi.ListVolumesResponse_VolumeStatus{
+						PublishedNodeIds: []string{nodeVMUUID},
+					}
+
+					// Populate List Volumes Entry Response
+					entry := &csi.ListVolumesResponse_Entry{
+						Volume: fileVolumeInfo,
+						Status: volStatus,
+					}
+
+					entries = append(entries, entry)
+				}
+			}
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
+			blockVolID := queryResult.Volumes[i].VolumeId.Id
+			for volID, nodeVMUUID := range volumeIDToNodeUUIDMap {
+				if blockVolID == volID {
+					//Populate csi.Volume info for the given volume
+					blockVolumeInfo := &csi.Volume{
+						VolumeId: blockVolID,
+					}
+					// Getting published nodes
+					volStatus := &csi.ListVolumesResponse_VolumeStatus{
+						PublishedNodeIds: []string{nodeVMUUID},
+					}
+					entry := &csi.ListVolumesResponse_Entry{
+						Volume: blockVolumeInfo,
+						Status: volStatus,
+					}
+					// Populate List Volumes Entry Response
+					entries = append(entries, entry)
+				}
+			}
+		}
+	}
+
+	// if length of queryAll entries > queryLimit, set nextToken to
+	// start_token + queryLimit
+	if len(queryResult.Volumes) > endIndex {
+		nextTokenInt := endIndex
+		nextToken = strconv.Itoa(nextTokenInt)
+	}
+	return entries, nextToken, volumeType, nil
+
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1362,22 +1591,14 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-	}
-	var vcSnapshotSupportCheck, csiSnapshotFSSEnabled bool
-	// Report capability only if CSI Snapshot FSS is enabled and VC supports
-	// snapshot feature.
-	csiSnapshotFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if csiSnapshotFSSEnabled {
-		// Check VC support only if internal FSS is enabled.
-		vcSnapshotSupportCheck = common.CheckSnapshotSupport(ctx, c.manager)
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 
-	if csiSnapshotFSSEnabled && vcSnapshotSupportCheck {
-		log.Infof("ControllerGetCapabilities: reporting Snapshot capabilities as snapshot FSS is enabled.")
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 	}
-
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
@@ -1402,9 +1623,17 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	if !isBlockVolumeSnapshotEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
 	}
-
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Validate CreateSnapshotRequest
 		if err := validateVanillaCreateSnapshotRequestRequest(ctx, req); err != nil {
@@ -1509,10 +1738,11 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	resp, err := createSnapshotInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Snapshot for volume %q created successfully.", req.GetSourceVolumeId())
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -1529,6 +1759,17 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
 	}
 
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
+
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
 		err := common.DeleteSnapshotUtil(ctx, c.manager, csiSnapshotID)
@@ -1543,15 +1784,15 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 
 	volumeType := prometheus.PrometheusBlockVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	start := time.Now()
 	resp, err := deleteSnapshotInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Snapshot %q deleted successfully.", req.SnapshotId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 
@@ -1560,12 +1801,22 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
+
+	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
+		c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC due to error: %v", err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"VC version does not support snapshot operations")
+	}
 
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ListSnapshots: called with args %+v", *req)
 		err := validateVanillaListSnapshotRequest(ctx, req)
 		if err != nil {
@@ -1597,10 +1848,10 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	resp, err := listSnapshotsInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }

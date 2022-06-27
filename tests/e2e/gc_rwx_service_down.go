@@ -34,7 +34,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("File Volume Test on Service down", func() {
@@ -635,12 +634,18 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 			metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 			}
 		}()
 
@@ -653,7 +658,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up csi-controller pod in SV")
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))
@@ -664,7 +669,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 
 		var svClient clientset.Interface
 		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
-			svClient, err = k8s.CreateKubernetesClientFromConfig(k8senvsv)
+			svClient, err = createKubernetesClientFromConfig(k8senvsv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -797,12 +802,18 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		err = fpv.DeletePersistentVolume(client, pv.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 			}
 		}()
 
@@ -847,7 +858,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		}()
 
 		ginkgo.By("Bring up csi-controller pod in SV")
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))
@@ -990,12 +1001,18 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 			}
 		}()
 
@@ -1018,7 +1035,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up csi-controller pod in SV")
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))

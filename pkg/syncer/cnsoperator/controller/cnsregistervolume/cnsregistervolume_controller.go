@@ -45,6 +45,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
@@ -74,7 +75,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Debug("Not initializing the CnsRegisterVolume Controller as its a non-WCP CSI deployment")
 		return nil
 	}
-
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
+			if err != nil {
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				return err
+			}
+			if len(clusterComputeResourceMoIds) > 1 {
+				log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
+				return nil
+			}
+		}
+	}
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -150,6 +163,7 @@ type ReconcileCnsRegisterVolume struct {
 func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -212,7 +226,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvName   string
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
-	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host)
+	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)

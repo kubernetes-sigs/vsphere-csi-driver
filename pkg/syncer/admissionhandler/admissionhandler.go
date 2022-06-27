@@ -31,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
@@ -52,8 +54,11 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                 *interface{}
-	containerOrchestratorUtility commonco.COCommonInterface
+	COInitParams                          *interface{}
+	featureGateCsiMigrationEnabled        bool
+	featureGateBlockVolumeSnapshotEnabled bool
+	featureGateTKGSHaEnabled              bool
+	featureGateVolumeHealthEnabled        bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -118,62 +123,71 @@ func StartWebhookServer(ctx context.Context) error {
 	var stopCh = make(chan bool)
 	log := logger.GetLogger(ctx)
 	var err error
-	if cfg == nil {
-		cfg, err = getWebHookConfig(ctx)
-		if err != nil {
-			log.Errorf("failed to get webhook config. err: %v", err)
-			return err
-		}
-		log.Debugf("webhook config: %v", cfg)
+	var clusterFlavor cnstypes.CnsClusterFlavor
+	var containerOrchestratorUtility commonco.COCommonInterface
+	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		return err
 	}
-	if containerOrchestratorUtility == nil {
-		clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-		if err != nil {
-			log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
-			return err
-		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
-			common.Kubernetes, clusterFlavor, *COInitParams)
-		if err != nil {
-			log.Errorf("failed to get k8s interface. err: %v", err)
-			return err
-		}
+	containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
+		common.Kubernetes, clusterFlavor, *COInitParams)
+	if err != nil {
+		log.Errorf("failed to get k8s interface. err: %v", err)
+		return err
 	}
-	if containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) ||
-		containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-		certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
-		if err != nil {
-			log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
-				cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile, err)
-			return err
-		}
-		if cfg.WebHookConfig.Port == "" {
-			cfg.WebHookConfig.Port = defaultWebhookServerPort
-		}
-		server = &http.Server{
-			Addr:      fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
-			TLSConfig: &tls.Config{Certificates: []tls.Certificate{certs}},
-		}
-		// Define http server and server handler.
-		mux := http.NewServeMux()
-		mux.HandleFunc("/validate", validationHandler)
-		server.Handler = mux
 
-		// Start webhook server.
-		log.Debugf("Starting webhook server on port: %v", cfg.WebHookConfig.Port)
-		go func() {
-			if err = server.ListenAndServeTLS(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile); err != nil {
-				if err == http.ErrServerClosed {
-					log.Info("Webhook server stopped")
-				} else {
-					log.Fatalf("failed to listen and serve webhook server. err: %v", err)
-				}
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
+		startCNSCSIWebhookManager(ctx)
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if cfg == nil {
+			cfg, err = getWebHookConfig(ctx)
+			if err != nil {
+				log.Errorf("failed to get webhook config. err: %v", err)
+				return err
 			}
-		}()
-		log.Info("Webhook server started")
-		watchConfigChange()
-		<-stopCh
-		return nil
+			log.Debugf("webhook config: %v", cfg)
+		}
+		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+
+		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
+			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
+			if err != nil {
+				log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
+					cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile, err)
+				return err
+			}
+			if cfg.WebHookConfig.Port == "" {
+				cfg.WebHookConfig.Port = defaultWebhookServerPort
+			}
+			server = &http.Server{
+				Addr:      fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
+				TLSConfig: &tls.Config{Certificates: []tls.Certificate{certs}},
+			}
+			// Define http server and server handler.
+			mux := http.NewServeMux()
+			mux.HandleFunc("/validate", validationHandler)
+			server.Handler = mux
+
+			// Start webhook server.
+			log.Debugf("Starting webhook server on port: %v", cfg.WebHookConfig.Port)
+			go func() {
+				if err = server.ListenAndServeTLS(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile); err != nil {
+					if err == http.ErrServerClosed {
+						log.Info("Webhook server stopped")
+					} else {
+						log.Fatalf("failed to listen and serve webhook server. err: %v", err)
+					}
+				}
+			}()
+			log.Info("Webhook server started")
+			watchConfigChange()
+			<-stopCh
+			return nil
+		}
 	}
 	return logger.LogNewError(log, "can't start webhook. no features are enabled which requires webhook")
 }

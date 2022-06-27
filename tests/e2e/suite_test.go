@@ -22,13 +22,11 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	. "github.com/onsi/ginkgo"
+	ginkgo "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
-	. "github.com/onsi/gomega"
+	gomega "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
-
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"
@@ -41,15 +39,16 @@ func init() {
 		os.Setenv(kubeconfigEnvVar, kubeconfig)
 	}
 	framework.AfterReadingAllFlags(&framework.TestContext)
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(envClusterFlavor))
 	setClusterFlavor(clusterFlavor)
 }
 
 func TestE2E(t *testing.T) {
 	handleFlags()
-	RegisterFailHandler(Fail)
+	gomega.RegisterFailHandler(ginkgo.Fail)
 	junitReporter := reporters.NewJUnitReporter("junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "CNS CSI Driver End-to-End Tests", []Reporter{junitReporter})
+	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CNS CSI Driver End-to-End Tests",
+		[]ginkgo.Reporter{junitReporter})
 }
 
 func handleFlags() {

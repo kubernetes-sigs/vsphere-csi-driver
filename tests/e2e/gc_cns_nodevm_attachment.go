@@ -34,7 +34,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
@@ -285,16 +284,22 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		var svcClient clientset.Interface
 		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
-			svcClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Bring down csi-controller pod in SV")
 		bringDownCsiController(svcClient)
 		isControllerUp = false
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 			}
 		}()
 
@@ -318,7 +323,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			To(gomega.BeTrue())
 
 		ginkgo.By("Bring up csi-controller pod in SV")
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
 		err = fpod.WaitForPodRunningInNamespace(client, pod)
@@ -669,7 +674,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		clientNewGc, err = k8s.CreateKubernetesClientFromConfig(newGcKubconfigPath)
+		clientNewGc, err = createKubernetesClientFromConfig(newGcKubconfigPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")

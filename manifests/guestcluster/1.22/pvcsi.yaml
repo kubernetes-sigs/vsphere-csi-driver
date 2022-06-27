@@ -57,6 +57,46 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims/status"]
     verbs: ["update", "patch"]
+  - apiGroups: [ "cns.vmware.com" ]
+    resources: [ "csinodetopologies" ]
+    verbs: ["get", "update", "watch", "list"]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshots" ]
+    verbs: [ "get", "list" ]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshotclasses" ]
+    verbs: [ "watch", "get", "list" ]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshotcontents" ]
+    verbs: [ "create", "get", "list", "watch", "update", "delete", "patch"]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshotcontents/status" ]
+    verbs: [ "update", "patch" ]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-role
+rules:
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csinodetopologies"]
+    verbs: ["create", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vsphere-csi-node-cluster-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: vsphere-csi-node
+    namespace: vmware-system-csi
+roleRef:
+  kind: ClusterRole
+  name: vsphere-csi-node-cluster-role
+  apiGroup: rbac.authorization.k8s.io
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -296,6 +336,8 @@ spec:
       app: vsphere-csi-node
   updateStrategy:
     type: "RollingUpdate"
+    rollingUpdate:
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -314,7 +356,6 @@ spec:
           - "--v=5"
           - "--csi-address=$(ADDRESS)"
           - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-          - "--health-port=9809"
         env:
           - name: ADDRESS
             value: /csi/csi.sock
@@ -325,15 +366,14 @@ spec:
             mountPath: /csi
           - name: registration-dir
             mountPath: /registration
-        ports:
-          - containerPort: 9809
-            name: healthz
         livenessProbe:
-          httpGet:
-            path: /healthz
-            port: healthz
-          initialDelaySeconds: 5
-          timeoutSeconds: 5
+          exec:
+            command:
+              - /csi-node-driver-registrar
+              - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+              - --mode=kubelet-registration-probe
+          initialDelaySeconds: 30
+          timeoutSeconds: 15
       - name: vsphere-csi-node
         image: vmware.io/vsphere-csi:<image_tag>
         args:
@@ -437,7 +477,8 @@ data:
   "file-volume": "true"
   "csi-sv-feature-states-replication": "false"
   "block-volume-snapshot": "false"
-  "tkgs-ha": "false"
+  "tkgs-ha": "true"
+  "cnsmgr-suspend-create-volume": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

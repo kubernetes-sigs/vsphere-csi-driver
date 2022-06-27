@@ -22,14 +22,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/log"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -45,7 +43,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -65,8 +62,6 @@ var (
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 	}
-	// virtualMachineLock is used for handling race conditions during concurrent Attach/Detach calls
-	virtualMachineLock = &sync.Mutex{}
 )
 
 type controller struct {
@@ -228,13 +223,12 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	*csi.CreateVolumeResponse, error) {
 
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("CreateVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -244,8 +238,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// Later we may need to define different csi faults.
 		err := validateGuestClusterCreateVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
-			log.Error(msg)
+			log.Errorf("validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
@@ -280,8 +273,22 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if err != nil {
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName,
-					c.supervisorNamespace, diskSize, supervisorStorageClass, getAccessMode(accessMode))
+				var annotations map[string]string
+				if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+					req.AccessibilityRequirements != nil {
+					// Generate volume topology requirement annotation.
+					annotations = make(map[string]string)
+					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
+					if err != nil {
+						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+
+							"on namespace: %s from supervisorCluster. Error: %+v",
+							supervisorPVCName, c.supervisorNamespace, err)
+						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+					}
+					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
+				}
+				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
+					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations)
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(
 					ctx, claim, metav1.CreateOptions{})
@@ -321,6 +328,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		} else {
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
+
 		resp := &csi.CreateVolumeResponse{
 			Volume: &csi.Volume{
 				VolumeId:      supervisorPVCName,
@@ -328,18 +336,50 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				VolumeContext: attributes,
 			},
 		}
+		// Calculate node affinity terms for topology aware provisioning.
+		var accessibleTopologies []map[string]string
+		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+			req.AccessibilityRequirements != nil {
+			// Retrieve the latest version of the PVC
+			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+				ctx, supervisorPVCName, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to get pvc with name: %s on namespace: %s from supervisorCluster. "+
+					"Error: %+v", supervisorPVCName, c.supervisorNamespace, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+			}
+			// Generate accessible topologies for volume.
+			accessibleTopologies, err = generateVolumeAccessibleTopologyFromPVCAnnotation(pvc)
+			if err != nil {
+				msg := fmt.Sprintf("failed to generate volume accessible topology for pvc with name: %s on "+
+					"namespace: %s from supervisorCluster requirements with err: %+v",
+					c.supervisorNamespace, pvc.Name, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+			}
+			log.Infof("Volume %q created is accessible from zones: %+v", supervisorPVCName,
+				accessibleTopologies)
+
+			// Add topology segments to the CreateVolumeResponse.
+			for _, topoSegments := range accessibleTopologies {
+				volumeTopology := &csi.Topology{
+					Segments: topoSegments,
+				}
+				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+			}
+		}
 		return resp, "", nil
 	}
 	resp, faultType, err := createVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume created successfully. Volume Handle: %q, PV Name: %q", resp.Volume.VolumeId, req.Name)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
+	log.Debugf("CreateVolume response: %+v", resp)
 	return resp, err
 }
 
@@ -348,13 +388,12 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	*csi.DeleteVolumeResponse, error) {
 
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("DeleteVolume: called with args: %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -404,14 +443,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := deleteVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q deleted successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -421,13 +460,12 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -466,10 +504,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	if err != nil {
 		log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q attached successfully to node %q", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -478,72 +517,69 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest, c *controller) (
 	*csi.ControllerPublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+	var isVolumePresentInSpec, isVolumeAttached bool
+	var diskUUID string
+	var err error
+
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
 	}
 
-	var err error
-	if err = c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-	}
-	// Check if volume is already present in the virtualMachine.Spec.Volumes
-	var isVolumePresentInSpec, isVolumeAttached bool
-	var diskUUID string
-	for _, volume := range virtualMachine.Spec.Volumes {
-		if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
-			log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
-			isVolumePresentInSpec = true
-			break
-		}
-	}
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
-	// if volume is present in the virtualMachine.Spec.Volumes check if volume's status is attached and DiskUuid is set
-	if isVolumePresentInSpec {
-		for _, volume := range virtualMachine.Status.Volumes {
-			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
-				diskUUID = volume.DiskUuid
-				isVolumeAttached = true
-				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
-					volume.Name, volume.DiskUuid)
-				break
-			}
-		}
-	} else {
-		timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
-		for {
-			// Volume is not present in the virtualMachine.Spec.Volumes, so adding
-			// volume in the spec and patching virtualMachine instance.
-			vmvolumes := vmoperatortypes.VirtualMachineVolume{
-				Name: req.VolumeId,
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: req.VolumeId,
-				},
-			}
-			virtualMachineLock.Lock()
-			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
-			err := c.vmOperatorClient.Update(ctx, virtualMachine)
-			virtualMachineLock.Unlock()
-			if err == nil || time.Now().After(timeout) {
-				break
-			}
-			if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-				msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-			}
-			log.Debugf("Found virtualMachine instance for node: %q", req.NodeId)
-		}
-		if err != nil {
-			msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
+	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	for {
+		if err = c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+			msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
+		// Check if volume is already present in the virtualMachine.Spec.Volumes
+		for _, volume := range virtualMachine.Spec.Volumes {
+			if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
+				log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+				isVolumePresentInSpec = true
+				break
+			}
+		}
+		if isVolumePresentInSpec {
+			break
+		}
+		// Volume is not present in the virtualMachine.Spec.Volumes, so adding
+		// volume in the spec and patching virtualMachine instance.
+		vmvolumes := vmoperatortypes.VirtualMachineVolume{
+			Name: req.VolumeId,
+			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: req.VolumeId,
+				},
+			},
+		}
+		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+		err = c.vmOperatorClient.Update(ctx, virtualMachine)
+		if err == nil {
+			break
+		} else {
+			log.Errorf("failed to update virtualmachine. Err: %v", err)
+		}
+		if time.Now().After(timeout) {
+			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+		}
+		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
 
+	for _, volume := range virtualMachine.Status.Volumes {
+		if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
+			diskUUID = volume.DiskUuid
+			isVolumeAttached = true
+			log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
+				volume.Name, volume.DiskUuid)
+			break
+		}
+	}
 	// volume is not attached, so wait until volume is attached and DiskUuid is set
 	if !isVolumeAttached {
 		watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
@@ -757,13 +793,12 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
 		//TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -806,14 +841,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		return controllerUnpublishForBlockVolume(ctx, req, c)
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q detached successfully from node %q.", req.VolumeId, req.NodeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }
@@ -821,45 +856,16 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // controllerUnpublishForBlockVolume is helper method to handle ControllerPublishVolume for Block volumes
 func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
-
 	log := logger.GetLogger(ctx)
-
-	// TODO: Investigate if a race condition can exist here between multiple detach calls to the same volume.
-	// 	If yes, implement some locking mechanism
 	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
 	}
 	var err error
-	if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
-		if errors.IsNotFound(err) {
-			log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
-				c.supervisorNamespace, req.NodeId, req.VolumeId)
-			return &csi.ControllerUnpublishVolumeResponse{}, "", nil
-		}
-		msg := fmt.Sprintf("failed to get VirtualMachines for node: %q. Error: %+v", req.NodeId, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-	}
-	log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		for index, volume := range virtualMachine.Spec.Volumes {
-			if volume.Name == req.VolumeId {
-				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
-				virtualMachineLock.Lock()
-				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
-					virtualMachine.Spec.Volumes[index+1:]...)
-				err = c.vmOperatorClient.Update(ctx, virtualMachine)
-				virtualMachineLock.Unlock()
-				break
-			}
-		}
-		if err == nil || time.Now().After(timeout) {
-			break
-		}
 		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
 			if errors.IsNotFound(err) {
 				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
@@ -871,11 +877,27 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
-	}
-	if err != nil {
-		msg := fmt.Sprintf("Time out to update VirtualMachines %q with Error: %+v", virtualMachine.Name, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+		for index, volume := range virtualMachine.Spec.Volumes {
+			if volume.Name == req.VolumeId {
+				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+					virtualMachine.Spec.Volumes[index+1:]...)
+				err = c.vmOperatorClient.Update(ctx, virtualMachine)
+				break
+			}
+		}
+		if err == nil {
+			break
+		} else {
+			log.Errorf("failed to update virtualmachine. Err: %v", err)
+		}
+		if time.Now().After(timeout) {
+			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+		}
+		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
 
 	// Watch virtual machine object and wait for volume name to be removed from the status field.
@@ -1042,13 +1064,12 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
 	*csi.ControllerExpandVolumeResponse, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	namespace := prometheus.PrometheusUnknownNamespace
 
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
 			msg := "ExpandVolume feature is disabled on the cluster."
 			log.Warn(msg)
@@ -1175,14 +1196,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		return resp, "", nil
 	}
 	resp, faultType, err := controllerExpandVolumeInternal()
-	log := logger.GetLogger(ctx)
 	log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusFailStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
+		log.Infof("Volume %q expanded successfully.", req.VolumeId)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
-			prometheus.PrometheusPassStatus, namespace).Observe(time.Since(start).Seconds())
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
 }

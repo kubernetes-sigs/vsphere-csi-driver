@@ -250,12 +250,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -457,12 +457,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -586,12 +586,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize3)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -694,12 +694,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -859,12 +859,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -970,12 +970,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -2120,12 +2120,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Checking for resize on SVC PV")
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
@@ -2264,7 +2264,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
-		_, err = waitForPVCToReachFileSystemResizePendingCondition(svcClient, svcNamespace, svcPVCName, pollTimeout)
+		err = waitForSvcPvcToReachFileSystemResizePendingCondition(svcPVCName, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller up...")

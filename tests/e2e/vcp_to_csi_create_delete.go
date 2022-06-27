@@ -41,7 +41,6 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
@@ -191,7 +190,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 	ginkgo.It("Create volumes using VCP SC with parameters supported by CSI before and after migration", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		log := logger.GetLogger(ctx)
 		ginkgo.By("Creating VCP SCs")
 		scParams := make(map[string]string)
 		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
@@ -245,7 +243,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		for _, pvc := range append(vcpPvcsPreMig, vcpPvcsPostMig...) {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			log.Info("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
@@ -282,7 +280,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 	ginkgo.It("Create volumes using VCP SC with parameters not supported by CSI before and after migration", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		log := logger.GetLogger(ctx)
 		ginkgo.By("Creating VCP SCs")
 		scParams := make(map[string]string)
 		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
@@ -330,7 +327,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		for _, pvc := range vcpPvcsPreMig {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			log.Info("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
@@ -395,7 +392,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 	ginkgo.It("Create/delete volumes using VCP SC via CSI when SPS/CNS service is down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		log := logger.GetLogger(ctx)
 		ginkgo.By("Creating VCP SCs")
 		scParams := make(map[string]string)
 		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
@@ -423,7 +419,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		var crd *migrationv1alpha1.CnsVSphereVolumeMigration
 
 		vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc2.Name)
-		log.Info("Processing PVC: " + pvc2.Name)
+		framework.Logf("Processing PVC: " + pvc2.Name)
 		var found bool
 		found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(found).To(gomega.BeTrue())
@@ -514,7 +510,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
 		for _, pvc := range vcpPvcsPostMig {
 			vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			log.Info("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			var found bool
 			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)

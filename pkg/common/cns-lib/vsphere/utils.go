@@ -28,6 +28,7 @@ import (
 const (
 	vsanDType                       = "vsanD"
 	defaultVCClientTimeoutInMinutes = 5
+	cnsMgrDatastoreSuspended        = "cns.vmware.com/datastoreSuspended"
 	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to use query volume async API.
 	VSphere70u3Version int = 703
@@ -80,6 +81,31 @@ func IsManagedObjectNotFound(err error, moRef types.ManagedObjectReference) bool
 		return isNotFoundError && fault.Obj.Type == moRef.Type && fault.Obj.Value == moRef.Value
 	}
 	return false
+}
+
+func IsInvalidArgumentError(err error) bool {
+	isInvalidArgumentError := false
+	if soap.IsVimFault(err) {
+		_, isInvalidArgumentError = soap.ToVimFault(err).(*types.InvalidArgument)
+	}
+	return isInvalidArgumentError
+}
+
+func IsVimFaultNotFoundError(err error) bool {
+	isNotFoundError := false
+	if soap.IsVimFault(err) {
+		_, isNotFoundError = soap.ToVimFault(err).(*types.NotFound)
+	}
+	return isNotFoundError
+}
+
+// IsCnsSnapshotNotFoundError checks if err is the CnsSnapshotNotFoundFault fault returned by CNS QuerySnapshots API
+func IsCnsSnapshotNotFoundError(err error) bool {
+	isCnsSnapshotNotFoundError := false
+	if soap.IsVimFault(err) {
+		_, isCnsSnapshotNotFoundError = soap.ToVimFault(err).(cnstypes.CnsSnapshotNotFoundFault)
+	}
+	return isCnsSnapshotNotFoundError
 }
 
 // GetCnsKubernetesEntityMetaData creates a CnsKubernetesEntityMetadataObject
@@ -184,8 +210,11 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
 		TargetvSANFileShareClusters:      targetvSANClustersForFile,
 		VCClientTimeout:                  vcClientTimeout,
+		QueryLimit:                       cfg.Global.QueryLimit,
+		ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
 	}
 
+	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
 		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
@@ -306,6 +335,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 // The 2nd output parameter will be vSAN-direct managed datastores.
 func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) (
 	[]*DatastoreInfo, []*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
 	// Get all vsan direct datastore urls in VC. Later, filter in this cluster.
 	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
 	if err != nil {
@@ -358,6 +388,8 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
 		return nil, nil, fmt.Errorf("no candidates datastores found in the Kubernetes cluster")
 	}
+	log.Infof("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
+		vsanDirectDatastores)
 	return sharedDatastores, vsanDirectDatastores, nil
 }
 
@@ -440,4 +472,35 @@ func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 	}
 	// For all other versions.
 	return false, nil
+}
+
+// IsVolumeCreationSuspended checks whether a given Datastore has cns.vmware.com/datastoreSuspended customValue
+func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo) bool {
+	log := logger.GetLogger(ctx)
+
+	for _, customValField := range datastoreInfo.CustomValues {
+		customVal := customValField.(*types.CustomFieldStringValue)
+		if customVal.Value == cnsMgrDatastoreSuspended {
+			log.Infof("Ignoring datastore %v as it is suspended. Datastore moref: %v", datastoreInfo.Info.Name,
+				datastoreInfo.Datastore.Reference())
+			return true
+		}
+	}
+
+	return false
+}
+
+// FilterSuspendedDatastores filters out datastores which cns.vmware.com/datastoreSuspended customValue
+func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*DatastoreInfo) []*DatastoreInfo {
+	log := logger.GetLogger(ctx)
+
+	var filteredList []*DatastoreInfo
+	for _, ds := range datastoreInfoList {
+		if !IsVolumeCreationSuspended(ctx, ds) {
+			filteredList = append(filteredList, ds)
+		}
+	}
+
+	log.Infof("Updated filtered list of datastores %+v", filteredList)
+	return filteredList
 }

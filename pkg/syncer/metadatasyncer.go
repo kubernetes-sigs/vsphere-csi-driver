@@ -65,6 +65,10 @@ var (
 
 	// MetadataSyncer instance for the syncer container.
 	MetadataSyncer *metadataSyncInformer
+
+	// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
+	clusterComputeResourceMoIds = make([]string, 0)
+	clusterIDforVolumeMetadata  string
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -123,6 +127,29 @@ func getVolumeHealthIntervalInMin(ctx context.Context) int {
 	return volumeHealthIntervalInMin
 }
 
+// getPVtoBackingDiskObjectIdIntervalInMin returns pv to backingdiskobjectid interval.
+func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	pvtoBackingDiskObjectIdIntervalInMin := defaultPVtoBackingDiskObjectIdIntervalInMin
+	if v := os.Getenv("PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable "+
+					"PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s is equal or less than 0, will use the "+
+					"default interval", v)
+			} else {
+				pvtoBackingDiskObjectIdIntervalInMin = value
+				log.Infof("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval is set to %d minutes",
+					pvtoBackingDiskObjectIdIntervalInMin)
+			}
+		} else {
+			log.Warnf("PVtoBackingDiskObjectId: PVtoBackingDiskObjectId interval set in env variable "+
+				"PV_TO_BACKINGDISKOBJECTID_INTERVAL_MINUTES %s is invalid, will use the default interval", v)
+		}
+	}
+	return pvtoBackingDiskObjectIdIntervalInMin
+}
+
 // InitMetadataSyncer initializes the Metadata Sync Informer.
 func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo) error {
@@ -148,6 +175,28 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		return err
 	}
 	metadataSyncer.clusterFlavor = clusterFlavor
+	clusterIDforVolumeMetadata = configInfo.Cfg.Global.ClusterID
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if !configInfo.Cfg.Global.InsecureFlag && configInfo.Cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+				"Setting correct CA file: %q", configInfo.Cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+			configInfo.Cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
+		}
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+			if err != nil {
+				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				return err
+			}
+			if len(clusterComputeResourceMoIds) > 0 {
+				if configInfo.Cfg.Global.SupervisorID == "" {
+					return logger.LogNewError(log, "supervisor-id is not set in the vsphere-config-secret")
+				}
+			}
+			clusterIDforVolumeMetadata = configInfo.Cfg.Global.SupervisorID
+		}
+	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
 		// initialized for guest clusters.
@@ -301,7 +350,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			pvDeleted(obj, metadataSyncer)
 		})
 	metadataSyncer.k8sInformerManager.AddPodListener(
-		nil, // Add.
+		func(obj interface{}) { // Add.
+			podAdded(obj, metadataSyncer)
+		},
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			podUpdated(oldObj, newObj, metadataSyncer)
 		},
@@ -383,6 +434,32 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 		}()
+	}
+
+	// Trigger get pv to backingDiskObjectId mapping on vanilla cluster
+	pvToBackingDiskObjectIdFSSEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+		common.PVtoBackingDiskObjectIdMapping)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && pvToBackingDiskObjectIdFSSEnabled {
+		pvToBackingDiskObjectIdMappingTicker := time.NewTicker(time.Duration(
+			getPVtoBackingDiskObjectIdIntervalInMin(ctx)) * time.Minute)
+		defer pvToBackingDiskObjectIdMappingTicker.Stop()
+
+		var pvToBackingDiskObjectIdSupportCheck bool
+		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+		if err != nil {
+			return err
+		}
+		pvToBackingDiskObjectIdSupportCheck = common.CheckPVtoBackingDiskObjectIdSupport(ctx, vCenter)
+
+		if pvToBackingDiskObjectIdSupportCheck {
+			go func() {
+				for ; true; <-pvToBackingDiskObjectIdMappingTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					log.Info("get pv to backingDiskObjectId mapping is triggered")
+					csiGetPVtoBackingDiskObjectIdMapping(ctx, k8sClient, metadataSyncer)
+				}
+			}()
+		}
 	}
 
 	volumeHealthTicker := time.NewTicker(time.Duration(getVolumeHealthIntervalInMin(ctx)) * time.Minute)
@@ -482,6 +559,14 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if !cfg.Global.InsecureFlag && cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
+			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
+				"Setting correct CA file: %q", cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
+			cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
+		}
+	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		var err error
 		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
@@ -814,6 +899,41 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 }
 
+// podAdded helps register inline vSphere in-tree volumes
+func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	ctx, log := logger.GetNewContextWithLogger()
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
+		// Get pod object.
+		pod, ok := obj.(*v1.Pod)
+		if pod == nil || !ok {
+			log.Warnf("podAdded: unrecognized new object %+v", obj)
+			return
+		}
+		// In case if feature state switch is enabled after syncer is
+		// deployed, we need to initialize the volumeMigrationService.
+		if err := initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+			log.Errorf("podAdded: failed to get migration service. Err: %v", err)
+			return
+		}
+		for _, volume := range pod.Spec.Volumes {
+			if volume.VsphereVolume != nil {
+				log.Infof("Registering in-tree vSphere inline volume: %q", volume.VsphereVolume.VolumePath)
+				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
+					&migration.VolumeSpec{VolumePath: volume.VsphereVolume.VolumePath}, true)
+				if err != nil {
+					log.Warnf("podAdded: Failed to get VolumeID from "+
+						"volumeMigrationService for volumePath: %q with error %+v", volume.VsphereVolume.VolumePath, err)
+					continue
+				}
+				log.Infof("Successfully registered in-tree vSphere inline volume: %q with "+
+					"volume Id: %q", volume.VsphereVolume.VolumePath, volumeHandle)
+			}
+		}
+	}
+}
+
 // podUpdated updates pod metadata on VC when pod labels have been updated on
 // K8s cluster.
 func podUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
@@ -927,13 +1047,13 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	// Create updateSpec.
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV),
-		pv.Name, "", metadataSyncer.configInfo.Cfg.Global.ClusterID)
+		pv.Name, "", clusterIDforVolumeMetadata)
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, pvc.Labels, false,
-		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, clusterIDforVolumeMetadata,
 		[]cnstypes.CnsKubernetesEntityReference{entityReference})
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 
@@ -969,7 +1089,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true,
 		string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace,
-		metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
 	var volumeHandle string
@@ -992,7 +1112,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	} else {
 		volumeHandle = pv.Spec.CSI.VolumeHandle
 	}
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 		metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -1020,11 +1140,11 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	log := logger.GetLogger(ctx)
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(newPv.Name, newPv.GetLabels(), false,
-		string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+		string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	var volumeHandle string
 	var err error
-	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && newPv.Spec.VsphereVolume != nil {
@@ -1058,7 +1178,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	if newPv.Spec.CSI != nil {
 		_, isdynamicCSIPV = newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
 	}
-	if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable &&
+	if oldPv.Status.Phase == v1.VolumePending &&
+		(newPv.Status.Phase == v1.VolumeAvailable || newPv.Status.Phase == v1.VolumeBound) &&
 		!isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created.
 		var volumeType string
@@ -1169,10 +1290,10 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			"delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
 		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, nil, true,
-			string(cnstypes.CnsKubernetesEntityTypePV), "", metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+			string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -1273,16 +1394,16 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					// as an entity reference.
 					entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(
 						string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID)
+						clusterIDforVolumeMetadata)
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil,
 						deleteFlag, string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID,
+						clusterIDforVolumeMetadata,
 						[]cnstypes.CnsKubernetesEntityReference{entityReference})
 				} else {
 					// Deleting the pod metadata.
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
 						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+						clusterIDforVolumeMetadata, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 				var err error
@@ -1320,7 +1441,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 					// No entity reference is supplied for inline volumes.
 					podMetadata = cnsvsphere.GetCnsKubernetesEntityMetaData(pod.Name, nil, deleteFlag,
 						string(cnstypes.CnsKubernetesEntityTypePOD), pod.Namespace,
-						metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
+						clusterIDforVolumeMetadata, nil)
 					metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 					var err error
 					// In case if feature state switch is enabled after syncer is
@@ -1353,7 +1474,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				continue
 			}
 		}
-		containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID,
+		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
 			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{

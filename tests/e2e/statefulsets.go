@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					if vanillaCluster {
-						vmUUID = getNodeUUID(client, sspod.Spec.NodeName)
+						vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
 					} else {
 						annotations := pod.Annotations
 						vmUUID, exists = annotations[vmUUIDLabel]
@@ -444,7 +444,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					if vanillaCluster {
-						vmUUID = getNodeUUID(client, sspod.Spec.NodeName)
+						vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
 					} else {
 						annotations := pod.Annotations
 						vmUUID, exists = annotations[vmUUIDLabel]

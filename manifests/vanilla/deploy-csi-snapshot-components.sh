@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2021 The Kubernetes Authors.
+# Copyright 2022 The Kubernetes Authors.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,19 +27,21 @@ Ensure that block-volume-snapshot feature is enabled.
 4. Deploys the snapshot validation webhook
 5. Patches vSphere CSI driver to deploy the csi-snapshotter sidecar
 
+The script fails if there is existing snapshot-controller or snapshot validation webhook with unqualified versions
+Deleting the unqualified snapshot-controller or snapshot validation webhook running the script again deploys the qualified version
+
+The script fails if incorrect version VolumeSnapshot CRDs exists. Deleting the CRDs will deploy the correct version
+of the CRDs.
+
+The script patches the vSphere CSI driver with the qualified csi-snapshotter sidecar version.
+
 Refer to https://kubernetes-csi.github.io/docs/snapshot-controller.html for further information.
 
 Example command:
 
-./deploy-csi-snapshot-components.sh --release v4.1.1
-
-usage: ${0} [OPTIONS]
-The following flags are required.
-       --release        The external-snapshot release files to use.
-                        Default: v4.1.1
-                        Supported: v4.1.0, v4.1.1
+./deploy-csi-snapshot-components.sh
 EOF
-    exit 1
+    exit 0
 fi
 
 if ! command -v kubectl > /dev/null; then
@@ -57,148 +59,191 @@ else
         exit 1
 fi
 
-while [[ $# -gt 0 ]]; do
-    case ${1} in
-        --release)
-            release="$2"
-            shift
-            ;;
-        *)
-            usage
-            ;;
-    esac
-    shift
-done
+qualified_version="v6.0.1"
+volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
+volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
+volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
 
-
-if [ -z "${release}" ]
-then
-  release=v4.1.1
-else
-  if [ "${release}" != "v4.1.1" ] && [ "${release}" != "v4.1.0" ]
-  then
-    echo -e "❌ ERROR: Only v4.1.1 or v4.1.0 is supported"
-    exit 1
-  fi
-fi
-echo "Using release version: ${release}"
-
-# Waits for deployment to complete. $1: name of deployment, $2: namespace.
-wait_for_deployment() {
-local deployed=false
-local requiredReplicas
-local availableReplicas
-for _ in $(seq 20); do
-    requiredReplicas=$(kubectl get deployment "$1" -n "$2" -o jsonpath='{.spec.replicas}')
-    availableReplicas=$(kubectl get deployment "$1" -n "$2" -o jsonpath='{.status.availableReplicas}')
-    if [[ ${availableReplicas} == "${requiredReplicas}" ]]; then
-        deployed=true
-        break
-    fi
-    echo "waiting for $1 to complete.."
-    sleep 10
-done
-
-if [ $deployed ]
-then
-  echo -e "✅ $1 successfully deployed!"
-else
-  echo -e "❌ ERROR: Failed to deploy $1"
-  exit 1
-fi
+is_deployment_available(){
+	if ! output=$(kubectl get deployment "$1" -n "$2" 2>&1); then
+		echo "false"
+	else
+		echo "true"
+	fi
 }
 
-# Deploy the snapshot controller.
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml 2>/dev/null || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml 2>/dev/null || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml 2>/dev/null || true
-echo  -e "✅ Deployed VolumeSnapshot CRDs"
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
-echo -e "✅ Created  RBACs for snapshot-controller"
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${release}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
-echo -e "✅ Deployed snapshot-controller"
+validate_version(){
+	local container_image
+	local deployment_name
+	local container_image_version
+	deployment_name=$1
+	container_image=$(kubectl get deployment "$1" -n "$2" -o jsonpath='{.spec.template.spec.containers[0].image}')
+	echo "${deployment_name} image : ${container_image}"
+	# Set comma as delimiter
+	IFS=':'
+	read -r -a strarr <<< "$container_image"
+	container_image_version=${strarr[1]}
+	echo "${deployment_name} version : ${container_image_version}"
+	# shellcheck disable=SC2154
+	if [ "$container_image_version" = "$qualified_version" ]
+	then
+		echo -e "✅ Verified that running ${deployment_name} is using the qualified version ${qualified_version}"
+	else
+		echo -e "❌ ERROR: ${container_image_version} for ${deployment_name} is not qualified for vSphere CSI Driver, only ${qualified_version} is supported"
+		exit 1
+	fi
+}
 
-wait_for_deployment snapshot-controller kube-system
+is_crd_available(){
+	# shellcheck disable=SC2034
+	if ! output=$(kubectl get crd "$1" 2>&1); then
+		echo "false"
+	else
+		echo "true"
+	fi
+}
 
-# Deploy the snapshot validating webhook.
-service=snapshot-validation-service
-secret=snapshot-webhook-certs
-namespace=kube-system
-
-if [ ! -x "$(command -v openssl)" ]; then
-    echo "openssl not found"
+check_crd_version(){
+  local crd=$1
+  local valid=false
+  crd_ver_info=$(kubectl get crd "$1" -o jsonpath='{.spec.versions[*].name}')
+  # Set comma as delimiter
+  IFS=' '
+  read -r -a crd_versions <<< "$crd_ver_info"
+  for ver in "${crd_versions[@]}"; do
+  		if [ "$ver" = "v1" ]
+  		then
+  			valid="true"
+  		fi
+  done
+  if [ "$valid" = "false" ]
+  then
+    echo -e "❌ ERROR: Unsupported versions [$crd_ver_info] present for CRD $crd, please explicitly upgrade crd to v1 before re-running the script.."
     exit 1
-fi
+  else
+    echo -e "Supported version v1 of crd $crd present"
+  fi
+}
 
-tmpdir=$(mktemp -d)
-echo "creating certs in tmpdir ${tmpdir} "
+check_and_deploy_crds(){
+	echo -e "Checking CRDs..."
+	volumesnapshotclasses_crd_available=$(is_crd_available $volumesnapshotclasses_crd)
+	if [ "$volumesnapshotclasses_crd_available" = "true" ]
+	then
+		check_crd_version ${volumesnapshotclasses_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumesnapshotclasses_crd}"
+	fi
 
-cat <<EOF >> "${tmpdir}"/server.conf
-[req]
-req_extensions = v3_req
-distinguished_name = req_distinguished_name
-prompt = no
-[req_distinguished_name]
-CN = ${service}.${namespace}.svc
-[ v3_req ]
-basicConstraints = CA:FALSE
-keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-extendedKeyUsage = clientAuth, serverAuth
-subjectAltName = @alt_names
-[alt_names]
-DNS.1 = ${service}
-DNS.2 = ${service}.${namespace}
-DNS.3 = ${service}.${namespace}.svc
+	volumesnapshotcontents_crd_available=$(is_crd_available $volumesnapshotcontents_crd)
+	if [ "$volumesnapshotcontents_crd_available" = "true" ]
+	then
+		check_crd_version ${volumesnapshotcontents_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumesnapshotcontents_crd}"
+	fi
+
+	volumesnapshots_crd_available=$(is_crd_available $volumesnapshots_crd)
+	if [ "$volumesnapshots_crd_available" = "true" ]
+	then
+		check_crd_version ${volumesnapshots_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumesnapshots_crd}"
+	fi
+	echo  -e "\n✅ Deployed VolumeSnapshot CRDs\n"
+}
+
+deploy_snapshot_controller(){
+	echo -e "Start snapshot-controller deployment..."
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
+	echo -e "✅ Created  RBACs for snapshot-controller"
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
+	# The released yaml for v6.0.1 does not have v6.0.1 image for snapshot-controller, explicitly updating it.
+	snapshot_controller_image="gcr.io/k8s-staging-sig-storage/snapshot-controller:"${qualified_version}
+	kubectl -n kube-system set image deployment/snapshot-controller snapshot-controller=$snapshot_controller_image
+	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl patch deployment -n kube-system snapshot-controller --type=json \
+	-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
+	kubectl -n kube-system rollout status deploy/snapshot-controller
+	echo -e "\n✅ Successfully deployed snapshot-controller\n"
+}
+
+deploy_validation_webhook() {
+	service=snapshot-validation-service
+	secret=snapshot-webhook-certs
+	namespace=kube-system
+	if [ ! -x "$(command -v openssl)" ]; then
+		echo "❌ ERROR: openssl not found"
+		exit 1
+	fi
+	tmpdir=$(mktemp -d)
+	echo "creating certs in tmpdir ${tmpdir} "
+	cat <<EOF >> "${tmpdir}"/server.conf
+	[req]
+	req_extensions = v3_req
+	distinguished_name = req_distinguished_name
+	prompt = no
+	[req_distinguished_name]
+	CN = ${service}.${namespace}.svc
+	[ v3_req ]
+	basicConstraints = CA:FALSE
+	keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+	extendedKeyUsage = clientAuth, serverAuth
+	subjectAltName = @alt_names
+	[alt_names]
+	DNS.1 = ${service}
+	DNS.2 = ${service}.${namespace}
+	DNS.3 = ${service}.${namespace}.svc
 EOF
 
-# Generate the CA cert and private key
-openssl req -nodes -new -x509 -keyout "${tmpdir}"/ca.key -out "${tmpdir}"/ca.crt -subj "/CN=vSphere CSI Admission Controller Webhook CA"
-openssl genrsa -out "${tmpdir}"/webhook-server-tls.key 2048
-openssl req -new -key "${tmpdir}"/webhook-server-tls.key -subj "/CN=${service}.${namespace}.svc" -config "${tmpdir}"/server.conf \
-  | openssl x509 -req -CA "${tmpdir}"/ca.crt -CAkey "${tmpdir}"/ca.key -CAcreateserial -out "${tmpdir}"/webhook-server-tls.crt -extensions v3_req -extfile "${tmpdir}"/server.conf
-
-cat <<eof >"${tmpdir}"/webhook.config
-[WebHookConfig]
-port = "8443"
-cert-file = "/run/secrets/tls/tls.crt"
-key-file = "/run/secrets/tls/tls.key"
-eof
-
-# Cleanup previous secret if exists.
-kubectl delete secret ${secret} --namespace "${namespace}" 2>/dev/null || true
-# create the secret with CA cert and server cert/key
-kubectl create secret generic "${secret}" \
+	openssl req -nodes -new -x509 -keyout "${tmpdir}"/ca.key -out "${tmpdir}"/ca.crt -subj "/CN=vSphere CSI Admission Controller Webhook CA"
+	openssl genrsa -out "${tmpdir}"/webhook-server-tls.key 2048
+	openssl req -new -key "${tmpdir}"/webhook-server-tls.key -subj "/CN=${service}.${namespace}.svc" -config "${tmpdir}"/server.conf \
+	| openssl x509 -req -CA "${tmpdir}"/ca.crt -CAkey "${tmpdir}"/ca.key -CAcreateserial -out "${tmpdir}"/webhook-server-tls.crt -extensions v3_req -extfile "${tmpdir}"/server.conf
+	cat <<EOF >"${tmpdir}"/webhook.config
+	[WebHookConfig]
+	port = "8443"
+	cert-file = "/run/secrets/tls/tls.crt"
+	key-file = "/run/secrets/tls/tls.key"
+EOF
+	kubectl delete secret ${secret} --namespace "${namespace}" 2>/dev/null || true
+	# create the secret with CA cert and server cert/key
+	kubectl create secret generic "${secret}" \
         --from-file=tls.key="${tmpdir}"/webhook-server-tls.key \
         --from-file=tls.crt="${tmpdir}"/webhook-server-tls.crt \
         --from-file=webhook.config="${tmpdir}"/webhook.config \
         --dry-run=client -o yaml |
     kubectl -n "${namespace}" apply -f -
+    CA_BUNDLE="$(openssl base64 -A <"${tmpdir}/ca.crt")"
 
-CA_BUNDLE="$(openssl base64 -A <"${tmpdir}/ca.crt")"
+	# clean-up previously created service and validatingwebhookconfiguration.
+	kubectl delete service "${service}" --namespace "${namespace}" 2>/dev/null || true
+	kubectl delete validation-webhook.snapshot.storage.k8s.io --namespace "${namespace}" 2>/dev/null || true
+	kubectl delete deployment snapshot-validation-deployment --namespace "${namespace}" 2>/dev/null || true
+	# patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
+	curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
+	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl -n kube-system rollout status deploy/snapshot-validation-deployment
+	echo -e "\n✅ Successfully deployed snapshot-validation-deployment\n"
+}
 
-# clean-up previously created service and validatingwebhookconfiguration.
-kubectl delete service "${service}" --namespace "${namespace}" 2>/dev/null || true
-kubectl delete validation-webhook.snapshot.storage.k8s.io --namespace "${namespace}" 2>/dev/null || true
-kubectl delete deployment snapshot-validation-deployment --namespace "${namespace}" 2>/dev/null || true
-
-# patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
-curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
-echo -e "✅ Deployed snapshot-validation-deployment"
-
-wait_for_deployment snapshot-validation-deployment kube-system
-
-# Update the vSphere CSI driver to add the snapshot side car.
-tmpdir=$(mktemp -d)
-echo "creating patch file in tmpdir ${tmpdir}"
-cat <<EOF >> "${tmpdir}"/patch.yaml
+patch_vsphere_csi_driver(){
+	tmpdir=$(mktemp -d)
+	echo "creating patch file in tmpdir ${tmpdir}"
+	cat <<EOF >> "${tmpdir}"/patch.yaml
 spec:
   template:
     spec:
       containers:
         - name: csi-snapshotter
-          image: 'k8s.gcr.io/sig-storage/csi-snapshotter:${release}'
+          image: 'k8s.gcr.io/sig-storage/csi-snapshotter:${qualified_version}'
           args:
             - '--v=4'
+            - '--kube-api-qps=100'
+            - '--kube-api-burst=100'
             - '--timeout=300s'
             - '--csi-address=\$(ADDRESS)'
             - '--leader-election'
@@ -209,8 +254,74 @@ spec:
             - mountPath: /csi
               name: socket-dir
 EOF
+	numOfCSIDriverRequiredReplicas=$(kubectl get deployment vsphere-csi-controller -n vmware-system-csi -o jsonpath='{.spec.replicas}')
+	echo -e "Scale down the vSphere CSI driver"
+	kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas=0
+	echo -e "Patching vSphere CSI driver.."
+	kubectl patch deployment vsphere-csi-controller -n vmware-system-csi --patch "$(cat "${tmpdir}"/patch.yaml)"
+	echo -e "Scaling the vSphere CSI driver back to original state.."
+	kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas="${numOfCSIDriverRequiredReplicas}"
+	kubectl -n vmware-system-csi rollout status deploy/vsphere-csi-controller
+}
 
-echo -e "Patching vSphere CSI driver.."
-kubectl patch deployment vsphere-csi-controller -n vmware-system-csi --patch "$(cat "${tmpdir}"/patch.yaml)"
-echo -e "✅ Successfully patched vSphere CSI driver, please wait till deployment is updated.."
-echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature.\n"
+check_snapshotter_sidecar(){
+	local found="false"
+	local container_images
+	local csi_snapshotter_image="k8s.gcr.io/sig-storage/csi-snapshotter"
+	container_images=$(kubectl -n vmware-system-csi get deployment vsphere-csi-controller -o jsonpath='{.spec.template.spec.containers[*].image}')
+	IFS=' '
+	read -r -a container_images_arr <<< "$container_images"
+	for image in "${container_images_arr[@]}"; do
+		local strarr
+		IFS=':'
+		read -r -a strarr <<< "$image"
+		conatiner_image_name=${strarr[0]}
+		container_image_version=${strarr[1]}
+		if [ "$conatiner_image_name" = "$csi_snapshotter_image" ]
+		then
+			found="true"
+			if [ "$container_image_version" = "$qualified_version" ]
+			then
+				echo -e "✅ vSphere CSI Driver already running the qualified version of csi-snapshotter."
+				echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature! \n"
+				exit 0
+			else
+				echo -e "The running csi-snapshotter is not running the qualified version ${qualified_version}, patching deployment"
+				patch_vsphere_csi_driver
+				echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature!\n"
+			fi
+		fi
+	done
+	if [ "$found" = "false" ]
+	then
+		echo -e "csi-snapshotter side-car not found in vSphere CSI Driver Deployment, patching.."
+		patch_vsphere_csi_driver
+		echo -e "\n✅ Successfully deployed all components for CSI Snapshot feature!\n"
+	fi
+}
+
+# Check if CRDs exist, if they do, then validate the version, if not then deploy them
+check_and_deploy_crds
+
+snap_controller_available=$(is_deployment_available snapshot-controller kube-system)
+if [ "$snap_controller_available" = "true" ]
+then
+  echo -e "snapshot-controller Deployment already exists, verifying version.."
+	validate_version snapshot-controller kube-system
+else
+  echo -e "No existing snapshot-controller Deployment found, deploying it now.."
+  deploy_snapshot_controller
+fi
+
+snap_validation_webhook_available=$(is_deployment_available snapshot-validation-deployment kube-system)
+if [ "$snap_validation_webhook_available" = "true" ]
+then
+	echo -e "snapshot-validation-deployment Deployment already exists, verifying version.."
+	validate_version snapshot-validation-deployment kube-system
+else
+  echo -e "No existing snapshot-validation-deployment Deployment found, deploying it now.."
+  deploy_validation_webhook
+fi
+
+# Check if vSphere CSI Driver has the snapshotter sidecar, if not patch the deployment
+check_snapshotter_sidecar

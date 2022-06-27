@@ -25,12 +25,20 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
+
+// InvalidTopologyProvisioningError is raised when volume provisioning
+// fails on a topology aware setup due to an invalid setting.
+type InvalidTopologyProvisioningError struct {
+	ErrMsg string
+}
+
+func (e *InvalidTopologyProvisioningError) Error() string {
+	return e.ErrMsg
+}
 
 // ValidateCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for all block controllers.
@@ -101,33 +109,15 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
-// CheckSnapshotSupport internally checks if the vCenter version is 7.0.3
-func CheckSnapshotSupport(ctx context.Context, manager *Manager) bool {
-	log := logger.GetLogger(ctx)
-	vc, err := GetVCenter(ctx, manager)
-	if err != nil {
-		log.Errorf("failed to get vCenter while checking for Snapshot support on vCenter. err=%v", err)
-		return false
-	}
-	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
-	err = CheckAPI(currentVcVersion, SnapshotSupportedVCenterMajor, SnapshotSupportedVCenterMinor,
-		SnapshotSupportedVCenterPatch)
-	if err != nil {
-		log.Errorf("checkAPI failed for snapshot support on vCenter API version: %s, err=%v", currentVcVersion, err)
-		return false
-	}
-	// vCenter version supported.
-	log.Infof("vCenter API version: %s supports CNS snapshots.", currentVcVersion)
-	return true
-}
-
 // CheckAPI checks if specified version against the specified minimum support version.
-func CheckAPI(versionToCheck string,
+func CheckAPI(ctx context.Context,
+	versionToCheck string,
 	minSupportedVCenterMajor int,
 	minSupportedVCenterMinor int,
 	minSupportedVCenterPatch int) error {
+	log := logger.GetLogger(ctx)
 	items := strings.Split(versionToCheck, ".")
-	if len(items) < 2 || len(items) > 4 {
+	if len(items) < 2 {
 		return fmt.Errorf("invalid API Version format")
 	}
 	major, err := strconv.Atoi(items[0])
@@ -147,11 +137,17 @@ func CheckAPI(versionToCheck string,
 	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
 		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
-			if err != nil || patch < minSupportedVCenterPatch {
+			if err != nil {
 				return fmt.Errorf("invalid patch version value")
+			}
+			if patch < minSupportedVCenterPatch {
+				return fmt.Errorf("the minimum supported vCenter is %d.%d.%d",
+					minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 			}
 		}
 	}
+	log.Infof("VC version detected as %q satisfies minimum supported vcenter version %d.%d.%d.",
+		versionToCheck, minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	return nil
 }
 
@@ -266,14 +262,39 @@ func IsOnlineExpansion(ctx context.Context, volumeID string, nodes []*cnsvsphere
 	return nil
 }
 
-// GetNamespaceFromContext returns the namespace set as grpc metadata in context by the sidecars.
-// Returns unknown if it's not set.
-func GetNamespaceFromContext(ctx context.Context) string {
-	var values []string
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if values = md.Get("namespace"); len(values) > 0 {
-			return values[0]
-		}
+// IsvSphere8AndAbove returns true if vSphere version if 8.0 and above
+func IsvSphere8AndAbove(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.ApiVersion, ".")
+	apiVersion := strings.Join(items[:], "")
+	// Convert version string to int, e.g. 8.0.0.0" to 800.
+	vSphereMajorVersionInt, err := strconv.Atoi(string(apiVersion[0]))
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Error while converting ApiVersion %q to integer, err %+v", apiVersion, err)
 	}
-	return prometheus.PrometheusUnknownNamespace
+
+	// Check if the current vSphere version is greater 8
+	if vSphereMajorVersionInt >= VSphere8VersionMajorInt {
+		return true, nil
+	}
+	// For all other versions.
+	return false, nil
+}
+
+// CheckPVtoBackingDiskObjectIdSupport internally checks if the vCenter version is 7.0.2.
+// Support both vsan and vvol.
+func CheckPVtoBackingDiskObjectIdSupport(ctx context.Context, vc *cnsvsphere.VirtualCenter) bool {
+	log := logger.GetLogger(ctx)
+	currentVcVersion := vc.Client.ServiceContent.About.ApiVersion
+	err := CheckAPI(ctx, currentVcVersion, PVtoBackingDiskObjectIdSupportedVCenterMajor,
+		PVtoBackingDiskObjectIdSupportedVCenterMinor, PVtoBackingDiskObjectIdSupportedVCenterPatch)
+	if err != nil {
+		log.Errorf("checkAPI failed for PV to BackingDiskObjectId mapping support on vCenter API version: %s, err=%v",
+			currentVcVersion, err)
+		return false
+	}
+	// vCenter version supported.
+	log.Infof("vCenter API version: %s supports CNS PV to BackingDiskObjectId mapping.", currentVcVersion)
+	return true
 }

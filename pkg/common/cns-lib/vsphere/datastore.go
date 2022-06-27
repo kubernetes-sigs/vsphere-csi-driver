@@ -38,7 +38,8 @@ type Datastore struct {
 // DatastoreInfo is a structure to store the Datastore and it's Info.
 type DatastoreInfo struct {
 	*Datastore
-	Info *types.DatastoreInfo
+	Info         *types.DatastoreInfo
+	CustomValues []types.BaseCustomFieldValue
 }
 
 func (di DatastoreInfo) String() string {

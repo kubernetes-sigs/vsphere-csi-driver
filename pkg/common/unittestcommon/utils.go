@@ -22,11 +22,11 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -50,6 +50,8 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"csi-migration":         "true",
 				"file-volume":           "true",
 				"block-volume-snapshot": "true",
+				"tkgs-ha":               "true",
+				"list-volumes":          "true",
 			},
 		}
 		return fakeCO, nil
@@ -109,14 +111,14 @@ func (nodeTopology *mockNodeVolumeTopology) GetNodeTopologyLabels(ctx context.Co
 
 // GetSharedDatastoresInTopology retrieves shared datastores of nodes which satisfy a given topology requirement.
 func (cntrlTopology *mockControllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
-	topologyRequirement *csi.TopologyRequirement) ([]*cnsvsphere.DatastoreInfo, error) {
+	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewError(log, "GetSharedDatastoresInTopology is not yet implemented.")
 }
 
 // GetTopologyInfoFromNodes retrieves the topology information of the given list of node names.
 func (cntrlTopology *mockControllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context,
-	nodeNames []string, datastoreURL string) ([]map[string]string, error) {
+	reqParams interface{}) ([]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewError(log, "GetTopologyInfoFromNodes is not yet implemented.")
 }
@@ -131,8 +133,8 @@ func (c *FakeK8SOrchestrator) InitTopologyServiceInController(ctx context.Contex
 
 // InitTopologyServiceInNode returns a singleton implementation of the
 //commoncotypes.NodeTopologyService interface for the FakeK8SOrchestrator.
-func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (commoncotypes.NodeTopologyService,
-	error) {
+func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (
+	commoncotypes.NodeTopologyService, error) {
 	// TODO: Mock the custom k8sClients and watchers.
 	return &mockNodeVolumeTopology{}, nil
 }
@@ -208,5 +210,51 @@ func (f *fakeVolumeOperationRequestInterface) StoreRequestDetails(
 	instance *cnsvolumeoperationrequest.VolumeOperationRequestDetails,
 ) error {
 	f.volumeOperationRequestMap[instance.Name] = instance
+	return nil
+}
+
+// DeleteRequestDetails deletes the VolumeOperationRequestDetails for the given
+// name, if any, stored by the fake VolumeOperationRequest interface.
+func (f *fakeVolumeOperationRequestInterface) DeleteRequestDetails(
+	ctx context.Context,
+	name string,
+) error {
+	delete(f.volumeOperationRequestMap, name)
+	return nil
+}
+
+// GetNodesForVolumes returns nodeNames to which the given volumeIDs are attached
+func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID []string) map[string][]string {
+	nodeNames := make(map[string][]string)
+	return nodeNames
+}
+
+// GetNodeIDtoNameMap returns a map containing the nodeID to node name
+func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
+	nodeIDToNamesMap := make(map[string]string)
+	return nodeIDToNamesMap
+}
+
+// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
+// to true if volumeID key is fake attached else false
+func (c *FakeK8SOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeID []string) map[string]bool {
+	fakeAttachedVolumes := make(map[string]bool)
+	return fakeAttachedVolumes
+}
+
+// GetVolumeAttachment returns the VA object by using the given volumeId & nodeName
+func (c *FakeK8SOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId string, nodeName string) (
+	*storagev1.VolumeAttachment, error) {
+	return nil, nil
+}
+
+// GetAllVolumes returns list of volumes in a bound state
+func (c *FakeK8SOrchestrator) GetAllVolumes() []string {
+	// TODO - This can be implemented if we add WCP controller tests for list volume
+	return nil
+}
+
+// GetAllK8sVolumes returns list of volumes in a bound state, present in the K8s cluster
+func (c *FakeK8SOrchestrator) GetAllK8sVolumes() []string {
 	return nil
 }

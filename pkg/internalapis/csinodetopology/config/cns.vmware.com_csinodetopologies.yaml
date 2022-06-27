@@ -37,7 +37,10 @@ spec:
             description: CSINodeTopologySpec defines the desired state of CSINodeTopology.
             properties:
               nodeID:
-                description: NodeID refers to the unique ID by which a Node is recognised.
+                description: NodeID refers to the node name by which a Node is recognised.
+                type: string
+              nodeuuid:
+                description: NodeUUID refers to the unique VM UUID by which a Node is recognised.
                 type: string
             required:
             - nodeID

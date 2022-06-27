@@ -17,12 +17,13 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -o xtrace
 
 # Change directories to the parent directory of the one in which this
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go get honnef.co/go/tools/cmd/staticcheck@v0.2.0
+go install honnef.co/go/tools/cmd/staticcheck@2022.1.1
 
 # shellcheck disable=SC2046
 # shellcheck disable=SC1083

@@ -45,6 +45,7 @@ const (
 	devDiskID   = "/dev/disk/by-id"
 	blockPrefix = "wwn-0x"
 	dmiDir      = "/sys/class/dmi"
+	UUIDPrefix  = "VMware-"
 )
 
 // defaultFileMountOptions are the mount flag options used by default while publishing a file volume.
@@ -142,7 +143,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		log.Debugf("nodeStageBlockVolume: Device already mounted. Checking mount flags %v for correctness.",
 			params.MntFlags)
 		for _, m := range mnts {
-			if m.Path == params.StagingTarget {
+			if unescape(ctx, m.Path) == params.StagingTarget {
 				rwo := "rw"
 				if params.Ro {
 					rwo = "ro"
@@ -410,7 +411,7 @@ func (osUtils *OsUtils) PublishMountVol(
 	if len(devMnts) > 1 {
 		// check if publish is already there.
 		for _, m := range devMnts {
-			if m.Path == params.Target {
+			if unescape(ctx, m.Path) == params.Target {
 				// volume already published to target.
 				// If mount options look good, do nothing.
 				rwo := "rw"
@@ -497,7 +498,7 @@ func (osUtils *OsUtils) PublishBlockVol(
 		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.Target)
 	} else if len(devMnts) == 1 {
 		// Already mounted, make sure it's what we want.
-		if devMnts[0].Path != params.Target {
+		if unescape(ctx, devMnts[0].Path) != params.Target {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				"device already in use and mounted elsewhere")
 		}
@@ -543,7 +544,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	}
 	log.Debugf("PublishFileVolume: Mounts - %+v", mnts)
 	for _, m := range mnts {
-		if m.Path == params.Target {
+		if unescape(ctx, m.Path) == params.Target {
 			// Volume already published to target.
 			// If mount options look good, do nothing.
 			rwo := "rw"
@@ -813,14 +814,29 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 // GetSystemUUID returns the UUID used to identify node vm
 func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
-	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_uuid"))
+	idb, err := ioutil.ReadFile(path.Join(dmiDir, "id", "product_serial"))
 	if err != nil {
 		return "", err
 	}
-	log.Debugf("uuid in bytes: %v", idb)
-	id := strings.TrimSpace(string(idb))
-	log.Debugf("uuid in string: %s", id)
-	return strings.ToLower(id), nil
+	uuidFromFile := string(idb[:])
+	//strip leading and trailing white space and new line char
+	uuid := strings.TrimSpace(uuidFromFile)
+	log.Debugf("product_serial in string: %s", uuid)
+	// check the uuid starts with "VMware-"
+	if !strings.HasPrefix(uuid, UUIDPrefix) {
+		return "", fmt.Errorf("failed to match Prefix, UUID read from the file is %s",
+			uuidFromFile)
+	}
+	// Strip the prefix and while spaces and -
+	uuid = strings.Replace(uuid[len(UUIDPrefix):], " ", "", -1)
+	uuid = strings.Replace(uuid, "-", "", -1)
+	if len(uuid) != 32 {
+		return "", fmt.Errorf("length check failed, UUID read from the file is %v", uuidFromFile)
+	}
+	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
+	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
+	log.Infof("UUID is %s", uuid)
+	return uuid, nil
 }
 
 // convertUUID helps convert UUID to vSphere format, for example,
@@ -884,7 +900,7 @@ func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*De
 	// Opts:[rw relatime]
 
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			// Something is mounted to target, get underlying disk.
 			d := m.Device
 			if m.Device == "udev" || m.Device == "devtmpfs" {
@@ -992,7 +1008,7 @@ func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
 func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			if m.Type == common.NfsFsType || m.Type == common.NfsV4FsType {
 				log.Debug("IsFileVolumeMount: Found file volume")
 				return true, nil
@@ -1010,7 +1026,7 @@ func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info)
 func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
-		if m.Path == target {
+		if unescape(ctx, m.Path) == target {
 			log.Debugf("Found target %q in list of mounts", target)
 			return true
 		}
@@ -1022,4 +1038,24 @@ func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) 
 // decides if node should continue
 func (osUtils *OsUtils) ShouldContinue(ctx context.Context) {
 	// no op for linux
+}
+
+// un-escapes "\nnn" sequences in /proc/self/mounts. For example, replaces "\040" with space " ".
+func unescape(ctx context.Context, in string) string {
+	log := logger.GetLogger(ctx)
+	out := make([]rune, 0, len(in))
+	s := in
+	for len(s) > 0 {
+		// Un-escape single character.
+		// UnquoteChar will un-escape also \r, \n, \Unnnn and other sequences, but they should not be used in /proc/mounts.
+		rune, _, tail, err := strconv.UnquoteChar(s, '"')
+		if err != nil {
+			log.Infof("Error parsing mount %q: %s", in, err)
+			// Use escaped string as a fallback
+			return in
+		}
+		out = append(out, rune)
+		s = tail
+	}
+	return string(out)
 }

@@ -40,6 +40,7 @@ import (
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/simulator/vpx"
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -47,12 +48,14 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
@@ -81,6 +84,8 @@ type controllerTest struct {
 	controller *controller
 	config     *config.Config
 	vcenter    *cnsvsphere.VirtualCenter
+	// Add a VolumeOperationRequest interface to set up certain test scenario
+	operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 }
 
 // configFromSim starts a vcsim instance and returns config for use against the
@@ -96,6 +101,13 @@ func configFromSim() (*config.Config, func()) {
 func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
 	cfg := &config.Config{}
 	model := simulator.VPX()
+	// Currently the simulated vc has a version of 6.5.0, modifying service content to 7.0.3
+	// TODO: update in govmomi
+	serviceContent := vpx.ServiceContent
+	serviceContent.About.Version = "7.0.3"
+	serviceContent.About.ApiVersion = "7.0"
+	model.ServiceContent = serviceContent
+
 	defer model.Remove()
 
 	err := model.Create()
@@ -206,7 +218,8 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 			Datastore: &cnsvsphere.Datastore{
 				Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
 				Datacenter: nil},
-			Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+			Info:         sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+			CustomValues: []types.BaseCustomFieldValue{},
 		},
 	}, nil
 }
@@ -361,9 +374,10 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
 		controllerTestInstance = &controllerTest{
-			controller: c,
-			config:     config,
-			vcenter:    vcenter,
+			controller:     c,
+			config:         config,
+			vcenter:        vcenter,
+			operationStore: fakeOpStore,
 		}
 	})
 	return controllerTestInstance
@@ -620,7 +634,7 @@ func TestExtendVolume(t *testing.T) {
 		},
 		VolumeCapability: capabilities[0],
 	}
-	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
+	t.Logf("ControllerExpandVolume will be called with req +%v", *reqExpand)
 	respExpand, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
 	if err != nil {
 		t.Fatal(err)
@@ -629,7 +643,7 @@ func TestExtendVolume(t *testing.T) {
 		t.Fatalf("newly expanded volume size %d is smaller than requested size %d for volume with ID: %s",
 			respExpand.CapacityBytes, newSize, volID)
 	}
-	t.Log(fmt.Sprintf("ControllerExpandVolume succeeded: volume is expanded to requested size %d", newSize))
+	t.Logf("ControllerExpandVolume succeeded: volume is expanded to requested size %d", newSize)
 
 	// Query volume after expand volume.
 	queryFilter = cnstypes.CnsQueryFilter{
@@ -678,7 +692,7 @@ func TestMigratedExtendVolume(t *testing.T) {
 			RequiredBytes: 1024,
 		},
 	}
-	t.Log(fmt.Sprintf("ControllerExpandVolume will be called with req +%v", *reqExpand))
+	t.Logf("ControllerExpandVolume will be called with req +%v", *reqExpand)
 	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
 	if err != nil {
 		t.Logf("Expected error received. migrated volume with VMDK path can not be expanded")
@@ -767,20 +781,20 @@ func TestCompleteControllerFlow(t *testing.T) {
 		VolumeCapability: capabilities[0],
 		Readonly:         false,
 	}
-	t.Log(fmt.Sprintf("ControllerPublishVolume will be called with req +%v", *reqControllerPublishVolume))
+	t.Logf("ControllerPublishVolume will be called with req +%v", *reqControllerPublishVolume)
 	respControllerPublishVolume, err := ct.controller.ControllerPublishVolume(ctx, reqControllerPublishVolume)
 	if err != nil {
 		t.Fatal(err)
 	}
 	diskUUID := respControllerPublishVolume.PublishContext[common.AttributeFirstClassDiskUUID]
-	t.Log(fmt.Sprintf("ControllerPublishVolume succeed, diskUUID %s is returned", diskUUID))
+	t.Logf("ControllerPublishVolume succeed, diskUUID %s is returned", diskUUID)
 
 	// Detach.
 	reqControllerUnpublishVolume := &csi.ControllerUnpublishVolumeRequest{
 		VolumeId: volID,
 		NodeId:   NodeID,
 	}
-	t.Log(fmt.Sprintf("ControllerUnpublishVolume will be called with req +%v", *reqControllerUnpublishVolume))
+	t.Logf("ControllerUnpublishVolume will be called with req +%v", *reqControllerUnpublishVolume)
 	_, err = ct.controller.ControllerUnpublishVolume(ctx, reqControllerUnpublishVolume)
 	if err != nil {
 		t.Fatal(err)
@@ -2026,5 +2040,239 @@ func TestExpandVolumeWithSnapshots(t *testing.T) {
 
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		// Delete volume.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	// set up a scenario for testing DeleteSnapshot, where the DeleteSnapshot task is removed in vSphere
+	snapshotID := uuid.New().String()
+	taskID := "non-existent-task-id" // use a task id that must be non-existent
+	instanceName := "deletesnapshot-" + volID + "-" + snapshotID
+	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		instanceName, "", "", 0, metav1.Now(),
+		taskID, "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
+
+	//logger.SetLoggerLevel(logger.DevelopmentLogLevel) // enable debug level log
+
+	// Delete the snapshot
+	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+		SnapshotId: volID + common.VSphereCSISnapshotIdDelimiter + snapshotID,
+	}
+
+	_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+	if err != nil {
+		t.Fatalf("Unexpected error is thrown in DeleteSnapshot with error: %v", err)
+	}
+}
+
+func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		// Delete volume.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	snapshotName := "snapshot-" + uuid.New().String()
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           snapshotName,
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	defer func() {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: snapID,
+		}
+
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	taskID := "non-existent-task-id" // use a task id that must be non-existent
+	instanceName := snapshotName + "-" + volID
+	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		instanceName, volID, "", 0, metav1.Now(),
+		taskID, "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
+	// Attempt to create snapshot again, but the task-id is non-existent.
+	// Since the snapshot already exists, no error is expected.
+	_, err = ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

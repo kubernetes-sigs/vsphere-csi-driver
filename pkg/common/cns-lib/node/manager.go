@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	clientset "k8s.io/client-go/kubernetes"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
@@ -195,7 +196,7 @@ func (m *defaultManager) GetNode(ctx context.Context,
 		var vm *vsphere.VirtualMachine
 		var err error
 		if dc != nil {
-			vm, err = dc.GetVirtualMachineByUUID(context.TODO(), nodeUUID, false)
+			vm, err = dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 			if err != nil {
 				log.Errorf("failed to find node with nodeUUID %s on datacenter: %+v with err: %v", nodeUUID, dc, err)
 				return nil, err

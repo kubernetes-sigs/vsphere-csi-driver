@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -38,12 +39,13 @@ import (
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-
+	v1 "k8s.io/api/core/v1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 )
 
 const (
@@ -140,6 +142,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 
 		// CNS based CSI requires a valid cluster name.
 		config.Global.ClusterID = testClusterName
+		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, config.Global.ClusterID)
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
 			t.Fatal(err)
@@ -158,6 +161,12 @@ func getControllerTest(t *testing.T) *controllerTest {
 		fakeOpStore, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		commonco.ContainerOrchestratorUtility, err =
+			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
 
 		manager := &common.Manager{
@@ -243,14 +252,16 @@ func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 				Datastore: &cnsvsphere.Datastore{
 					Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
 					Datacenter: nil},
-				Info: sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+				Info:         sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
+				CustomValues: []types.BaseCustomFieldValue{},
 			},
 		}, []*cnsvsphere.DatastoreInfo{
 			{
 				Datastore: &cnsvsphere.Datastore{
 					Datastore:  object.NewDatastore(nil, vsanDirectDatastoreManagedObject.Reference()),
 					Datacenter: nil},
-				Info: vsanDirectDatastoreManagedObject.Info.GetDatastoreInfo(),
+				Info:         vsanDirectDatastoreManagedObject.Info.GetDatastoreInfo(),
+				CustomValues: []types.BaseCustomFieldValue{},
 			},
 		}, nil
 }
@@ -363,5 +374,102 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+// TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType creates volume with zonal label present
+// but not storage topology type. It is a negative case.
+func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults.
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID.
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	params[common.AttributeStoragePolicyID] = profileID
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{
+				{
+					Segments: map[string]string{
+						v1.LabelTopologyZone: "zone1",
+					},
+				},
+			},
+		},
+	}
+
+	getCandidateDatastores = getFakeDatastores
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil && strings.Contains(err.Error(), "InvalidArgument") {
+		t.Logf("expected error is thrown: %v", err)
+	} else {
+		defer func() {
+			if respCreate == nil {
+				t.Log("Skip cleaning up the volume as it might never been successfully created")
+				return
+			}
+
+			volID := respCreate.Volume.VolumeId
+			// Delete volume.
+			reqDelete := &csi.DeleteVolumeRequest{
+				VolumeId: volID,
+			}
+			_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Verify the volume has been deleted.
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{
+					{
+						Id: volID,
+					},
+				},
+			}
+			queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(queryResult.Volumes) != 0 {
+				t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+			}
+		}()
+		t.Fatal("expected error is not thrown")
 	}
 }

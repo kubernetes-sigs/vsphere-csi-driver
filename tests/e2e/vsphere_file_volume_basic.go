@@ -476,10 +476,16 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 		gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(
 			gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 	} else {
-		gomega.Expect(e2eVSphere.Config.Global.Datacenters == "").To(gomega.BeTrue(),
+		secret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		originalConf := string(secret.Data[vSphereCSIConf])
+		vsphereCfg, err := readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(vsphereCfg.Global.Datacenters == "").To(gomega.BeTrue(),
 			"Volume is provisioned on the datastore not specified on config file")
 	}
-
 }
 
 func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.Framework,

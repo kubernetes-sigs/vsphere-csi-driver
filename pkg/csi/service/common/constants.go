@@ -55,6 +55,11 @@ const (
 	// For example: StorageClassName: "silver".
 	AttributeSupervisorStorageClass = "svstorageclass"
 
+	// AttributeStorageTopologyType is a storageClass parameter.
+	// It represents a zonal or a crossZonal volume provisioning.
+	// For example: StorageTopologyType: "zonal"
+	AttributeStorageTopologyType = "storagetopologytype"
+
 	// AttributeFsType represents filesystem type in the Storage Classs.
 	// For Example: FsType: "ext4".
 	AttributeFsType = "fstype"
@@ -90,6 +95,9 @@ const (
 	// AttributeFirstClassDiskUUID is the SCSI Disk Identifier.
 	AttributeFirstClassDiskUUID = "diskUUID"
 
+	// AttributeVmUUID is the vmUUID to which volume is attached to.
+	AttributeVmUUID = "vmUUID"
+
 	// AttributeFakeAttached is the flag that indicates if a volume is fake
 	// attached.
 	AttributeFakeAttached = "fake-attach"
@@ -99,6 +107,9 @@ const (
 
 	// FileVolumeType is the VolumeType for CNS File Share Volume.
 	FileVolumeType = "FILE"
+
+	// UnknownVolumeType is assigned to CNS volumes whose type couldn't be determined.
+	UnknownVolumeType = "UNKNOWN"
 
 	// Nfsv4AccessPointKey is the key for NFSv4 access point.
 	Nfsv4AccessPointKey = "NFSv4.1"
@@ -137,6 +148,9 @@ const (
 	// VSphere7Version is the maximum vSphere version to use Vslm APIs
 	// to support volume migration feature.
 	VSphere7Version string = "7.0.0"
+
+	// VSphere8VersionMajorInt indicates the major version value in integer
+	VSphere8VersionMajorInt int = 8
 
 	// VSphere67u3lBuildInfo is the build number for vCenter in 6.7 Update 3l
 	// GA bits.
@@ -195,10 +209,18 @@ const (
 	// provisioned/deleted by its corresponding CSI driver.
 	AnnMigratedTo = "pv.kubernetes.io/migrated-to"
 
+	// AnnBetaStorageProvisioner annotation is added to a PVC that is supposed to
+	// be dynamically provisioned. Its value is name of volume plugin that is
+	// supposed to provision a volume for this PVC.
+	AnnBetaStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+
 	// AnnStorageProvisioner annotation is added to a PVC that is supposed to
 	// be dynamically provisioned. Its value is name of volume plugin that is
 	// supposed to provision a volume for this PVC.
-	AnnStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+	AnnStorageProvisioner = "volume.kubernetes.io/storage-provisioner"
+
+	// vSphereCSIDriverName vSphere CSI driver name
+	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 
 	// AnnDynamicallyProvisioned annotation is added to a PV that has been
 	// dynamically provisioned by Kubernetes. Its value is name of volume plugin
@@ -249,6 +271,28 @@ const (
 	// TopologyLabelsDomain is the domain name used to identify user-defined
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
+
+	//AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
+	AnnGuestClusterRequestedTopology = "csi.vsphere.volume-requested-topology"
+
+	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
+	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
+
+	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterMajor int = 7
+
+	// PVtoBackingDiskObjectIdSupportedVCenterMinor is the minimum minor version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterMinor int = 0
+
+	// PVtoBackingDiskObjectIdSupportedVCenterPatch is the minimum patch version of vCenter
+	// on which PV to BackingDiskObjectId mapping feature is supported.
+	PVtoBackingDiskObjectIdSupportedVCenterPatch int = 2
+
+	// PreferredDatastoresCategory points to the vSphere Category
+	// created to tag preferred datastores in a topology-aware environment.
+	PreferredDatastoresCategory = "cns.vmware.topology-preferred-datastores"
 )
 
 // Supported container orchestrators.
@@ -308,4 +352,15 @@ const (
 	// TKGsHA is the feature gate to check whether TKGS HA feature
 	// is enabled.
 	TKGsHA = "tkgs-ha"
+	// ListVolumes is the feature to support list volumes API
+	ListVolumes = "list-volumes"
+	// PVtoBackingDiskObjectIdMapping is the feature to support pv to backingDiskObjectId mapping on vSphere CSI driver.
+	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
+	// Block Create Volume for datastores that are in suspended mode
+	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
+	// TopologyPreferentialDatastores is the feature gate for preferential
+	// datastore deployment in topology aware environments.
+	TopologyPreferentialDatastores = "topology-preferential-datastores"
+	// MaxPVSCSITargetsPerVM enables support for 255 volumes per node vm
+	MaxPVSCSITargetsPerVM = "max-pvscsi-targets-per-vm"
 )

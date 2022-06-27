@@ -29,22 +29,25 @@ import (
 
 const (
 	adminPassword                              = "Admin!23"
+	attacherContainerName                      = "csi-attacher"
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
-	cnsNewSyncFSS                              = "CNS_NEW_SYNC"
 	configSecret                               = "vsphere-config-secret"
+	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
+	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
+	csiDriverContainerName                     = "vsphere-csi-controller"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
 	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
-	defaultVCRebootWaitTime                    = 180
+	defaultK8sNodesUpWaitTime                  = 25
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
@@ -52,6 +55,7 @@ const (
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
+	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
@@ -59,7 +63,7 @@ const (
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
 	envNonSharedStorageClassDatastoreURL       = "NONSHARED_VSPHERE_DATASTORE_URL"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
-	envVCRebootWaitTime                        = "VC_REBOOT_WAIT_TIME"
+	envK8sNodesUpWaitTime                      = "K8S_NODES_UP_WAIT_TIME"
 	envRegionZoneWithNoSharedDS                = "TOPOLOGY_WITH_NO_SHARED_DATASTORE"
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
@@ -74,6 +78,8 @@ const (
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
+	envTopologyWithInvalidTagInvalidCat        = "TOPOLOGY_WITH_INVALID_TAG_INVALID_CAT"
+	envTopologyWithInvalidTagValidCat          = "TOPOLOGY_WITH_INVALID_TAG_VALID_CAT"
 	envNumberOfGoRoutines                      = "NUMBER_OF_GO_ROUTINES"
 	envWorkerPerRoutine                        = "WORKER_PER_ROUTINE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
@@ -114,26 +120,30 @@ const (
 	pollTimeout                               = 5 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
-	healthStatusPollTimeout                   = 15 * time.Minute
-	healthStatusPollInterval                  = 15 * time.Second
+	healthStatusPollTimeout                   = 20 * time.Minute
+	healthStatusPollInterval                  = 30 * time.Second
 	psodTime                                  = "120"
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
+	provisionerContainerName                  = "csi-provisioner"
 	quotaName                                 = "cns-test-quota"
-	regionKey                                 = "topology.csi.vmware.com/region"
+	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                        = 2 * time.Second
 	rqLimit                                   = "200Gi"
 	rqLimitScaleTest                          = "900Gi"
 	defaultrqLimit                            = "20Gi"
 	rqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
+	resizerContainerName                      = "csi-resizer"
 	scParamDatastoreURL                       = "DatastoreURL"
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
 	scParamStoragePolicyID                    = "StoragePolicyId"
 	scParamStoragePolicyName                  = "StoragePolicyName"
 	shortProvisionerTimeout                   = "10"
+	snapshotapigroup                          = "snapshot.storage.k8s.io"
 	sleepTimeOut                              = 30
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
+	snapshotterContainerName                  = "csi-snapshotter"
 	sshdPort                                  = "22"
 	svcRunningMessage                         = "Running"
 	startOperation                            = "start"
@@ -144,6 +154,7 @@ const (
 	svClusterDistribution                     = "SupervisorCluster"
 	svOperationTimeout                        = 240 * time.Second
 	svStorageClassName                        = "SVStorageClass"
+	syncerContainerName                       = "vsphere-syncer"
 	totalResizeWaitPeriod                     = 10 * time.Minute
 	tkgClusterDistribution                    = "TKGService"
 	vanillaClusterDistribution                = "CSI-Vanilla"
@@ -167,9 +178,19 @@ const (
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
-	zoneKey                                   = "topology.csi.vmware.com/zone"
+	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
+	topologykey                                = "topology.csi.vmware.com"
+	topologyMap                                = "TOPOLOGY_MAP"
+	datstoreSharedBetweenClusters              = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
+	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
+	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
+	topologyCluster                            = "TOPOLOGY_CLUSTERS"
+	topologyLength                             = 5
+	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
+	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
+		"/api-tokens/authorize"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -194,6 +215,16 @@ var (
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
 	scAnnotation4Statefulset        = "volume.beta.kubernetes.io/storage-class"
 	nodeMapper                      = &NodeMapper{}
+)
+
+// For vsan stretched cluster tests
+var (
+	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
+)
+
+// CSI Internal FSSs
+var (
+	useCsiNodeID = "use-csinode-id"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

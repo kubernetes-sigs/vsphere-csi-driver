@@ -8,6 +8,9 @@ reviewers:
 - RaunakShah
 - chethanv28
 - deepakkinni
+- shalini-b
+- gnufied
+
 
 approvers:
 - divyenpatel
@@ -17,6 +20,7 @@ approvers:
 - RaunakShah
 - chethanv28
 - deepakkinni
+- shalini-b
 
 emeritus_approvers:
 - codenrhoden

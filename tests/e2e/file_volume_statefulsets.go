@@ -570,16 +570,18 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		// Fetch the number of CSI pods running before restart
 		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		num_csi_pods := len(list_of_pods)
 
 		// Restart CSI daemonset
+		ginkgo.By("Restart Daemonset")
 		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
 		framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
 
-		// Wait for the CSI Pods to be up and Running
-		// If the status of the pods checked immediately after the some rolling update, they will be running always
-		// so wait for a min or so and check pods status
-		time.Sleep(pollTimeoutShort)
-		num_csi_pods := len(list_of_pods)
+		ginkgo.By("Waiting for daemon set rollout status to finish")
+		statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
+		framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+
+		// wait for csi Pods to be in running ready state
 		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

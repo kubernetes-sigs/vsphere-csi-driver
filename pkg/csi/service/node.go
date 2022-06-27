@@ -34,11 +34,16 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 )
 
 const (
 	maxAllowedBlockVolumesPerNode = 59
+	// vCenter 8.0 supports attaching max 255 volumes to Node
+	// Previous vSphere releases supports attaching a max of 59 volumes to Node VM.
+	// Deployment YAML file for Node DaemonSet has ENV MAX_VOLUMES_PER_NODE set to 59 for vsphere-csi-node container
+	// If Customer is using vSphere 8.0, they are allowed to set MAX_VOLUMES_PER_NODE to 255
+	// when CSI is released with feature-gate - max-pvscsi-targets-per-vm enabled
+	maxAllowedBlockVolumesPerNodeInvSphere8 = 255
 )
 
 var topologyService commoncotypes.NodeTopologyService
@@ -340,6 +345,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var nodeID string
 	var err error
+	var clusterFlavor cnstypes.CnsClusterFlavor
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
@@ -352,25 +358,26 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get system uuid for node VM with error: %v", err)
 		}
-		nodeID, err = driver.osUtils.ConvertUUID(nodeID)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"convertUUID failed with error: %v", err)
-		}
 	} else {
 		nodeID = nodeName
 	}
 
 	var maxVolumesPerNode int64
+	var maxAllowedVolumesPerNode int64
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MaxPVSCSITargetsPerVM) {
+		maxAllowedVolumesPerNode = maxAllowedBlockVolumesPerNodeInvSphere8
+	} else {
+		maxAllowedVolumesPerNode = maxAllowedBlockVolumesPerNode
+	}
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
 		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if value < 0 {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is less than 0", v)
-			} else if value > maxAllowedBlockVolumesPerNode {
+			} else if value > maxAllowedVolumesPerNode {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"NodeGetInfo: MAX_VOLUMES_PER_NODE set in env variable %v is more than %v",
-					v, maxAllowedBlockVolumesPerNode)
+					v, maxAllowedVolumesPerNode)
 			} else {
 				maxVolumesPerNode = value
 				log.Infof("NodeGetInfo: MAX_VOLUMES_PER_NODE is set to %v", maxVolumesPerNode)
@@ -381,21 +388,27 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		}
 	}
 
-	if cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor)) == cnstypes.CnsClusterFlavorGuest {
-		nodeInfoResponse = &csi.NodeGetInfoResponse{
-			NodeId:             nodeID,
-			MaxVolumesPerNode:  maxVolumesPerNode,
-			AccessibleTopology: &csi.Topology{},
-		}
-		log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-		return nodeInfoResponse, nil
-	}
-
 	var (
 		accessibleTopology map[string]string
 	)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-		// Initialize volume topology service.
+
+	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+			nodeInfoResponse = &csi.NodeGetInfoResponse{
+				NodeId:             nodeID,
+				MaxVolumesPerNode:  maxVolumesPerNode,
+				AccessibleTopology: &csi.Topology{},
+			}
+			log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+			return nodeInfoResponse, nil
+		}
+
+		// Initialize volume topology service if tkgs-ha is enabled in guest cluster.
 		if err = initVolumeTopologyService(ctx); err != nil {
 			return nil, err
 		}
@@ -405,31 +418,45 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			NodeID:   nodeID,
 		}
 		accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
-	} else {
-		// If ImprovedVolumeTopology is not enabled, use the VC credentials to
-		// fetch node topology information.
-		var cfg *cnsconfig.Config
-		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
-		}
-		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
-				nodeInfoResponse = &csi.NodeGetInfoResponse{
-					NodeId:            nodeID,
-					MaxVolumesPerNode: maxVolumesPerNode,
-				}
-				log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
-				return nodeInfoResponse, nil
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
+			// Initialize volume topology service.
+			if err = initVolumeTopologyService(ctx); err != nil {
+				return nil, err
 			}
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to read CNS config. Error: %v", err)
+			// Fetch topology labels for given node.
+			nodeInfo := commoncotypes.NodeInfo{
+				NodeName: nodeName,
+				NodeID:   nodeID,
+			}
+			accessibleTopology, err = topologyService.GetNodeTopologyLabels(ctx, &nodeInfo)
+		} else {
+			// If ImprovedVolumeTopology is not enabled, use the VC credentials to
+			// fetch node topology information.
+			var cfg *cnsconfig.Config
+			cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
+			if cfgPath == "" {
+				cfgPath = cnsconfig.DefaultCloudConfigPath
+			}
+			cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					log.Infof("Config file not provided to node daemonset. Assuming non-topology aware cluster.")
+					nodeInfoResponse = &csi.NodeGetInfoResponse{
+						NodeId:            nodeID,
+						MaxVolumesPerNode: maxVolumesPerNode,
+					}
+					log.Infof("NodeGetInfo response: %v", nodeInfoResponse)
+					return nodeInfoResponse, nil
+				}
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to read CNS config. Error: %v", err)
+			}
+			// Fetch topology labels using VC TagManager.
+			accessibleTopology, err = driver.fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 		}
-		// Fetch topology labels using VC TagManager.
-		accessibleTopology, err = driver.fetchTopologyLabelsUsingVCCreds(ctx, nodeID, cfg)
 	}
+
 	if err != nil {
 		return nil, err
 	}

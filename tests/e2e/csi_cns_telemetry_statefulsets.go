@@ -94,6 +94,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 	ginkgo.It("Statefulset service for cluster-distribution metadata check", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		var clusterDistributionValue string
+		clusterFlavor := GetAndExpectStringEnvVar(envClusterFlavor)
 		defer cancel()
 		// Decide which test setup is available to run.
 		if vanillaCluster {
@@ -109,7 +110,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 			clusterDistributionValue = svClusterDistribution
-
 		} else {
 			ginkgo.By("Set Resource quota for GC")
 			storageClassName = defaultNginxStorageClassName
@@ -168,15 +168,18 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					gomega.Expect(len(queryResult.Volumes) > 0).To(gomega.BeTrue())
 
-					framework.Logf("Cluster-distribution value on CNS is %s",
-						queryResult.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
-					gomega.Expect(queryResult.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(
-						gomega.Equal(clusterDistributionValue), "Wrong/empty cluster-distribution name present on CNS")
+					for _, queryRes := range queryResult.Volumes[0].Metadata.ContainerClusterArray {
+						if queryRes.ClusterFlavor == clusterFlavor {
+							framework.Logf("Cluster-distribution value on CNS is %s",
+								queryRes.ClusterDistribution)
+							gomega.Expect(queryRes.ClusterDistribution).Should(
+								gomega.Equal(clusterDistributionValue), "Wrong/empty cluster-distribution name present on CNS")
+						}
+					}
 
 				}
 			}
 		}
-
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 		_, scaledownErr := fss.Scale(client, statefulset, replicas)

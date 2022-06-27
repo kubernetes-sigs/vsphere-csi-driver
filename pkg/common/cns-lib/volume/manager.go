@@ -27,6 +27,7 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -108,6 +109,8 @@ type Manager interface {
 	RegisterDisk(ctx context.Context, path string, name string) (string, error)
 	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id.
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
+	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
+	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 	// CreateSnapshot helps create a snapshot for a block volume
 	CreateSnapshot(ctx context.Context, volumeID string, desc string) (*CnsSnapshotInfo, error)
 	// DeleteSnapshot helps delete a snapshot for a block volume
@@ -1913,8 +1916,39 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}
 
 	// Get the taskInfo and more!
-	createSnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, createSnapshotsTask)
-	if err != nil || createSnapshotsTaskInfo == nil {
+	createSnapshotsTaskInfo, err := createSnapshotsTask.WaitForResult(ctx, nil)
+	if err != nil {
+		if cnsvsphere.IsManagedObjectNotFound(err, createSnapshotsTask.Reference()) {
+			log.Infof("CreateSnapshot task %s not found in vCenter. Querying CNS "+
+				"to determine if the snapshot %s was successfully created.",
+				createSnapshotsTask.Reference().Value, instanceName)
+			queriedCnsSnapshot, ok := queryCreatedSnapshotByName(ctx, m, volumeID, instanceName)
+			if ok {
+				// Create the volumeOperationDetails object for persistence
+				volumeOperationDetails = createRequestDetails(
+					instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id, 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+					createSnapshotsTask.Reference().Value,
+					"", taskInvocationStatusSuccess, "")
+
+				log.Infof("CreateSnapshot: Snapshot with name %s on volume %q is confirmed to be created "+
+					"successfully with SnapshotID %q", instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id)
+
+				return &CnsSnapshotInfo{
+					SnapshotID:                queriedCnsSnapshot.SnapshotId.Id,
+					SourceVolumeID:            volumeID,
+					SnapshotDescription:       snapshotName,
+					SnapshotCreationTimestamp: queriedCnsSnapshot.CreateTime,
+				}, nil
+			} else {
+				errMsg := fmt.Sprintf("Snapshot with name %s on volume %q is not present in CNS. "+
+					"Marking task %s as failed.", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
+				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
+					"", taskInvocationStatusError, errMsg)
+				return nil, logger.LogNewError(log, errMsg)
+			}
+		}
 		return nil, logger.LogNewErrorf(log, "Failed to get taskInfo for CreateSnapshots task "+
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 	}
@@ -2109,40 +2143,83 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	}
 
 	// Get the taskInfo
-	deleteSnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, deleteSnapshotTask)
-	if err != nil || deleteSnapshotsTaskInfo == nil {
+	deleteSnapshotsTaskInfo, err := deleteSnapshotTask.WaitForResult(ctx, nil)
+	if err != nil {
+		if cnsvsphere.IsManagedObjectNotFound(err, deleteSnapshotTask.Reference()) {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Calling CNS QuerySnapshots API to confirm it", snapshotID, volumeID, err)
+			if validateSnapshotDeleted(ctx, m, volumeID, snapshotID) {
+				if m.idempotencyHandlingEnabled {
+					// Create the volumeOperationDetails object for persistence
+					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+						volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+						deleteSnapshotTask.Reference().Value, volumeOperationDetails.OperationDetails.OpID,
+						taskInvocationStatusSuccess, "")
+				}
+
+				log.Infof("DeleteSnapshot: Snapshot %q on volume %q is confirmed to be deleted successfully",
+					snapshotID, volumeID)
+
+				return nil
+			}
+		}
+
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
+
 		return logger.LogNewErrorf(log, "Failed to get taskInfo for DeleteSnapshots task from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
 	}
+
 	log.Infof("DeleteSnapshot: VolumeID: %q, SnapshotID: %q, opId: %q", volumeID, snapshotID,
 		deleteSnapshotsTaskInfo.ActivationId)
 
 	// Get the taskResult
-	deleteSnapshotsTaskResult, err := cns.GetTaskResult(ctx, deleteSnapshotsTaskInfo)
-	if err != nil || deleteSnapshotsTaskResult == nil {
-		log.Errorf("unable to find the task result for DeleteSnapshots task from vCenter %q. taskID: %q, "+
-			"opId: %q createResults: %+v", m.virtualCenter.Config.Host, deleteSnapshotsTaskInfo.Task.Value,
-			deleteSnapshotsTaskInfo.ActivationId, deleteSnapshotsTaskResult)
-		return err
+	deleteSnapshotsTaskResult, err := getTaskResultFromTaskInfo(ctx, deleteSnapshotsTaskInfo)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get the task result for DeleteSnapshots task "+
+			"from vCenter %q. taskID: %q, opId: %q createResults: %+v", m.virtualCenter.Config.Host,
+			deleteSnapshotsTaskInfo.Task.Value, deleteSnapshotsTaskInfo.ActivationId, deleteSnapshotsTaskResult)
+	}
+	if deleteSnapshotsTaskResult == nil {
+		return logger.LogNewErrorf(log, "task result is empty for DeleteSnapshot task: %q, opID: %q",
+			deleteSnapshotsTaskInfo.Task.Value, deleteSnapshotsTaskInfo.ActivationId)
 	}
 
 	// Handle snapshot operation result
 	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
 	if deleteSnapshotsOperationRes.Fault != nil {
-		errMsg := fmt.Sprintf("failed to delete snapshot %s for cns volume %s. fault: %q, opId: %q",
-			snapshotID, volumeID, spew.Sdump(deleteSnapshotsOperationRes.Fault), deleteSnapshotsTaskInfo.ActivationId)
+		err = soap.WrapVimFault(deleteSnapshotsOperationRes.Fault.Fault)
 
-		if m.idempotencyHandlingEnabled {
-			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
-				deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+		isInvalidArgumentError := cnsvsphere.IsInvalidArgumentError(err)
+		var invalidProperty string
+		if isInvalidArgumentError {
+			invalidProperty = deleteSnapshotsOperationRes.Fault.Fault.(*vim25types.InvalidArgument).InvalidProperty
 		}
 
-		return logger.LogNewError(log, errMsg)
-	}
+		// Ignore errors, NotFound and InvalidArgument, in DeleteSnapshot
+		if cnsvsphere.IsVimFaultNotFoundError(err) {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Ignore the error for DeleteSnapshot", snapshotID, volumeID,
+				spew.Sdump(deleteSnapshotsOperationRes.Fault))
+		} else if isInvalidArgumentError && invalidProperty == "" {
+			log.Infof("Snapshot %q on volume %q might have already been deleted "+
+				"with the error %v. Ignore the error for DeleteSnapshot", snapshotID, volumeID,
+				spew.Sdump(deleteSnapshotsOperationRes.Fault))
+		} else {
+			errMsg := fmt.Sprintf("failed to delete snapshot %q on volume %q. fault: %q, opId: %q",
+				snapshotID, volumeID, spew.Sdump(deleteSnapshotsOperationRes.Fault), deleteSnapshotsTaskInfo.ActivationId)
 
-	snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
-	deletedSnapshotID := snapshotDeleteResult.SnapshotId.Id
+			if m.idempotencyHandlingEnabled {
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+					deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+			}
+
+			return logger.LogNewError(log, errMsg)
+		}
+	}
 
 	if m.idempotencyHandlingEnabled {
 		// create the volumeOperationDetails object for persistence
@@ -2151,7 +2228,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	}
 
-	log.Infof("DeleteSnapshot: Snapshot %s deleted successfully. volumeID: %q, opId: %q", deletedSnapshotID,
+	log.Infof("DeleteSnapshot: Snapshot %q on volume %q is deleted successfully. opId: %q", snapshotID,
 		volumeID, deleteSnapshotsTaskInfo.ActivationId)
 
 	return nil
@@ -2184,4 +2261,29 @@ func (m *defaultManager) DeleteSnapshot(ctx context.Context, volumeID string, sn
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// ProtectVolumeFromVMDeletion helps set keepAfterDeleteVm control flag for given volumeID
+func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
+		string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
+	if err != nil {
+		log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+		return err
+	}
+	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
+	return nil
 }

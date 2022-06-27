@@ -26,6 +26,8 @@ import (
 	"time"
 
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	"github.com/davecgh/go-spew/spew"
@@ -182,7 +184,7 @@ type ReconcileCnsVolumeMetadata struct {
 func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
-
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	instance := &cnsv1alpha1.CnsVolumeMetadata{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
@@ -220,7 +222,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 	// If the operation succeeds, remove the finalizer.
 	// If the operation fails, requeue the request.
 	if instance.DeletionTimestamp != nil {
-		if !r.updateCnsMetadata(ctx, instance, true) {
+		if !r.updateCnsMetadata(ctx, instance, true, isTKGSHAEnabled) {
 			// Failed to update CNS.
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to delete entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster %q. Requeuing request.",
@@ -279,7 +281,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 		}
 	} else {
 		// Update CNS volume entry with instance's metadata.
-		if !r.updateCnsMetadata(ctx, instance, false) {
+		if !r.updateCnsMetadata(ctx, instance, false, isTKGSHAEnabled) {
 			// Failed to update CNS.
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update entry in CNS for instance "+
 				"with name %q and entity type %q in the guest cluster %q. Requeueing request.",
@@ -310,7 +312,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 // If deleteFlag is true, metadata is deleted for the given instance.
 // Returns true if all updates on CNS succeeded, otherwise return false.
 func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
-	instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool) bool {
+	instance *cnsv1alpha1.CnsVolumeMetadata, deleteFlag bool, useSupervisorID bool) bool {
 	log := logger.GetLogger(ctx)
 	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v",
 		instance.Name, deleteFlag)
@@ -327,12 +329,16 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 
 	var entityReferences []cnstypes.CnsKubernetesEntityReference
 	for _, reference := range instance.Spec.EntityReferences {
-		clusterid := reference.ClusterID
+		clusterID := reference.ClusterID
 		if instance.Spec.EntityType == cnsv1alpha1.CnsOperatorEntityTypePV {
-			clusterid = r.configInfo.Cfg.Global.ClusterID
+			if useSupervisorID {
+				clusterID = r.configInfo.Cfg.Global.SupervisorID
+			} else {
+				clusterID = r.configInfo.Cfg.Global.ClusterID
+			}
 		}
 		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(
-			reference.EntityType, reference.EntityName, reference.Namespace, clusterid))
+			reference.EntityType, reference.EntityName, reference.Namespace, clusterID))
 	}
 
 	var volumeStatus []*cnsv1alpha1.CnsVolumeMetadataVolumeStatus
@@ -393,6 +399,11 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		log.Debugf("ReconcileCnsVolumeMetadata: Calling UpdateVolumeMetadata for "+
 			"volume %q of instance %q with updateSpec: %+v", volume, instance.Name, spew.Sdump(updateSpec))
 		if err := r.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+			if cnsvsphere.IsNotFoundError(err) && deleteFlag {
+				log.Infof("ReconcileCnsVolumeMetadata: volume ID %q not found in CNS meaning it was "+
+					"already deleted, thus returning success", updateSpec.VolumeId.Id)
+				continue
+			}
 			log.Errorf("ReconcileCnsVolumeMetadata: UpdateVolumeMetadata failed with err %v", err)
 			status.ErrorMessage = err.Error()
 			status.Updated = false

@@ -13,6 +13,7 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -87,6 +88,82 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 		return nil, err
 	}
 	return &res.Returnval, nil
+}
+
+// queryCNSVolumeSnapshotWithResult Call CnsQuerySnapshots
+// and returns CnsSnapshotQueryResult to client
+func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
+	snapshotId string) (*cnstypes.CnsSnapshotQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: &cnstypes.CnsSnapshotId{
+			Id: snapshotId,
+		},
+	})
+
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: snapshotSpec,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+
+	req := cnstypes.CnsQuerySnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotQueryFilter: queryFilter,
+	}
+
+	res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskResult, err := cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return taskResult, nil
+}
+
+// verifySnapshotIsDeletedInCNS verifies the snapshotId's presence on CNS
+func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != "" {
+		return fmt.Errorf("snapshot entry is still present in CNS %s",
+			querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id)
+	}
+	return nil
+}
+
+// verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
+func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != snapshotId {
+		return fmt.Errorf("snapshot entry is not present in CNS %s", snapshotId)
+	}
+	return nil
 }
 
 // getAllDatacenters returns all the DataCenter Objects
@@ -205,9 +282,10 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 // This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
 func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 	volumeID string, nodeName string) (bool, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if supervisorCluster {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		_, err := e2eVSphere.getVMByUUIDWithWait(ctx, nodeName, supervisorClusterOperationsTimeout)
 		if err == nil {
 			return false, fmt.Errorf(
@@ -220,7 +298,7 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		var vmUUID string
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, nodeName)
+			vmUUID = getNodeUUID(ctx, client, nodeName)
 		} else {
 			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 		}
@@ -857,4 +935,117 @@ func waitForHostConnectionState(ctx context.Context, addr string, state string) 
 	})
 	framework.Logf("The host's %s last seen state before returning is : %s", addr, output)
 	return waitErr
+}
+
+// deleteVolumeSnapshotInCNS Call deleteSnapshots API
+func (vs *vSphere) deleteVolumeSnapshotInCNS(fcdID string, snapshotId string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Connect to VC
+	connect(ctx, vs)
+
+	var cnsSnapshotDeleteSpecList []cnstypes.CnsSnapshotDeleteSpec
+	cnsSnapshotDeleteSpec := cnstypes.CnsSnapshotDeleteSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: cnstypes.CnsSnapshotId{
+			Id: snapshotId,
+		},
+	}
+	cnsSnapshotDeleteSpecList = append(cnsSnapshotDeleteSpecList, cnsSnapshotDeleteSpec)
+
+	req := cnstypes.CnsDeleteSnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotDeleteSpecs: cnsSnapshotDeleteSpecList,
+	}
+
+	res, err := cnsmethods.CnsDeleteSnapshots(ctx, vs.CnsClient.Client, &req)
+
+	if err != nil {
+		return err
+	}
+
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	deleteSnapshotsTaskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
+
+	if deleteSnapshotsOperationRes.Fault != nil {
+		err = fmt.Errorf("failed to create snapshots: fault=%+v", deleteSnapshotsOperationRes.Fault)
+	}
+
+	snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
+	framework.Logf("DeleteSnapshots: Snapshot deleted successfully. volumeId: %q, snapshot id %q",
+		fcdID, snapshotDeleteResult.SnapshotId)
+	return err
+}
+
+// createVolumeSnapshotInCNS Call createSnapshots API and returns snapshotId to client
+func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var cnsSnapshotCreateSpecList []cnstypes.CnsSnapshotCreateSpec
+	cnsSnapshotCreateSpec := cnstypes.CnsSnapshotCreateSpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		Description: "Volume Snapshot created by CSI",
+	}
+	cnsSnapshotCreateSpecList = append(cnsSnapshotCreateSpecList, cnsSnapshotCreateSpec)
+
+	req := cnstypes.CnsCreateSnapshots{
+		This:          cnsVolumeManagerInstance,
+		SnapshotSpecs: cnsSnapshotCreateSpecList,
+	}
+
+	res, err := cnsmethods.CnsCreateSnapshots(ctx, vs.CnsClient.Client, &req)
+
+	if err != nil {
+		return "", err
+	}
+
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	createSnapshotsOperationRes := taskResult.GetCnsVolumeOperationResult()
+
+	if createSnapshotsOperationRes.Fault != nil {
+		err = fmt.Errorf("failed to create snapshots: fault=%+v", createSnapshotsOperationRes.Fault)
+	}
+
+	snapshotCreateResult := interface{}(taskResult).(*cnstypes.CnsSnapshotCreateResult)
+	snapshotId := snapshotCreateResult.Snapshot.SnapshotId.Id
+	snapshotCreateTime := snapshotCreateResult.Snapshot.CreateTime
+	framework.Logf("CreateSnapshot: Snapshot created successfully. volumeId: %q, snapshot id %q, time stamp %+v",
+		fcdID, snapshotId, snapshotCreateTime)
+
+	return snapshotId, err
+}
+
+//verifyVolumeCompliance verifies the volume policy compliance status
+func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant bool) {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Volume id: %v compliance status: %v", volumeID, queryResult.Volumes[0].ComplianceStatus)
+	if shouldBeCompliant {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeTrue())
+	} else {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeFalse())
+	}
 }

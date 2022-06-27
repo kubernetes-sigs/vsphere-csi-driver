@@ -328,7 +328,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		var vmUUID string
 		var exists bool
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		} else {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]

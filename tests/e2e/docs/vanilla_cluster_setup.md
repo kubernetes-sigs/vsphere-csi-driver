@@ -70,14 +70,19 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # For VCP to CSI migration tests following are needed as well
     export SHARED_VSPHERE_DATASTORE_NAME="vsanDatastore"
     export ESX_TEST_HOST_IP="<esx_host_ip>"  # for static provisioning tests
-
     # SHARED_VSPHERE_DATASTORE_NAME and SHARED_VSPHERE_DATASTORE_URL should correspond to same shared datastore
-   
     # To run e2e test for VCP to CSI migration, need to set the following env variable
     export GINKGO_FOCUS="csi-vcp-mig"
 
+    # For vsan stretched cluster tests
+    export TESTBEDINFO_JSON="/path/to/nimbus_testbedinfo.json"
+    export GINKGO_FOCUS="vsan-stretch-vanilla"
+
     # To run common e2e tests (block & file), need to set the following env variable to identify the file volume setup
     export ACCESS_MODE="RWX"
+
+    # If CSI controller is running on a different k8s cluster, we need to pass the kubeconfig for that cluster using
+    export CONTROLLER_CLUSTER_KUBECONFIG="/path/to/remote/kubeconfig"
 
 ### To run full sync test, need do extra following steps
 

@@ -39,9 +39,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	"CNS-CSI Cluster Distribution Operations during VC reboot", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	var (
-		client           clientset.Interface
-		namespace        string
-		vcRebootWaitTime int
+		client    clientset.Interface
+		namespace string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -53,13 +52,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
-		}
-
-		if os.Getenv(envVCRebootWaitTime) != "" {
-			vcRebootWaitTime, err = strconv.Atoi(os.Getenv(envVCRebootWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			vcRebootWaitTime = defaultVCRebootWaitTime
 		}
 
 		if vanillaCluster {
@@ -145,7 +137,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName := pod.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
@@ -157,6 +149,9 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterReboot(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Done with reboot")
 
 		// Sleep for a short while for the VC to shutdown, before invoking PVC
 		// creation and cluster-distribution value.
@@ -195,9 +190,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Waiting for %v for host to come up fully", vcRebootWaitTime))
-		time.Sleep(time.Duration(vcRebootWaitTime) * time.Second)
 		ginkgo.By("Done with reboot")
+		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
+		err = checkVcenterServicesRunning(vcAddress, essentialServices)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// After reboot.
 		bootstrap()
@@ -217,7 +213,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName2 := pod2.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID2 = getNodeUUID(client, pod2.Spec.NodeName)
+			vmUUID2 = getNodeUUID(ctx, client, pod2.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName2))
@@ -298,9 +294,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Waiting for %v for host to come up fully", vcRebootWaitTime))
-		time.Sleep(time.Duration(vcRebootWaitTime) * time.Second)
 		ginkgo.By("Done with reboot")
+		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
+		err = checkVcenterServicesRunning(vcAddress, essentialServices)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// After reboot.
 		bootstrap()
@@ -353,7 +350,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		nodeName := pod.Spec.NodeName
 
 		if vanillaCluster {
-			vmUUID = getNodeUUID(client, pod.Spec.NodeName)
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))

@@ -33,6 +33,8 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
 )
@@ -69,7 +71,13 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	}
 	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterID, datastoreURL)
 	if err != nil {
-		return fmt.Errorf("failed to get datastore corressponding to URL %v", datastoreURL)
+		return fmt.Errorf("failed to get datastore corresponding to URL %v", datastoreURL)
+	}
+
+	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
+	if filterSuspendedDatastores && cnsvsphere.IsVolumeCreationSuspended(ctx, dsInfo) {
+		return fmt.Errorf("datastore corresponding to URL %v is suspended and not available for relocating volumes",
+			datastoreURL)
 	}
 
 	volManager := volume.GetManager(ctx, m.vc, nil, false)

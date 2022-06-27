@@ -73,6 +73,9 @@ const (
 	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh
 	// DatastoreMap.
 	DefaultCSIAuthCheckIntervalInMin = 5
+	// DefaultCSIFetchPreferredDatastoresIntervalInMin is the default time interval
+	// after which the preferred datastores list is refreshed in the driver.
+	DefaultCSIFetchPreferredDatastoresIntervalInMin = 5
 	// DefaultCnsVolumeOperationRequestCleanupIntervalInMin is the default time
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 24 hours.
@@ -84,6 +87,15 @@ const (
 	// TopologyLabelsDomain is the domain name used to identify user-defined
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
+	// DefaultQueryLimit is the default number of volumes to be fetched from CNS QueryAll API
+	// Current default value is set to 10000
+	DefaultQueryLimit = 10000
+	// DefaultListVolumeThreshold specifies the default maximum number of differences in volumes between CNS
+	// and kubernetes
+	DefaultListVolumeThreshold = 50
+	// supervisorIDPrefix is added before the SupervisorID
+	// Using this CNS UI can form an appropriate URL to navigate from CNS UI to WCP UI
+	supervisorIDPrefix = "vSphereSupervisorID-"
 )
 
 // Errors
@@ -102,9 +114,13 @@ var (
 	// define any vCenters.
 	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
 
-	// ErrClusterIdCharLimit is returned when the provided cluster id is more
+	// ErrClusterIDCharLimit is returned when the provided cluster id is more
 	// than 64 characters.
 	ErrClusterIDCharLimit = errors.New("cluster id must not exceed 64 characters")
+
+	// ErrSupervisorIDCharLimit is returned when the provided supervisor id is more
+	// than 64 characters.
+	ErrSupervisorIDCharLimit = errors.New("supervisor id must not exceed 64 characters")
 
 	// ErrMissingEndpoint is returned when the provided configuration does not
 	// define any endpoints.
@@ -300,6 +316,11 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		log.Error(ErrClusterIDCharLimit)
 		return ErrClusterIDCharLimit
 	}
+	// SupervisorID should not exceed 64 characters.
+	if len(cfg.Global.SupervisorID) > 64 {
+		log.Error(ErrSupervisorIDCharLimit)
+		return ErrSupervisorIDCharLimit
+	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)
 		if vcServer == "" {
@@ -369,6 +390,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if cfg.Global.CSIAuthCheckIntervalInMin == 0 {
 		cfg.Global.CSIAuthCheckIntervalInMin = DefaultCSIAuthCheckIntervalInMin
 	}
+	if cfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin = DefaultCSIFetchPreferredDatastoresIntervalInMin
+	}
 	if cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin == 0 {
 		cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin =
 			DefaultCnsVolumeOperationRequestCleanupIntervalInMin
@@ -405,6 +429,15 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		}
 	}
 
+	if cfg.Global.QueryLimit == 0 {
+		cfg.Global.QueryLimit = DefaultQueryLimit
+		log.Debugf("Setting default queryLimit to %v", cfg.Global.QueryLimit)
+	}
+
+	if cfg.Global.ListVolumeThreshold == 0 {
+		cfg.Global.ListVolumeThreshold = DefaultListVolumeThreshold
+		log.Debugf("Setting default list volume threshold to %v", cfg.Global.ListVolumeThreshold)
+	}
 	return nil
 }
 
@@ -451,6 +484,9 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		if err != nil {
 			log.Errorf("failed to parse config. Err: %v", err)
 			return cfg, err
+		}
+		if cfg.Global.SupervisorID != "" {
+			cfg.Global.SupervisorID = supervisorIDPrefix + cfg.Global.SupervisorID
 		}
 	}
 	return cfg, nil

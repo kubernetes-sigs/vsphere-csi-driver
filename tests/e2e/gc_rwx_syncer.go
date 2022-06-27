@@ -670,12 +670,18 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 				isControllerUp = true
 			}
 		}()
@@ -714,7 +720,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 		ginkgo.By("Bring up csi-controller pod in SV")
 		isControllerUp = true
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 
 		ginkgo.By("Wait for pod to be up and running")
 		err = fpod.WaitForPodRunningInNamespace(client, pod)
@@ -826,12 +832,18 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 				isControllerUp = true
 			}
 		}()
@@ -862,7 +874,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 		ginkgo.By("Bring up csi-controller pod in SV")
 		isControllerUp = true
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		time.Sleep(oneMinuteWaitTimeInSeconds * time.Second)
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
