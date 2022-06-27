@@ -215,7 +215,7 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context,
 
 	dsURLToInfoMap, err := getDatastoresWithBlockVolumePrivs(ctx, vc, dsURLs, dsInfos, entities)
 	if err != nil {
-		log.Errorf("failed to get datastores with required priv. Error: %+v", err)
+		log.Errorf("Failed to get datastores with required priv. Error: %+v", err)
 		return nil, err
 	}
 	return dsURLToInfoMap, nil
@@ -232,13 +232,13 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context,
 
 	datacenters, err := vc.ListDatacenters(ctx)
 	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+		log.Errorf("Failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 	// Get all vSAN datastores from VC.
 	vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 	if err != nil {
-		log.Errorf("failed to get vSAN datastores with error %+v", err)
+		log.Errorf("Failed to get vSAN datastores with error %+v", err)
 		return nil, err
 	}
 	// Return empty map if no vSAN datastores are found.
@@ -250,13 +250,13 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context,
 	// Initialize vsan client.
 	err = vc.ConnectVsan(ctx)
 	if err != nil {
-		log.Errorf("error occurred while connecting to VSAN, err: %+v", err)
+		log.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
 		return nil, err
 	}
 
 	fsEnabledClusterToDsURLsMap, err := getFSEnabledClusterToDsURLsMap(ctx, vc, datacenters)
 	if err != nil {
-		log.Errorf("failed to get file service enabled clusters map with error %+v", err)
+		log.Errorf("Failed to get file service enabled clusters map with error %+v", err)
 		return nil, err
 	}
 
@@ -283,12 +283,12 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string,
 	log := logger.GetLogger(ctx)
 	err := vc.Connect(ctx)
 	if err != nil {
-		log.Errorf("failed to connect to VirtualCenter. err: %+v", err)
+		log.Errorf("Failed to connect to VirtualCenter. err: %+v", err)
 		return nil, err
 	}
 	err = vc.ConnectVsan(ctx)
 	if err != nil {
-		log.Errorf("error occurred while connecting to VSAN, err: %+v", err)
+		log.Errorf("Error occurred while connecting to VSAN, err: %+v", err)
 		return nil, err
 	}
 	// Gets the datastore to file service enabled map for all vsan datastores
@@ -296,7 +296,7 @@ func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string,
 	// privileges.
 	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc, datacenters)
 	if err != nil {
-		log.Errorf("failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
+		log.Errorf("Failed to query if file service is enabled on vsan datastores or not. error: %+v", err)
 		return nil, err
 	}
 	log.Debugf("dsToFileServiceEnabledMap is %+v", dsToFileServiceEnabledMap)
@@ -377,7 +377,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCen
 	// Get clusters with vSAN FS enabled and privileges.
 	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc, datacenters)
 	if err != nil {
-		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
+		log.Errorf("Failed to get the file service enabled clusters with privileges. error: %+v", err)
 		return nil, err
 	}
 
@@ -385,7 +385,7 @@ func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCen
 	for _, cluster := range vSANFSClustersWithPriv {
 		dsMoList, err := getDatastoreMOsFromCluster(ctx, vc, cluster)
 		if err != nil {
-			log.Errorf("failed to get datastores for cluster %q. error: %+v", cluster.Reference().Value, err)
+			log.Errorf("Failed to get datastores for cluster %q. error: %+v", cluster.Reference().Value, err)
 			return nil, err
 		}
 		// TODO: Also identify which vSAN datastore is management and which one
@@ -410,7 +410,7 @@ func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *cnsvsphere.VirtualC
 	// Get clusters with vSAN FS enabled and privileges.
 	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc, datacenters)
 	if err != nil {
-		log.Errorf("failed to get the file service enabled clusters with privileges. error: %+v", err)
+		log.Errorf("Failed to get the file service enabled clusters with privileges. error: %+v", err)
 		return nil, err
 	}
 
@@ -419,7 +419,7 @@ func getFSEnabledClusterToDsURLsMap(ctx context.Context, vc *cnsvsphere.VirtualC
 		clusterMoID := cluster.Reference().Value
 		dsMoList, err := getDatastoreMOsFromCluster(ctx, vc, cluster)
 		if err != nil {
-			log.Errorf("failed to get datastores for cluster %q. error: %+v", clusterMoID, err)
+			log.Errorf("Failed to get datastores for cluster %q. error: %+v", clusterMoID, err)
 			return nil, err
 		}
 		for _, dsMo := range dsMoList {
@@ -501,7 +501,7 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 		// Get the cluster config to know if file service is enabled on it or not.
 		config, err := vc.VsanClient.VsanClusterGetConfig(ctx, cluster.Reference())
 		if err != nil {
-			log.Errorf("failed to get the vsan cluster config. error: %+v", err)
+			log.Errorf("Failed to get the vsan cluster config. error: %+v", err)
 			return nil, err
 		}
 		if !(*config.Enabled) {
@@ -543,7 +543,7 @@ func getDatastoreMOsFromCluster(ctx context.Context, vc *cnsvsphere.VirtualCente
 	}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("failed to retrieve datastores. dsObjList: %+v, properties: %+v, err: %+v", dsList, properties, err)
+		log.Errorf("Failed to retrieve datastores. dsObjList: %+v, properties: %+v, err: %+v", dsList, properties, err)
 		return nil, err
 	}
 	return dsMoList, nil
