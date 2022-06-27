@@ -280,7 +280,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	volumeMigration.volumePathToVolumeID.Range(func(key, value interface{}) bool {
 		if value.(string) == volumeID {
 			volumePath = key.(string)
-			log.Infof("Found VolumePath %v for VolumeID: %q in the cache", volumePath, volumeID)
+			log.Infof("Found Volume Path %v for VolumeID: %q in the cache", volumePath, volumeID)
 			return false
 		}
 		return true
@@ -296,7 +296,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 			return "", err
 		}
 	} else {
-		log.Infof("found volume path: %q for VolumeID: %q", volumeMigrationResource.Spec.VolumePath, volumeID)
+		log.Infof("Found volume path: %q for VolumeID: %q", volumeMigrationResource.Spec.VolumePath, volumeID)
 		volumeMigration.volumePathToVolumeID.Store(volumeMigrationResource.Spec.VolumePath, volumeID)
 		return volumeMigrationResource.Spec.VolumePath, nil
 	}
@@ -368,7 +368,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 func (volumeMigration *volumeMigration) saveVolumeInfo(ctx context.Context,
 	cnsVSphereVolumeMigration *migrationv1alpha1.CnsVSphereVolumeMigration) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("creating CR for cnsVSphereVolumeMigration: %+v", cnsVSphereVolumeMigration)
+	log.Infof("Creating CR for cnsVSphereVolumeMigration: %+v", cnsVSphereVolumeMigration)
 	err := volumeMigration.k8sClient.Create(ctx, cnsVSphereVolumeMigration)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -396,7 +396,7 @@ func (volumeMigration *volumeMigration) DeleteVolumeInfo(ctx context.Context, vo
 	err := volumeMigration.k8sClient.Delete(ctx, &object)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Infof("volumeMigrationCR is already deleted for volumeID: %q", volumeID)
+			log.Infof("volumeMigration CR is already deleted for volumeID: %q", volumeID)
 			return nil
 		}
 		log.Errorf("failed delete volumeMigration CR for volumeID: %q", volumeID)

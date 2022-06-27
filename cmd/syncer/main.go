@@ -87,7 +87,7 @@ func main() {
 	if *operationMode == operationModeWebHookServer {
 		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
 		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
-			log.Fatalf("failed to start webhook server. err: %v", webHookStartError)
+			log.Fatalf("Failed to start webhook server. err: %v", webHookStartError)
 		}
 	} else if *operationMode == operationModeMetaDataSync {
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
@@ -145,7 +145,7 @@ func main() {
 			}
 		}
 	} else {
-		log.Fatalf("unsupported operation mode: %v", *operationMode)
+		log.Fatalf("Unsupported operation mode: %v", *operationMode)
 	}
 }
 
