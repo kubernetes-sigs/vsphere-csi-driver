@@ -789,7 +789,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q",
-			volumeID, taskInfo.ActivationId, vm.String())
+			volumeID, vm.String(), taskInfo.ActivationId)
 		return "", nil
 	}
 	start := time.Now()
