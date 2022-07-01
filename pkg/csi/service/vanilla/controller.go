@@ -518,12 +518,31 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 
 			// Get shared accessible datastores for matching topology requirement.
-			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-				commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
-			if err != nil || len(sharedDatastores) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
-					topologyRequirement, err)
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TopologyPreferentialDatastores) {
+				vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vCenter. Err: %v", err)
+				}
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.VanillaTopologyFetchDSParams{
+						TopologyRequirement: topologyRequirement,
+						Vc:                  vcenter,
+						StoragePolicyName:   scParams.StoragePolicyName,
+					})
+				if err != nil || len(sharedDatastores) == 0 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get shared datastores for topology requirement: %+v. Error: %+v",
+						topologyRequirement, err)
+				}
+			} else {
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
+				if err != nil || len(sharedDatastores) == 0 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get shared datastores for topology requirement: %+v. Error: %+v",
+						topologyRequirement, err)
+				}
 			}
 			log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v]", sharedDatastores,
 				topologyRequirement)
