@@ -1011,7 +1011,19 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		}
 
 		// Update sharedDatastores with the list of datastores received.
-		sharedDatastores = append(sharedDatastores, sharedDatastoresInTopology...)
+		// Duplicates will not be added.
+		for _, ds := range sharedDatastoresInTopology {
+			var found bool
+			for _, sharedDS := range sharedDatastores {
+				if sharedDS.Info.Url == ds.Info.Url {
+					found = true
+					break
+				}
+			}
+			if !found {
+				sharedDatastores = append(sharedDatastores, ds)
+			}
+		}
 	}
 	log.Infof("Obtained shared datastores: %+v", sharedDatastores)
 	return sharedDatastores, nil
