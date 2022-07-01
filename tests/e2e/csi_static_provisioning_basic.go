@@ -34,6 +34,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +51,7 @@ import (
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var (
 		client                     clientset.Interface
