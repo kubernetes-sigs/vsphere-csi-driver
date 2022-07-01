@@ -5625,7 +5625,7 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 
 // stopCSIPods function stops all the running csi pods
 func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	//collectPodLogs(ctx, client, csiSystemNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
 		csiSystemNamespace)

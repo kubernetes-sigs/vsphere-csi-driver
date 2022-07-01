@@ -222,6 +222,17 @@ var (
 	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
 )
 
+// Config secret testuser credentials
+var (
+	configSecretTestUser1Password = "VMware!23"
+	configSecretTestUser2Password = "Admin!23"
+	configSecretTestUser1         = "testuser1"
+	configSecretTestUser2         = "testuser2"
+	vCenterUIUser                 = "administrator@vsphere.local"
+	vCenterUIPassword             = "Admin!23"
+	vCenterNonDefaultPort         = "444"
+)
+
 // CSI Internal FSSs
 var (
 	useCsiNodeID = "use-csinode-id"
