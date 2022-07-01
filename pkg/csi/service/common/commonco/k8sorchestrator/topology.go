@@ -31,6 +31,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -879,7 +880,7 @@ func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx c
 	if params.TopologyRequirement.GetPreferred() != nil {
 		log.Debugf("Using preferred topology")
 		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx,
-			params.TopologyRequirement.GetPreferred())
+			params.TopologyRequirement.GetPreferred(), params)
 		if err != nil {
 			log.Errorf("Error finding shared datastores using preferred topology: %+v",
 				params.TopologyRequirement.GetPreferred())
@@ -891,7 +892,7 @@ func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx c
 	if len(sharedDatastores) == 0 && params.TopologyRequirement.GetRequisite() != nil {
 		log.Debugf("Using requisite topology")
 		sharedDatastores, err = volTopology.getSharedDatastoresInTopology(ctx,
-			params.TopologyRequirement.GetRequisite())
+			params.TopologyRequirement.GetRequisite(), params)
 		if err != nil {
 			log.Errorf("Error finding shared datastores using requisite topology: %+v",
 				params.TopologyRequirement.GetRequisite())
@@ -904,7 +905,8 @@ func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx c
 // getSharedDatastoresInTopology returns a list of shared accessible datastores
 // for requested topology.
 func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx context.Context,
-	topologyArr []*csi.Topology) ([]*cnsvsphere.DatastoreInfo, error) {
+	topologyArr []*csi.Topology, params commoncotypes.VanillaTopologyFetchDSParams) ([]*cnsvsphere.DatastoreInfo,
+	error) {
 	log := logger.GetLogger(ctx)
 
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
@@ -947,8 +949,40 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 			return nil, err
 		}
 
-		// If applicable, replace the shared datastores with the preferred datastores for that segment.
+		// If applicable, filter the shared datastores with the preferred datastores for that segment.
 		if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
+			// If storage policy name is mentioned in storage class, retrieve the policy ID.
+			var storagePolicyID string
+			if params.StoragePolicyName != "" {
+				storagePolicyID, err = params.Vc.GetStoragePolicyIDByName(ctx, params.StoragePolicyName)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "Error occurred while getting Profile Id "+
+						"from Storage Profile Name: %s. Error: %+v", params.StoragePolicyName, err)
+				}
+			}
+			// Check storage policy compatibility.
+			var sharedDSMoRef []vimtypes.ManagedObjectReference
+			for _, ds := range sharedDatastoresInTopology {
+				sharedDSMoRef = append(sharedDSMoRef, ds.Reference())
+			}
+			compat, err := params.Vc.PbmCheckCompatibility(ctx, sharedDSMoRef, storagePolicyID)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to find datastore compatibility "+
+					"with storage policy ID %q. Error: %+v", storagePolicyID, err)
+			}
+			compatibleDsMoids := make(map[string]struct{})
+			for _, ds := range compat.CompatibleDatastores() {
+				compatibleDsMoids[ds.HubId] = struct{}{}
+			}
+			log.Infof("Datastores compatible with storage policy %q are %+v", params.StoragePolicyName,
+				compatibleDsMoids)
+			// Filter compatible datastores from shared datastores list.
+			var compatibleDatastores []*cnsvsphere.DatastoreInfo
+			for _, ds := range sharedDatastoresInTopology {
+				if _, exists := compatibleDsMoids[ds.Reference().Value]; exists {
+					compatibleDatastores = append(compatibleDatastores, ds)
+				}
+			}
 			// Fetch all preferred datastore URLs for the matching topology segments.
 			allPreferredDSURLs := make(map[string]struct{})
 			for _, topoSegs := range completeTopologySegments {
@@ -958,22 +992,21 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 				}
 			}
 			if len(allPreferredDSURLs) != 0 {
+				// If there are preferred datastores among the compatible
+				// datastores, choose the preferred datastores, otherwise
+				// choose the compatible datastores.
 				var preferredDS []*cnsvsphere.DatastoreInfo
-				for _, dsInfo := range sharedDatastoresInTopology {
+				for _, dsInfo := range compatibleDatastores {
 					if _, ok := allPreferredDSURLs[dsInfo.Info.Url]; ok {
 						preferredDS = append(preferredDS, dsInfo)
 					}
 				}
-				// Send out an error when the intersection of shared DS and preferred DS is an empty list.
-				if len(preferredDS) == 0 {
-					var sharedDS []string
-					for _, dsInfo := range sharedDatastoresInTopology {
-						sharedDS = append(sharedDS, dsInfo.Info.Url)
-					}
-					return nil, logger.LogNewErrorf(log, "mismatch between preferred datastores %+v "+
-						"and shared datastores %+v for given topology requirement.", preferredDS, sharedDS)
+				if len(preferredDS) != 0 {
+					sharedDatastoresInTopology = preferredDS
+					log.Infof("Using preferred datastores: %+v", preferredDS)
+				} else {
+					sharedDatastoresInTopology = compatibleDatastores
 				}
-				sharedDatastoresInTopology = preferredDS
 			}
 		}
 
