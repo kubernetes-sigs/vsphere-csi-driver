@@ -31,6 +31,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 // Test to verify fstype specified in storage-class is being honored after
@@ -63,6 +64,7 @@ import (
 var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func() {
 
 	f := framework.NewDefaultFramework("volume-fstype")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		namespace         string
