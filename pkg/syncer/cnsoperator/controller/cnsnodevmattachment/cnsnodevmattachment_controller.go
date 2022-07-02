@@ -178,12 +178,12 @@ type ReconcileCnsNodeVMAttachment struct {
 func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	start := time.Now()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
 	var volumeOpType string
 	reconcileCnsNodeVMAttachmentInternal := func() (
 		reconcile.Result, string, error) {
-		ctx = logger.NewContextWithLogger(ctx)
-		log := logger.GetLogger(ctx)
 		// Fetch the CnsNodeVmAttachment instance
 		instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
 		volumeOpType = prometheus.PrometheusAttachVolumeOpType
@@ -623,6 +623,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	if (err != nil || resp != reconcile.Result{}) {
 		// When reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
 		// for this case, we need count it as an attach/detach failure
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			volumeOpType, volumeType, faulttype)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
 			prometheus.PrometheusFailStatus, faulttype).Observe(time.Since(start).Seconds())
 	} else {
