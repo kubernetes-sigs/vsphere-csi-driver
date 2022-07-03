@@ -80,6 +80,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		configSecretUser1Alias = configSecretTestUser1 + "@vsphere.local"
 		configSecretUser2Alias = configSecretTestUser2 + "@vsphere.local"
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname
+
+		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
+		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
+			sshClientConfig, masterIp)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Delete testuser1")
 		err = deleteTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
 		if err != nil {
@@ -87,6 +93,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}
 		ginkgo.By("Delete testuser2")
 		err = deleteTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
+		if err != nil {
+			framework.Logf("couldn't execute command on host: %v , error: %s", masterIp, err)
+		}
+		ginkgo.By("Delete Roles for testuser1")
+		err = deleteUserRoles(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
+		if err != nil {
+			framework.Logf("couldn't execute command on host: %v , error: %s", masterIp, err)
+		}
+		ginkgo.By("Delete Roles for testuser2")
+		err = deleteUserRoles(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		if err != nil {
 			framework.Logf("couldn't execute command on host: %v , error: %s", masterIp, err)
 		}
@@ -139,11 +155,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create roles for testuser2")
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
@@ -371,11 +382,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
 
 		ginkgo.By("Set DataCenter level permission for testuser1 and testuser2")
@@ -496,17 +502,17 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		testUser1NewPassword := e2eTestPassword
 
 		ginkgo.By("Try to create a PVC and verify it gets bound successfully")
-		pvc1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for PVC to be bound.
 		var pvclaims2 []*v1.PersistentVolumeClaim
-		pvclaims2 = append(pvclaims2, pvc1)
+		pvclaims2 = append(pvclaims2, pvclaim2)
 		ginkgo.By("Waiting for all claims to be in bound state")
 		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -521,16 +527,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		_ = updateDeploymentReplica(client, *csiPodReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvc2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc2.Namespace, pvc2.Name, framework.Poll, time.Minute)
+			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -566,32 +572,32 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Pvc")
-		pvc3, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim4, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for PVC to be bound.
-		var pvclaims3 []*v1.PersistentVolumeClaim
-		pvclaims3 = append(pvclaims3, pvc3)
+		var pvclaims4 []*v1.PersistentVolumeClaim
+		pvclaims4 = append(pvclaims4, pvclaim4)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims3, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims4, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// delete pvc
-			err = fpv.DeletePersistentVolumeClaim(client, pvc3.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim4.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc3}, false, "")
+		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim4}, false, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
-		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc2.Name, metav1.GetOptions{})
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim3, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim3.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+		gomega.Expect(pvclaim3.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 	})
 
 	/*
@@ -638,11 +644,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create roles for testuser2")
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
@@ -869,11 +870,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
 
 		ginkgo.By("Set DataCenter level permission for testuser1 and testuser2")
@@ -941,6 +937,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
 		secretConf = getConfigSecretFileValues(client, ctx)
+		vCenterIP := secretConf.Global.VCenterHostname
 
 		ginkgo.By("Delete previously created vsphere-config-secret file")
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
@@ -994,7 +991,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Fetch vsphere-config-secret file details")
 		secretConf = getConfigSecretFileValues(client, ctx)
 
-		// Get vcenter hotsname
 		ginkgo.By("Get vcenter hotsname")
 		vCenterHostName, err := getVcenterHostName(sshClientConfig, masterIp, secretConf.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1051,7 +1047,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials" +
 			"and provide vcenter IP")
 		err = createCsiVsphereSecret(secretConf.Global.ClusterID,
-			secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
+			secretConf.Global.ClusterDistribution, vCenterIP,
 			secretConf.Global.InsecureFlag,
 			configSecretUser1Alias, configSecretTestUser1Password, secretConf.Global.VCenterPort,
 			secretConf.Global.Datacenters, sshClientConfig, masterIp)
@@ -1077,7 +1073,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		_, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Step8 : Verify we can create a PVC and attach it to pod
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Pvc")
 		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -1124,8 +1119,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	*/
 
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Change vcenter user to wrong "+
-		"user and switch back to correct user "+
-		"in vsphere config secret file", func() {
+		"user and switch back to correct user in vsphere config secret file", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Create testuser1")
@@ -1153,11 +1147,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create roles for testuser2")
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
@@ -1396,8 +1385,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	*/
 
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add wrong datacenter and switch back "+
-		"to the correct datacenter "+
-		"in vsphere config secret file", func() {
+		"to the correct datacenter in vsphere config secret file", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Create testuser1")
@@ -1419,17 +1407,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		// ginkgo.By("Create roles for testuser1")
-		// err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Create roles for testuser1")
+		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// ginkgo.By("Create roles for testuser2")
-		// err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
+		ginkgo.By("Create roles for testuser2")
+		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
@@ -1565,16 +1548,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvc1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc1.Namespace, pvc1.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			// delete pvc
-			err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1613,25 +1596,24 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		_, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// Step8: Verify we can create a PVC and attach it to pod
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Pvc")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for PVC to be bound.
-		var pvclaims2 []*v1.PersistentVolumeClaim
-		pvclaims2 = append(pvclaims2, pvclaim2)
+		var pvclaims3 []*v1.PersistentVolumeClaim
+		pvclaims3 = append(pvclaims3, pvclaim3)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims3, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// delete pvc
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
+		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false, "")
 		defer func() {
 			// delete pod
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
@@ -1639,10 +1621,10 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
-		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc1.Name, metav1.GetOptions{})
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc1.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 	})
 
 	/*
@@ -1665,8 +1647,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	*/
 
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add a user without adding required "+
-		"roles and privileges to provision volume and "+
-		"switch back to the correct one", func() {
+		"roles and privileges to provision volume and switch back to the correct one", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Create testuser1")
@@ -1694,11 +1675,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			err = deleteUserRoles(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
 
@@ -1823,16 +1799,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvc2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc2.Namespace, pvc2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1873,32 +1849,32 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Pvc")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for PVC to be bound.
 		var pvclaims3 []*v1.PersistentVolumeClaim
-		pvclaims3 = append(pvclaims3, pvclaim2)
+		pvclaims3 = append(pvclaims3, pvclaim3)
 		ginkgo.By("Waiting for all claims to be in bound state")
 		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims3, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// delete pvc
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
+		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
-		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc2.Name, metav1.GetOptions{})
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 	})
 
 	/*
@@ -1930,13 +1906,35 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 		ginkgo.By("Create testuser2")
 		err = createTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2,
-			configSecretTestUser1Password)
+			configSecretTestUser2Password)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete testuser2")
 			err = deleteTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
+		ginkgo.By("Assign minimal roles and privileges to testuser1")
+
+		ginkgo.By("Create minimal roles for testuser1")
+		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Set DataCenter level permission for testuser1")
+		for i := 0; i < len(dataCenters); i++ {
+			err = setDataCenterLevelPermission(vcAddress, sshClientConfig, masterIp, dataCenters[i],
+				configSecretUser1Alias)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Set hosts level permission for testuser1")
+		err = setHostLevelPermission(vcAddress, sshClientConfig, masterIp, configSecretUser1Alias, hosts)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Set search level permission for testuser1")
+		err = setSearchlevelPermission(vcAddress, sshClientConfig, masterIp, configSecretUser1Alias,
+			configSecretTestUser1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
 		secretConf = getConfigSecretFileValues(client, ctx)
@@ -1983,47 +1981,27 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvc1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc1.Namespace, pvc1.Name, framework.Poll, time.Minute)
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Create roles for testuser1")
-		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
-
-		ginkgo.By("Set DataCenter level permission for testuser1")
-		for i := 0; i < len(dataCenters); i++ {
-			err = setDataCenterLevelPermission(vcAddress, sshClientConfig, masterIp, dataCenters[i],
-				configSecretUser1Alias)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
-		ginkgo.By("Set hosts level permission for testuser1 and testuser2")
-		err = setHostLevelPermission(vcAddress, sshClientConfig, masterIp, configSecretUser1Alias, hosts)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Assign required roles and privileges to testuser1")
 
 		ginkgo.By("Set k8s VM level permission for testuser1")
 		err = setVMLevelPermission(vcAddress, sshClientConfig, masterIp, configSecretUser1Alias,
 			configSecretTestUser1, vms)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Set cluster level permission for testuser1 and testuser2")
+		ginkgo.By("Set cluster level permission for testuser1")
 		for i := 0; i < len(clusters); i++ {
 			err = setClusterLevelPermission(vcAddress, sshClientConfig, masterIp,
 				configSecretUser1Alias, configSecretTestUser1, clusters[i])
@@ -2036,11 +2014,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 				configSecretUser1Alias, configSecretTestUser1, dataCenters[i], datastores)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		ginkgo.By("Set search level permission for testuser1")
-		err = setSearchlevelPermission(vcAddress, sshClientConfig, masterIp, configSecretUser1Alias,
-			configSecretTestUser1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete testUser1, its roles and permissions")
 			err = deleteUsersRolesAndPermissions(vcAddress, sshClientConfig, masterIp,
@@ -2048,68 +2021,37 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		// ginkgo.By("Fetch vsphere-config-secret file details")
-		// secretConf = getConfigSecretFileValues(client, ctx)
-
-		// ginkgo.By("Delete previously created vsphere-config-secret file")
-		// err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// ginkgo.By("Create vsphere-config-secret file with testuser1 credentials")
-		// err = createCsiVsphereSecret(secretConf.Global.ClusterID,
-		// 	secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
-		// 	secretConf.Global.InsecureFlag,
-		// 	configSecretUser1Alias, configSecretTestUser1Password, secretConf.Global.VCenterPort,
-		// 	secretConf.Global.Datacenters, sshClientConfig, masterIp)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// defer func() {
-		// 	ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
-		// 		"and its credentials")
-		// 	secretConf = getConfigSecretFileValues(client, ctx)
-		// 	err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	err = createCsiVsphereSecret(secretConf.Global.ClusterID,
-		// 		secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
-		// 		secretConf.Global.InsecureFlag,
-		// 		vCenterUIUser, vCenterUIPassword, secretConf.Global.VCenterPort,
-		// 		secretConf.Global.Datacenters, sshClientConfig, masterIp)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	ginkgo.By("Restart CSI driver")
-		// 	_, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// }()
-
-		// ginkgo.By("Restart CSI driver")
-		// _, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Restart CSI driver")
+		_, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Pvc")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Waiting for PVC to be bound.
-		var pvclaims1 []*v1.PersistentVolumeClaim
-		pvclaims1 = append(pvclaims1, pvclaim1)
+		var pvclaims2 []*v1.PersistentVolumeClaim
+		pvclaims2 = append(pvclaims2, pvclaim2)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
-		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc1.Name, metav1.GetOptions{})
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim1.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc1.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+		gomega.Expect(pvclaim1.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 	})
 
 	/*
@@ -2132,7 +2074,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-file] Add the wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
+	ginkgo.It("[csi-config-secret-file] Add wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
 		"targetvSANFileShareDatastoreURLs", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		targetDsURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -2162,11 +2104,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create roles for testuser2")
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
@@ -2235,7 +2172,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
-		secretConf = getConfigSecretFileValuesForFileVanilla(client, ctx)
+		secretConf = getConfigSecretFileValues(client, ctx)
 
 		ginkgo.By("Delete previously created vsphere-config-secret file")
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
@@ -2286,7 +2223,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
-		secretConf = getConfigSecretFileValuesForFileVanilla(client, ctx)
+		secretConf = getConfigSecretFileValues(client, ctx)
 
 		ginkgo.By("Delete previously created vsphere-config-secret file")
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
@@ -2433,11 +2370,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
 
 		ginkgo.By("Set DataCenter level permission for testuser1 and testuser2")
@@ -2505,6 +2437,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
 		secretConf = getConfigSecretFileValues(client, ctx)
+		defaultVcenterPort := "443"
 
 		ginkgo.By("Delete previously created vsphere-config-secret file")
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
@@ -2515,7 +2448,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = createCsiVsphereSecret(secretConf.Global.ClusterID,
 			secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
 			secretConf.Global.InsecureFlag,
-			configSecretUser1Alias, configSecretTestUser1Password, secretConf.Global.VCenterPort,
+			configSecretUser1Alias, configSecretTestUser1Password, defaultVcenterPort,
 			secretConf.Global.Datacenters, sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2570,7 +2503,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			err = createCsiVsphereSecret(secretConf.Global.ClusterID,
 				secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
 				secretConf.Global.InsecureFlag,
-				vCenterUIUser, vCenterUIPassword, secretConf.Global.VCenterPort,
+				vCenterUIUser, vCenterUIPassword, vCenterNonDefaultPort,
 				secretConf.Global.Datacenters, sshClientConfig, masterIp)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			_, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
@@ -2604,7 +2537,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
 		// Waiting for PVC to be bound.
 		pvclaim1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim1.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2671,11 +2604,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = createRolesForTestUser(vcAddress, sshClientConfig, masterIp, configSecretTestUser2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Fetch DataCenter, Cluster and hosts details")
-		dataCenters, clusters, hosts, vms, datastores, err = getDataCenterClusterHostAndVmDetails(vcAddress,
-			sshClientConfig, masterIp)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Assign required roles and privileges for testuser1 and testuser2")
 
 		ginkgo.By("Set DataCenter level permission for testuser1 and testuser2")
@@ -2743,6 +2671,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Fetch vsphere-config-secret file details")
 		secretConf = getConfigSecretFileValues(client, ctx)
+		nonDefaultVcenterPort := "444"
 
 		ginkgo.By("Delete previously created vsphere-config-secret file")
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
@@ -2833,11 +2762,11 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = deleteCsiVsphereSecret(sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials and using dummy vcenter port")
+		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials and giving correct vcenter port")
 		err = createCsiVsphereSecret(secretConf.Global.ClusterID,
 			secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
 			secretConf.Global.InsecureFlag,
-			configSecretUser2Alias, configSecretTestUser1Password, secretConf.Global.VCenterPort,
+			configSecretUser2Alias, configSecretTestUser1Password, nonDefaultVcenterPort,
 			secretConf.Global.Datacenters, sshClientConfig, masterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -2849,7 +2778,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			err = createCsiVsphereSecret(secretConf.Global.ClusterID,
 				secretConf.Global.ClusterDistribution, secretConf.Global.VCenterHostname,
 				secretConf.Global.InsecureFlag,
-				vCenterUIUser, vCenterUIPassword, secretConf.Global.VCenterPort,
+				vCenterUIUser, vCenterUIPassword, nonDefaultVcenterPort,
 				secretConf.Global.Datacenters, sshClientConfig, masterIp)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			_, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
@@ -2879,7 +2808,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Verify the PVC which was stuck in Pening state should gets bound eventually")
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
 		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())

@@ -718,9 +718,8 @@ func getConfigSecretFileValuesForFileVanilla(client clientset.Interface, ctx con
 	testConfig.Global.User = vsphereCfg.Global.User
 	testConfig.Global.Password = vsphereCfg.Global.Password
 	testConfig.Global.VCenterHostname = vsphereCfg.Global.VCenterHostname
-	if vsphereCfg.Global.TargetvSANFileShareDatastoreURLs != "" {
-		testConfig.Global.TargetvSANFileShareDatastoreURLs = vsphereCfg.Global.TargetvSANFileShareDatastoreURLs
-		config := `
+	testConfig.Global.TargetvSANFileShareDatastoreURLs = vsphereCfg.Global.TargetvSANFileShareDatastoreURLs
+	config := `
 InsecureFlag: "%t"
 ClusterID: "%s"
 ClusterDistribution: "%s"
@@ -732,14 +731,11 @@ VCenterHostname: "%s"
 TargetvSANFileShareDatastoreURLs: "%s"
 	
 `
-		secretConfig = fmt.Sprintf(config, vsphereCfg.Global.InsecureFlag,
-			vsphereCfg.Global.ClusterID, vsphereCfg.Global.ClusterDistribution,
-			vsphereCfg.Global.Datacenters, vsphereCfg.Global.VCenterPort, vsphereCfg.Global.User,
-			vsphereCfg.Global.Password, vsphereCfg.Global.VCenterHostname,
-			vsphereCfg.Global.TargetvSANFileShareDatastoreURLs)
-	} else {
-		framework.Logf("TargetvSANFileShareDatastoreURLs is misisng in config secret file")
-	}
+	secretConfig = fmt.Sprintf(config, vsphereCfg.Global.InsecureFlag,
+		vsphereCfg.Global.ClusterID, vsphereCfg.Global.ClusterDistribution,
+		vsphereCfg.Global.Datacenters, vsphereCfg.Global.VCenterPort, vsphereCfg.Global.User,
+		vsphereCfg.Global.Password, vsphereCfg.Global.VCenterHostname,
+		vsphereCfg.Global.TargetvSANFileShareDatastoreURLs)
 
 	framework.Logf("vsphere config secret file: %s ", secretConfig)
 	return testConfig
