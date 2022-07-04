@@ -2847,6 +2847,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
 			config.Global.TopologyCategories = value
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
 		case "global-max-snapshots-per-block-volume":
 			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
