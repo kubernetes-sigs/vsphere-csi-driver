@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitForPodsReady(clientNewGc, statefulset.Namespace, sspod.Name, 0)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(clientNewGc, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := clientNewGc.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
