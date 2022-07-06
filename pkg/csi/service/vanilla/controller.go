@@ -357,9 +357,12 @@ func (c *controller) ReloadConfiguration() error {
 }
 
 func (c *controller) filterDatastores(ctx context.Context,
-	sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+	sharedDatastores []*cnsvsphere.DatastoreInfo) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	dsMap := c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
+	if len(dsMap) == 0 {
+		return nil, logger.LogNewError(log, "auth service: no shared datastore found for block volume provisioning")
+	}
 	log.Debugf("filterDatastores: dsMap %v sharedDatastores %v", dsMap, sharedDatastores)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
 	for _, sharedDatastore := range sharedDatastores {
@@ -370,7 +373,10 @@ func (c *controller) filterDatastores(ctx context.Context,
 		}
 	}
 	log.Debugf("filterDatastores: filteredDatastores %v", filteredDatastores)
-	return filteredDatastores
+	if len(filteredDatastores) == 0 {
+		return nil, logger.LogNewError(log, "auth service could not find datastore for block volume provisioning")
+	}
+	return filteredDatastores, nil
 }
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
@@ -569,7 +575,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 		// Filter datastores which in datastoreMap from sharedDatastores.
-		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
+		sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
+		}
 	}
 
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
