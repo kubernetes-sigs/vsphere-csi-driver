@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
-// CreateBlockVolumeUtil is the helper function to create CNS block volume.
+// CreateBlockVolumeUtil is the helper function to create CNS block volumes.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
 	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo,
 	filterSuspendedDatastores bool, useSupervisorId bool) (*cnsvolume.CnsVolumeInfo, string, error) {
