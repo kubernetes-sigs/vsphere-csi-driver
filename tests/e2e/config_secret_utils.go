@@ -61,13 +61,15 @@ func deleteUsersRolesAndPermissions(vcAddress string, sshClientConfig *ssh.Clien
 	err := deleteUserPermissions(vcAddress, sshClientConfig, masterIp, testUserAlias, dataCenter,
 		cluster, hosts, vms, datastores)
 	if err != nil {
-		return err
+		//return err
+		framework.Logf("User Permissions not found")
 	}
 
 	ginkgo.By("Delete user roles")
 	err = deleteUserRoles(vcAddress, sshClientConfig, masterIp, testUser)
 	if err != nil {
-		return err
+		//return err
+		framework.Logf("User Roles not found")
 	}
 	return nil
 }
