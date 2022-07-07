@@ -357,9 +357,12 @@ func (c *controller) ReloadConfiguration() error {
 }
 
 func (c *controller) filterDatastores(ctx context.Context,
-	sharedDatastores []*cnsvsphere.DatastoreInfo) []*cnsvsphere.DatastoreInfo {
+	sharedDatastores []*cnsvsphere.DatastoreInfo) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	dsMap := c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
+	if len(dsMap) == 0 {
+		return nil, logger.LogNewError(log, "auth service: no shared datastore found for block volume provisioning")
+	}
 	log.Debugf("filterDatastores: dsMap %v sharedDatastores %v", dsMap, sharedDatastores)
 	var filteredDatastores []*cnsvsphere.DatastoreInfo
 	for _, sharedDatastore := range sharedDatastores {
@@ -370,7 +373,10 @@ func (c *controller) filterDatastores(ctx context.Context,
 		}
 	}
 	log.Debugf("filterDatastores: filteredDatastores %v", filteredDatastores)
-	return filteredDatastores
+	if len(filteredDatastores) == 0 {
+		return nil, logger.LogNewError(log, "auth service could not find datastore for block volume provisioning")
+	}
+	return filteredDatastores, nil
 }
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
@@ -518,12 +524,31 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 
 			// Get shared accessible datastores for matching topology requirement.
-			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-				commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
-			if err != nil || len(sharedDatastores) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get shared datastores for topology requirement: %+v. Error: %+v",
-					topologyRequirement, err)
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TopologyPreferentialDatastores) {
+				vcenter, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vCenter. Err: %v", err)
+				}
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.VanillaTopologyFetchDSParams{
+						TopologyRequirement: topologyRequirement,
+						Vc:                  vcenter,
+						StoragePolicyName:   scParams.StoragePolicyName,
+					})
+				if err != nil || len(sharedDatastores) == 0 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get shared datastores for topology requirement: %+v. Error: %+v",
+						topologyRequirement, err)
+				}
+			} else {
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.VanillaTopologyFetchDSParams{TopologyRequirement: topologyRequirement})
+				if err != nil || len(sharedDatastores) == 0 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get shared datastores for topology requirement: %+v. Error: %+v",
+						topologyRequirement, err)
+				}
 			}
 			log.Debugf("Shared datastores [%+v] retrieved for topologyRequirement [%+v]", sharedDatastores,
 				topologyRequirement)
@@ -569,7 +594,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
 		// Filter datastores which in datastoreMap from sharedDatastores.
-		sharedDatastores = c.filterDatastores(ctx, sharedDatastores)
+		sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
+		}
 	}
 
 	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
@@ -857,6 +886,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	resp, faultType, err := createVolumeInternal()
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusCreateVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -973,6 +1005,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	resp, faultType, err := deleteVolumeInternal()
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusDeleteVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1106,6 +1141,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	resp, faultType, err := controllerPublishVolumeInternal()
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusAttachVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1223,6 +1261,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	resp, faultType, err := controllerUnpublishVolumeInternal()
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusDetachVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1330,6 +1371,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	resp, faultType, err := controllerExpandVolumeInternal()
 	if err != nil {
 		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusExpandVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1462,6 +1506,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	listVolResponse, faultType, err := listVolumesInternal()
 	log.Debugf("List volume response: %+v", listVolResponse)
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusListVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1737,6 +1784,9 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	start := time.Now()
 	resp, err := createSnapshotInternal()
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusCreateSnapshotOpType, volumeType, "NotComputed")
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
@@ -1787,6 +1837,9 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	start := time.Now()
 	resp, err := deleteSnapshotInternal()
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusDeleteSnapshotOpType, volumeType, "NotComputed")
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
@@ -1847,6 +1900,9 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	}
 	resp, err := listSnapshotsInternal()
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusListSnapshotsOpType, volumeType, "NotComputed")
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {

@@ -33,11 +33,13 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	"CNS-CSI Cluster Distribution Operations during VC reboot", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client    clientset.Interface
 		namespace string

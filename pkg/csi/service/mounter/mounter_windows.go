@@ -507,6 +507,11 @@ func (mounter *csiProxyMounter) MountSensitive(source string, target string, fst
 func (mounter *csiProxyMounter) MountSensitiveWithoutSystemd(source string, target string, fstype string, options []string, sensitiveOptions []string) error {
 	return fmt.Errorf("MountSensitiveWithoutSystemd is not implemented for csiProxyMounter")
 }
+
+func (mounter *csiProxyMounter) MountSensitiveWithoutSystemdWithMountFlags(source string, target string, fstype string, options []string, sensitiveOptions []string, mountFlags []string) error {
+	return mounter.MountSensitive(source, target, fstype, options, sensitiveOptions /* sensitiveOptions */)
+}
+
 func (mounter *csiProxyMounter) List() ([]mount.MountPoint, error) {
 	return []mount.MountPoint{}, fmt.Errorf("List not implemented for csiProxyMounter")
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -59,6 +60,7 @@ import (
 
 var _ bool = ginkgo.Describe("full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		namespace                  string

@@ -783,6 +783,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusCreateVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -831,6 +834,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusDeleteVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -972,6 +978,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusAttachVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusAttachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1108,6 +1117,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusDetachVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDetachVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1237,6 +1249,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	}
 	resp, faultType, err := controllerListVolumeInternal()
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusListVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {
@@ -1366,6 +1381,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 
 	if err != nil {
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusExpandVolumeOpType, volumeType, faultType)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusExpandVolumeOpType,
 			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
 	} else {

@@ -31,6 +31,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -55,6 +56,7 @@ import (
 var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	f := framework.NewDefaultFramework("volume-expansion")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		namespace                  string
