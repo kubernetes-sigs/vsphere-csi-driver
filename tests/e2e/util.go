@@ -2852,6 +2852,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
 			config.Global.TopologyCategories = value
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
 		case "global-max-snapshots-per-block-volume":
 			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
@@ -5673,7 +5675,7 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 
 // stopCSIPods function stops all the running csi pods
 func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	//collectPodLogs(ctx, client, csiSystemNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
 		csiSystemNamespace)
