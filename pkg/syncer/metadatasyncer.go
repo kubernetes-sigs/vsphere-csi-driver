@@ -681,9 +681,11 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	// migrated-to annotation was received for the PVC.
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
 		if !isValidvSphereVolumeClaim(ctx, newPvc.ObjectMeta) {
-			log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update",
-				newPvc.Name, newPvc.Namespace)
-			return
+			if !isValidvSphereVolume(ctx, pv) {
+				log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update",
+					newPvc.Name, newPvc.Namespace)
+				return
+			}
 		}
 		if oldPvc.Status.Phase == v1.ClaimBound &&
 			reflect.DeepEqual(newPvc.GetAnnotations(), oldPvc.GetAnnotations()) &&
@@ -754,9 +756,11 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
 		if !isValidvSphereVolumeClaim(ctx, pvc.ObjectMeta) {
-			log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. "+
-				"Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
-			return
+			if !isValidvSphereVolume(ctx, pv) {
+				log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. "+
+					"Skipping deletion of PVC metadata.", pvc.Name, pvc.Namespace)
+				return
+			}
 		}
 	} else {
 		if pv.Spec.VsphereVolume != nil {
@@ -804,7 +808,7 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && newPv.Spec.VsphereVolume != nil {
-		if !isValidvSphereVolume(ctx, newPv.ObjectMeta) {
+		if !isValidvSphereVolume(ctx, newPv) {
 			log.Debugf("PVUpdated: PV %q is not a valid vSphere volume. Skipping update of PV metadata.", newPv.Name)
 			return
 		}
@@ -875,7 +879,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
-		if !isValidvSphereVolume(ctx, pv.ObjectMeta) {
+		if !isValidvSphereVolume(ctx, pv) {
 			log.Debugf("PVDeleted: PV %q is not a valid vSphereVolume. Skipping deletion of PV metadata.", pv.Name)
 			return
 		}
@@ -918,6 +922,7 @@ func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 			return
 		}
 		for _, volume := range pod.Spec.Volumes {
+			// Migrated in-line in-tree vSphere volumes
 			if volume.VsphereVolume != nil {
 				log.Infof("Registering in-tree vSphere inline volume: %q", volume.VsphereVolume.VolumePath)
 				volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
@@ -929,6 +934,39 @@ func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 				}
 				log.Infof("Successfully registered in-tree vSphere inline volume: %q with "+
 					"volume Id: %q", volume.VsphereVolume.VolumePath, volumeHandle)
+			}
+			// Migrated in-tree static vSphere volumes
+			if volume.PersistentVolumeClaim != nil {
+				pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pod.Namespace).
+					Get(volume.PersistentVolumeClaim.ClaimName)
+				if err != nil {
+					log.Errorf("Error getting Persistent Volume Claim for volume %s with err: %v", volume.Name, err)
+					continue
+				}
+				// Get pv object attached to pvc.
+				pv, err := metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
+				if err != nil {
+					log.Errorf("Error getting Persistent Volume for PVC %s in volume %s with err: %v", pvc.Name, volume.Name, err)
+					continue
+				}
+				if pv.Spec.VsphereVolume != nil {
+					_, ok := pv.Annotations[common.AnnDynamicallyProvisioned]
+					if !ok {
+						// in-tree statically created vSphere volume
+						log.Infof("Registering in-tree Static vSphere PV: %q, Volume Path: %q",
+							pv.Name, pv.Spec.VsphereVolume.VolumePath)
+						volumeHandle, err := volumeMigrationService.GetVolumeID(ctx,
+							&migration.VolumeSpec{VolumePath: pv.Spec.VsphereVolume.VolumePath}, true)
+						if err != nil {
+							log.Warnf("podAdded: Failed to get VolumeID from "+
+								"volumeMigrationService for static PV: %q volumePath: %q with error %+v",
+								pv.Name, volume.VsphereVolume.VolumePath, err)
+							continue
+						}
+						log.Infof("Successfully registered in-tree vSphere inline volume: %q with "+
+							"volume Id: %q", pv.Spec.VsphereVolume.VolumePath, volumeHandle)
+					}
+				}
 			}
 		}
 	}

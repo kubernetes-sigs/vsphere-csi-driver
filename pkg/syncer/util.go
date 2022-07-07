@@ -4,11 +4,11 @@ import (
 	"context"
 
 	"google.golang.org/grpc/codes"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
@@ -34,7 +34,7 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context,
 	for _, pv := range allPVs {
 		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) ||
 			(metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil &&
-				isValidvSphereVolume(ctx, pv.ObjectMeta)) {
+				isValidvSphereVolume(ctx, pv)) {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable ||
 				pv.Status.Phase == v1.VolumeReleased {
@@ -123,9 +123,7 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod,
 		if pv.Spec.VsphereVolume != nil {
 			// Check if migration feature switch is enabled.
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
-				if !isValidvSphereVolume(ctx, pv.ObjectMeta) {
-					log.Debugf("Pod %s in namespace %s has a valid vSphereVolume but the volume is not migrated",
-						pod.Name, pod.Namespace)
+				if !isValidvSphereVolume(ctx, pv) {
 					return false, nil, nil
 				}
 			} else {
@@ -247,25 +245,34 @@ func isValidvSphereVolumeClaim(ctx context.Context, pvcMetadata metav1.ObjectMet
 	return false
 }
 
-// isValidvSphereVolume returns true if the given PV metadata of a vSphere
-// Volume (in-tree volume) and has migrated-to annotation on the PV,
+// isValidvSphereVolume returns true if the given PV is of a vSphere
+// Volume (in-tree volume),
 // or if the PV was provisioned by CSI driver using in-tree storage class.
-func isValidvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectMeta) bool {
+func isValidvSphereVolume(ctx context.Context, pv *v1.PersistentVolume) bool {
 	log := logger.GetLogger(ctx)
-	// Checking if the migrated-to annotation is found in the PV metadata.
-	if annotation, annMigratedToFound := pvMetadata.Annotations[common.AnnMigratedTo]; annMigratedToFound {
+	// Check if PV is in-tree Static vSphere PV
+	if pv.Spec.VsphereVolume != nil {
+		_, ok := pv.Annotations[common.AnnDynamicallyProvisioned]
+		if !ok {
+			// when pv.Spec.VsphereVolume is not nil and "pv.kubernetes.io/provisioned-by" annotation is not present on the PV
+			// PV is in-tree static vSphere PV
+			log.Debugf("PV: %q is statically created in-tree vSphere volume", pv.Name)
+			return true
+		}
+	}
+	// Check if the migrated-to annotation is found on the PV.
+	if annotation, annMigratedToFound := pv.ObjectMeta.Annotations[common.AnnMigratedTo]; annMigratedToFound {
 		if annotation == csitypes.Name &&
-			pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
+			pv.ObjectMeta.Annotations[common.AnnDynamicallyProvisioned] == common.InTreePluginName {
 			log.Debugf("%v annotation found with value %q for PV: %q",
-				common.AnnMigratedTo, csitypes.Name, pvMetadata.Name)
+				common.AnnMigratedTo, csitypes.Name, pv.Name)
 			return true
 		}
-	} else {
-		if pvMetadata.Annotations[common.AnnDynamicallyProvisioned] == csitypes.Name {
-			log.Debugf("%v annotation found with value %q for PV: %q",
-				common.AnnDynamicallyProvisioned, csitypes.Name, pvMetadata.Name)
-			return true
-		}
+	}
+	if pv.ObjectMeta.Annotations[common.AnnDynamicallyProvisioned] == csitypes.Name {
+		log.Debugf("%v annotation found with value %q for PV: %q",
+			common.AnnDynamicallyProvisioned, csitypes.Name, pv.Name)
+		return true
 	}
 	return false
 }

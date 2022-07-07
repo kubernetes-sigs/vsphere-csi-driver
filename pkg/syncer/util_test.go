@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
@@ -16,12 +16,13 @@ import (
 var (
 	validMigratedPVCMetadata                            metav1.ObjectMeta
 	validMigratedPVCMetadataWithGAStorageProvisionerAnn metav1.ObjectMeta
-	validMigratedPVMetadata                             metav1.ObjectMeta
 	validLegacyPVCMetadata                              metav1.ObjectMeta
 	validLegacyPVCMetadataWithGAStorageProvisionerAnn   metav1.ObjectMeta
-	validLegacyPVMetadata                               metav1.ObjectMeta
 	invalidMigratedPVCMetadata                          metav1.ObjectMeta
-	invalidMigratedPVMetadata                           metav1.ObjectMeta
+	validMigratedPV                                     *corev1.PersistentVolume
+	validLegacyPV                                       *corev1.PersistentVolume
+	validLegacyStaticPV                                 *corev1.PersistentVolume
+	invalidMigratedPV                                   *corev1.PersistentVolume
 )
 
 func init() {
@@ -51,17 +52,26 @@ func init() {
 			"volume.kubernetes.io/storage-provisioner": "csi.vsphere.vmware.com",
 		},
 	}
-	validMigratedPVMetadata = metav1.ObjectMeta{
+	validMigratedPV = &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
 		Name: "migrated-vcppv",
 		Annotations: map[string]string{
 			"pv.kubernetes.io/migrated-to":    "csi.vsphere.vmware.com",
 			"pv.kubernetes.io/provisioned-by": "kubernetes.io/vsphere-volume",
 		},
-	}
-	validLegacyPVMetadata = metav1.ObjectMeta{
+	}}
+	validLegacyPV = &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
 		Name: "vcppvProvisionedByCSI",
 		Annotations: map[string]string{
 			"pv.kubernetes.io/provisioned-by": "csi.vsphere.vmware.com",
+		},
+	}}
+	validLegacyStaticPV = &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
+		Name: "vcppvProvisionedByCSI",
+	},
+		Spec: corev1.PersistentVolumeSpec{
+			PersistentVolumeSource: corev1.PersistentVolumeSource{VsphereVolume: &corev1.VsphereVirtualDiskVolumeSource{
+				VolumePath: "[vsanDatastore] 80f3bf62-3d22-5158-e245-020049aca941/e7dcb90169ff44a4871712e809e9e86e.vmdk",
+			}},
 		},
 	}
 	invalidMigratedPVCMetadata = metav1.ObjectMeta{
@@ -71,13 +81,13 @@ func init() {
 			"volume.beta.kubernetes.io/storage-provisioner": "kubernetes.io/vsphere-volume",
 		},
 	}
-	invalidMigratedPVCMetadata = metav1.ObjectMeta{
+	invalidMigratedPV = &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
 		Name: "migrated-invalid-vcppv",
 		Annotations: map[string]string{
 			"pv.kubernetes.io/migrated-to":    "unknown.csi.driver",
 			"pv.kubernetes.io/provisioned-by": "kubernetes.io/vsphere-volume",
 		},
-	}
+	}}
 
 }
 func TestValidMigratedAndLegacyVolume(t *testing.T) {
@@ -99,13 +109,16 @@ func TestValidMigratedAndLegacyVolume(t *testing.T) {
 	if isValidvSphereVolumeClaim(ctx, invalidMigratedPVCMetadata) {
 		t.Errorf("Expected: isValidvSphereVolumeClaim to return False\n Actual: isValidvSphereVolumeClaim returned True")
 	}
-	if !isValidvSphereVolume(ctx, validMigratedPVMetadata) {
+	if !isValidvSphereVolume(ctx, validMigratedPV) {
 		t.Errorf("Expected: isValidvSphereVolume to return True\n Actual: isValidvSphereVolume returned False")
 	}
-	if !isValidvSphereVolume(ctx, validLegacyPVMetadata) {
+	if !isValidvSphereVolume(ctx, validLegacyPV) {
 		t.Errorf("Expected: isValidvSphereVolume to return True\n Actual: isValidvSphereVolume returned False")
 	}
-	if isValidvSphereVolume(ctx, invalidMigratedPVMetadata) {
+	if !isValidvSphereVolume(ctx, validLegacyStaticPV) {
+		t.Errorf("Expected: isValidvSphereVolume to return True\n Actual: isValidvSphereVolume returned False")
+	}
+	if isValidvSphereVolume(ctx, invalidMigratedPV) {
 		t.Errorf("Expected: isValidvSphereVolume to return Fale\n Actual: isValidvSphereVolume returned True")
 	}
 }
