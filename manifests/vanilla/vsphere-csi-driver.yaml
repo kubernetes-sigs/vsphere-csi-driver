@@ -1,4 +1,4 @@
-apiVersion: storage.k8s.io/v1 # For k8s 1.17 use storage.k8s.io/v1beta1
+apiVersion: storage.k8s.io/v1
 kind: CSIDriver
 metadata:
   name: csi.vsphere.vmware.com
@@ -156,7 +156,7 @@ data:
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "false"
   "topology-preferential-datastores": "false"
-  "max-pvscsi-targets-per-vm" : "false"
+  "max-pvscsi-targets-per-vm": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
