@@ -77,7 +77,7 @@ var onceForAuthorizationService sync.Once
 var authManagerInstance *AuthManager
 
 // GetAuthorizationService returns the singleton AuthorizationService.
-func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (AuthorizationService, error) {
+func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*AuthManager, error) {
 	log := logger.GetLogger(ctx)
 	onceForAuthorizationService.Do(func() {
 		log.Info("Initializing authorization service...")

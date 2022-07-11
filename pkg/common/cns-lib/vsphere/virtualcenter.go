@@ -179,9 +179,13 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	}
 
 	s, err := client.SessionManager.UserSession(ctx)
-	if err == nil {
-		log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
+	// If session is NotAuthenticated, SessionManager.UserSession returns
+	// nil session with nil error
+	if s == nil || err != nil {
+		log.Errorf("failed to get UserSession. Session may be NotAuthenticated. err: %v", err)
+		return nil, err
 	}
+	log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
 
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount

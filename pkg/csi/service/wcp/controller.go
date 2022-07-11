@@ -177,7 +177,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		c.authMgr = authMgr
 		// TODO: Invoke similar method for block volumes.
-		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 	}
 	// Create dynamic informer for AvailabilityZone instance if FSS is enabled
 	// and CR is present in environment.

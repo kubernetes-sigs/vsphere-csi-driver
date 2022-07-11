@@ -184,8 +184,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		c.authMgr = authMgr
-		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
-			config.Global.CSIAuthCheckIntervalInMin)
+		go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
 			c.manager.VcenterConfig.Host)
 		if err != nil {
@@ -193,8 +192,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		if isvSANFileServicesSupported {
-			go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
-				config.Global.CSIAuthCheckIntervalInMin)
+			go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 		}
 	}
 
