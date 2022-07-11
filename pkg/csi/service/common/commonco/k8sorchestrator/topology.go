@@ -273,15 +273,18 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 // with latest information on the preferential datastores for each topology domain.
 func refreshPreferentialDatastores(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
+	// Get VC instance.
 	cnsCfg, err := common.GetConfig(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 	}
-	// Get VC instance.
-	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cnsCfg},
-		false)
+	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cnsCfg)
 	if err != nil {
-		return logger.LogNewErrorf(log, "failed to get virtual center instance with error: %v", err)
+		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig from CNS config. Error: %+v", err)
+	}
+	vc, err := cnsvsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vcenterconfig.Host)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get vCenter instance. Error: %+v", err)
 	}
 	// Get tag manager instance.
 	tagMgr, err := cnsvsphere.GetTagManager(ctx, vc)
