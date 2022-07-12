@@ -155,7 +155,7 @@ data:
   "list-volumes": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "false"
-  "topology-preferential-datastores": "false"
+  "topology-preferential-datastores": "true"
   "max-pvscsi-targets-per-vm": "false"
 kind: ConfigMap
 metadata:
