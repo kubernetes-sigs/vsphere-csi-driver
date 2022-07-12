@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
+  git log -1 --format=%h
+else
+  git describe --always 2>/dev/null
+fi

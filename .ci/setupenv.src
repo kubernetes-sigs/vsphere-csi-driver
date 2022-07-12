@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+SOURCE_PATH="$(readlink -f "$(dirname ${0})/..")"
+
+if [[ -z "${BINARY_PATH}" ]]; then
+  export BINARY_PATH="${SOURCE_PATH}/bin"
+else
+  export BINARY_PATH="$(readlink -f "${BINARY_PATH}")/bin"
+fi
+
+# The `go <cmd>` commands requires to see the target repository to be part of a
+# Go workspace. Thus, if we are not yet in a Go workspace, let's create one
+# temporarily by using symbolic links.
+if [[ "${SOURCE_PATH}" != *"$PATHINWS" || -z "$GOPATH" ]]; then
+  echo "generating local go path..."
+  SOURCE_SYMLINK_PATH="${SOURCE_PATH}/tmp/$PATHINWS"
+  if [[ -d "${SOURCE_PATH}/tmp" ]]; then
+    rm -rf "${SOURCE_PATH}/tmp"
+  fi
+  mkdir -p "$(dirname "${SOURCE_PATH}/tmp/$PATHINWS")"
+  ln -s "${SOURCE_PATH}" "${SOURCE_SYMLINK_PATH}"
+  cd "${SOURCE_SYMLINK_PATH}"
+
+  export GOPATH="${SOURCE_PATH}/tmp"
+  export GOBIN="${SOURCE_PATH}/tmp/bin"
+  export PATH="${GOBIN}:${PATH}"
+else
+  cd "$SOURCE_PATH"
+fi
+

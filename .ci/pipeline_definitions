@@ -1,0 +1,30 @@
+gardener-extension-provider-vsphere-csi-driver:
+  template: 'default'
+  base_definition:
+    repo:
+      branch: 'release-2.5-fork'
+    version:
+      version_interface: 'callback'
+      read_callback: 'get_version'
+  jobs:
+    head-update:
+      steps:
+        build_release: ~
+    pull-request:
+      traits:
+        pull-request: ~
+    release:
+      steps:
+        build_release: ~
+#      traits:
+#        version:
+#          version_interface: 'callback'
+#          preprocess: 'finalize'
+#          read_callback: 'get_version'
+#        slack:
+#          default_channel: 'internal_scp_workspace'
+#          channel_cfgs:
+#            internal_scp_workspace:
+#              channel_name: 'C0170QTBJUW' # gardener-mcm
+#              slack_cfg_name: 'scp_workspace'
+#        component_descriptor: ~
