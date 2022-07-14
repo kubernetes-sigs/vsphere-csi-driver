@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/types"
 )
 
 // CnsVolumeMetadataSpec defines the desired state of CnsVolumeMetadata
@@ -142,8 +141,8 @@ func CreateCnsVolumeMetadataSpec(volumeHandle []string, gcConfig config.GCConfig
 	return &CnsVolumeMetadata{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: GetCnsVolumeMetadataName(gcConfig.TanzuKubernetesClusterUID, uid),
-			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(cnsoperatortypes.GCAPIVersion,
-				cnsoperatortypes.GCKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
+			OwnerReferences: []metav1.OwnerReference{GetCnsVolumeMetadataOwnerReference(gcConfig.ClusterAPIVersion,
+				gcConfig.ClusterKind, gcConfig.TanzuKubernetesClusterName, gcConfig.TanzuKubernetesClusterUID)},
 		},
 		Spec: CnsVolumeMetadataSpec{
 			VolumeNames:         volumeHandle,
