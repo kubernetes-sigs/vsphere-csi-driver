@@ -163,6 +163,10 @@ type GCConfig struct {
 	TanzuKubernetesClusterName string `gcfg:"tanzukubernetescluster-name"`
 	// Cluster Distribution Name
 	ClusterDistribution string `gcfg:"cluster-distribution"`
+	// ClusterAPIVersion refers to the API version of the object guest cluster is created from.
+	ClusterAPIVersion string `gcfg:"cluster-api-version"`
+	// ClusterKind refers to the kind of object guest cluster is created from.
+	ClusterKind string `gcfg:"cluster-kind"`
 }
 
 // SnapshotConfig contains snapshot configuration.
