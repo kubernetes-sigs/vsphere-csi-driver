@@ -29,6 +29,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -217,6 +218,12 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		ginkgo.By("Verify snapshot entry is deleted from CNS")
 		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Deleting volume snapshot Again to check Not found error")
+		err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	/*
