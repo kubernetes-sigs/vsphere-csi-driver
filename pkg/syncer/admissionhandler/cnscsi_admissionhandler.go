@@ -21,6 +21,7 @@ const (
 	ValidationWebhookPath            = "/validate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
+	WebhookTlsMinVersion = "1.2"
 )
 
 func getWebhookPort() int {
@@ -63,6 +64,7 @@ func startCNSCSIWebhookManager(ctx context.Context) {
 
 	log.Infof("registering validating webhook with the endpoint %v", ValidationWebhookPath)
 	// we should not allow TLS < 1.2
+	mgr.GetWebhookServer().TLSMinVersion = WebhookTlsMinVersion
 	mgr.GetWebhookServer().Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),
