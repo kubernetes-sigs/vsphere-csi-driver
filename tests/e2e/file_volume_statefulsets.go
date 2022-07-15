@@ -574,6 +574,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		num_csi_pods := len(list_of_pods)
 
+		// Collecting csi pod logs before restrating CSI daemonset
+		collectPodLogs(ctx, client, csiSystemNamespace)
+
 		// Restart CSI daemonset
 		ginkgo.By("Restart Daemonset")
 		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
