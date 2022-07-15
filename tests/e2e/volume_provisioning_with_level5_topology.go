@@ -814,11 +814,10 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Expect PVC claim to fail as volume topology feature for file volumes is not supported
 		ginkgo.By("Expect PVC claim to fail as volume topology feature for file " +
 			"volumes is not supported")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-			pvc.Namespace, pvc.Name, framework.Poll, time.Minute/2)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-		framework.Logf("Volume Provisioning Failed %v because Topology feature for file "+
-			"volumes is not supported", err)
+		expectedErrMsg := "volume topology feature for file volumes is not supported."
+		framework.Logf("Expected failure message: %+q", expectedErrMsg)
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvc.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
 
 	/*

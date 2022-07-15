@@ -5174,15 +5174,10 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			// to same temporary file
 			// NOTE: This is not valid for vsphere-csi-controller container as for
 			// vsphere-csi-controller all the replicas will behave as leaders
-			if containerName == syncerContainerName {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
-					"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
-			} else {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
-					"tail -1` | tee -a leader.log"
-			}
+			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+				csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
+				"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
+
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
@@ -5198,12 +5193,8 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	// Sorting the temporary file according to timestamp to find the latest container leader
 	// from the CSI pod replicas
 	var cmd string
-	if containerName == syncerContainerName {
-		cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
 
-	} else {
-		cmd = "sort -k 2n leader.log | tail -1 |awk '{print $10}' | tr -d '\n'"
-	}
+	cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
 
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
@@ -5429,28 +5420,22 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	csi_controller_pod string) error {
 	ignoreLabels := make(map[string]string)
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	k8sMasterIP := k8sMasterIPs[0]
-	for i := 0; i < len(list_of_pods); i++ {
-		if list_of_pods[i].Name == csi_controller_pod {
-			grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
-				" -n vmware-system-csi"
-			framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
-				k8sMasterIP)
-			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForDeletingCsiControllerPod)
-			if err != nil || result.Code != 0 {
-				fssh.LogResult(result)
-				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-					grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
-			}
-		}
-		if list_of_pods[i].Name == csi_controller_pod {
-			break
+	num_csi_pods := len(csiPods)
+	// Collecting and dumping csi pod logs before deleting them
+	collectPodLogs(ctx, client, csiSystemNamespace)
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) && csiPod.Name == csi_controller_pod {
+			framework.Logf("Deleting the pod: %s", csiPod.Name)
+			err = fpod.DeletePodWithWait(client, csiPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
+	// wait for csi Pods to be in running ready state
+	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	return nil
 }
 
