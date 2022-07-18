@@ -66,6 +66,9 @@ type COCommonInterface interface {
 	GetAllVolumes() []string
 	// GetAllK8sVolumes returns list of volumes in a bound state, in the K8s cluster
 	GetAllK8sVolumes() []string
+	// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster with the snapshot-id and fcd-id
+	AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
+		volumeSnapshotNamespace string, annotations map[string]string) (bool, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

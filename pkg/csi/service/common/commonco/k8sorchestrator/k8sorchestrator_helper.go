@@ -18,7 +18,12 @@ package k8sorchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"time"
+
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -127,4 +132,61 @@ func isValidMigratedvSphereVolume(ctx context.Context, pvMetadata metav1.ObjectM
 		}
 	}
 	return false
+}
+
+// updateVolumeSnapshotAnnotations updates annotations passed as key-value pairs
+// on VolumeSnapshot object
+func (c *K8sOrchestrator) updateVolumeSnapshotAnnotations(ctx context.Context,
+	volumeSnapshotName string, volumeSnapshotNamespace string,
+	volumeSnapshotAnnotations map[string]string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	retryCount := 0
+	interval := time.Second
+	limit := 5 * time.Minute
+	// TODO: make this configurable
+	// Attempt to update the annotation every second for 5minutes
+	annotateUpdateErr := wait.PollImmediate(interval, limit, func() (bool, error) {
+		retryCount++
+		// Retrieve the volume snapshot and verify that it exists
+		volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(volumeSnapshotNamespace).
+			Get(ctx, volumeSnapshotName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Errorf("attempt: %d, the volumesnapshot %s/%s requested to be annotated with %+v is not found",
+					retryCount, volumeSnapshotNamespace, volumeSnapshotName, volumeSnapshotAnnotations)
+			}
+			log.Errorf("attempt: %d, failed to annotate the volumesnapshot %s/%s due to error: %+v",
+				retryCount, volumeSnapshotNamespace, volumeSnapshotName, err)
+			return false, nil
+		}
+		patchAnnotation := common.MergeMaps(volumeSnapshot.Annotations, volumeSnapshotAnnotations)
+
+		patch := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"annotations": patchAnnotation,
+			},
+		}
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			log.Errorf("attempt: %d, fail to marshal patch: %+v", retryCount, err)
+			return false, nil
+		}
+		patchedVolumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(volumeSnapshotNamespace).
+			Patch(ctx, volumeSnapshotName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+		if err != nil {
+			log.Errorf("attempt: %d, failed to patch the volumesnapshot %s/%s with annotation %+v, error: %+v",
+				retryCount, volumeSnapshotNamespace, volumeSnapshotName, volumeSnapshotAnnotations, err)
+			return false, nil
+		}
+		log.Infof("attempt: %d, Successfully patched volumesnapshot %s/%s with latest annotations %+v",
+			retryCount, patchedVolumeSnapshot.Namespace, patchedVolumeSnapshot.Name,
+			patchedVolumeSnapshot.Annotations)
+		return true, nil
+	})
+	if annotateUpdateErr != nil {
+		log.Errorf("failed to patch the volumesnapshot %s/%s with annotation %+v, error: %+v",
+			volumeSnapshotNamespace, volumeSnapshotName, volumeSnapshotAnnotations, annotateUpdateErr)
+		return false, annotateUpdateErr
+	}
+	return true, nil
 }
