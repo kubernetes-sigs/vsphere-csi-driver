@@ -137,7 +137,7 @@ func StartWebhookServer(ctx context.Context) error {
 		return err
 	}
 
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		startCNSCSIWebhookManager(ctx)
