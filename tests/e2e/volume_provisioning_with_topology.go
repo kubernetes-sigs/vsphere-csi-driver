@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -146,19 +145,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-
-		ginkgo.By("Expect claim to fail provisioning volume on inaccessible non shared datastore")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-		// Get the event list and verify if it contains expected error message
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
-		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
-		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
-		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(),
-			fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
+		framework.Logf("Expected failure message: %+q", expectedErrMsg)
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	}
 
 	/*
@@ -272,7 +261,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		storagePolicyNameFromOtherZone := GetAndExpectStringEnvVar(envStoragePolicyNameFromInaccessibleZone)
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = storagePolicyNameFromOtherZone
-		errStringToVerify := "No compatible datastore found for storagePolicy"
+		errStringToVerify := "No compatible shared datastores found for storage policy"
 		invokeTopologyBasedVolumeProvisioningWithInaccessibleParameters(f, client,
 			namespace, scParameters, allowedTopologies, errStringToVerify)
 	})
