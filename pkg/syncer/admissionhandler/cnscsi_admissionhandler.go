@@ -21,7 +21,7 @@ const (
 	ValidationWebhookPath            = "/validate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
-	WebhookTlsMinVersion = "1.2"
+	WebhookTlsMinVersion             = "1.2"
 )
 
 func getWebhookPort() int {
