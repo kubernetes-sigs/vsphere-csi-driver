@@ -948,7 +948,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 func waitAndVerifyCnsVolumeMetadata4GCVol(volHandle string, svcPVCName string, pvc *v1.PersistentVolumeClaim,
 	pv *v1.PersistentVolume, pod *v1.Pod) error {
 
-	waitErr := wait.PollImmediate(poll*5, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeoutSixMin, func() (bool, error) {
 		matches := verifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod)
 		return matches, nil
 	})

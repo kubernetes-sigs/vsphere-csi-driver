@@ -490,8 +490,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for index := range fileAccessCRD {
 			framework.Logf("Checking if the CRD %s is completely deleted or not", fileAccessCRD[index])
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, fileAccessCRD[index],
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, fileAccessCRD[index],
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 })
