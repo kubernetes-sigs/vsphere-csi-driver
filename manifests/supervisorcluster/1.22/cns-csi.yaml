@@ -214,6 +214,7 @@ spec:
           effect: "NoSchedule"
           value: "master"
       hostNetwork: true
+      priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
           image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.1.0_vmware.2
@@ -310,7 +311,7 @@ spec:
               path: /healthz
               port: healthz
             initialDelaySeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 10
             periodSeconds: 5
             failureThreshold: 3
           env:
