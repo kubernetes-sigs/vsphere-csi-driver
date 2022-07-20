@@ -3668,6 +3668,9 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 					snapshot1.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+			time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 		}()
 
 		ginkgo.By("Verify volume snapshot is Ready to use")
@@ -4034,6 +4037,9 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 					snapshot1.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+			time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 		}()
 
 		ginkgo.By("Verify volume snapshot is Ready to use")
@@ -4466,6 +4472,9 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 				err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx,
 					snapName, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+				time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 			}
 		}()
 
@@ -4492,8 +4501,8 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		snapshot2Created = false
 
-		ginkgo.By("Modifying the default max snapshots per volume in the secret to 5")
-		vsphereCfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = 5
+		ginkgo.By("Modifying the default max snapshots per volume in the secret to 6")
+		vsphereCfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = 6
 		modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -4512,6 +4521,23 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
+		// Get CSI Controller's replica count from the setup
+		deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
+		ginkgo.By("Bring down csi-controller pod")
+		isCSIDown := false
+		bringDownCsiController(client)
+		defer func() {
+			if !isCSIDown {
+				bringUpCsiController(client, csiReplicaCount)
+			}
+		}()
+
+		bringUpCsiController(client, csiReplicaCount)
 
 		for j := 4; j <= 5; j++ {
 			ginkgo.By(fmt.Sprintf("Create a volume snapshot - %d", j))
