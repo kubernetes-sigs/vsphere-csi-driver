@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
-		volHealthCheck = false
+		volHealthCheck = true
 		isVsanServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -322,10 +322,6 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isVsanServiceStopped = false
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
 
 		if volHealthCheck {
 			ginkgo.By("poll for health status annotation")

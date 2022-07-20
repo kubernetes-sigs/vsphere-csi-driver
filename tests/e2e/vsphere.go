@@ -389,7 +389,7 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
 func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace, false)
+		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace)
 		if err == nil {
 			return true, nil
 		} else {
@@ -1025,7 +1025,7 @@ func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant boo
 // verifyLabelsAreUpdated executes cns QueryVolume API on vCenter and verifies if
 // volume labels are updated by metadata-syncer
 func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[string]string,
-	entityType string, entityName string, entityNamespace string, verifyLabels bool) error {
+	entityType string, entityName string, entityNamespace string) error {
 
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
@@ -1058,12 +1058,8 @@ func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[strin
 			if labelsMatch {
 				return nil
 			} else {
-				if verifyLabels {
-					return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
-						matchLabels, entityType, entityName, volumeID)
-				} else {
-					return nil
-				}
+				return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+					matchLabels, entityType, entityName, volumeID)
 			}
 		}
 	}

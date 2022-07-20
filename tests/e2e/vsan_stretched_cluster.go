@@ -3607,7 +3607,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				labels, pvc.Name, namespace))
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
-				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, true)
+				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -3615,7 +3615,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By(fmt.Sprintf("Verifying labels %+v are updated for pv %s",
 				labels, pv.Name))
 			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
-				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace, true)
+				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -3942,7 +3942,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				labels, pvc.Name, namespace))
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
-				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace, true)
+				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
@@ -3951,7 +3951,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By(fmt.Sprintf("Verifying labels %+v are updated for pv %s",
 				labels, pv.Name))
 			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
-				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace, true)
+				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}

@@ -813,10 +813,9 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By(fmt.Sprintf("Waiting for labels to be deleted for pvc %s", pvc.Name))
 		err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvc.Labels,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pvc.Labels, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
 
 	// Metadata Syncer - 6
