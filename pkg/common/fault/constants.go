@@ -35,6 +35,10 @@ const (
 	// CSIApiServerOperationFault is the fault type when Get(), List() and others fail on the API Server
 	CSIApiServerOperationFault = "csi.fault.ApiServerOperation"
 
+	// CSIResourceUpdateConflictFault is the fault type when Update() operatiton on the API Server
+	// fails with the conflict error
+	CSIResourceUpdateConflictFault = "csi.fault.nonstorage.ResourceUpdateConflict"
+
 	// CSIPvNotFoundInPvcSpecFault is the fault type when PV name is not found in PVC Spec.
 	// This can happen at the time of guest cluster creation when user specifies volumes to be created
 	// in the guest cluster spec. Volume creation in such cases are typically initiated by
