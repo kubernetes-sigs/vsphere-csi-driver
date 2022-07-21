@@ -50,24 +50,27 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	f := framework.NewDefaultFramework("gc-volume-expansion")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client                     clientset.Interface
-		pandoraSyncWaitTime        int
-		namespace                  string
-		storagePolicyName          string
-		storageclass               *storagev1.StorageClass
-		pvclaim                    *v1.PersistentVolumeClaim
-		err                        error
-		volHandle                  string
-		svcPVCName                 string
-		pv                         *v1.PersistentVolume
-		pvcDeleted                 bool
-		cmd                        []string
-		svcClient                  clientset.Interface
-		svNamespace                string
-		defaultDatastore           *object.Datastore
-		restConfig                 *restclient.Config
-		isVsanhealthServiceStopped bool
-		isGCCSIDeploymentPODdown   bool
+		client                            clientset.Interface
+		pandoraSyncWaitTime               int
+		namespace                         string
+		storagePolicyName                 string
+		storageclass                      *storagev1.StorageClass
+		pvclaim                           *v1.PersistentVolumeClaim
+		err                               error
+		volHandle                         string
+		svcPVCName                        string
+		pv                                *v1.PersistentVolume
+		pvcDeleted                        bool
+		cmd                               []string
+		svcClient                         clientset.Interface
+		svNamespace                       string
+		defaultDatastore                  *object.Datastore
+		restConfig                        *restclient.Config
+		isVsanhealthServiceStopped        bool
+		isGCCSIDeploymentPODdown          bool
+		isSVCCSIDeploymentPODdown         bool
+		gcCsiReplicaCountBeforeScaleDown  int32
+		svcCsiReplicaCountBeforeScaleDown int32
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -122,6 +125,17 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		restConfig = getRestConfigClient()
 		isGCCSIDeploymentPODdown = false
 
+		// Get GC CSI Replica Count
+		gcDeployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gcCsiReplicaCountBeforeScaleDown = *gcDeployment.Spec.Replicas
+
+		// Get SVC CSI Replica Count
+		svcDeployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		svcCsiReplicaCountBeforeScaleDown = *svcDeployment.Spec.Replicas
 	})
 
 	ginkgo.AfterEach(func() {
@@ -150,8 +164,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 
+		if isSVCCSIDeploymentPODdown {
+			_ = updateDeploymentReplica(svcClient, svcCsiReplicaCountBeforeScaleDown,
+				vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		}
+
 		if isGCCSIDeploymentPODdown {
-			_ = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+			_ = updateDeploymentReplica(client, gcCsiReplicaCountBeforeScaleDown,
+				vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		}
 	})
 
@@ -410,10 +430,13 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Bringing SVC CSI controller down...")
 		svcCsiDeployment := updateDeploymentReplica(svcClient, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isSVCCSIDeploymentPODdown = true
 		defer func() {
 			if *svcCsiDeployment.Spec.Replicas == 0 {
 				ginkgo.By("Bringing SVC CSI controller up (cleanup)...")
-				updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				updateDeploymentReplica(svcClient, svcCsiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isSVCCSIDeploymentPODdown = false
 			}
 		}()
 
@@ -445,7 +468,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing SVC CSI controller up...")
-		svcCsiDeployment = updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		svcCsiDeployment = updateDeploymentReplica(svcClient, svcCsiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isSVCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for controller volume resize to finish")
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
@@ -1261,7 +1286,17 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Bringing GC CSI controller down...")
 		isGCCSIDeploymentPODdown = true
-		_ = updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		gcCsiDeployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isGCCSIDeploymentPODdown = true
+
+		defer func() {
+			if *gcCsiDeployment.Spec.Replicas == 0 {
+				ginkgo.By("Bringing GC CSI controller up (cleanup)...")
+				updateDeploymentReplica(client, gcCsiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isGCCSIDeploymentPODdown = false
+			}
+		}()
 
 		ginkgo.By("Waiting for SVC PV resize to complete")
 		err = verifyPVSizeinSupervisorWithWait(svcPvcName, newSize)
@@ -1273,7 +1308,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller up...")
-		_ = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		_ = updateDeploymentReplica(client, gcCsiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		isGCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for GC PV resize to finish")
@@ -2081,10 +2117,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Bringing SVC CSI controller down...")
 		svcCsiDeployment := updateDeploymentReplica(svcClient, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isSVCCSIDeploymentPODdown = true
+
 		defer func() {
 			if *svcCsiDeployment.Spec.Replicas == 0 {
 				ginkgo.By("Bringing SVC CSI controller up (cleanup)...")
-				updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				updateDeploymentReplica(svcClient, svcCsiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isSVCCSIDeploymentPODdown = false
 			}
 		}()
 
@@ -2108,7 +2148,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing SVC CSI controller up...")
-		svcCsiDeployment = updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		svcCsiDeployment = updateDeploymentReplica(svcClient, svcCsiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isSVCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for controller volume resize to finish")
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
@@ -2257,11 +2299,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("Bringing GC CSI controller down...")
-		isGCCSIDeploymentPODdown = true
 		_ = updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		isGCCSIDeploymentPODdown = true
 
 		defer func() {
-			_ = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+			_ = updateDeploymentReplica(client, gcCsiReplicaCountBeforeScaleDown,
+				vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 			isGCCSIDeploymentPODdown = false
 		}()
 
@@ -2270,7 +2313,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller up...")
-		_ = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		_ = updateDeploymentReplica(client, gcCsiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		isGCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for GC PV resize to finish")

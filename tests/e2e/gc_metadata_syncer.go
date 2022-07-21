@@ -42,28 +42,32 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	f := framework.NewDefaultFramework("e2e-guest-cluster-cnsvolumemetadata")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client                     clientset.Interface
-		namespace                  string
-		svNamespace                string
-		scParameters               map[string]string
-		storagePolicyName          string
-		svcPVCName                 string // PVC Name in the Supervisor Cluster
-		labelKey                   string
-		labelValue                 string
-		gcClusterID                string
-		pvcUID                     string
-		manifestPath               = "tests/e2e/testing-manifests/statefulset/nginx"
-		pvclabelKey                string
-		pvclabelValue              string
-		pvlabelKey                 string
-		pvlabelValue               string
-		pvclaim                    *v1.PersistentVolumeClaim
-		clientNewGc                clientset.Interface
-		pvc                        *v1.PersistentVolumeClaim
-		isVsanhealthServiceStopped bool
+		client                         clientset.Interface
+		namespace                      string
+		svNamespace                    string
+		scParameters                   map[string]string
+		storagePolicyName              string
+		svcPVCName                     string // PVC Name in the Supervisor Cluster
+		labelKey                       string
+		labelValue                     string
+		gcClusterID                    string
+		pvcUID                         string
+		manifestPath                   = "tests/e2e/testing-manifests/statefulset/nginx"
+		pvclabelKey                    string
+		pvclabelValue                  string
+		pvlabelKey                     string
+		pvlabelValue                   string
+		pvclaim                        *v1.PersistentVolumeClaim
+		clientNewGc                    clientset.Interface
+		pvc                            *v1.PersistentVolumeClaim
+		isVsanhealthServiceStopped     bool
+		isCSIDeploymentPODdown         bool
+		csiReplicaCountBeforeScaleDown int32
 	)
 
 	ginkgo.BeforeEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace = getSvcClientAndNamespace()
@@ -83,6 +87,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvclabelValue = "e2e-labels-pvc"
 		pvlabelKey = "pvapp"
 		pvlabelValue = "e2e-labels-pv"
+
+		deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCountBeforeScaleDown = *deployment.Spec.Replicas
 	})
 
 	ginkgo.AfterEach(func() {
@@ -96,6 +105,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
 				vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		}
+
+		if isCSIDeploymentPODdown {
+			ginkgo.By("Bringing CSI controller up (cleanup)...")
+			updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+				vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		}
 	})
 
@@ -568,6 +583,16 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("Scaling down the csi driver to zero replica")
 		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
+		isCSIDeploymentPODdown = true
+
+		defer func() {
+			if *deployment.Spec.Replicas == 0 {
+				ginkgo.By("Bringing SVC CSI controller up (cleanup)...")
+				updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isCSIDeploymentPODdown = false
+			}
+		}()
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -582,9 +607,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
-		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
+		ginkgo.By("Scaling up the csi driver to original replica")
+		deployment = updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to %v replica",
+			deployment.Name, csiReplicaCountBeforeScaleDown))
+		isCSIDeploymentPODdown = false
 
 		// TODO: Replace sleep with polling mechanism.
 		framework.Logf("Sleeping for 60 seconds")

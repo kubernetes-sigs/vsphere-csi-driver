@@ -42,16 +42,20 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client            clientset.Interface
-		namespace         string
-		scParameters      map[string]string
-		storagePolicyName string
-		svcPVCName        string // PVC Name in the Supervisor Cluster.
-		labelKey          string
-		labelValue        string
-		fullSyncWaitTime  int
+		client                         clientset.Interface
+		namespace                      string
+		scParameters                   map[string]string
+		storagePolicyName              string
+		svcPVCName                     string // PVC Name in the Supervisor Cluster.
+		labelKey                       string
+		labelValue                     string
+		fullSyncWaitTime               int
+		isCSIDeploymentPODdown         bool
+		csiReplicaCountBeforeScaleDown int32
 	)
 	ginkgo.BeforeEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
@@ -78,11 +82,20 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
+
+		deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCountBeforeScaleDown = *deployment.Spec.Replicas
 	})
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		if isCSIDeploymentPODdown {
+			updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+				vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		}
 	})
 
 	// Steps:
@@ -150,6 +163,15 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		ginkgo.By("Scaling down the csi driver to zero replica")
 		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
+		isCSIDeploymentPODdown = true
+		defer func() {
+			if *deployment.Spec.Replicas == 0 {
+				ginkgo.By("Bringing CSI controller up (cleanup)...")
+				updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isCSIDeploymentPODdown = false
+			}
+		}()
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -161,9 +183,11 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		ginkgo.By("Scaling up the csi driver to original replica")
+		deployment = updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
+		isCSIDeploymentPODdown = false
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -236,6 +260,15 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		ginkgo.By("Scaling down the csi driver to zero replica")
 		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
+		isCSIDeploymentPODdown = true
+		defer func() {
+			if *deployment.Spec.Replicas == 0 {
+				ginkgo.By("Bringing CSI controller up (cleanup)...")
+				updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+					vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+				isCSIDeploymentPODdown = false
+			}
+		}()
 
 		pvLabels := make(map[string]string)
 		pvLabels["pvLabelKeyFsync"] = "pv-label-Value-fsync"
@@ -258,9 +291,12 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Re-establish connection with SVC.
-		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
+		ginkgo.By("Scaling up the csi driver to original replica")
+		deployment = updateDeploymentReplica(client, csiReplicaCountBeforeScaleDown,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to %v replica",
+			deployment.Name, csiReplicaCountBeforeScaleDown))
+		isCSIDeploymentPODdown = false
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -292,7 +328,5 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		err = e2eVSphere.waitForLabelsToBeUpdated(svcVolumeID, pvLabels,
 			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
-
 })
