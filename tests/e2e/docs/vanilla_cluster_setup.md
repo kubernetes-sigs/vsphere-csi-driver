@@ -67,6 +67,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # To run e2e test for file volume, need to set the following env variable
     export GINKGO_FOCUS="csi-file-vanilla"
 
+    # Optional size to use while creating large PVCs, defaults to 50Gi
+    export LARGE_DISK_SIZE="100Gi"
+
     # For VCP to CSI migration tests following are needed as well
     export SHARED_VSPHERE_DATASTORE_NAME="vsanDatastore"
     export ESX_TEST_HOST_IP="<esx_host_ip>"  # for static provisioning tests

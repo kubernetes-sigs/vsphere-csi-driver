@@ -52,11 +52,13 @@ const (
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
+	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
+	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
@@ -131,6 +133,7 @@ const (
 	quotaName                                 = "cns-test-quota"
 	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                        = 2 * time.Second
+	restartOperation                          = "restart"
 	rqLimit                                   = "200Gi"
 	rqLimitScaleTest                          = "900Gi"
 	defaultrqLimit                            = "20Gi"
@@ -163,6 +166,7 @@ const (
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
 	vcClusterAPI                              = "/api/vcenter/namespace-management/clusters"
 	vpxdServiceName                           = "vpxd"
+	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
@@ -227,6 +231,13 @@ var (
 // CSI Internal FSSs
 var (
 	useCsiNodeID = "use-csinode-id"
+)
+
+// volume allocation types for cns volumes
+var (
+	thinAllocType = "Conserve space when possible"
+	eztAllocType  = "Fully initialized"
+	lztAllocType  = "Reserve space"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
