@@ -23,7 +23,8 @@ const (
 	CSIVmUuidNotFoundFault = "csi.fault.nonstorage.VmUuidNotFound"
 	// CSIVmNotFoundFault is the fault type when VM object is not found in the VC
 	CSIVmNotFoundFault = "csi.fault.nonstorage.VmNotFound"
-
+	// CSIDiskNotDetachedFault is the fault type when disk is still attached to the vm
+	CSIDiskNotDetachedFault = "csi.fault.nonstorage.DiskNotDetached"
 	// CSIDatacenterNotFoundFault is the fault type when Datacenter are not found in the VC
 	CSIDatacenterNotFoundFault = "csi.fault.DatacenterNotFound"
 	// CSIVCenterNotFoundFault is the fault type when VC instance is not found
