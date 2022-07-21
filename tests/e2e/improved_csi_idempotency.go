@@ -521,6 +521,17 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		if os.Getenv(envFullSyncWaitTime) != "" {
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
+			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
+				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
+			}
+		} else {
+			fullSyncWaitTime = defaultFullSyncWaitTime
+		}
+
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else if serviceName == hostdServiceName {
@@ -767,6 +778,17 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		framework.Logf("Starting CSI driver")
 		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if os.Getenv(envFullSyncWaitTime) != "" {
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
+			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
+				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
+			}
+		} else {
+			fullSyncWaitTime = defaultFullSyncWaitTime
+		}
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
