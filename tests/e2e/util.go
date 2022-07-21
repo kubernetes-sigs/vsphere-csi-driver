@@ -1353,7 +1353,7 @@ func invokeVCenterServiceControl(command, service, host string) error {
 	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, host, err)
 	}
 	return nil
 }
@@ -1382,7 +1382,7 @@ func invokeVCenterServiceControl(command, service, host string) error {
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
 // via service-control on the given vCenter host over SSH.
 func waitVCenterServiceToBeInState(serviceName string, host string, state string) error {
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort*2, func() (bool, error) {
 		sshCmd := fmt.Sprintf("service-control --%s %s", "status", serviceName)
 		framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 		result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
@@ -3738,9 +3738,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 		result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
-		if err != nil {
-			return err
-		}
+
 		if err != nil {
 			fssh.LogResult(result)
 			return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s",

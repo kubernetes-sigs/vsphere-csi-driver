@@ -1065,3 +1065,15 @@ func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[strin
 	}
 	return nil
 }
+
+//verifyDatastoreMatch verify is dsurl matches with given one for the volumeid
+func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrl string) bool {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	gomega.Expect(len(queryResult.Volumes)).NotTo(
+		gomega.BeZero(), "QueryCNSVolumeWithResult returned no volume for id:%v", volumeID)
+
+	framework.Logf("dsUrl from QueryCNSVolumeWithResult: %s, expected: %s", queryResult.Volumes[0].DatastoreUrl, dsUrl)
+	return queryResult.Volumes[0].DatastoreUrl == dsUrl
+}
