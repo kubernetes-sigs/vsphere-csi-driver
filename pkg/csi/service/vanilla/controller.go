@@ -1153,8 +1153,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		volumeType = prometheus.PrometheusBlockVolumeType
 		node, err := c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+			if err == cnsvsphere.ErrVMNotFound {
+				log.Infof("Virtual Machine for Node ID: %v is not present in the VC Inventory. "+
+					"Marking ControllerUnpublishVolume for Volume: %q as successful.", req.NodeId, req.VolumeId)
+				return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+			} else {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
+			}
 		}
 		faultType, err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
 		if err != nil {
