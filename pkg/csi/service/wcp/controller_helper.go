@@ -179,6 +179,24 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
+// validateWCPCreateSnapshotRequest is the helper function to
+// validate CreateSnapshotRequest for CSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateWCPCreateSnapshotRequest(ctx context.Context, req *csi.CreateSnapshotRequest) error {
+	log := logger.GetLogger(ctx)
+	volumeID := req.GetSourceVolumeId()
+	if len(volumeID) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"CreateSnapshot Source Volume ID must be provided")
+	}
+
+	if len(req.Name) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"Snapshot name must be provided")
+	}
+	return nil
+}
+
 // getK8sCloudOperatorClientConnection is a helper function that creates a
 // clientConnection to k8sCloudOperator GRPC service running on syncer container.
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {

@@ -431,3 +431,16 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 	}
 	return clusterComputeResourceMoIds, nil
 }
+
+// MergeMaps merges two maps to create a new one, the key-value pair from first
+// are replaced with key-value pair of second
+func MergeMaps(first map[string]string, second map[string]string) map[string]string {
+	merged := make(map[string]string)
+	for key, val := range first {
+		merged[key] = val
+	}
+	for key, val := range second {
+		merged[key] = val
+	}
+	return merged
+}

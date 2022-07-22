@@ -120,6 +120,12 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		InsecureFlag: cfg.Global.InsecureFlag,
 		Datacenters:  cfg.Global.Datacenters,
 	}
+
+	// set up the default global maximum of number of snapshots if unset
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = config.DefaultGlobalMaxSnapshotsPerBlockVolume
+	}
+
 	return cfg, func() {
 		s.Close()
 		model.Remove()
@@ -472,4 +478,141 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 		}()
 		t.Fatal("expected error is not thrown")
 	}
+}
+
+// TestWCPCreateDeleteSnapshot creates snapshot and deletes a snapshot.
+func TestWCPCreateDeleteSnapshot(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults.
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID.
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	params[common.AttributeStoragePolicyID] = profileID
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{},
+		},
+	}
+
+	getCandidateDatastores = getFakeDatastores
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	if queryResult.Volumes[0].StoragePolicyId != profileID {
+		t.Fatalf("failed to match volume policy ID: %s", profileID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		// Delete volume.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	defer func() {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: snapID,
+		}
+
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
 }
