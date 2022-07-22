@@ -258,3 +258,9 @@ func (c *FakeK8SOrchestrator) GetAllVolumes() []string {
 func (c *FakeK8SOrchestrator) GetAllK8sVolumes() []string {
 	return nil
 }
+
+// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster
+func (c *FakeK8SOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
+	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
+	return true, nil
+}
