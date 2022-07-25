@@ -543,9 +543,12 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 	for _, info := range vmMoList {
 		vmMoID := info.Reference().Value
 
-		host := info.Runtime.Host
-		vmMoIDToHostMoID[vmMoID] = host.Reference().Value
-
+		if info.Runtime.Host != nil {
+			vmMoIDToHostMoID[vmMoID] = info.Runtime.Host.Reference().Value
+		}
+		if info.Config == nil {
+			continue
+		}
 		devices := info.Config.Hardware.Device
 		vmDevices := object.VirtualDeviceList(devices)
 		for _, device := range vmDevices {
