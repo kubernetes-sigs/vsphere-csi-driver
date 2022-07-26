@@ -735,13 +735,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 2. Create a PVC using above SC.
 	// 3. Wait for PVC to be in Bound phase.
 	// 4. Verify annotation added on the PVC in accessible.
-	// 5. Kubectl edit on the annotation of the PVC and change the annotation
-	//    to inaccessible state.
-	// 6. Wait for the default time interval.
+	// 5. Kubectl edit on the annotation of the PVC and try to change the annotation
+	//    to inaccessible state - should not allow to update annotation on the PVC
 	// 7. Verify health annotation is added on the PVC is accessible.
-	// 8. Delete PVC.
-	// 9. Verify PV entry is deleted from CNS.
-	// 10. Delete the SC.
+	// 8. Delete PVC, SC
 
 	ginkgo.It("[csi-supervisor] Verify changing the annotated values on the PVC to random value", func() {
 		var storageclass *storagev1.StorageClass
@@ -806,15 +803,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		pvc.Annotations = setAnnotation
 
 		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusInAccessible))
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
+		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -825,16 +814,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		pvc.Annotations = setAnnotation
 
 		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).To(gomega.HaveOccurred())
 
-		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo("vmware"))
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
-		ginkgo.By("Verify if health status of the pvc is changed to accessible")
+		ginkgo.By("Verify if health status of the pvc is accessible")
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
@@ -857,6 +839,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			framework.Logf("Volume health status: %s", vol.HealthStatus)
 			gomega.Expect(vol.HealthStatus).Should(gomega.BeEquivalentTo(healthGreen))
 		}
+
 	})
 
 	// Verify health annotation is added on the volume created by statefulset.
@@ -1035,12 +1018,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 3. Wait for PVC to be in Bound phase.
 	// 4. Verify annotation added on the PVC in accessible.
 	// 5. Kubectl edit on the annotation of the PVC and remove the entire health
-	//    annotation.
-	// 6. Wait for the default time interval.
+	//    annotation - it should not allowed to update the PVC annotation value
 	// 7. Verify health annotation is added on the PVC is accessible.
-	// 8. Delete PVC.
-	// 9. Verify PV entry is deleted from CNS.
-	// 10. Delete the SC.
+	// 8. Delete PVC, SC
 	ginkgo.It("[csi-supervisor] Verify removing the health annotation on the PVC", func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
@@ -1094,18 +1074,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		pvc.Annotations = setAnnotation
 
 		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		for describe := range pvc.Annotations {
-			gomega.Expect(describe).ShouldNot(gomega.BeEquivalentTo(volumeHealthAnnotation))
-		}
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
 
 		ginkgo.By("Expect health status of the pvc to be accessible")
 		pvc, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
