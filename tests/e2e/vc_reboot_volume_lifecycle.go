@@ -185,8 +185,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		} else {
 			essentialServices = []string{spsServiceName, vsanhealthServiceName, vpxdServiceName, wcpServiceName}
 		}
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		//After reboot
 		bootstrap()

@@ -1404,7 +1404,9 @@ func waitVCenterServiceToBeInState(serviceName string, host string, state string
 
 // checkVcenterServicesStatus checks and polls for vCenter essential services status
 // to be in running state
-func checkVcenterServicesRunning(host string, essentialServices []string, timeout ...time.Duration) error {
+func checkVcenterServicesRunning(
+	ctx context.Context, host string, essentialServices []string, timeout ...time.Duration) {
+
 	var pollTime time.Duration
 	if len(timeout) == 0 {
 		pollTime = pollTimeout * 2
@@ -1452,7 +1454,10 @@ func checkVcenterServicesRunning(host string, essentialServices []string, timeou
 		}
 		return false, nil
 	})
-	return waitErr
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+	connect(ctx, &e2eVSphere)
+	err := e2eVSphere.wait4allVPs2ComeUp(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // httpRequest takes client and http Request as input and performs GET operation
@@ -5745,4 +5750,15 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 		return "", fmt.Errorf("couldn't get the containerId of :%s container", containerName)
 	}
 	return containerId, waitErr
+}
+
+//startVCServiceWait4VPs starts given service and waits for all VPs to come online
+func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service string, isSvcStopped *bool) {
+	err := invokeVCenterServiceControl(startOperation, service, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = waitVCenterServiceToBeInState(service, vcAddress, svcRunningMessage)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = e2eVSphere.wait4allVPs2ComeUp(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	*isSvcStopped = false
 }

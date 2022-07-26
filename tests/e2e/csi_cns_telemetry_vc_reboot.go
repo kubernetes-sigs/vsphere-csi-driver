@@ -194,8 +194,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		// After reboot.
 		bootstrap()
@@ -298,8 +297,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		// After reboot.
 		bootstrap()

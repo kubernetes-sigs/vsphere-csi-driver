@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			topologyCategories         []string
 			topologyLength             int
 			isSPSServiceStopped        bool
-			isVsanhealthServiceStopped bool
+			isVsanHealthServiceStopped bool
 			sshClientConfig            *ssh.ClientConfig
 			vcAddress                  string
 			container_name             string
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 			topologyLength = 5
 			isSPSServiceStopped = false
-			isVsanhealthServiceStopped = false
+			isVsanHealthServiceStopped = false
 
 			topologyMap := GetAndExpectStringEnvVar(topologyMap)
 			topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
@@ -839,19 +839,15 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Stopping vsan-health service on vcenter host
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
-			isVsanhealthServiceStopped = true
+			isVsanHealthServiceStopped = true
 			err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcStoppedMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
-				if isVsanhealthServiceStopped {
+				if isVsanHealthServiceStopped {
 					ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-					err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					isVsanhealthServiceStopped = false
+					startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 				}
 			}()
 
@@ -881,11 +877,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}
 			// Starting vsan-health service on vcenter host
 			ginkgo.By("Bringup vsanhealth service")
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			isVsanhealthServiceStopped = false
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 			/* Get current leader Csi-Controller-Pod where CSI Resizer is running" +
 			find master node IP where this Csi-Controller-Pod is running */
@@ -1338,14 +1330,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
-				if isSPSServiceStopped {
-					framework.Logf("Bringing sps up before terminating the test")
-					err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					isSPSServiceStopped = false
-				}
+				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			}()
 
 			// Creating Service for StatefulSet
@@ -1392,11 +1377,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Bring up SPS service
 			if isSPSServiceStopped {
-				framework.Logf("Bringing SPS service")
-				err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			}
 
 			// Waiting for StatefulSets Pods to be in Ready State
