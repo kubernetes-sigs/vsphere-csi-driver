@@ -2459,7 +2459,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete PV")
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+		err = fpv.DeletePersistentVolume(client, pv.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
