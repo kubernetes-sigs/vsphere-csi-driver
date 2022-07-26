@@ -54,7 +54,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		labelKey                   string
 		labelValue                 string
 		fullSyncWaitTime           int
-		isVsanhealthServiceStopped bool
+		isVsanHealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -82,14 +82,11 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		if isVsanhealthServiceStopped {
-			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-				vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		if isVsanHealthServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -142,13 +139,11 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {
-			if isVsanhealthServiceStopped {
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isVsanhealthServiceStopped = false
+			if isVsanHealthServiceStopped {
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -172,11 +167,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)

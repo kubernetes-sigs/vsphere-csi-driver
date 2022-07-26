@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		err                        error
 		kcmMigEnabled              bool
 		kubeletMigEnabled          bool
-		isSPSserviceStopped        bool
+		isSPSServiceStopped        bool
 		isVsanHealthServiceStopped bool
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
@@ -116,18 +116,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
-		if isSPSserviceStopped {
-			ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if isSPSServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 		}
 
 		for _, pod := range podsToDelete {
@@ -689,7 +682,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping sps on the vCenter")
-		isSPSserviceStopped = true
+		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcStoppedMessage)
@@ -706,11 +699,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting sps on the vCenter")
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSserviceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By("wait for some time and make sure POD is ready")
 		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
@@ -775,7 +764,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping sps on the vCenter")
-		isSPSserviceStopped = true
+		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcStoppedMessage)
@@ -801,11 +790,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting sps on the vCenter")
-		err = invokeVCenterServiceControl(startOperation, spsServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(spsServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isSPSserviceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
@@ -909,11 +894,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting vsan-health on the vCenter")
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isVsanHealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("wait for some time and make sure POD is created and it is in running state")
 		err = fpod.WaitTimeoutForPodReadyInNamespace(client, pod.Name, namespace, pollTimeout*2)
@@ -1005,11 +986,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Starting vsan-health on the vCenter")
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isVsanHealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
