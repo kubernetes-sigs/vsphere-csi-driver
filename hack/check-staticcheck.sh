@@ -23,6 +23,7 @@ set -o xtrace
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+go version
 go install honnef.co/go/tools/cmd/staticcheck@2022.1.2
 
 # shellcheck disable=SC2046

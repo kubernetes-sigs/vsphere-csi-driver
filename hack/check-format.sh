@@ -29,6 +29,7 @@ on_exit() {
 }
 trap on_exit EXIT
 
+go version
 # Run goformat on all the sources.
 flags="-e -s -w -l"
 [ -z "${PROW_JOB_ID-}" ] || flags="-d ${flags}"
