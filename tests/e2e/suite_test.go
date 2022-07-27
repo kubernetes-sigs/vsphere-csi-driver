@@ -15,6 +15,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"flag"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
 	gomega "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
 )
@@ -57,3 +59,28 @@ func handleFlags() {
 	framework.RegisterClusterFlags(flag.CommandLine)
 	flag.Parse()
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	kubeconfig := os.Getenv(kubeconfigEnvVar)
+	if kubeconfig == "" {
+		kubeconfig = filepath.Join(os.Getenv("HOME"), ".kube", "config")
+	}
+	client, err := createKubernetesClientFromConfig(kubeconfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err := createKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Get SVC CSI Replica Count
+		svcDeployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		svcCsiReplicaCount = *svcDeployment.Spec.Replicas
+	}
+	deployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	csiReplicaCount = *deployment.Spec.Replicas
+})

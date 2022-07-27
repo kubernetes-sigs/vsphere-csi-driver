@@ -162,7 +162,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		deployment = updateDeploymentReplica(client, csiReplicaCount,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
@@ -259,7 +260,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 
 		// Re-establish connection with SVC.
 		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		deployment = updateDeploymentReplica(client, csiReplicaCount,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))

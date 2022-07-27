@@ -582,7 +582,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		deployment = updateDeploymentReplica(client, csiReplicaCount,
+			vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
 		// TODO: Replace sleep with polling mechanism.

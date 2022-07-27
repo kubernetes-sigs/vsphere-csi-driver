@@ -240,6 +240,11 @@ var (
 	lztAllocType  = "Reserve space"
 )
 
+var (
+	csiReplicaCount    int32 = 3
+	svcCsiReplicaCount int32 = 3
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
