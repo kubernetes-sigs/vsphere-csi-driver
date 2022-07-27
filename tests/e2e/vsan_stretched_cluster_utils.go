@@ -145,7 +145,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
-		err = waitForHostToBeUp(host)
+		err = waitForHostToBeUp(host, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -217,10 +217,13 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	if len(timeout) > 0 {
 		pollTime = timeout[0]
 	} else {
-		if os.Getenv("K8S_NODE_UP_WAIT_TIME") != "" {
+		framework.Logf("inside else block")
+		if os.Getenv("K8S_NODES_UP_WAIT_TIME") != "" {
 			k8sNodeWaitTime, err := strconv.Atoi(os.Getenv(envK8sNodesUpWaitTime))
+			framework.Logf("k8sNodeWaitTime: %v, %T", k8sNodeWaitTime, k8sNodeWaitTime)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pollTime = time.Duration(k8sNodeWaitTime) * time.Minute
+			framework.Logf("pollTime: %v, %T", pollTime, pollTime)
 		} else {
 			pollTime = time.Duration(defaultK8sNodesUpWaitTime) * time.Minute
 		}
@@ -234,7 +237,9 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 		framework.Logf("error is %v", err)
 
 		if err != nil && !strings.Contains(err.Error(), "has prevented the request") &&
-			!strings.Contains(err.Error(), "TLS handshake timeout") {
+			!strings.Contains(err.Error(), "TLS handshake timeout") &&
+			!strings.Contains(err.Error(), "dial tcp") &&
+			!strings.Contains(err.Error(), ": EOF") {
 			return false, err
 		}
 		for _, node := range nodes.Items {
@@ -262,7 +267,7 @@ func wait4AllK8sNodesToBeUp(
 				nodeIp = addr.Address
 			}
 		}
-		err := waitForHostToBeUp(nodeIp)
+		err := waitForHostToBeUp(nodeIp, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -318,7 +323,7 @@ func waitForPodsToBeInErrorOrRunning(c clientset.Interface, podName, namespace s
 		switch pod.Status.Phase {
 		// v1.PodSucceeded is for pods in ExitCode:0 state.
 		// Standalone pods are in ExitCode:0 or Running state after site failure.
-		case v1.PodRunning, v1.PodSucceeded:
+		case v1.PodRunning, v1.PodSucceeded, v1.PodPending:
 			framework.Logf("Pod %v is in state %v", podName, pod.Status.Phase)
 			return true, nil
 		}
@@ -331,8 +336,9 @@ func waitForPodsToBeInErrorOrRunning(c clientset.Interface, podName, namespace s
 func runCmdOnHostsInParallel(hostIP string, sshCmd string, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
+	defer ginkgo.GinkgoRecover()
 	op, err := runCommandOnESX("root", hostIP, sshCmd)
-	framework.Logf(op)
+	framework.Logf("Output:%v, err: %v", op, err)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -463,28 +469,36 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
 	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	// Assuming atleast one master is on that site
-	for _, masterIp := range allMasterIps {
-		govcCmd := "export GOVC_INSECURE=1;"
-		govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
-			vcAdminPwd, vcAddress)
-		govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
-		framework.Logf("Running command: %s", govcCmd)
-		result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("res is: %v", result)
-		hostIp := strings.Split(string(result), "Host:")
-		host := strings.TrimSpace(hostIp[1])
-		if siteEsxMap[host] {
-			masterIpOnSite = masterIp
-			break
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeout*2, func() (bool, error) {
+		for _, masterIp := range allMasterIps {
+			govcCmd := "export GOVC_INSECURE=1;"
+			govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
+				vcAdminPwd, vcAddress)
+			govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
+			framework.Logf("Running command: %s", govcCmd)
+			result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("res is: %v", string(result))
+			hostIp := strings.Split(string(result), "Host:")
+			host := strings.TrimSpace(hostIp[1])
+			if siteEsxMap[host] {
+				masterIpOnSite = masterIp
+				break
+			}
 		}
-	}
+		if masterIpOnSite != "" {
+			return true, nil
+		}
+		return false, nil
+	})
 	framework.Logf("Master IP on site : %s", masterIpOnSite)
-	if masterIpOnSite != "" {
-		return masterIpOnSite, nil
-	} else {
-		return "", fmt.Errorf("couldn't find a master running on site")
+	if waitErr != nil {
+		if waitErr == wait.ErrWaitTimeout {
+			return "", fmt.Errorf("couldn't find a master running on site")
+		}
+		return "", waitErr
 	}
+	return masterIpOnSite, nil
 }
 
 // changeLeaderOfContainerToComeUpOnMaster ensures that the leader of a container comes up on
@@ -510,23 +524,38 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 	}
 
 	leaderFoundOnsite := false
-	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeout, func() (bool, error) {
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeout*5, func() (bool, error) {
 		// Check if leader of csi container comes up on master node of secondary site
 		_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client, sshClientConfig,
 			csiContainerName)
+		framework.Logf("err: %v", err)
 		framework.Logf("%s container leader is on a master node with IP %s ", csiContainerName, masterIp)
 		if err != nil {
 			return false, err
 		}
 		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+		defer ginkgo.GinkgoRecover()
 		// Pause and kill container of csi container on other master nodes
 		if masterIp == masterIpOnSite {
 			leaderFoundOnsite = true
 			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(csipods.Size()),
 				0, pollTimeoutShort, nil)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer ginkgo.GinkgoRecover()
+			if err != nil {
+				if strings.Contains(err.Error(), "are NOT in RUNNING and READY state") {
+					framework.Logf("Rechecking CSI pod status to verify it is in running state")
+					ignoreLabels := make(map[string]string)
+					list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					for i := 0; i < len(list_of_pods); i++ {
+						err = fpod.WaitTimeoutForPodRunningInNamespace(client, list_of_pods[i].Name, csiSystemNamespace, pollTimeout)
+						//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				} else {
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
 			framework.Logf("Leader of %s found on site", csiContainerName)
 			return true, nil
 		}
@@ -554,6 +583,7 @@ func invokeDockerPauseNKillOnContainerInParallel(sshClientConfig *ssh.ClientConf
 	csiContainerName string, k8sVersion string, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
+	defer ginkgo.GinkgoRecover()
 	err := execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIp, csiContainerName, k8sVersion)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
@@ -593,9 +623,8 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
 		vcAdminPwd, vcAddress)
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
-	result, err := sshExec(sshClientConfig, masterIp[0], cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return !strings.Contains(result.Stdout, "object references is empty")
+	_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	return strings.Contains(err.Error(), "object references is empty")
 }
 
 // createStsDeployment creates statfulset and deployment in a namespace and returns
@@ -716,8 +745,20 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 
 	err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volumeHandle := pvs[0].Spec.CSI.VolumeHandle
+	err = fpv.WaitForPersistentVolumeDeleted(client, pvs[0].Name, poll,
+		pollTimeout)
+	errMsg := "The object or item referred to could not be found"
+	if err != nil && checkForEventWithMessage(client, "", pvs[0].Name, errMsg) {
+		framework.Logf("Persistent Volume %v still not deleted with err %v", pvs[0].Name, errMsg)
+		// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
+		_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+		framework.Logf("Volume %v still not deleted from CNS with err %v", pvs[0].Name, errMsg)
+	} else {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
@@ -944,8 +985,6 @@ func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Cont
 		pv := getPersistentVolumeSpec(fcdIDs[i], v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 		pv, err := client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Creating the PVC from PV: %s", pv.Name)
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
@@ -967,17 +1006,28 @@ func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
-
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("couldn't get full sync crd in given time, ignoring this error: %v", err)
+	}
 	framework.Logf("INFO: full sync crd details: %v", crd)
-	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	if err != nil {
+		framework.Logf("couldn't update full sync crd in given time, ignoring this error: %v", err)
+	}
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd, err = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("couldn't get full sync crd in given time, ignoring this error: %v", err)
+	}
 	framework.Logf("INFO: full sync crd details: %v", crd)
-	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	if err != nil {
+		framework.Logf("couldn't update full sync crd in given time, ignoring this error: %v", err)
+	}
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
@@ -986,27 +1036,31 @@ func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
 
 // getTriggerFullSyncCrd fetches full sync crd from the list of crds in k8s cluster
 func getTriggerFullSyncCrd(ctx context.Context, client clientset.Interface,
-	cnsOperatorClient client.Client) *triggercsifullsyncv1alpha1.TriggerCsiFullSync {
+	cnsOperatorClient client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
 	fullSyncCrd := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	err := cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: crdtriggercsifullsyncsName}, fullSyncCrd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(fullSyncCrd).NotTo(gomega.BeNil(), "couldn't find full sync crd: %s", crdtriggercsifullsyncsName)
-	return fullSyncCrd
+	if err != nil {
+		return nil, err
+	}
+	return fullSyncCrd, nil
 }
 
 // updateTriggerFullSyncCrd triggers full sync by updating TriggerSyncID
 // value to  LastTriggerSyncID +1 in full sync crd
 func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Client,
-	crd triggercsifullsyncv1alpha1.TriggerCsiFullSync) {
+	crd triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
 	framework.Logf("instance is %v before update", crd)
 	lastSyncId := crd.Status.LastTriggerSyncID
 	triggerSyncID := lastSyncId + 1
 	crd.Spec.TriggerSyncID = triggerSyncID
 	err := cnsOperatorClient.Update(ctx, &crd)
-	framework.Logf("Error is %v", err)
+	if err != nil {
+		return err
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("instance is %v after update", crd)
+	return nil
 }
 
 // waitForFullSyncToFinish waits for a given full sync to finish by checking
@@ -1014,7 +1068,10 @@ func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Clie
 func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
 	cnsOperatorClient client.Client) error {
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		if err != nil {
+			return false, err
+		}
 		framework.Logf("crd is: %v", crd)
 		if !crd.Status.InProgress {
 			return true, nil
@@ -1025,4 +1082,26 @@ func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
 		return false, nil
 	})
 	return waitErr
+}
+
+// checkForEventWithMessage fetches events list of the given object name and checkes for
+// specified message and returns true if expected error message found
+func checkForEventWithMessage(client clientset.Interface, namespace string,
+	name string, expectedMsg string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventFound := false
+	framework.Logf("Checking for error in events related to " + name)
+	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+	for _, item := range eventList.Items {
+		framework.Logf("message: %v", item.Message)
+		if strings.Contains(item.Message, expectedMsg) {
+			framework.Logf("Expected event found. EventList Reason: "+
+				"%q"+" EventList item: %q", item.Reason, item.Message)
+			eventFound = true
+			break
+		}
+	}
+	return eventFound
 }

@@ -2272,12 +2272,12 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 }
 
 // checks if resource quota gets updated or not
-func checkResourceQuota(client clientset.Interface, namespace string, name string, size string) error {
+func checkResourceQuota(client clientset.Interface, namespace string, size string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, name, metav1.GetOptions{})
+		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("currentResourceQuota %v", currentResourceQuota)
 		if err != nil {
@@ -2308,7 +2308,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
+		err = checkResourceQuota(client, namespace, size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -3920,6 +3920,7 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	var err error
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	var k8sMasterIPs []string
 	for _, node := range nodes.Items {
 		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
@@ -5613,6 +5614,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
 				grepCmdForFindingCurrentLeader)
+			framework.Logf("result: %v, err: %v", result, err)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5926,8 +5928,7 @@ func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcN
 }
 
 /*
-	This util method fetches events list of the given object name and checkes for
-
+This util method fetches events list of the given object name and checkes for
 specified error reason and returns true if expected error Reason found
 */
 func waitForEventWithReason(client clientset.Interface, namespace string,
@@ -6046,17 +6047,21 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 func triggerFullSync(ctx context.Context, client clientset.Interface,
 	cnsOperatorClient client.Client) {
 	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	crd, err := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("INFO: full sync crd details: %v", crd)
-	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	crd, err = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("INFO: full sync crd details: %v", crd)
-	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
@@ -6064,7 +6069,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
 	cmdToGetContainerId := ""
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll*5, pollTimeout*4, func() (bool, error) {
 		if k8sVersion <= 1.23 {
 			cmdToGetContainerId = "docker ps | grep " + containerName + " | " +
 				"awk '{print $1}' |  tr -d '\n'"
