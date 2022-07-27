@@ -1007,7 +1007,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 })
 
-//fetchCnsVolID4VcpPvcs return the CNS volume id for the given VCP PVCs
+// fetchCnsVolID4VcpPvcs return the CNS volume id for the given VCP PVCs
 func fetchCnsVolID4VcpPvcs(ctx context.Context, c clientset.Interface, pvcs []*v1.PersistentVolumeClaim) []string {
 	volIds := []string{}
 	for _, pvc := range pvcs {
@@ -1019,7 +1019,7 @@ func fetchCnsVolID4VcpPvcs(ctx context.Context, c clientset.Interface, pvcs []*v
 	return volIds
 }
 
-//createMultiplePods creates multiple pods with given 2-dimensional array of pvcs and verifies volume mounts if needed
+// createMultiplePods creates multiple pods with given 2-dimensional array of pvcs and verifies volume mounts if needed
 func createMultiplePods(ctx context.Context, client clientset.Interface,
 	pvclaims2d [][]*v1.PersistentVolumeClaim, verifyAttachment bool,
 ) []*v1.Pod {
@@ -1076,13 +1076,13 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 	return pods
 }
 
-//getVolHandle4Pv fetches volume handle for given PVC
+// getVolHandle4Pv fetches volume handle for given PVC
 func getVolHandle4Pvc(ctx context.Context, client clientset.Interface, pvc *v1.PersistentVolumeClaim) string {
 	pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
 	return getVolHandle4Pv(ctx, client, pv)
 }
 
-//deletePodsAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
+// deletePodsAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
 func deletePodsAndWaitForVolsToDetach(
 	ctx context.Context, client clientset.Interface, pods []*v1.Pod, verifyDetachment bool,
 ) {

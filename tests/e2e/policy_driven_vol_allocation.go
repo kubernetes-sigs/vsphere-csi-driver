@@ -397,7 +397,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 })
 
-//fillVolumesInPods fills the volumes in pods upto given percentage
+// fillVolumesInPods fills the volumes in pods upto given percentage
 func fillVolumeInPods(f *framework.Framework, pods []*v1.Pod) {
 	for _, pod := range pods {
 		size, err := getFSSizeMb(f, pod)
@@ -406,19 +406,20 @@ func fillVolumeInPods(f *framework.Framework, pods []*v1.Pod) {
 	}
 }
 
-//writeRandomDataOnPod runs dd on the given pod and write count in Mib
+// writeRandomDataOnPod runs dd on the given pod and write count in Mib
 func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 	cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 		"/bin/sh", "-c", "dd if=/dev/urandom of=/mnt/volume1/f1 bs=1M count=" + strconv.FormatInt(count, 10)}
 	_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
 }
 
-//setVpxdTaskTimeout sets vpxd task timeout to given number of seconds
+// setVpxdTaskTimeout sets vpxd task timeout to given number of seconds
 // Following cases will be handled here
 //  1. Timeout is not set, and we want to set it
 //  2. Timeout is set we want to clear it
 //  3. different timeout is set, we want to change it
 //  4. timeout is not set/set to a number, and that is what we want
+//
 // default task timeout is 40 mins
 // if taskTimeout param is 0 we will remove the timeout entry in cfg file and default timeout will kick-in
 func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
