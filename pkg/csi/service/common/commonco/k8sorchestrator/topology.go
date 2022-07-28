@@ -862,13 +862,14 @@ func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
 // GetSharedDatastoresInTopology returns shared accessible datastores for the specified topologyRequirement.
 // Argument TopologyRequirement needs to be passed in following form:
 // topologyRequirement [requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
-//                      requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
+//
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
+//	requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
 func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
 	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)

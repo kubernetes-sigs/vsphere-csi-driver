@@ -125,10 +125,10 @@ func TestValidMigratedAndLegacyVolume(t *testing.T) {
 
 // This test verifies the correctness of GetSCNameFromPVC in following scenarios
 // where SC name is provided through:
-//    1. Only Spec.StorageClassName
-//    2. Only Metadata.Annotation
-//    3. Both Spec.StorageClassName and Metadata.Annotation
-//    4. Neither Spec.StorageClassName nor Metadata.Annotation
+//  1. Only Spec.StorageClassName
+//  2. Only Metadata.Annotation
+//  3. Both Spec.StorageClassName and Metadata.Annotation
+//  4. Neither Spec.StorageClassName nor Metadata.Annotation
 func TestGetSCNameFromPVC(t *testing.T) {
 	// Create context.
 	ctx, cancel = context.WithCancel(context.Background())

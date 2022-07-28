@@ -256,10 +256,10 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 }
 
 // getPod returns the pod spec for the pod satisfying the below conditions.
-// 1. Pod Scheduled on node with name "nodeName".
-// 2. Pod is in pending state in the same namespace as pvc specified using
-//    "pvcNamespace".
-// 3. Pod has a volume with name "pvcName" associated with it.
+//  1. Pod Scheduled on node with name "nodeName".
+//  2. Pod is in pending state in the same namespace as pvc specified using
+//     "pvcNamespace".
+//  3. Pod has a volume with name "pvcName" associated with it.
 func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName string, pvcNamespace string,
 	nodeName string) (*v1.Pod, error) {
 	log := logger.GetLogger(ctx)
@@ -320,7 +320,9 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 
 // Response of PlacePersistenceVolumeClaim RPC call include only success tag.
 // Case 1: pvc does not have a storage pool annotation and does not need a
-//         storage pool annotation.
+//
+//	storage pool annotation.
+//
 // Case 2: pvc already has a annotation.
 // Case 3: pvc needs a storage pool annotation and we cant find one.
 // Case 4: pvc needs an annotation and we can find one.
