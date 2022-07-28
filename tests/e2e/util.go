@@ -5766,6 +5766,7 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitVCenterServiceToBeInState(service, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	connect(ctx, &e2eVSphere)
 	err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*isSvcStopped = false
