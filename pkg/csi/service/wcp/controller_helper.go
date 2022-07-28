@@ -197,6 +197,36 @@ func validateWCPCreateSnapshotRequest(ctx context.Context, req *csi.CreateSnapsh
 	return nil
 }
 
+// validateWCPListSnapshotRequest validates ListSnapshotRequest on supervisor
+func validateWCPListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsRequest) error {
+	log := logger.GetLogger(ctx)
+	maxEntries := req.MaxEntries
+	if maxEntries < 0 {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"ListSnapshots MaxEntries: %d cannot be negative", maxEntries)
+	}
+	// validate the starting token by verifying that it can be converted to a int
+	if req.StartingToken != "" {
+		_, err := strconv.Atoi(req.StartingToken)
+		if err != nil {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots StartingToken: %s cannot be parsed", req.StartingToken)
+		}
+	}
+	// validate snapshot-id conforms to vSphere CSI driver format if specified.
+	// The expected format is "fcd-id+snapshot-id"
+	if req.SnapshotId != "" {
+		// check for the delimiter "+" in the snapshot-id.
+		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
+		if !check {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
+				req.SnapshotId)
+		}
+	}
+	return nil
+}
+
 // getK8sCloudOperatorClientConnection is a helper function that creates a
 // clientConnection to k8sCloudOperator GRPC service running on syncer container.
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
