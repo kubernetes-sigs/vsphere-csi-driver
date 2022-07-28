@@ -60,7 +60,7 @@ type FaultDomains struct {
 
 var fds FaultDomains
 
-//initialiseFdsVar initialise fds variable
+// initialiseFdsVar initialise fds variable
 func initialiseFdsVar(ctx context.Context) {
 	fdMap := createFaultDomainMap(ctx, &e2eVSphere)
 	hostsWithoutFD := []string{}
@@ -86,7 +86,7 @@ func siteFailureInParallel(primarySite bool, wg *sync.WaitGroup) {
 	siteFailover(primarySite)
 }
 
-//siteFailover causes a site failover by powering off hosts of the given site
+// siteFailover causes a site failover by powering off hosts of the given site
 func siteFailover(primarySite bool) {
 	hostsToPowerOff := fds.secondarySiteHosts
 	if primarySite {
@@ -96,7 +96,7 @@ func siteFailover(primarySite bool) {
 	powerOffHostParallel(hostsToPowerOff)
 }
 
-//powerOffHostParallel powers off given hosts
+// powerOffHostParallel powers off given hosts
 func powerOffHostParallel(hostsToPowerOff []string) {
 	hostlist := ""
 	for _, host := range hostsToPowerOff {
@@ -117,7 +117,7 @@ func powerOffHostParallel(hostsToPowerOff []string) {
 	}
 }
 
-//siteRestore restores a site by powering on hosts of the given site
+// siteRestore restores a site by powering on hosts of the given site
 func siteRestore(primarySite bool) {
 	hostsToPowerOn := fds.secondarySiteHosts
 	if primarySite {
@@ -127,7 +127,7 @@ func siteRestore(primarySite bool) {
 	powerOnHostParallel(hostsToPowerOn)
 }
 
-//powerOnHostParallel powers on given hosts
+// powerOnHostParallel powers on given hosts
 func powerOnHostParallel(hostsToPowerOn []string) {
 	hostlist := ""
 	for _, host := range hostsToPowerOn {
@@ -190,7 +190,7 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	return fdMap
 }
 
-//waitForHostToBeDown wait for host to be down
+// waitForHostToBeDown wait for host to be down
 func waitForHostToBeDown(ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
@@ -247,7 +247,7 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	return err
 }
 
-//wait4AllK8sNodesToBeUp wait for all k8s nodes to be reachable
+// wait4AllK8sNodesToBeUp wait for all k8s nodes to be reachable
 func wait4AllK8sNodesToBeUp(
 	ctx context.Context, client clientset.Interface, k8sNodes *v1.NodeList) {
 	var nodeIp string
@@ -533,7 +533,7 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 }
 
 // invokeDockerPauseNKillOnContainerInParallel invokes docker pause and kill command on
-//the particular CSI container on the master node in parallel
+// the particular CSI container on the master node in parallel
 func invokeDockerPauseNKillOnContainerInParallel(sshClientConfig *ssh.ClientConfig, k8sMasterIp string,
 	csiContainerName string, wg *sync.WaitGroup) {
 	defer wg.Done()

@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -107,7 +106,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
 		cfg.Global.Datacenters, cfg.Global.VCenterPort))
-	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
+	err = os.WriteFile("test_vsphere.conf", conf, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

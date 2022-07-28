@@ -111,20 +111,20 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
-//newVsanHealthSvcClient returns vSANhealth client.
+// newVsanHealthSvcClient returns vSANhealth client.
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &VsanClient{c, sc}, nil
 }
 
-//newPbmClient returns new pbm client
+// newPbmClient returns new pbm client
 func newPbmClient(ctx context.Context, c *govmomi.Client) *pbm.Client {
 	pbmClient, err := pbm.NewClient(ctx, c.Client)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return pbmClient
 }
 
-//newVapiRestClient returns vapi rest client
+// newVapiRestClient returns vapi rest client
 func newVapiRestClient(ctx context.Context, c *govmomi.Client) *vapic.Client {
 	vapiC := vapic.NewClient(c.Client)
 	usr := neturl.UserPassword(e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
@@ -133,7 +133,7 @@ func newVapiRestClient(ctx context.Context, c *govmomi.Client) *vapic.Client {
 	return vapiC
 }
 
-//newTagMgr returns tag manager
+// newTagMgr returns tag manager
 func newTagMgr(ctx context.Context, c *govmomi.Client) *tags.Manager {
 	return tags.NewManager(newVapiRestClient(ctx, c))
 }
