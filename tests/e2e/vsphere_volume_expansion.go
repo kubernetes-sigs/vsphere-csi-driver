@@ -1450,7 +1450,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var fsSize int64
 		var err error
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		_ = e2eVSphere.areAllVPsUp(ctx)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			f, client, "", storagePolicyName, namespace)

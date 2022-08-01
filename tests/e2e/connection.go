@@ -137,8 +137,3 @@ func newVapiRestClient(ctx context.Context, c *govmomi.Client) *vapic.Client {
 func newTagMgr(ctx context.Context, c *govmomi.Client) *tags.Manager {
 	return tags.NewManager(newVapiRestClient(ctx, c))
 }
-
-// newSmsClient creates a new client for sms service APIs.
-func newSmsClient(c *vim25.Client) *soap.Client {
-	return c.Client.NewServiceClient("/sms/sdk", "")
-}
