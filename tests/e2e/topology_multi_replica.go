@@ -1747,9 +1747,8 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				}
 			}()
 			framework.Logf("Starting CSI driver")
-			isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+			_, err = startCSIPods(ctx, c, csiReplicaCount)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isServiceStopped).To(gomega.BeTrue(), "csi driver start not successful")
 
 			// As we are in the same vCenter session, deletion of PVC should go through
 			ginkgo.By("Deleting PVC")
