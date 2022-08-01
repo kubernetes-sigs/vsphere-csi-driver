@@ -1722,11 +1722,25 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			vsphereCfg.Global.Password = newPassword
 			modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				ginkgo.By("Reverting the password change")
+				err = invokeVCenterChangePassword(username, newPassword, adminPassword, vcAddress)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Updating the secret to reflect the new password")
 			secret.Data[vSphereCSIConf] = []byte(modifiedConf)
 			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				ginkgo.By("Reverting the secret change back to reflect the original password")
+				currentSecret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
+				_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			// Collecting csi pod logs before restarting csi driver
 			collectPodLogs(ctx, client, csiSystemNamespace)
