@@ -1455,9 +1455,6 @@ func checkVcenterServicesRunning(
 		return false, nil
 	})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
-	connect(ctx, &e2eVSphere)
-	err := e2eVSphere.wait4allVPs2ComeUp(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // httpRequest takes client and http Request as input and performs GET operation
@@ -5765,9 +5762,6 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 	err := invokeVCenterServiceControl(startOperation, service, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitVCenterServiceToBeInState(service, vcAddress, svcRunningMessage)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	connect(ctx, &e2eVSphere)
-	err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*isSvcStopped = false
 }
