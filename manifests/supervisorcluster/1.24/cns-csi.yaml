@@ -139,9 +139,9 @@ kind: ClusterRoleBinding
 metadata:
   name: wcp:administrators:cluster-edit-csirole
 subjects:
-- kind: Group
-  name: sso:Administrators@<sso_domain>
-  apiGroup: rbac.authorization.k8s.io
+  - kind: Group
+    name: sso:Administrators@<sso_domain>
+    apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
   name: vsphere-admin-csi-role
@@ -153,9 +153,9 @@ metadata:
   namespace: vmware-system-csi
   name: vsphere-csi-secret-reader
 rules:
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -207,9 +207,6 @@ spec:
         node-role.kubernetes.io/control-plane: ''
       tolerations:
         - operator: "Exists"
-          key: "node-role.kubernetes.io/master"
-          effect: "NoSchedule"
-        - operator: "Exists"
           key: "node-role.kubernetes.io/control-plane"
           effect: "NoSchedule"
       hostNetwork: true
@@ -245,7 +242,7 @@ spec:
             - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAME # service name to be used by csi-provisioner to connect to placement engine
               value: vmware-system-psp-operator-k8s-cloud-operator-service
             - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAMESPACE # namespace for service name to be used by csi-provisioner to connect to placement engine
-              value: vmware-system-appplatform-operator-system                
+              value: vmware-system-appplatform-operator-system
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - name: socket-dir
@@ -299,12 +296,12 @@ spec:
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
           ports:
-           - containerPort: 2112
-             name: prometheus
-             protocol: TCP
-           - name: healthz
-             containerPort: 9808
-             protocol: TCP
+            - containerPort: 2112
+              name: prometheus
+              protocol: TCP
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
@@ -381,9 +378,9 @@ spec:
               value: "50"
           imagePullPolicy: "IfNotPresent"
           ports:
-           - containerPort: 2113
-             name: prometheus
-             protocol: TCP
+            - containerPort: 2113
+              name: prometheus
+              protocol: TCP
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -601,9 +598,6 @@ spec:
         node-role.kubernetes.io/control-plane: ""
       terminationGracePeriodSeconds: 10
       tolerations:
-        - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
