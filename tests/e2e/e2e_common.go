@@ -121,6 +121,7 @@ const (
 	pollTimeoutSixMin                         = 6 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
 	healthStatusPollInterval                  = 30 * time.Second
+	healthStatusWaitTimeOut                   = 3 * time.Minute
 	psodTime                                  = "120"
 	pvcHealthAnnotation                       = "volumehealth.storage.kubernetes.io/health"
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
@@ -189,6 +190,7 @@ const (
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+	volumeHealthAnnotation = "volumehealth.storage.kubernetes.io/health"
 )
 
 // The following variables are required to know cluster type to run common e2e
