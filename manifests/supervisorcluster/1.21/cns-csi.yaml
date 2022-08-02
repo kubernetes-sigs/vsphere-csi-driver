@@ -165,7 +165,12 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 1
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: vsphere-csi-controller
@@ -175,6 +180,16 @@ spec:
         app: vsphere-csi-controller
         role: vsphere-csi
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: "app"
+                operator: In
+                values:
+                  - vsphere-csi-controller
+           topologyKey: "kubernetes.io/hostname"
       serviceAccount: vsphere-csi-controller
       nodeSelector:
         node-role.kubernetes.io/master: ''
