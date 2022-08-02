@@ -148,3 +148,51 @@ func getDsMoRefFromURL(ctx context.Context, dsURL string) vim25types.ManagedObje
 	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
 	return ds.Reference()
 }
+
+//
+func changeVolumeAllocationOfPolicy(ctx context.Context, pbmClient *pbm.Client, profileId types.PbmProfileId, allocationType string, profileName string) {
+	var capabilityInstances []types.PbmCapabilityInstance
+	var propertyInstances []types.PbmCapabilityPropertyInstance
+
+	property := types.PbmCapabilityPropertyInstance{
+		Id:    "VolumeAllocationType",
+		Value: allocationType,
+	}
+	propertyInstances = append(propertyInstances, property)
+
+	capability := types.PbmCapabilityInstance{
+		Id: types.PbmCapabilityMetadataUniqueId{
+			Namespace: "com.vmware.storage.volumeallocation",
+			Id:        "VolumeAllocationType",
+		},
+		Constraint: []types.PbmCapabilityConstraintInstance{
+			types.PbmCapabilityConstraintInstance{
+				PropertyInstance: propertyInstances,
+			},
+		},
+		/*PropertyList: []pbm.Property{
+			{
+				ID:       "VolumeAllocationType",
+				Value:    allocationType,
+				DataType: "string",
+			},
+		},*/
+	}
+
+	capabilityInstances = append(capabilityInstances, capability)
+
+	updateSpec := types.PbmCapabilityProfileUpdateSpec{
+		Name:        profileName,
+		Description: "VMFS test policy",
+
+		Constraints: &types.PbmCapabilitySubProfileConstraints{
+			SubProfiles: []types.PbmCapabilitySubProfile{
+				types.PbmCapabilitySubProfile{
+					Capability: capabilityInstances,
+					Name:       profileName,
+				},
+			},
+		},
+	}
+	pbmClient.UpdateProfile(ctx, profileId, updateSpec)
+}
