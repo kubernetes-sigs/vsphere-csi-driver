@@ -337,6 +337,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -380,6 +382,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           ports:
            - containerPort: 2113
