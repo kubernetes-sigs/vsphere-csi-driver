@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 // checkAnnotationOnSvcPvc checks tkg HA specific annotations on SVC PVC
@@ -81,4 +83,29 @@ func isValuePresentInTheList(strArr []string, str string) bool {
 		}
 	}
 	return false
+}
+
+// verifyAnnotationsAndNodeAffinity verifies annotations on SVC PVC
+// and node affinities and pod location of volumes on correct zones
+func verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap map[string][]string,
+	categories []string, pod *v1.Pod, nodeList *v1.NodeList,
+	svcPVC *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, svcPVCName string) {
+	framework.Logf("Verify SV PVC has TKG HA annotations set")
+	err := checkAnnotationOnSvcPvc(svcPVC, allowedTopologyHAMap, categories)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SVC PVC: %s has TKG HA annotations set", svcPVC.Name)
+
+	framework.Logf("Verify GV PV has has required PV node affinity details")
+	_, err = verifyVolumeTopologyForLevel5(pv, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("GC PV: %s has required Pv node affinity details", pv.Name)
+
+	framework.Logf("Verify SV PV has has required PV node affinity details")
+	svcPV := getPvFromSupervisorCluster(svcPVCName)
+	_, err = verifyVolumeTopologyForLevel5(svcPV, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SVC PV: %s has required PV node affinity details", svcPV.Name)
+
+	_, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
