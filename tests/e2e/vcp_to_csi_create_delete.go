@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cns "github.com/vmware/govmomi/cns"
@@ -59,6 +60,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled              bool
 		isSPSserviceStopped        bool
 		isVsanHealthServiceStopped bool
+		migrationEnabledByDefault  bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -76,6 +78,17 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = false
+		v, err := client.Discovery().ServerVersion()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v1, err := version.NewVersion(v.GitVersion)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v2, err := version.NewVersion("v1.25.0")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if v1.GreaterThanOrEqual(v2) {
+			migrationEnabledByDefault = true
+		} else {
+			migrationEnabledByDefault = false
+		}
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -223,7 +236,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		for _, sc := range vcpScs {
@@ -236,7 +249,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created after migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created " +
 			"before and after migration")
@@ -288,24 +301,28 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpScs = append(vcpScs, vcpSc)
 
-		ginkgo.By("Creating VCP PVCs before migration")
-		for _, sc := range vcpScs {
-			pvc, err := createPVC(client, namespace, nil, "", sc, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			vcpPvcsPreMig = append(vcpPvcsPreMig, pvc)
-		}
+		if !migrationEnabledByDefault {
+			ginkgo.By("Creating VCP PVCs before migration")
+			for _, sc := range vcpScs {
+				pvc, err := createPVC(client, namespace, nil, "", sc, "")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				vcpPvcsPreMig = append(vcpPvcsPreMig, pvc)
+			}
 
-		ginkgo.By("Waiting for all claims created before migration to be in bound state")
-		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Waiting for all claims created before migration to be in bound state")
+			vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
-		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		if !migrationEnabledByDefault {
+			ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+			waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
+		}
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
@@ -505,7 +522,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
 		for _, pvc := range vcpPvcsPostMig {
@@ -568,7 +585,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -650,7 +667,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 // waitForMigAnnotationsPvcPvLists waits for the list PVs and PVCs to have migration related annotatations
 func waitForMigAnnotationsPvcPvLists(ctx context.Context, c clientset.Interface,
-	pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume, isMigratedVol bool) {
+	pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume, isMigratedVol bool, migrationEnabledByDefault bool) {
+
+	if migrationEnabledByDefault {
+		isMigratedVol = false
+	}
 	for i := 0; i < len(pvcs); i++ {
 		pvc := pvcs[i]
 		framework.Logf("Checking PVC %v", pvc.Name)
@@ -726,8 +747,6 @@ func pvcHasMigAnnotations(ctx context.Context, c clientset.Interface, pvcName st
 			return true, pvc
 		}
 	} else {
-		gomega.Expect(isMigratedToCsi).NotTo(gomega.BeTrue(),
-			migratedToAnnotation+" annotation was not expected on PVC "+pvcName)
 		if isStorageProvisionerMatching {
 			return true, pvc
 		}

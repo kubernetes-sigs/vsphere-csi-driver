@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -56,7 +57,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	labels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
@@ -3743,77 +3744,85 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 // kube-controller-manager.
 func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 	client clientset.Interface, add bool) error {
-	var err error
-	sshCmd := ""
-	if !vanillaCluster {
-		return fmt.Errorf(
-			"'toggleCSIMigrationFeatureGatesToKubeControllerManager' is implemented for vanilla cluster alone")
-	}
-	if add {
-		sshCmd =
-			"sed -i -e 's/CSIMigration=false,CSIMigrationvSphere=false/CSIMigration=true,CSIMigrationvSphere=true/g' " +
-				kcmManifest
-	} else {
-		sshCmd = "sed -i '/CSIMigration/d' " + kcmManifest
-	}
-	grepCmd := "grep CSIMigration " + kcmManifest
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	for _, k8sMasterIP := range k8sMasterIPs {
-		framework.Logf("Invoking command '%v' on host %v", grepCmd, k8sMasterIP)
-		sshClientConfig := &ssh.ClientConfig{
-			User: "root",
-			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		}
-		result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
 
-		if err != nil {
-			fssh.LogResult(result)
-			return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s",
-				grepCmd, k8sMasterIP, err)
+	v, err := client.Discovery().ServerVersion()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	v1, err := version.NewVersion(v.GitVersion)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	v2, err := version.NewVersion("v1.25.0")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if v1.LessThan(v2) {
+		sshCmd := ""
+		if !vanillaCluster {
+			return fmt.Errorf(
+				"'toggleCSIMigrationFeatureGatesToKubeControllerManager' is implemented for vanilla cluster alone")
 		}
-		if result.Code != 0 {
-			if add {
-				// nolint:misspell
-				sshCmd = "gawk -i inplace '/--bind-addres/ " +
-					"{ print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " +
+		if add {
+			sshCmd =
+				"sed -i -e 's/CSIMigration=false,CSIMigrationvSphere=false/CSIMigration=true,CSIMigrationvSphere=true/g' " +
 					kcmManifest
-			} else {
-				return nil
+		} else {
+			sshCmd = "sed -i '/CSIMigration/d' " + kcmManifest
+		}
+		grepCmd := "grep CSIMigration " + kcmManifest
+		k8sMasterIPs := getK8sMasterIPs(ctx, client)
+		for _, k8sMasterIP := range k8sMasterIPs {
+			framework.Logf("Invoking command '%v' on host %v", grepCmd, k8sMasterIP)
+			sshClientConfig := &ssh.ClientConfig{
+				User: "root",
+				Auth: []ssh.AuthMethod{
+					ssh.Password(k8sVmPasswd),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			}
+			result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+
+			if err != nil {
+				fssh.LogResult(result)
+				return fmt.Errorf("command failed/couldn't execute command: %s on host: %v , error: %s",
+					grepCmd, k8sMasterIP, err)
+			}
+			if result.Code != 0 {
+				if add {
+					// nolint:misspell
+					sshCmd = "gawk -i inplace '/--bind-addres/ " +
+						"{ print; print \"    - --feature-gates=CSIMigration=true,CSIMigrationvSphere=true\"; next }1' " +
+						kcmManifest
+				} else {
+					return nil
+				}
+			}
+			framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
+			result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
+			if err != nil || result.Code != 0 {
+				fssh.LogResult(result)
+				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
+			}
+			restartKubeletCmd := "systemctl restart kubelet"
+			framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIP)
+			result, err = sshExec(sshClientConfig, k8sMasterIP, restartKubeletCmd)
+			if err != nil && result.Code != 0 {
+				fssh.LogResult(result)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
+						k8sMasterIP))
 			}
 		}
-		framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
-		result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
-		if err != nil || result.Code != 0 {
-			fssh.LogResult(result)
-			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
-		}
-		restartKubeletCmd := "systemctl restart kubelet"
-		framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIP)
-		result, err = sshExec(sshClientConfig, k8sMasterIP, restartKubeletCmd)
-		if err != nil && result.Code != 0 {
-			fssh.LogResult(result)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", restartKubeletCmd,
-					k8sMasterIP))
-		}
-	}
-	// Sleeping for two seconds so that the change made to manifest file is
-	// recognised.
-	time.Sleep(2 * time.Second)
+		// Sleeping for two seconds so that the change made to manifest file is
+		// recognised.
+		time.Sleep(2 * time.Second)
 
-	framework.Logf(
-		"Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout*2)
-	label := labels.SelectorFromSet(labels.Set(map[string]string{"component": "kube-controller-manager"}))
-	_, err = fpod.WaitForPodsWithLabelRunningReady(
-		client, kubeSystemNamespace, label, len(k8sMasterIPs), pollTimeout*2)
-	if err == nil {
-		framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout*2)
-	} else {
 		framework.Logf(
-			"'kube-controller-manager' controller pod is not up and/or ready within %v seconds", pollTimeout*2)
+			"Waiting for 'kube-controller-manager' controller pod to come up within %v seconds", pollTimeout*2)
+		label := labels.SelectorFromSet(labels.Set(map[string]string{"component": "kube-controller-manager"}))
+		_, err = fpod.WaitForPodsWithLabelRunningReady(
+			client, kubeSystemNamespace, label, len(k8sMasterIPs), pollTimeout*2)
+		if err == nil {
+			framework.Logf("'kube-controller-manager' controller pod is up and ready within %v seconds", pollTimeout*2)
+		} else {
+			framework.Logf(
+				"'kube-controller-manager' controller pod is not up and/or ready within %v seconds", pollTimeout*2)
+		}
 	}
 	return err
 }
@@ -4142,46 +4151,55 @@ global-max-snapshots-per-block-volume = %d`
 // gates on kublets for worker nodes.
 func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client clientset.Interface, shouldEnable bool,
 	namespace string) {
-	var err error
-	var found bool
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+
+	v, err := client.Discovery().ServerVersion()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for _, node := range nodes.Items {
-		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
-			continue
-		}
-		found = isCSIMigrationFeatureGatesEnabledOnKubelet(ctx, client, node.Name)
-		if found == shouldEnable {
-			continue
-		}
-		dh := drain.Helper{
-			Ctx:                 ctx,
-			Client:              client,
-			Force:               true,
-			IgnoreAllDaemonSets: true,
-			Out:                 ginkgo.GinkgoWriter,
-			ErrOut:              ginkgo.GinkgoWriter,
-		}
-		ginkgo.By("Cordoning of node: " + node.Name)
-		err = drain.RunCordonOrUncordon(&dh, &node, true)
+	v1, err := version.NewVersion(v.GitVersion)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	v2, err := version.NewVersion("v1.25.0")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if v1.LessThan(v2) {
+		var err error
+		var found bool
+		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Draining of node: " + node.Name)
-		err = drain.RunNodeDrain(&dh, node.Name)
+		for _, node := range nodes.Items {
+			if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+				continue
+			}
+			found = isCSIMigrationFeatureGatesEnabledOnKubelet(ctx, client, node.Name)
+			if found == shouldEnable {
+				continue
+			}
+			dh := drain.Helper{
+				Ctx:                 ctx,
+				Client:              client,
+				Force:               true,
+				IgnoreAllDaemonSets: true,
+				Out:                 ginkgo.GinkgoWriter,
+				ErrOut:              ginkgo.GinkgoWriter,
+			}
+			ginkgo.By("Cordoning of node: " + node.Name)
+			err = drain.RunCordonOrUncordon(&dh, &node, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Draining of node: " + node.Name)
+			err = drain.RunNodeDrain(&dh, node.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Modifying feature gates in kubelet config yaml of node: " + node.Name)
+			nodeIP := getK8sNodeIP(&node)
+			toggleCSIMigrationFeatureGatesOnkublet(ctx, client, nodeIP, shouldEnable)
+			ginkgo.By("Wait for feature gates update on the k8s CSI node: " + node.Name)
+			err = waitForCSIMigrationFeatureGatesToggleOnkublet(ctx, client, node.Name, shouldEnable)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Uncordoning of node: " + node.Name)
+			err = drain.RunCordonOrUncordon(&dh, &node, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		pods, err := fpod.GetPodsInNamespace(client, namespace, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Modifying feature gates in kubelet config yaml of node: " + node.Name)
-		nodeIP := getK8sNodeIP(&node)
-		toggleCSIMigrationFeatureGatesOnkublet(ctx, client, nodeIP, shouldEnable)
-		ginkgo.By("Wait for feature gates update on the k8s CSI node: " + node.Name)
-		err = waitForCSIMigrationFeatureGatesToggleOnkublet(ctx, client, node.Name, shouldEnable)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Uncordoning of node: " + node.Name)
-		err = drain.RunCordonOrUncordon(&dh, &node, false)
+		err = fpod.WaitForPodsRunningReady(client, namespace, int32(len(pods)), 0, pollTimeout*2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-	pods, err := fpod.GetPodsInNamespace(client, namespace, nil)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = fpod.WaitForPodsRunningReady(client, namespace, int32(len(pods)), 0, pollTimeout*2, nil)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // isCSIMigrationFeatureGatesEnabledOnKubelet checks whether CSIMigration

@@ -132,11 +132,16 @@ func getVcpPersistentVolumeSpec(volumePath string, persistentVolumeReclaimPolicy
 }
 
 // getVcpPersistentVolumeClaimSpec function to get vsphere persistent volume spec with given selector labels.
-func getVcpPersistentVolumeClaimSpec(namespace string, size string, storageclass *storagev1.StorageClass,
-	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+func getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault bool, namespace string, size string,
+	storageclass *storagev1.StorageClass, pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+) *v1.PersistentVolumeClaim {
 	pvc := getPersistentVolumeClaimSpecWithStorageClass(namespace, size, storageclass, pvclaimlabels, accessMode)
 	annotations := make(map[string]string)
-	annotations[pvcAnnotationStorageProvisioner] = vcpProvisionerName
+	if migrationEnabledByDefault {
+		annotations[pvcAnnotationStorageProvisioner] = e2evSphereCSIDriverName
+	} else {
+		annotations[pvcAnnotationStorageProvisioner] = vcpProvisionerName
+	}
 	pvc.Annotations = annotations
 	return pvc
 }

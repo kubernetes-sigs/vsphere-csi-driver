@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
@@ -57,6 +58,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
+		migrationEnabledByDefault  bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -88,6 +90,17 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 			}
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
+		}
+		v, err := client.Discovery().ServerVersion()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v1, err := version.NewVersion(v.GitVersion)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v2, err := version.NewVersion("v1.25.0")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if v1.GreaterThanOrEqual(v2) {
+			migrationEnabledByDefault = true
+		} else {
+			migrationEnabledByDefault = false
 		}
 	})
 
@@ -420,7 +433,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vmdks = []string{}
 
 		ginkgo.By("Creating PVC1 with PV1 and VCP SC")
-		pvc1 := getVcpPersistentVolumeClaimSpec(namespace, "", vcpSc4StaticVol, nil, "")
+		pvc1 := getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault, namespace, "", vcpSc4StaticVol, nil, "")
 		pvc1.Spec.VolumeName = pv1.Name
 		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc1, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -451,9 +464,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvsPostMig[7] = updatePvLabel(ctx, client, namespace, vcpPvsPostMig[7], labels)
 
 		ginkgo.By("Verify annotations on PV/PVCs")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 		// Static provisioned volumes.
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -490,7 +503,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		crdsToVerifyDeletion = append(crdsToVerifyDeletion, crd)
 
 		ginkgo.By("Creating PVC2 with PV2 and VCP SC")
-		pvc2 := getVcpPersistentVolumeClaimSpec(namespace, "", vcpSc4StaticVol, nil, "")
+		pvc2 := getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault, namespace, "", vcpSc4StaticVol, nil, "")
 		pvc2.Spec.VolumeName = pv2.Name
 		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -645,7 +658,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		ginkgo.By("Creating PVC1 with PV1 and VCP SC")
-		pvc1 := getVcpPersistentVolumeClaimSpec(namespace, "", vcpSc, nil, "")
+		pvc1 := getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault, namespace, "", vcpSc, nil, "")
 		pvc1.Spec.VolumeName = pv1.Name
 		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc1, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -662,7 +675,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
