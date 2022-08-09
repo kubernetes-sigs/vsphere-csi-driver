@@ -18,6 +18,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 
@@ -193,6 +194,12 @@ func setupConnection(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 	if err != nil {
 		log.Errorf("failed to get usersession with err: %v", err)
 		return err
+	}
+	// Refer to this issue - https://github.com/vmware/govmomi/issues/2922
+	// Session Manager -> UserSession can return nil user session with nil error
+	// so handling the case for nil session.
+	if s == nil {
+		return errors.New("nil session obtained from session manager")
 	}
 	if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
 		log.Debugf("Update VSphereUser from %s to %s", spec.Metadata.ContainerCluster.VSphereUser, s.UserName)
