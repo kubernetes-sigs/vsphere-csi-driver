@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	neturl "net/url"
@@ -179,9 +180,17 @@ func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error)
 	}
 
 	s, err := client.SessionManager.UserSession(ctx)
-	if err == nil {
-		log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
+	if err != nil {
+		log.Errorf("failed to get UserSession. err: %v", err)
+		return nil, err
 	}
+	// Refer to this issue - https://github.com/vmware/govmomi/issues/2922
+	// When Session Manager -> UserSession can return nil user session with nil error
+	// so handling the case for nil session.
+	if s == nil {
+		return nil, errors.New("nil session obtained from session manager")
+	}
+	log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
 
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
