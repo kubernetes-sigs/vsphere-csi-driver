@@ -1473,11 +1473,83 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
-
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	start := time.Now()
+	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+	if !isBlockVolumeSnapshotEnabled {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
+	}
+	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
+		log.Infof("ListSnapshots: called with args %+v", *req)
+		maxEntries := common.QuerySnapshotLimit
+		if req.MaxEntries != 0 {
+			log.Warnf("Specifying MaxEntries in ListSnapshotRequest is not supported,"+
+				" will return %d entries", maxEntries)
+			// TODO: Support specifying max entries when result pagination is supported.
+			// maxEntries = int64(req.MaxEntries)
+		}
+		log.Infof("Setting the max entries to %d", maxEntries)
+		// Within the Guest:
+		// snapshotID: supervisor volumesnapshot name
+		// volumeID: supervisor PVC name
+		snapshotID := req.SnapshotId
+		volumeID := req.SourceVolumeId
+		var entries []*csi.ListSnapshotsResponse_Entry
+		if snapshotID != "" {
+			vs, err := c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).Get(
+				ctx, snapshotID, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to get volumesnapshot with name: %s on namespace: %s from "+
+					"Supervisor Cluster. Error: %+v", snapshotID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+			entry := constructListSnapshotEntry(*vs)
+			entries = append(entries, entry)
+		} else if volumeID != "" {
+			// Retrieve all the snapshots for the specific volume
+			vsList, err := c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).
+				List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve all the volumesnapshot objects from supervisor cluster %s", c.supervisorNamespace)
+			}
+			for _, vs := range vsList.Items {
+				supPVCName := *vs.Spec.Source.PersistentVolumeClaimName
+				if supPVCName == volumeID {
+					entry := constructListSnapshotEntry(vs)
+					entries = append(entries, entry)
+				}
+			}
+		} else {
+			vsList, err := c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).
+				List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve all the volumesnapshot objects from supervisor cluster %s", c.supervisorNamespace)
+			}
+			for _, vs := range vsList.Items {
+				entry := constructListSnapshotEntry(vs)
+				entries = append(entries, entry)
+			}
+		}
+		resp := &csi.ListSnapshotsResponse{
+			Entries: entries,
+		}
+		return resp, nil
+	}
+	resp, err := listSnapshotsInternal()
+	if err != nil {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
+			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListSnapshotsOpType,
+			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
+	}
+	return resp, err
 }
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
