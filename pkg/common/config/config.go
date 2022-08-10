@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -560,7 +559,7 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 	const (
 		namespaceFile = DefaultpvCSIProviderPath + "/namespace"
 	)
-	namespace, err := ioutil.ReadFile(namespaceFile)
+	namespace, err := os.ReadFile(namespaceFile)
 	if err != nil {
 		log.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
 		return "", err

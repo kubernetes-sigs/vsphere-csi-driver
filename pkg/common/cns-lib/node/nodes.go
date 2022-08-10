@@ -132,26 +132,28 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) (
 // Here in this function, argument topologyRequirement can be passed in
 // following form:
 // topologyRequirement [requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
-//                      requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > > ]
+//
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
+//	requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > > ]
 //
 // Return map datastoreTopologyMap looks like as below
 // map[ ds:///vmfs/volumes/5d119112-7b28fe05-f51d-02000b3a3f4b/:
-//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
-//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
-//      ds:///vmfs/volumes/e54abc3f-f6a5bb1f-0000-000000000000/:
-//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
-//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
-//      ds:///vmfs/volumes/vsan:524fae1aaca129a5-1ee55a87f26ae626/:
-//         [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
-//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west ]
-//          map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
-//                failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]] ]
+//
+//	   [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//	          failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
+//	ds:///vmfs/volumes/e54abc3f-f6a5bb1f-0000-000000000000/:
+//	   [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//	          failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]]
+//	ds:///vmfs/volumes/vsan:524fae1aaca129a5-1ee55a87f26ae626/:
+//	   [map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//	          failure-domain.beta.kubernetes.io/zone:k8s-zone-us-west ]
+//	    map [ failure-domain.beta.kubernetes.io/region:k8s-region-us
+//	          failure-domain.beta.kubernetes.io/zone:k8s-zone-us-east ]] ]
 func (nodes *Nodes) GetSharedDatastoresInTopology(
 	ctx context.Context, topologyRequirement *csi.TopologyRequirement,
 	tagManager *tags.Manager, zoneCategoryName string,

@@ -1405,7 +1405,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 })
 
-//waitForCnsVSphereVolumeMigrationCrd waits for CnsVSphereVolumeMigration crd to be created for the given volume path
+// waitForCnsVSphereVolumeMigrationCrd waits for CnsVSphereVolumeMigration crd to be created for the given volume path
 func waitForCnsVSphereVolumeMigrationCrd(
 	ctx context.Context, vpath string, customTimeout ...time.Duration,
 ) (*v1alpha1.CnsVSphereVolumeMigration, error) {
@@ -1424,7 +1424,7 @@ func waitForCnsVSphereVolumeMigrationCrd(
 	return crd, waitErr
 }
 
-//createDir create a directory on the test esx host
+// createDir create a directory on the test esx host
 func createDir(path string, host string) error {
 	sshCmd := fmt.Sprintf("mkdir -p %s", path)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
@@ -1436,7 +1436,7 @@ func createDir(path string, host string) error {
 	return nil
 }
 
-//createVmdk create a vmdk on the host with given size, object type and disk format
+// createVmdk create a vmdk on the host with given size, object type and disk format
 func createVmdk(host string, size string, objType string, diskFormat string) (string, error) {
 	dsName := GetAndExpectStringEnvVar(envSharedDatastoreName)
 	dir := "/vmfs/volumes/" + dsName + "/e2e"
@@ -1463,7 +1463,7 @@ func createVmdk(host string, size string, objType string, diskFormat string) (st
 	return vmdkPath, nil
 }
 
-//createVmdk deletes given vmdk
+// createVmdk deletes given vmdk
 func deleteVmdk(host string, vmdkPath string) error {
 	sshCmd := fmt.Sprintf("rm -f %s", vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
@@ -1475,7 +1475,7 @@ func deleteVmdk(host string, vmdkPath string) error {
 	return nil
 }
 
-//getCanonicalPath return canonical path for the vmdk path
+// getCanonicalPath return canonical path for the vmdk path
 func getCanonicalPath(vmdkPath string) string {
 	dsName := GetAndExpectStringEnvVar(envSharedDatastoreName)
 	parts := strings.Split(vmdkPath, "/")
@@ -1504,7 +1504,7 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx context.C
 	}
 }
 
-//getPodTryingToUsePvc returns the first pod trying to use the PVC from the list (use only for volumes with r*o access)
+// getPodTryingToUsePvc returns the first pod trying to use the PVC from the list (use only for volumes with r*o access)
 func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace string, pvcName string) *v1.Pod {
 	pods, err := c.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1523,7 +1523,7 @@ func getPodTryingToUsePvc(ctx context.Context, c clientset.Interface, namespace 
 	return nil
 }
 
-//createPodWithMultipleVolsVerifyVolMounts this method creates Pod and verifies VolumeMount
+// createPodWithMultipleVolsVerifyVolMounts this method creates Pod and verifies VolumeMount
 func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client clientset.Interface,
 	namespace string, pvclaims []*v1.PersistentVolumeClaim) *v1.Pod {
 	// Create a Pod to use this PVC, and verify volume has been attached
@@ -1564,7 +1564,7 @@ func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client client
 	return pod
 }
 
-//getVolHandle4VcpPvc return CNS volume handle for the given PVC
+// getVolHandle4VcpPvc return CNS volume handle for the given PVC
 func getVolHandle4VcpPvc(ctx context.Context, client clientset.Interface,
 	namespace string, pvc *v1.PersistentVolumeClaim) string {
 	vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
@@ -1573,7 +1573,7 @@ func getVolHandle4VcpPvc(ctx context.Context, client clientset.Interface,
 	return crd.Spec.VolumeID
 }
 
-//isVcpPV returns whether true for vcp volume and false for csi, fails for any other type
+// isVcpPV returns whether true for vcp volume and false for csi, fails for any other type
 func isVcpPV(ctx context.Context, c clientset.Interface, pv *v1.PersistentVolume) bool {
 	if pv.Spec.CSI != nil {
 		return false
@@ -1582,7 +1582,7 @@ func isVcpPV(ctx context.Context, c clientset.Interface, pv *v1.PersistentVolume
 	return true
 }
 
-//getVolHandle4Pv fetches volume handle for given PV
+// getVolHandle4Pv fetches volume handle for given PV
 func getVolHandle4Pv(ctx context.Context, c clientset.Interface, pv *v1.PersistentVolume) string {
 	isVcpVol := isVcpPV(ctx, c, pv)
 	if isVcpVol {
@@ -1593,7 +1593,7 @@ func getVolHandle4Pv(ctx context.Context, c clientset.Interface, pv *v1.Persiste
 	return pv.Spec.CSI.VolumeHandle
 }
 
-//deletePodAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
+// deletePodAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
 func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Interface, pod *v1.Pod) {
 	ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
 	volhandles := []string{}
@@ -1621,7 +1621,7 @@ func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Inter
 	}
 }
 
-//getPvcsPvsFromPod returns pvcs and pvs inturn used by the pod
+// getPvcsPvsFromPod returns pvcs and pvs inturn used by the pod
 func getPvcPvFromPod(ctx context.Context, c clientset.Interface,
 	namespace string, pod *v1.Pod) ([]*v1.PersistentVolume, []*v1.PersistentVolumeClaim) {
 	vols := pod.Spec.Volumes
@@ -1644,7 +1644,7 @@ func getPvcPvFromPod(ctx context.Context, c clientset.Interface,
 	return pvs, pvcs
 }
 
-//createPodWithInlineVols create a pod with the given volumes (vmdks) inline
+// createPodWithInlineVols create a pod with the given volumes (vmdks) inline
 func createPodWithInlineVols(ctx context.Context, client clientset.Interface,
 	namespace string, nodeSelector map[string]string, vmdks []string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, nil, false, "")

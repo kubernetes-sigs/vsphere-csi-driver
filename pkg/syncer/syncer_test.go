@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"testing"
@@ -124,7 +123,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconf
 		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
 		cfg.Global.Datacenters, cfg.Global.VCenterPort))
-	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
+	err = os.WriteFile("test_vsphere.conf", conf, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -618,14 +617,14 @@ func getPersistentVolumeClaimSpec(pvcName string, namespace string,
 }
 
 // This test verifies the fullsync workflow:
-//    1. PV does not exist in K8S, but exist in CNS cache, fullsync should
-//       delete this volume from CNS cache.
-//    2. PV and PVC exist in K8S, but does not exist in CNS cache, fullsync
-//       should create this volume in CNS cache.
-//    3. PV and PVC exist in K8S and CNS cache, update the label of PV and
-//       PVC in K8S, fullsync should update the label in CNS cache.
-//    4. Pod is created in K8S with PVC, fullsync should update the Pod in
-//       CNS cache.
+//  1. PV does not exist in K8S, but exist in CNS cache, fullsync should
+//     delete this volume from CNS cache.
+//  2. PV and PVC exist in K8S, but does not exist in CNS cache, fullsync
+//     should create this volume in CNS cache.
+//  3. PV and PVC exist in K8S and CNS cache, update the label of PV and
+//     PVC in K8S, fullsync should update the label in CNS cache.
+//  4. Pod is created in K8S with PVC, fullsync should update the Pod in
+//     CNS cache.
 func runTestFullSyncWorkflows(t *testing.T) {
 	t.Log("TestFullSyncWorkflows start")
 	// Create spec for new volume.

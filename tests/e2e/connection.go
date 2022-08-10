@@ -104,7 +104,7 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
-//newVsanHealthSvcClient returns vSANhealth client.
+// newVsanHealthSvcClient returns vSANhealth client.
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &VsanClient{c, sc}, nil
