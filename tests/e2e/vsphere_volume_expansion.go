@@ -2458,7 +2458,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 
 }
 
-//createStaticPVC this method creates static PVC
+// createStaticPVC this method creates static PVC
 func createStaticPVC(ctx context.Context, f *framework.Framework,
 	client clientset.Interface, namespace string, defaultDatastore *object.Datastore,
 	pandoraSyncWaitTime int) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
@@ -2574,7 +2574,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
 
 }
 
-//createPODandVerifyVolumeMount this method creates Pod and verifies VolumeMount
+// createPODandVerifyVolumeMount this method creates Pod and verifies VolumeMount
 func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
@@ -2609,7 +2609,7 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 	return pod, vmUUID
 }
 
-//increaseSizeOfPvcAttachedToPod this method increases the PVC size, which is attached to POD
+// increaseSizeOfPvcAttachedToPod this method increases the PVC size, which is attached to POD
 func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 	var originalSizeInMb int64
@@ -3702,7 +3702,7 @@ func expectEqual(actual interface{}, extra interface{}, explain ...interface{}) 
 	gomega.ExpectWithOffset(1, actual).To(gomega.Equal(extra), explain...)
 }
 
-//sizeInMb this method converts Bytes to MB
+// sizeInMb this method converts Bytes to MB
 func sizeInMb(size resource.Quantity) int64 {
 	actualSize, _ := size.AsInt64()
 	actualSize = actualSize / (1024 * 1024)

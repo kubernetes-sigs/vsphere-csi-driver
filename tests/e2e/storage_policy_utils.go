@@ -33,7 +33,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-//createVmfsStoragePolicy create a vmfs policy with given allocation type and category/tag map
+// createVmfsStoragePolicy create a vmfs policy with given allocation type and category/tag map
 func createVmfsStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocationType string,
 	categoryTagMap map[string]string) (*types.PbmProfileId, string) {
 	s1 := rand.NewSource(time.Now().UnixNano())
@@ -82,13 +82,13 @@ func createVmfsStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocat
 	return profileID, profileName
 }
 
-//deleteStoragePolicy deletes the given storage policy
+// deleteStoragePolicy deletes the given storage policy
 func deleteStoragePolicy(ctx context.Context, pbmClient *pbm.Client, profileID *types.PbmProfileId) {
 	_, err := pbmClient.DeleteProfile(ctx, []types.PbmProfileId{*profileID})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-//createCategoryNTag create one category and one tag associated with it
+// createCategoryNTag create one category and one tag associated with it
 func createCategoryNTag(ctx context.Context, catName string, tagName string) (string, string) {
 	tagSpec := tags.Category{Name: catName, Cardinality: "MULTIPLE"}
 	mgr := newTagMgr(ctx, e2eVSphere.Client)
@@ -99,7 +99,7 @@ func createCategoryNTag(ctx context.Context, catName string, tagName string) (st
 	return catID, tagID
 }
 
-//deleteCategoryNTag deletes given category and tag
+// deleteCategoryNTag deletes given category and tag
 func deleteCategoryNTag(ctx context.Context, catID string, tagID string) {
 	mgr := newTagMgr(ctx, e2eVSphere.Client)
 
@@ -114,7 +114,7 @@ func deleteCategoryNTag(ctx context.Context, catID string, tagID string) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-//attachTagToDS attach given cat/tag to given datastore(URL)
+// attachTagToDS attach given cat/tag to given datastore(URL)
 func attachTagToDS(ctx context.Context, tagID string, dsURL string) {
 	mgr := newTagMgr(ctx, e2eVSphere.Client)
 	dsMoRef := getDsMoRefFromURL(ctx, dsURL)
@@ -122,7 +122,7 @@ func attachTagToDS(ctx context.Context, tagID string, dsURL string) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-//detachTagFromDS detach given cat/tag from the given datastore(URL)
+// detachTagFromDS detach given cat/tag from the given datastore(URL)
 func detachTagFromDS(ctx context.Context, tagID string, dsURL string) {
 	mgr := newTagMgr(ctx, e2eVSphere.Client)
 	dsMoRef := getDsMoRefFromURL(ctx, dsURL)
@@ -130,7 +130,7 @@ func detachTagFromDS(ctx context.Context, tagID string, dsURL string) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-//getDsMoRefFromURL get datastore MoRef from its URL
+// getDsMoRefFromURL get datastore MoRef from its URL
 func getDsMoRefFromURL(ctx context.Context, dsURL string) vim25types.ManagedObjectReference {
 	dcList, err := e2eVSphere.getAllDatacenters(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
