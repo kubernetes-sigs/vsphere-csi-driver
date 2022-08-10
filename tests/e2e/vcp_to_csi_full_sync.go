@@ -702,7 +702,7 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvsWithoutPvc(ctx 
 	}
 }
 
-//updatePvcLabel updates the labels on the given PVC
+// updatePvcLabel updates the labels on the given PVC
 func updatePvcLabel(ctx context.Context, client clientset.Interface, namespace string,
 	pvc *v1.PersistentVolumeClaim, labels map[string]string) *v1.PersistentVolumeClaim {
 	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
@@ -713,7 +713,7 @@ func updatePvcLabel(ctx context.Context, client clientset.Interface, namespace s
 	return pvc
 }
 
-//updatePvLabel updates the labels on the given PV
+// updatePvLabel updates the labels on the given PV
 func updatePvLabel(ctx context.Context, client clientset.Interface, namespace string,
 	pv *v1.PersistentVolume, labels map[string]string) *v1.PersistentVolume {
 	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
