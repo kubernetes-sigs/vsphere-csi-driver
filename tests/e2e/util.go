@@ -23,7 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -1460,7 +1460,7 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("API Response status %d", resp.StatusCode)
 
@@ -1468,7 +1468,7 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 
 }
 
-//getVMImages returns the available gc images present in svc
+// getVMImages returns the available gc images present in svc
 func getVMImages(wcpHost string, wcpToken string) VMImages {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1491,7 +1491,7 @@ func getVMImages(wcpHost string, wcpToken string) VMImages {
 	return vmImage
 }
 
-//deleteTKG method deletes the TKG Cluster
+// deleteTKG method deletes the TKG Cluster
 func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
 	ginkgo.By("Delete TKG")
 	transCfg := &http.Transport{
@@ -1526,8 +1526,8 @@ func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
 
 }
 
-//waitForDeleteToComplete method polls for the requested object status
-//returns true if its deleted successfully else returns error
+// waitForDeleteToComplete method polls for the requested object status
+// returns true if its deleted successfully else returns error
 func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
@@ -1542,7 +1542,7 @@ func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
 	return waitErr
 }
 
-//upgradeTKG method updates the TKG Cluster with the tkgImage
+// upgradeTKG method updates the TKG Cluster with the tkgImage
 func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage string) {
 	ginkgo.By("Upgrade TKG")
 	transCfg := &http.Transport{
@@ -1581,7 +1581,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
 
-	bodyBytes, err = ioutil.ReadAll(resp.Body)
+	bodyBytes, err = io.ReadAll(resp.Body)
 	framework.Logf("API Response status %v", resp.StatusCode)
 	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1591,7 +1591,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 
 }
 
-//createGC method creates GC and takes WCP host and bearer token as input param
+// createGC method creates GC and takes WCP host and bearer token as input param
 func createGC(wcpHost string, wcpToken string) {
 
 	transCfg := &http.Transport{
@@ -1604,7 +1604,7 @@ func createGC(wcpHost string, wcpToken string) {
 	tkg_yaml, err := filepath.Abs(gcManifestPath + "tkg.yaml")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Taking yaml from %v", tkg_yaml)
-	gcBytes, err := ioutil.ReadFile(tkg_yaml)
+	gcBytes, err := os.ReadFile(tkg_yaml)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	req, err := http.NewRequest("POST", createGCURL, bytes.NewBuffer(gcBytes))
@@ -1647,7 +1647,7 @@ func getAuthToken(refreshToken string) string {
 
 }
 
-//rotateVCCertinVMC recreates the cert for VC in VMC environment
+// rotateVCCertinVMC recreates the cert for VC in VMC environment
 func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1672,7 +1672,7 @@ func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	return certRotate.ID
 }
 
-//getTaskStatus polls status for given task id and returns true once task is completed
+// getTaskStatus polls status for given task id and returns true once task is completed
 func getTaskStatus(authToken string, orgID string, taskID string) error {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1705,7 +1705,7 @@ func getTaskStatus(authToken string, orgID string, taskID string) error {
 	return waitErr
 }
 
-//scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
+// scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
 func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworker int) {
 
 	transCfg := &http.Transport{
@@ -1744,7 +1744,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 
 }
 
-//getGC polls for the GC status, returns error if its not in running phase
+// getGC polls for the GC status, returns error if its not in running phase
 func getGC(wcpHost string, wcpToken string, gcName string) error {
 	var response string
 	transCfg := &http.Transport{
@@ -1775,7 +1775,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 	return waitErr
 }
 
-//getWCPSessionId returns the bearer token for given user
+// getWCPSessionId returns the bearer token for given user
 func getWCPSessionId(hostname string, username string, password string) string {
 	type WcpSessionID struct {
 		Session_id string
@@ -2782,17 +2782,19 @@ func trimQuotes(str string) string {
 }
 
 // readConfigFromSecretString takes input string of the form:
-//    [Global]
-//    insecure-flag = "true"
-//    cluster-id = "domain-c1047"
-//    cluster-distribution = "CSI-Vanilla"
-//    [VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
-//    user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
-//    password = "qd?\\/\"K=O_<ZQw~s4g(S"
-//    datacenters = "datacenter-1033"
-//    port = "443"
-//    [Snapshot]
-//    global-max-snapshots-per-block-volume = 3
+//
+//	[Global]
+//	insecure-flag = "true"
+//	cluster-id = "domain-c1047"
+//	cluster-distribution = "CSI-Vanilla"
+//	[VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
+//	user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
+//	password = "qd?\\/\"K=O_<ZQw~s4g(S"
+//	datacenters = "datacenter-1033"
+//	port = "443"
+//	[Snapshot]
+//	global-max-snapshots-per-block-volume = 3
+//
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
@@ -4391,7 +4393,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	}
 }
 
-//isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
+// isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
 func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace string, fss string) bool {
 	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5400,8 +5402,11 @@ func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPa
 	return nil
 }
 
-/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
-cmd is not execute in any subsequent Pods. */
+/*
+	ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+
+cmd is not execute in any subsequent Pods.
+*/
 func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
 	podList := GetListOfPodsInSts(c, ss)
 	StatefulSetPoll := 10 * time.Second
@@ -5596,8 +5601,11 @@ func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcN
 	return waitErr
 }
 
-/* This util method fetches events list of the given object name and checkes for
-specified error reason and returns true if expected error Reason found */
+/*
+	This util method fetches events list of the given object name and checkes for
+
+specified error reason and returns true if expected error Reason found
+*/
 func waitForEventWithReason(client clientset.Interface, namespace string,
 	name string, expectedErrMsg string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
